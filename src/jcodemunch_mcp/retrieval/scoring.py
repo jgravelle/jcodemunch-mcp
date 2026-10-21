@@ -19,6 +19,7 @@ nothing warns. Patch `retrieval.scoring` instead.
 
 from __future__ import annotations
 
+import functools
 import math
 import re
 
@@ -180,37 +181,69 @@ QUERY_STOPWORDS = frozenset({
 # `v2`) is an identifier, and every part of an identifier is content.
 _PLAIN_WORD_RE = re.compile(r"[A-Za-z][a-z]*[?.,!;:]*")
 
+# How much a function word counts in a multi-word query's lexical score,
+# relative to its corpus IDF. Not 0: "is valid" and "value of" are names
+# typed as words, and the exact names `is_valid` and `value_of` stay ahead of
+# their neighbours only through the "is" and "of" they contain. Small: in
+# "How does dependency injection work?" a test named `..._does_not_...` must
+# not outrank the code on "does".
+FUNCTION_WORD_WEIGHT = 0.25
+
 
 def query_terms(query: str) -> list[str]:
-    """Tokens a lexical scorer should match for ``query``.
+    """Tokens a lexical scorer matches for ``query``: every token, in order.
 
-    Function words ("how", "does", "the", ...) are dropped only from a
-    multi-word query, and only where they stand as plain words. A one-word
-    query is taken as a name, and a part of an identifier is never dropped:
-    the "at" in ``ndcg_at_k`` and the "is" in ``is_valid`` are content.
-    Falls back to the full token list when filtering would leave nothing, and
-    to the lowered query when there are no tokens at all (the old
+    Falls back to the lowered query when there are no tokens at all (the old
     ``_tokenize(q) or [q.lower()]`` contract). Empty strings are never
-    returned: "" matches every filename.
+    returned: "" matches every filename. How much each token COUNTS is
+    `query_idf`'s job; nothing is removed here.
     """
     toks = [t for t in _tokenize(query) if t]
-    words = (query or "").split()
-    if len(words) > 1:
-        kept: list[str] = []
-        seen: set[str] = set()
-        for w in words:
-            plain = _PLAIN_WORD_RE.fullmatch(w) is not None
-            for t in _tokenize(w):
-                if not t or t in seen or (plain and t in QUERY_STOPWORDS):
-                    continue
-                seen.add(t)
-                kept.append(t)
-        if kept:
-            return kept
     if toks:
         return toks
     low = (query or "").lower()
     return [low] if low else []
+
+
+def function_word_terms(query: str) -> frozenset:
+    """The tokens of ``query`` that count as function words ("how", "does", ...).
+
+    Only in a multi-word query, only where they stand as plain words, and never
+    a token that is also part of an identifier in the same query. A one-word
+    query is a name: the "at" in ``ndcg_at_k`` and the "is" in ``is_valid`` are
+    content. A query made only of function words keeps them all at full weight.
+    """
+    words = (query or "").split()
+    if len(words) < 2:
+        return frozenset()
+    fw: set[str] = set()
+    content: set[str] = set()
+    for w in words:
+        plain = _PLAIN_WORD_RE.fullmatch(w) is not None
+        for tok in _tokenize(w):
+            if plain and tok in QUERY_STOPWORDS:
+                fw.add(tok)
+            else:
+                content.add(tok)
+    fw -= content
+    if not content:
+        return frozenset()
+    return frozenset(fw)
+
+
+def query_idf(idf: dict, query: str) -> dict:
+    """The IDF map one query is scored with: the corpus IDF of each query token,
+    with function words (`function_word_terms`) at `FUNCTION_WORD_WEIGHT`.
+
+    Every lexical scorer reads IDF only for the query's own tokens, so this
+    small map stands in for the corpus map and the shared cache is never edited.
+    """
+    fw = function_word_terms(query)
+    out: dict = {}
+    for t in query_terms(query):
+        v = idf.get(t, 0.0)
+        out[t] = v * FUNCTION_WORD_WEIGHT if t in fw else v
+    return out
 
 
 # Words that make a query ABOUT tests; with one present, test code is what
@@ -223,9 +256,11 @@ _TEST_INTENT = frozenset({
 # Multiplier on a test-file symbol's lexical score for a query that is not
 # about tests. Test suites outnumber the code they exercise and repeat its
 # vocabulary in their names, so without this a conceptual question returns
-# tests first. Measured on the pinned fastapi case
-# (tests/test_conceptual_query_ranking.py); a test still ranks when nothing
-# in the source matches.
+# tests first. 0.25 is a chosen value, checked (not tuned) on the pinned
+# fastapi questions, where it cleared tests from the top 10; no other value was
+# compared. The miniature of that case is tests/test_conceptual_query_ranking.py.
+# A test still ranks when nothing in the source matches, and only RANKING reads
+# the reduced score (see `_bm25_score`).
 TEST_SYMBOL_WEIGHT = 0.25
 
 
@@ -248,6 +283,19 @@ def test_file_factor(sym: dict, terms: list[str]) -> float:
         flag = bool(_shared_test_rule(sym.get("file") or ""))
         sym["_is_test"] = flag
     return TEST_SYMBOL_WEIGHT if flag else 1.0
+
+
+@functools.lru_cache(maxsize=256)
+def identity_query(query: str) -> str:
+    """The query as the identity (exact-name) channel reads it: EVERY token.
+
+    `query_terms` drops function words for the lexical score, but a name typed
+    as words ("is valid", "value of") must still meet `is_valid` and
+    `value_of` in full, so identity never sees the filtered list. Same value
+    the scorers used before `query_terms` existed. Cached: it runs once per
+    scored symbol.
+    """
+    return " ".join(_tokenize(query) or [(query or "").lower()])
 
 
 def _sym_tokens(sym: dict) -> list[str]:

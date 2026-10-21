@@ -8,7 +8,9 @@ from typing import Optional
 from ..storage import IndexStore, record_savings, estimate_savings, cost_avoided as _cost_avoided
 from ._utils import distinct_file_bytes, index_status_to_tool_error, ledger_base_path as _ledger_base_path, resolve_repo
 from .get_context_bundle import _count_tokens
+from ..retrieval.scoring import query_idf as _query_idf
 from ..retrieval.scoring import query_terms as _query_terms
+from ..retrieval.scoring import test_file_factor
 from .search_symbols import (
     _bm25_score,
     _NEGATIVE_EVIDENCE_THRESHOLD,
@@ -301,6 +303,8 @@ def get_ranked_context(
     # full-corpus BM25 state (#370), nor observe a half-published one (#490).
     cache = ensure_bm25_cache(index)
     idf = cache["idf"]
+    # Function words count at FUNCTION_WORD_WEIGHT for this query; the cache is untouched.
+    idf = _query_idf(idf, query)
     avgdl = cache["avgdl"]
     inverted = cache["inverted"]
 
@@ -364,12 +368,14 @@ def get_ranked_context(
         if scope and not fnmatch(sym.get("file", ""), scope):
             continue
 
-        bm25 = _bm25_score(sym, query_terms, idf, avgdl, raw_query=query)
-        if bm25 <= 0 and strategy != "centrality":
+        raw_bm25 = _bm25_score(sym, query_terms, idf, avgdl, raw_query=query)
+        if raw_bm25 <= 0 and strategy != "centrality":
             continue
         pr_raw = pagerank.get(sym.get("file", ""), 0.0)
-        if bm25 > max_bm25:
-            max_bm25 = bm25
+        # The verdict below reads raw relevance; the ranking reads the test-weighted one.
+        if raw_bm25 > max_bm25:
+            max_bm25 = raw_bm25
+        bm25 = raw_bm25 * test_file_factor(sym, query_terms)
         raw_scores.append((bm25, pr_raw, sym))
 
     # Source-shaped exact seeding: identifiers the caller pasted verbatim

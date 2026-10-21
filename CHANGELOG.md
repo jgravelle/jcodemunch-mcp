@@ -12,16 +12,21 @@ question returned 10 test functions in `search_symbols`' top 10 and 9 in
 `get_ranked_context`'s. Two rules now apply to every lexical scorer, from
 `retrieval/scoring.py`:
 
-- Function words ("how", "does", "the", ...) are dropped from a multi-word
-  query where they stand as plain words. A one-word query is taken as a name,
-  and a part of an identifier is never dropped: the "at" in `ndcg_at_k` and
-  the "is" in `is_valid` stay.
-- A symbol in a test file (the shared test-file rule) is down-weighted by
-  `TEST_SYMBOL_WEIGHT` (0.25) when the query is not about tests. A query that
-  mentions tests, fixtures or mocks is not affected.
+- Function words ("how", "does", "the", ...) count at a quarter of their
+  weight (`FUNCTION_WORD_WEIGHT`) in a multi-word query where they stand as
+  plain words. They are not removed: "is valid" and "value of" still rank
+  `is_valid` and `value_of` first, which they reach only through the "is" and
+  "of" they contain. A one-word query is taken as a name, and a part of an
+  identifier is never down-weighted: the "at" in `ndcg_at_k` counts in full.
+- A symbol in a test file (the shared test-file rule) ranks with its score
+  multiplied by `TEST_SYMBOL_WEIGHT` (0.25) when the query is not about tests.
+  A query that mentions tests, fixtures or mocks is not affected. Only the
+  ranking uses the reduced score: the low-confidence warning, the confidence
+  value and `plan_turn`'s grade read the unreduced one, so a match that exists
+  only in tests is not reported as possibly absent.
 
 On seven fastapi questions about dependency injection, tests in the top 10
-fell to 0 on every one, in both tools. `Depends` moved from 19 to 3, 15 to 2,
+fell to 0 on every one, in both tools. `Depends` moved from 19 to 3, 15 to 3,
 55 to 20 and 48 to 9. One question regressed: "where are Depends dependencies
 resolved for a request" moved `Depends` from 3 to 8 (while
 `solve_dependencies` rose from 59 to 31). The goal of returning all four core

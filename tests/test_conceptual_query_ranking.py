@@ -6,8 +6,10 @@ functions that implement dependency resolution, and the top 10 was mostly
 tests. Two rules, both in ``retrieval/scoring.py`` so every lexical scorer
 inherits them:
 
-- ``query_terms`` drops function words ("how", "does", "the", ...) from the
-  QUERY, unless that would leave nothing;
+- ``query_idf`` counts function words ("how", "does", "the", ...) at
+  ``FUNCTION_WORD_WEIGHT`` in a multi-word query, never in a name, so they
+  can no longer carry a match on their own but still separate ``is_valid``
+  from ``valid_values`` when the query is "is valid";
 - ``test_file_factor`` demotes a symbol in a test file (``_test_paths``'s one
   rule) when the query is not about tests.
 
@@ -27,36 +29,47 @@ from jcodemunch_mcp.tools.index_folder import index_folder
 from jcodemunch_mcp.tools.search_symbols import search_symbols
 
 
-# --- query_terms ---------------------------------------------------------
+# --- query_terms / function_word_terms / query_idf ---------------------------
 
 
-def test_function_words_are_dropped_from_a_question():
+def test_query_terms_keep_every_token():
     terms = scoring.query_terms("How does dependency injection work?")
-    assert "how" not in terms and "does" not in terms
-    assert "dependency" in terms and "injection" in terms
+    assert "how" in terms and "does" in terms and "dependency" in terms
 
 
-def test_a_query_of_only_function_words_keeps_them():
-    """An identifier such as ``is`` or ``do`` must still resolve."""
-    assert scoring.query_terms("is") == ["is"]
-    assert scoring.query_terms("do it") == scoring._tokenize("do it")
+def test_function_words_of_a_question_are_named():
+    assert scoring.function_word_terms("How does dependency injection work?") == {"how", "does"}
 
 
 @pytest.mark.parametrize("name", ["is_valid", "ndcg_at_k", "getTheUser", "os.path", "do"])
-def test_an_identifier_keeps_every_part(name):
+def test_a_one_word_query_has_no_function_words(name):
     """A one-word query is a name; the "at" in ndcg_at_k is content, not filler."""
+    assert scoring.function_word_terms(name) == frozenset()
     assert scoring.query_terms(name) == scoring._tokenize(name)
 
 
-def test_identifier_parts_survive_inside_a_question():
-    terms = scoring.query_terms("how does ndcg_at_k work")
-    assert "how" not in terms and "does" not in terms
-    assert "at" in terms and "ndcg" in terms
+def test_identifier_parts_are_not_function_words_inside_a_question():
+    assert scoring.function_word_terms("how does ndcg_at_k work") == {"how", "does"}
 
 
 def test_a_camel_case_word_is_not_a_plain_word():
-    terms = scoring.query_terms("where is getTheUser called")
-    assert "the" in terms and "is" not in terms and "where" not in terms
+    fw = scoring.function_word_terms("where is getTheUser called")
+    assert "the" not in fw and {"is", "where"} <= fw
+
+
+def test_a_query_of_only_function_words_keeps_full_weight():
+    """An identifier such as ``is`` or ``do`` must still resolve."""
+    assert scoring.function_word_terms("do it") == frozenset()
+
+
+def test_query_idf_weights_function_words_and_nothing_else():
+    idf = {"how": 2.0, "does": 3.0, "dependency": 5.0, "injection": 7.0}
+    q = scoring.query_idf(idf, "How does dependency injection work?")
+    assert q["how"] == 2.0 * scoring.FUNCTION_WORD_WEIGHT
+    assert q["does"] == 3.0 * scoring.FUNCTION_WORD_WEIGHT
+    assert q["dependency"] == 5.0 and q["injection"] == 7.0
+    assert 0 < scoring.FUNCTION_WORD_WEIGHT < 1
+    assert idf["how"] == 2.0  # the shared corpus map is not edited
 
 
 def test_the_empty_query_contract_holds():
@@ -150,6 +163,65 @@ def test_get_ranked_context_leads_with_the_implementation(repo):
     items = get_ranked_context(repo=rid, query="How does dependency injection work?",
                                token_budget=2000, storage_path=store)["context_items"]
     assert items and items[0]["name"] in WANT, _names(items)
+
+
+@pytest.fixture
+def names_repo(tmp_path):
+    """Identifiers whose parts are function words, beside their neighbours."""
+    root = tmp_path / "names"
+    (root / "app").mkdir(parents=True)
+    (root / "app" / "core.py").write_text(
+        "def is_valid(x):\n    return x\n\ndef validate(x):\n    return x\n\n"
+        "def valid_values():\n    return 1\n\ndef value_of(x):\n    return x\n\n"
+        "def value(x):\n    return x\n"
+        + "".join(f"def filler_{i}():\n    '''alpha {i}'''\n    return {i}\n" for i in range(20)),
+        encoding="utf-8",
+    )
+    store = tmp_path / "store_names"
+    out = index_folder(str(root), use_ai_summaries=False, storage_path=str(store), identity_mode="local")
+    assert out.get("success"), out
+    return out["repo"], str(store)
+
+
+@pytest.mark.parametrize("q,want", [("is valid", "is_valid"), ("value of", "value_of")])
+def test_a_name_typed_as_words_still_finds_the_exact_name_first(names_repo, q, want):
+    """The identity channel reads every word; only the lexical score drops function words."""
+    rid, store = names_repo
+    rows = search_symbols(repo=rid, query=q, max_results=4, storage_path=store)["results"]
+    assert rows and rows[0]["name"] == want, _names(rows)
+
+
+@pytest.fixture
+def test_only_repo(tmp_path):
+    """A feature that exists only in tests: 30 test functions mention it, no source does."""
+    root = tmp_path / "web"
+    (root / "app").mkdir(parents=True)
+    (root / "tests").mkdir()
+    (root / "app" / "core.py").write_text(
+        "".join(f"def filler_{i}():\n    '''unrelated words alpha beta {i}'''\n    return {i}\n" for i in range(40)),
+        encoding="utf-8",
+    )
+    (root / "tests" / "test_web.py").write_text(
+        "".join(f"def check_case_{i}(resp):\n    '''Check the cookie on case {i}.'''\n    return 1\n" for i in range(30)),
+        encoding="utf-8",
+    )
+    store = tmp_path / "store_web"
+    out = index_folder(str(root), use_ai_summaries=False, storage_path=str(store), identity_mode="local")
+    assert out.get("success"), out
+    return out["repo"], str(store)
+
+
+def test_demoting_tests_does_not_make_a_test_only_match_read_as_absent(test_only_repo):
+    """Demotion re-orders results; it must not trip the low-confidence warning that
+    says the feature may not exist, nor lower the confidence."""
+    from jcodemunch_mcp.retrieval import scoring as sc
+
+    rid, store = test_only_repo
+    res = search_symbols(repo=rid, query="cookie", max_results=3, storage_path=store)
+    assert res["results"], res
+    assert not any("warning" in k for k in res), {k: v for k, v in res.items() if "warning" in k}
+    # Non-vacuity: the rows really are demoted test rows.
+    assert sc.test_file_factor(res["results"][0], ["cookie"]) == sc.TEST_SYMBOL_WEIGHT
 
 
 def test_a_query_about_tests_still_returns_tests_first(repo):
