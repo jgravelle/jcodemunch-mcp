@@ -16,9 +16,10 @@ directory inside the store's `deps/`, whatever name and version the
 package's own metadata gives.
 
 The snapshot copy applies the checks the indexer applies to every file it
-walks: secret and credential files, files over the size cap, binary files and
-files that resolve outside the package are not copied, and the response's
-`skipped_on_copy` counts them by reason. A
+walks: secret and credential files, files over the size cap, binary files,
+symlinks and files that resolve outside the package are not copied, and the
+response's `skipped_on_copy` counts them by reason (repo-gitignored files,
+below, are counted too). A
 snapshot already in the store is rebuilt rather than added to, so files an
 earlier version copied do not linger there. A package that lives elsewhere
 in the repo (a workspace package linked from `node_modules`) is copied

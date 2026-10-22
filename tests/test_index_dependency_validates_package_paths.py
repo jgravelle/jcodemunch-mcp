@@ -482,3 +482,19 @@ def test_pnpm_package_json_linked_inside_the_repo_still_resolves(host):
     res = index_dependency(host["repo"], "foo", ecosystem="npm", storage_path=host["store"])
     assert "error" not in res, res
     assert res["resolved"]["version"] == "1.0.0"
+
+
+def test_a_linked_out_dist_info_matched_by_import_name_is_refused(host):
+    out_di = host["outside"] / "PyYAML-6.0.dist-info"
+    out_di.mkdir()
+    (out_di / "METADATA").write_text("Name: PyYAML\nVersion: 6.0")
+    (out_di / "top_level.txt").write_text("yaml\n")
+    sp = host["src"] / ".venv" / "Lib" / "site-packages"
+    (sp / "yaml").mkdir(parents=True)
+    (sp / "yaml" / "__init__.py").write_text("def load():\n    return 1\n")
+    try:
+        os.symlink(out_di, sp / "PyYAML-6.0.dist-info", target_is_directory=True)
+    except (OSError, NotImplementedError):
+        pytest.skip("this platform cannot create a directory symlink here")
+    res = index_dependency(host["repo"], "yaml", ecosystem="pypi", storage_path=host["store"])
+    assert "error" in res and "outside the repo" in res["error"], res

@@ -278,13 +278,16 @@ def _resolve_pypi(source_root: Path, package: str, looked_in: list) -> Optional[
         # A dist-info (or its METADATA / top_level.txt) linked out of the repo
         # is not read: its name and version would name the snapshot.
         dist_infos = []
+        dropped_dist_infos: list[str] = []  # in this site-packages, metadata outside the repo
         for p in glob(str(sp / "*.dist-info")):
             di = Path(p)
             if not di.is_dir():
                 continue
             if _metadata_in_repo(di, source_root, ("METADATA", "top_level.txt")):
                 dist_infos.append(di)
-            elif _pep503_normalize(di.name[: -len(".dist-info")].rsplit("-", 1)[0]) == want:
+                continue
+            dropped_dist_infos.append(di.relative_to(source_root).as_posix())
+            if _pep503_normalize(di.name[: -len(".dist-info")].rsplit("-", 1)[0]) == want:
                 # The matching distribution's metadata is outside the repo:
                 # refuse rather than fall back to a version-less directory.
                 pkg_linked_out.append(di.relative_to(source_root).as_posix())
@@ -309,7 +312,10 @@ def _resolve_pypi(source_root: Path, package: str, looked_in: list) -> Optional[
             for top in ([package] + tops) if package in tops else (tops or [package]):
                 # `top` is a validated module name, so the join cannot climb;
                 # a link to elsewhere in the repo is followed, one out of it is not.
+                before = len(pkg_linked_out)
                 cand = package_dir(sp / top)
+                if top == package and len(pkg_linked_out) > before:
+                    return linked_out_error()  # the package asked for is the one linked out
                 if cand is not None and cand.is_dir():
                     pkg_dir = cand
                     break
@@ -343,6 +349,12 @@ def _resolve_pypi(source_root: Path, package: str, looked_in: list) -> Optional[
                 "additional_top_levels": [t for t in tops if t != pkg_dir.name],
             }
         # No dist-info matched; a bare package dir still counts, version unknown.
+        # Not when a dist-info here was dropped for linking out: it may be this
+        # package's (matched by import name), and serving it version-less would
+        # hide that.
+        if dropped_dist_infos and (sp / package).is_dir():
+            pkg_linked_out.extend(dropped_dist_infos)
+            return linked_out_error()
         bare = package_dir(sp / package)
         if bare is not None and bare.is_dir():
             return {
@@ -441,6 +453,7 @@ def _copy_snapshot(
                 continue
             src_file = Path(dirpath) / fname
             if src_file.is_symlink():
+                skipped["symlink"] = skipped.get("symlink", 0) + 1
                 continue
             reason = should_exclude_file(
                 Path(os.path.realpath(src_file)), src_root, max_file_size=max_size,
