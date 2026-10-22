@@ -7,7 +7,7 @@ from typing import Optional
 from ._utils import load_repo_index_or_error
 from ..retrieval.scoring import query_idf as _query_idf
 from ..retrieval.scoring import query_terms as _query_terms
-from ..retrieval.scoring import test_file_factor
+from ..retrieval.scoring import rank_factor
 from .search_symbols import (
     _bm25_score,
     ensure_bm25_cache,
@@ -93,10 +93,10 @@ def plan_turn(
         if raw_score <= 0:
             continue
         hits += 1
-        # The confidence grade reads raw relevance; the ranking reads the test-weighted one.
+        # The confidence grade reads raw relevance; the ranking reads the weighted one (`rank_factor`).
         if raw_score > max_score:
             max_score = raw_score
-        score = raw_score * test_file_factor(sym, query_terms)
+        score = raw_score * rank_factor(sym, query_terms)[0]
 
         entry = {
             "id": sym["id"],

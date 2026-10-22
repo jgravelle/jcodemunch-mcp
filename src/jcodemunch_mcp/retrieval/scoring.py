@@ -286,6 +286,56 @@ def test_file_factor(sym: dict, terms: list[str]) -> float:
     return TEST_SYMBOL_WEIGHT if flag else 1.0
 
 
+# Languages whose symbols are settings, data or styling rather than code: a
+# workflow's env keys, a pyproject table, a CSS selector. Settings files can
+# hold as many symbols as the code beside them, and a common word in a key
+# (`UV_RESOLUTION` for "resolution") fills a code question's top results with
+# them. Every name here is one `parser/languages.py` produces (a test holds
+# that). Left out on purpose: `hcl` and `openapi`, whose symbols are
+# infrastructure and API definitions a code question may be asking about.
+_CONFIG_LANGUAGES = frozenset({"yaml", "toml", "json", "xml"})
+_STYLE_LANGUAGES = frozenset({"css", "scss", "sass", "less", "styl"})
+NON_CODE_LANGUAGES = _CONFIG_LANGUAGES | _STYLE_LANGUAGES
+
+# Words that make a query ABOUT configuration, or about styling; with one
+# present, that group of languages is not weighted (and only that group: a
+# question about the CI workflow is not a question about the stylesheet).
+_CONFIG_INTENT = frozenset({
+    "config", "configuration", "configure", "yaml", "yml", "toml", "json", "xml",
+    "workflow", "workflows", "ci", "setting", "settings", "pyproject", "manifest", "env",
+})
+_STYLE_INTENT = frozenset({
+    "css", "scss", "sass", "less", "styl", "stylus", "style", "styles", "stylesheet",
+    "selector", "selectors",
+})
+
+# Multiplier for a NON_CODE_LANGUAGES symbol. 0.5 is a chosen value, checked
+# on the pinned fastapi questions: it cleared every settings-file symbol from
+# their top 5 while "python version matrix" still ranked a workflow key first,
+# which 0.25 did not. Only RANKING reads the reduced score; verdicts,
+# confidence and absence read the raw one.
+NON_CODE_WEIGHT = 0.5
+
+
+def rank_factor(sym: dict, terms: list[str]) -> tuple[float, str | None]:
+    """The ranking multiplier for ``sym`` on this query, and why.
+
+    One reason applies, the first that matches: ``test_file``
+    (`test_file_factor`) or ``non_code_file`` (a NON_CODE_LANGUAGES symbol on a
+    query with no configuration, or styling, word). ``(1.0, None)``
+    otherwise."""
+    weight = test_file_factor(sym, terms)
+    if weight != 1.0:
+        return weight, "test_file"
+    lang = (sym.get("language") or "").lower()
+    if lang in NON_CODE_LANGUAGES:
+        intent = _CONFIG_INTENT if lang in _CONFIG_LANGUAGES else _STYLE_INTENT
+        if any(t in intent for t in terms):
+            return 1.0, None
+        return NON_CODE_WEIGHT, "non_code_file"
+    return 1.0, None
+
+
 @functools.lru_cache(maxsize=256)
 def identity_query(query: str) -> str:
     """The query as the identity (exact-name) channel reads it: EVERY token.

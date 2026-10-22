@@ -39,6 +39,7 @@ from ..retrieval.scoring import (  # noqa: F401,E402
     query_idf as _query_idf,
     query_terms as _query_terms,
     identity_query,
+    rank_factor,
     test_file_factor,
 )
 from ._utils import (
@@ -393,7 +394,7 @@ def _bm25_score(sym: dict, query_terms: list[str], idf: dict[str, float], avgdl:
     if centrality and score > 0:
         score += centrality.get(sym.get("file", ""), 0.0)
 
-    # Raw relevance. A caller that RANKS multiplies by `test_file_factor`; a
+    # Raw relevance. A caller that RANKS multiplies by `rank_factor`; a
     # caller asking whether anything matched (the low-confidence threshold,
     # confidence, plan_turn's grade) reads this value unchanged, so demoting a
     # test never reads as "this feature may not exist".
@@ -419,7 +420,7 @@ def _bm25_breakdown(sym: dict, query_terms: list[str], idf: dict[str, float], av
         "summary": _tokenize(sym.get("summary", "")) * _FIELD_REPS["summary"],
         "docstring": _tokenize(sym.get("docstring", "")) * _FIELD_REPS["docstring"],
     }
-    out: dict[str, float] = {}
+    out: dict[str, float | str] = {}
     for fname, ftoks in fields.items():
         tf_raw: dict[str, int] = {}
         for t in ftoks:
@@ -433,10 +434,13 @@ def _bm25_breakdown(sym: dict, query_terms: list[str], idf: dict[str, float], av
     query_joined = identity_query(raw_query) if raw_query else " ".join(query_terms)
     identity = _identity_score(sym, query_joined, raw_query)
     out["identity"] = identity
-    weight = test_file_factor(sym, query_terms)
+    weight, reason = rank_factor(sym, query_terms)
     if weight != 1.0:
         # The row's `score` is the fields plus identity times this weight.
-        out["test_weight"] = weight
+        out["rank_weight"] = weight
+        out["rank_weight_reason"] = reason
+        if reason == "test_file":
+            out["test_weight"] = weight  # the 1.108.391 key, kept for callers that read it
     if identity >= 50.0:
         out["identity_type"] = "exact"
     elif identity >= 40.0:
@@ -995,7 +999,7 @@ def search_symbols(
     heap: list[tuple[tuple[int, float], bytes, dict]] = []
     candidates_scored = 0
     max_bm25_score = 0.0
-    # Symbol id -> (raw score - ranked score), for the test-weighted rows only,
+    # Symbol id -> (raw score - ranked score), for the weighted rows only,
     # so confidence can grade the raw relevance of the rows it is shown.
     _raw_lift: dict[str, float] = {}
     # The exact-name forms for this query, or None for a prose query. Resolved
@@ -1018,8 +1022,8 @@ def search_symbols(
         raw_score = _bm25_score(sym, query_terms, idf, avgdl, centrality, raw_query=query)
         if raw_score <= 0:
             continue
-        # Rank by the test-weighted score; grade "did anything match" by the raw one.
-        score = raw_score * test_file_factor(sym, query_terms)
+        # Rank by the weighted score (`rank_factor`); grade "did anything match" by the raw one.
+        score = raw_score * rank_factor(sym, query_terms)[0]
         if score != raw_score:
             _raw_lift[sym["id"]] = raw_score - score
 
@@ -1612,10 +1616,10 @@ def _search_symbols_semantic(
         else:
             raw_lex = _bm25_score_no_identity(sym, query_terms, idf, avgdl, centrality)
             idn = _identity_score(sym, query_joined, raw_query=query)
-            # The threshold reads raw relevance; the ranking reads the test-weighted one.
+            # The threshold reads raw relevance; the ranking reads the weighted one (`rank_factor`).
             if raw_lex + idn > max_bm25:
                 max_bm25 = raw_lex + idn
-            lex = raw_lex * test_file_factor(sym, query_terms)
+            lex = raw_lex * rank_factor(sym, query_terms)[0]
         if lex > max_lex:
             max_lex = lex
         if idn > max_id:
