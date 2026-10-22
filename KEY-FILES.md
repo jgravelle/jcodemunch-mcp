@@ -68,8 +68,8 @@ src/jcodemunch_mcp/
     test_summarizer.py # Diagnostic tool: probe AI summarizer, report status (disabled by default)
     package_registry.py # Cross-repo package registry: manifest parsing, registry building, specifier resolution
     get_cross_repo_map.py # Cross-repo dependency map at the package level
-    _call_graph.py       # Shared AST-derived call-graph helpers (callers/callees, BFS)
-    get_call_hierarchy.py # get_call_hierarchy: callers+callees for a symbol, N levels deep
+    _call_graph.py       # Shared AST-derived call-graph helpers (callers/callees, BFS); a BFS row deeper than 1 carries `via`, the row one level shallower
+    get_call_hierarchy.py # get_call_hierarchy: callers+callees for a symbol, N levels deep; rows ordered by depth, with direct and per-depth counts
     decision_context.py   # (v1.108.59) resolve_decision_context: read-only git-archaeology surfacer. Mines decision-bearing commits (revert/perf/refactor/rename/bugfix) for a set of files, reusing get_symbol_provenance's _run_git/_classify_commit/_extract_intent; dedupes by SHA, ranks by category weight × recency, emits digest + by_category + volatility + summary. Surface-only, nothing persisted. Consumed by get_blast_radius / get_impact_preview via include_decisions
     get_impact_preview.py # get_impact_preview: transitive "what breaks?" analysis. v1.108.59: include_decisions attaches a read-only `decisions` block (decision_context)
     plan_refactoring.py   # plan_refactoring: edit-ready plans for rename/move/extract/signature refactorings
