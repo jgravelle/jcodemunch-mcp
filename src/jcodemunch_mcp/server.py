@@ -9284,6 +9284,14 @@ def _run_config(check: bool = False, init: bool = False, upgrade: bool = False) 
 
         # ── CLAUDE.md drift check ────────────────────────────────────────────
         section("CLAUDE.md check")
+
+        def _names_jcodemunch(text: str) -> bool:
+            # Does this file talk about jcodemunch at all? "jcodemunch", or a
+            # tool name with an underscore. A bare word such as "digest" is
+            # also a tool name and is ordinary English, so it does not count.
+            if "jcodemunch" in text.lower():
+                return True
+            return any("_" in t and t in text for t in _CANONICAL_TOOL_NAMES)
         claude_md_path = Path.home() / ".claude" / "CLAUDE.md"
         canonical_tools = list(_CANONICAL_TOOL_NAMES)
         if claude_md_path.exists():
@@ -9294,8 +9302,15 @@ def _run_config(check: bool = False, init: bool = False, upgrade: bool = False) 
                 # That tool returns the per-version policy at runtime, so the
                 # full canonical tool list is not expected to appear in CLAUDE.md.
                 # Treat any mention of jcodemunch_guide as valid setup.
+                from .cli.init import _has_policy as _has_policy_block
+
                 if "jcodemunch_guide" in cm_content:
                     print(f"  {green(CHECK)} CLAUDE.md uses jcodemunch_guide one-line form (version-pinned at runtime)")
+                elif not _has_policy_block(claude_md_path) and not _names_jcodemunch(cm_content):
+                    # The policy is opt-in: a CLAUDE.md that never mentions
+                    # jcodemunch is the shipped default, never an issue. One
+                    # that names some tools still gets the drift check below.
+                    print(f"  {dim('  CLAUDE.md has no jcodemunch policy block (opt-in: jcodemunch-mcp init --policy)')}")
                 else:
                     missing_in_cm = [t for t in canonical_tools if t not in cm_content]
                     if missing_in_cm:
@@ -9339,8 +9354,8 @@ def _run_config(check: bool = False, init: bool = False, upgrade: bool = False) 
             except Exception as _e:
                 print(f"  {yellow(WARN)} Could not read CLAUDE.md: {_e}")
         else:
-            print(f"  {yellow(WARN)} CLAUDE.md not found: {claude_md_path}")
-            print(f"  {dim('  Run: jcodemunch-mcp claude-md --generate > /path/to/CLAUDE.md')}")
+            # No CLAUDE.md is the shipped default: the policy is opt-in.
+            print(f"  {dim(f'  No CLAUDE.md at {claude_md_path} (the jcodemunch policy is opt-in: jcodemunch-mcp init --policy)')}")
 
         # ── Hook check ─────────────────────────────────────────────────────────
         section("Hooks check")
@@ -9349,7 +9364,7 @@ def _run_config(check: bool = False, init: bool = False, upgrade: bool = False) 
         # reports a hook `init` really installs as "not installed", i.e. the
         # diagnostic disagreeing with the runtime; `hook-sessionstart` was
         # omitted from the copy the day it shipped.
-        from .cli.init import _enforcement_hooks, _extract_jcm_subcommand
+        from .cli.init import _enforcement_hooks, _extract_jcm_subcommand, _guidance_hooks
         _expected_hooks = {}
         for _event, _rules in _enforcement_hooks().items():
             for _rule in _rules:
@@ -9357,6 +9372,15 @@ def _run_config(check: bool = False, init: bool = False, upgrade: bool = False) 
                     _sub = _extract_jcm_subcommand(_h.get("command", ""))
                     if _sub:
                         _expected_hooks[_sub] = (_event, _rule.get("matcher", ""))
+        # The guidance hooks are opt-in (`init --guidance`): absent is the
+        # shipped default, so their absence is reported as such, never as a
+        # hook `init --hooks` would install.
+        _opt_in_hooks = {
+            _extract_jcm_subcommand(_h.get("command", ""))
+            for _rules in _guidance_hooks().values()
+            for _rule in _rules
+            for _h in _rule.get("hooks", [])
+        }
         if _settings_path.exists():
             try:
                 _settings = json.loads(_settings_path.read_text(encoding="utf-8"))
@@ -9392,6 +9416,8 @@ def _run_config(check: bool = False, init: bool = False, upgrade: bool = False) 
                             f"'{_matcher}'. Re-run: jcodemunch-mcp init --hooks"
                         )
                     _found_any = True
+                elif _hook_cmd in _opt_in_hooks:
+                    print(f"  {dim(f'  {_hook_cmd} not installed (opt-in: jcodemunch-mcp init --guidance)')}")
                 else:
                     print(f"  {dim(f'  {_hook_cmd} not installed')}")
             if not _found_any:
@@ -10118,6 +10144,38 @@ def main(argv: Optional[list[str]] = None):
             "without --strict."
         ),
     )
+    init_parser.add_argument(
+        "--guidance",
+        action="store_true",
+        dest="guidance",
+        help=(
+            "Also install the hooks that put text in front of the model: the "
+            "PreToolUse advice on Read/Grep/Glob/Bash, the SubagentStart briefing "
+            "and the SessionStart restore after compaction. Off by default; an "
+            "install that already has them keeps them."
+        ),
+    )
+    init_parser.add_argument(
+        "--policy",
+        action="store_true",
+        dest="policy",
+        help=(
+            "Also write the Code Exploration Policy into CLAUDE.md (global, or as "
+            "--claude-md says), AGENTS.md and, for Cursor and Windsurf, their rules "
+            "files. Off by default; an existing policy block is left as it is."
+        ),
+    )
+    init_parser.add_argument(
+        "--remove-guidance",
+        action="store_true",
+        dest="remove_guidance",
+        help=(
+            "Remove the model-facing hooks and every jcodemunch policy block "
+            "(global CLAUDE.md; CLAUDE.md, AGENTS.md, Cursor and Windsurf rules in "
+            "this directory), backing up each file changed. Keeps the silent hooks "
+            "and the server registration. Does nothing else."
+        ),
+    )
 
     # --- install (per-agent sugar over init) ---
     install_parser = subparsers.add_parser(
@@ -10136,6 +10194,18 @@ def main(argv: Optional[list[str]] = None):
         action="store_true",
         dest="list_targets",
         help="List valid install targets and exit",
+    )
+    install_parser.add_argument(
+        "--guidance",
+        action="store_true",
+        dest="guidance",
+        help="Also install the model-facing hooks (see `init --guidance`). Off by default.",
+    )
+    install_parser.add_argument(
+        "--policy",
+        action="store_true",
+        dest="policy",
+        help="Also write the Code Exploration Policy (see `init --policy`). Off by default.",
     )
     install_parser.add_argument(
         "--status",
@@ -10958,6 +11028,9 @@ def main(argv: Optional[list[str]] = None):
             share_savings=getattr(args, "share_savings", None),
             minimal=getattr(args, "minimal", False),
             strict=getattr(args, "strict", False),
+            guidance=getattr(args, "guidance", False),
+            policy=getattr(args, "policy", False),
+            remove_guidance=getattr(args, "remove_guidance", False),
         ))
 
     if args.command == "install":
@@ -10992,7 +11065,10 @@ def main(argv: Optional[list[str]] = None):
         client_arg = None if target.lower() == "all" else [target.lower()]
         sys.exit(run_init(
             clients=client_arg or ["auto"],
-            claude_md="global",
+            # The policy paste is opt-in (default install made light 2026-10-22).
+            claude_md="global" if getattr(args, "policy", False) else None,
+            guidance=getattr(args, "guidance", False),
+            policy=getattr(args, "policy", False),
             hooks=True,
             copilot_hooks=False,
             index=False,

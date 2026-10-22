@@ -29,8 +29,8 @@ jcodemunch-mcp init
 `init` walks you through everything interactively:
 
 1. **Detects your MCP clients** (Claude Code, Claude Desktop, Cursor, Windsurf, Continue) and writes the config entry for each
-2. **Installs the CLAUDE.md prompt policy** so your agent actually uses jCodeMunch instead of brute-reading files
-3. **Optionally installs enforcement hooks** (`--hooks`) — PreToolUse read guard, PostToolUse auto-reindex, and PreCompact session snapshot for Claude Code
+2. **Installs the Claude Code hooks whose output the model never sees** — PostToolUse auto-reindex after an edit, the PreCompact checkpoint and the task-complete note. Nothing is added to your agent's context by default.
+3. **Optionally adds guidance** — `--policy` writes the Code Exploration Policy into CLAUDE.md and AGENTS.md (and the Cursor and Windsurf rules); `--guidance` adds the model-facing hooks (the PreToolUse read advice, the SubagentStart briefing and the SessionStart restore). Both put text in front of the model on the turns they apply to.
 4. **Optionally indexes your current project**
 5. **Audits your agent config files** for token waste — flags bloated CLAUDE.md files, stale symbol references, redundancy between global and project configs, and scope leaks
 
@@ -179,7 +179,7 @@ You can also add the same block to a project-level `CLAUDE.md` in your repo root
 > `jcodemunch-mcp init` handles steps 2 and 3 automatically.
 
 > [!IMPORTANT]
-> **CLAUDE.md is a soft rule.** It works well under normal conditions, but agents can ignore it when moving fast, under load, or deep in a complex task — not because they forgot, but because native tools feel faster in the moment. If you need reliable enforcement, install the [hook scripts](AGENT_HOOKS.md) — they intercept `Grep`, `Glob`, and `Bash` at the tool-call level and redirect Claude before the shortcut fires.
+> **CLAUDE.md is a soft rule.** It works well under normal conditions, but agents can ignore it when moving fast, under load, or deep in a complex task — not because they forgot, but because native tools feel faster in the moment. If you need reliable enforcement, install the [hook scripts](AGENT_HOOKS.md) with `jcodemunch-mcp init --guidance` — they intercept `Grep`, `Glob`, and `Bash` at the tool-call level and redirect Claude before the shortcut fires.
 
 #### OpenClaw
 
@@ -270,7 +270,7 @@ Want a slowest-tools / coldest-caches view? Ask: *"Run analyze_perf"* — the ag
 
 **Agent uses jCodeMunch in simple tasks but falls back to file reads in complex ones**
 → This is the "pressure bypass" — the agent sees the rule and skips it anyway because native tools feel faster.
-→ Claude Code: CLAUDE.md can't stop this. Install the enforcement hooks: [AGENT_HOOKS.md](AGENT_HOOKS.md).
+→ Claude Code: CLAUDE.md can't stop this. Install the enforcement hooks with `jcodemunch-mcp init --guidance`: [AGENT_HOOKS.md](AGENT_HOOKS.md).
 → OpenClaw: name in your systemPromptFile the questions that go to the index (who uses a symbol, what a change breaks, who calls a function). An absolute rule against the built-in tools costs more than it saves on a small repository.
 
 **`jcodemunch-mcp` not found**

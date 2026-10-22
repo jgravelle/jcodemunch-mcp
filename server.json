@@ -3,12 +3,12 @@
   "name": "io.github.jgravelle/jcodemunch-mcp",
   "title": "jCodemunch MCP",
   "description": "Retrieves code by symbol via tree-sitter. 96.2% fewer tokens per lookup than grep-and-read.",
-  "version": "1.108.392",
+  "version": "1.108.393",
   "packages": [
     {
       "registryType": "pypi",
       "identifier": "jcodemunch-mcp",
-      "version": "1.108.392",
+      "version": "1.108.393",
       "transport": {
         "type": "stdio"
       }

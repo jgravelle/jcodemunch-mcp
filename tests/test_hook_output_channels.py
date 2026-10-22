@@ -316,7 +316,7 @@ class TestSessionStartIsRegistered:
         with mock.patch(
             "jcodemunch_mcp.cli.init._settings_json_path", return_value=settings
         ):
-            install_enforcement_hooks(dry_run=False, backup=False)
+            install_enforcement_hooks(dry_run=False, backup=False, guidance=True)
         return json.loads(settings.read_text(encoding="utf-8"))["hooks"]
 
     def test_sessionstart_hook_installed(self, tmp_path):
@@ -334,10 +334,12 @@ class TestSessionStartIsRegistered:
         assert "clear" not in matcher
 
     def test_added_to_existing_install_on_rerun(self, tmp_path):
-        """Upgraders already have the other hooks; SessionStart must still land.
+        """An install with other hooks still gains SessionStart when guidance is asked for.
 
         Duplicate detection is per-subcommand, so an existing PreToolUse entry
-        must not cause the whole merge to skip the new event.
+        must not cause the whole merge to skip the new event. (Since the light
+        default install, a re-run without `--guidance` adds no guidance hook;
+        tests/test_light_default_install.py pins that half.)
         """
         existing = json.dumps({"hooks": {
             "PreToolUse": [{
@@ -358,7 +360,7 @@ class TestSessionStartIsRegistered:
         with mock.patch(
             "jcodemunch_mcp.cli.init._settings_json_path", return_value=settings
         ):
-            install_enforcement_hooks(dry_run=False, backup=False)
-            install_enforcement_hooks(dry_run=False, backup=False)
+            install_enforcement_hooks(dry_run=False, backup=False, guidance=True)
+            install_enforcement_hooks(dry_run=False, backup=False, guidance=True)
         hooks = json.loads(settings.read_text(encoding="utf-8"))["hooks"]
         assert len(hooks["SessionStart"]) == 1

@@ -313,14 +313,14 @@ def test_run_init_dry_run_yes(tmp_path, monkeypatch, capsys):
 
 
 def test_run_init_full_yes(tmp_path, monkeypatch, capsys):
-    """Full run with --yes should configure everything."""
+    """--yes --policy configures the client and writes the CLAUDE.md policy (opt-in since the default install was made light, 2026-10-22)."""
     monkeypatch.setattr("jcodemunch_mcp.cli.init._detect_clients", lambda: [
         MCPClient("TestClient", tmp_path / "mcp.json", "json_patch"),
     ])
     monkeypatch.setattr("jcodemunch_mcp.cli.init._claude_md_path", lambda scope: tmp_path / "CLAUDE.md")
     monkeypatch.setattr("jcodemunch_mcp.cli.init._settings_json_path", lambda: tmp_path / "settings.json")
 
-    rc = run_init(yes=True, no_backup=True)
+    rc = run_init(yes=True, no_backup=True, policy=True)
     assert rc == 0
 
     # MCP config created
@@ -350,14 +350,14 @@ def test_run_init_explicit_client_none(tmp_path, monkeypatch, capsys):
 # ---------------------------------------------------------------------------
 
 def test_run_init_yes_cursor_writes_rules(tmp_path, monkeypatch, capsys):
-    """--yes with a Cursor client should install .cursor/rules/jcodemunch.mdc."""
+    """--yes --policy with a Cursor client should install .cursor/rules/jcodemunch.mdc."""
     monkeypatch.setattr("jcodemunch_mcp.cli.init._detect_clients", lambda: [
         MCPClient("Cursor", tmp_path / "mcp.json", "json_patch"),
     ])
     monkeypatch.setattr("jcodemunch_mcp.cli.init._claude_md_path", lambda scope: tmp_path / "CLAUDE.md")
     monkeypatch.setattr("jcodemunch_mcp.cli.init._cursor_rules_path", lambda: tmp_path / ".cursor" / "rules" / "jcodemunch.mdc")
 
-    rc = run_init(yes=True, no_backup=True)
+    rc = run_init(yes=True, no_backup=True, policy=True)
     assert rc == 0
 
     mdc = tmp_path / ".cursor" / "rules" / "jcodemunch.mdc"
@@ -368,14 +368,14 @@ def test_run_init_yes_cursor_writes_rules(tmp_path, monkeypatch, capsys):
 
 
 def test_run_init_yes_windsurf_writes_rules(tmp_path, monkeypatch, capsys):
-    """--yes with a Windsurf client should install .windsurfrules."""
+    """--yes --policy with a Windsurf client should install .windsurfrules."""
     monkeypatch.setattr("jcodemunch_mcp.cli.init._detect_clients", lambda: [
         MCPClient("Windsurf", tmp_path / "windsurf_mcp.json", "json_patch"),
     ])
     monkeypatch.setattr("jcodemunch_mcp.cli.init._claude_md_path", lambda scope: tmp_path / "CLAUDE.md")
     monkeypatch.setattr("jcodemunch_mcp.cli.init._windsurf_rules_path", lambda: tmp_path / ".windsurfrules")
 
-    rc = run_init(yes=True, no_backup=True)
+    rc = run_init(yes=True, no_backup=True, policy=True)
     assert rc == 0
 
     rules = tmp_path / ".windsurfrules"
@@ -384,14 +384,14 @@ def test_run_init_yes_windsurf_writes_rules(tmp_path, monkeypatch, capsys):
 
 
 def test_run_init_demo_cursor_reports_benefit(tmp_path, monkeypatch, capsys):
-    """--demo with Cursor should include rules benefit in summary."""
+    """--demo --policy with Cursor should include rules benefit in summary."""
     monkeypatch.setattr("jcodemunch_mcp.cli.init._detect_clients", lambda: [
         MCPClient("Cursor", tmp_path / "mcp.json", "json_patch"),
     ])
     monkeypatch.setattr("jcodemunch_mcp.cli.init._claude_md_path", lambda scope: tmp_path / "CLAUDE.md")
     monkeypatch.setattr("jcodemunch_mcp.cli.init._cursor_rules_path", lambda: tmp_path / ".cursor" / "rules" / "jcodemunch.mdc")
 
-    rc = run_init(demo=True, yes=True)
+    rc = run_init(demo=True, yes=True, policy=True)
     assert rc == 0
 
     out = capsys.readouterr().out

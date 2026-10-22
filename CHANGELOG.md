@@ -48,6 +48,50 @@ Four behavior changes:
   the repo root and the file excludes is skipped with a warning. Before, a
   listed file was indexed even when ignored. Skip-directory rules still do not apply to listed files.
 
+## [1.108.393] - 2026-10-22 - a default install adds nothing to the model's context
+
+### Changed - a default install adds nothing to the model's context
+
+`init` used to write the Code Exploration Policy into the global CLAUDE.md
+and AGENTS.md (and the Cursor and Windsurf rules files) and to install six
+Claude Code hooks. Three of those hooks put text in front of the model: the
+advice on Read, Grep, Glob and Bash, the briefing a subagent gets when it
+starts, and the context restored after compaction. The policy block is part
+of every request, and the advice is added each time one of those tools runs.
+In the Claude Code sessions we measured, the advice did not change which
+tools the agent used, so a default install no longer pays for it. That is a
+tradeoff: the earlier default was a reasonable call when it was made, and it
+put the tools in front of every agent. In the same sessions, agents used
+jcodemunch when the user asked for it by name, so `init` now suggests that
+when it finishes.
+
+A default `init` (including `--yes`, `install <agent>`, and the refresh
+`upgrade` runs) now registers the server and installs only the hooks whose
+output the model never sees: re-indexing after an edit, the pre-compaction
+checkpoint, and the task-complete note, which goes to you rather than to the
+model. The rest is opt-in:
+
+- `--policy` writes the policy into CLAUDE.md, AGENTS.md and, for Cursor and
+  Windsurf, their rules files. `--claude-md global|project` still writes
+  CLAUDE.md on its own.
+- `--guidance` adds the three model-facing hooks. `--strict` still adds the
+  advice hook it turns into a refusal.
+
+Nothing is taken away from an existing install. A re-run of `init`, or an
+`upgrade`, keeps every hook and policy block already there, refreshed as
+before. `jcodemunch-mcp init --remove-guidance` removes the model-facing
+hooks and every jcodemunch policy block (global CLAUDE.md; CLAUDE.md,
+AGENTS.md and the Cursor and Windsurf rules in the current directory),
+backing each file up first, and keeps the silent hooks and the server
+registration. It also drops the `--strict` setting, which only governs the
+advice hook. `init` and `install-status` name that command when an install
+still carries any of it, and neither runs it for you. `config --check` reports
+a missing policy, a missing CLAUDE.md or a missing model-facing hook as
+opt-in, never as a problem.
+
+The front-door tools still load up front where a client defers MCP tools;
+that is server-side and unchanged.
+
 ### Fixed - a question about code ranks functions above fields and constants
 
 After tests and settings files, the next thing crowding a question about

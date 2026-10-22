@@ -113,6 +113,7 @@ class TestMinimalMode:
             audit=False,         # audit is opt-in even under --yes
             yes=True,
             minimal=False,       # explicitly non-minimal
+            policy=True,         # policy pastes are opt-in since 2026-10-22
         )
 
         assert rc == 0
@@ -120,5 +121,5 @@ class TestMinimalMode:
         assert fake_install_helpers["install_claude_md"].called
         assert fake_install_helpers["install_hooks"].called
         assert fake_install_helpers["install_enforcement_hooks"].called
-        # AGENTS.md defaults on under --yes when not minimal.
+        # AGENTS.md is written under --yes --policy when not minimal.
         assert fake_install_helpers["install_agents_md"].called

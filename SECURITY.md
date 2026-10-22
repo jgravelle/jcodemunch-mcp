@@ -255,14 +255,19 @@ piece of developer configuration that steers an AI agent.
   it sets.
 * `~/.claude/CLAUDE.md`, `./CLAUDE.md`, `AGENTS.md`,
   `.cursor/rules/jcodemunch.mdc`, `.windsurfrules` — agent-policy files
-  that `jcodemunch-mcp init` may write or modify, with consent. Each is
-  rendered into the agent's prompt at session start by the corresponding
-  client.
+  that `jcodemunch-mcp init` writes only when asked (`--policy`, or
+  `--claude-md SCOPE`). Each is rendered into the agent's prompt at
+  session start by the corresponding client. `init --remove-guidance`
+  strips the jcodemunch block from each, backing the file up first.
 * `~/.claude/settings.json` (PreToolUse / PostToolUse / PreCompact /
-  TaskCompleted / SubagentStart / WorktreeCreate / WorktreeRemove hooks)
-  — `init` registers hook commands here so Claude Code auto-reindexes
-  after edits and surfaces session diagnostics. The hook commands run
-  every relevant tool call in the host agent.
+  SessionStart / TaskCompleted / SubagentStart / WorktreeCreate /
+  WorktreeRemove hooks) — a default `init` registers PostToolUse (re-index
+  after an edit), PreCompact and TaskCompleted, none of which put text in
+  front of the model. PreToolUse, SessionStart and SubagentStart, which
+  do, need `--guidance` (PreToolUse also comes with `--strict`); the
+  worktree hooks need `--hooks`
+  (`install <agent>` passes it). The hook commands run every relevant
+  tool call in the host agent.
 * `.github/hooks/hooks.json` — analogous hook surface for GitHub Copilot
   CLI / cloud agent flows.
 * Generated MCP client config files (paths depend on which clients are

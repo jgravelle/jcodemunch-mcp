@@ -101,7 +101,7 @@ class TestInstallEnforcementHooksIntegration:
             "jcodemunch_mcp.cli.init._settings_json_path",
             lambda: tmp_path / "settings.json"
         )
-        install_enforcement_hooks(backup=False)
+        install_enforcement_hooks(backup=False, guidance=True)
         data = json.loads((tmp_path / "settings.json").read_text(encoding="utf-8"))
 
         assert "PostToolUse" in data["hooks"]
@@ -114,8 +114,8 @@ class TestInstallEnforcementHooksIntegration:
             "jcodemunch_mcp.cli.init._settings_json_path",
             lambda: tmp_path / "settings.json"
         )
-        install_enforcement_hooks(backup=False)
-        install_enforcement_hooks(backup=False)
+        install_enforcement_hooks(backup=False, guidance=True)
+        install_enforcement_hooks(backup=False, guidance=True)
         data = json.loads((tmp_path / "settings.json").read_text(encoding="utf-8"))
         assert len(data["hooks"]["PostToolUse"]) == 1
         assert len(data["hooks"]["PreToolUse"]) == 1
