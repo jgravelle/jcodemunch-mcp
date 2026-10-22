@@ -24,6 +24,8 @@ from __future__ import annotations
 import shutil
 from pathlib import Path
 
+from .backup import backup_path
+
 
 # Marker is on the first non-frontmatter heading line so we can detect an
 # existing jcodemunch skill (vs. a user-authored one in the same directory)
@@ -224,7 +226,7 @@ def install_claude_skill(
 
     path.parent.mkdir(parents=True, exist_ok=True)
     if backup and path.exists():
-        shutil.copy2(path, path.with_suffix(".md.bak"))
+        shutil.copy2(path, backup_path(path))
 
     content = _build_skill_content()
     path.write_text(content, encoding="utf-8")
