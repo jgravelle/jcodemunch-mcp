@@ -16,8 +16,9 @@ directory inside the store's `deps/`, whatever name and version the
 package's own metadata gives.
 
 The snapshot copy applies the checks the indexer applies to every file it
-walks: secret and credential files, files over the size cap and binary files
-are not copied, and the response's `skipped_on_copy` counts them. A
+walks: secret and credential files, files over the size cap, binary files and
+files that resolve outside the package are not copied, and the response's
+`skipped_on_copy` counts them by reason. A
 snapshot already in the store is rebuilt rather than added to, so files an
 earlier version copied do not linger there. A package that lives elsewhere
 in the repo (a workspace package linked from `node_modules`) is copied
@@ -31,7 +32,8 @@ Four behavior changes:
   that stays inside the repo still resolves.
 - A repo-local virtualenv whose site-packages is a symlink to a directory
   outside the repo is no longer read; `index_dependency` says so in its
-  error. A package directory linked from site-packages to elsewhere inside
+  error, as it does for a package directory or a `.dist-info` linked out of
+  the repo. A package directory linked from site-packages to elsewhere inside
   the repo still resolves.
 - A `node_modules` entry with no `package.json` of its own (an `@scope`
   directory, a package-manager store, or an incomplete install), or one

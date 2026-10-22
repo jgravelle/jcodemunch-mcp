@@ -450,5 +450,35 @@ def test_pypi_metadata_linked_out_of_the_repo_is_not_read(host, linked):
         except (OSError, NotImplementedError):
             pytest.skip("this platform cannot create a directory symlink here")
     res = index_dependency(host["repo"], "leak", ecosystem="pypi", storage_path=host["store"])
+    # Refused by name, not served from the bare directory without a version.
+    assert "error" in res and "outside the repo" in res["error"], res
     assert "OUTNAME" not in json.dumps(res), res
     assert "6.6.6" not in json.dumps(res), res
+
+
+def test_a_pypi_package_dir_linked_out_says_so(host):
+    (host["outside"] / "evilpkg").mkdir()
+    (host["outside"] / "evilpkg" / "__init__.py").write_text(MARKER)
+    sp = host["src"] / ".venv" / "Lib" / "site-packages"
+    sp.mkdir(parents=True)
+    try:
+        os.symlink(host["outside"] / "evilpkg", sp / "evilpkg", target_is_directory=True)
+    except (OSError, NotImplementedError):
+        pytest.skip("this platform cannot create a directory symlink here")
+    res = index_dependency(host["repo"], "evilpkg", ecosystem="pypi", storage_path=host["store"])
+    assert "error" in res and "outside the repo" in res["error"], res
+    assert not _store_has_marker(host["store"])
+
+
+def test_pnpm_package_json_linked_inside_the_repo_still_resolves(host):
+    real = host["src"] / "node_modules" / ".pnpm" / "foo@1.0.0" / "node_modules" / "foo"
+    real.mkdir(parents=True)
+    (real / "package.json").write_text(json.dumps({"name": "foo", "version": "1.0.0"}))
+    (real / "index.js").write_text("export function foo() { return 1; }")
+    pkg = host["src"] / "node_modules" / "foo"
+    pkg.mkdir()
+    (pkg / "index.js").write_text("export function foo() { return 1; }")
+    _link_file(real / "package.json", pkg / "package.json")
+    res = index_dependency(host["repo"], "foo", ecosystem="npm", storage_path=host["store"])
+    assert "error" not in res, res
+    assert res["resolved"]["version"] == "1.0.0"

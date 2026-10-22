@@ -248,10 +248,19 @@ def _resolve_pypi(source_root: Path, package: str, looked_in: list) -> Optional[
     roots = _store_roots(source_root)
     store_link: list[str] = []  # this site-packages only
     any_store_link: list[str] = []  # every site-packages, for the final report
+    pkg_linked_out: list[str] = []  # package dirs or metadata that link out of the repo
+
+    def linked_out_error() -> dict:
+        return {"ecosystem": "pypi", "error": (
+            f"{pkg_linked_out[0]} links to a location outside the repo; only "
+            "installs inside the repo are read."
+        )}
 
     def package_dir(path: Path) -> Optional[Path]:
         real = _contained(path, source_root)
         if real is None:
+            if path.exists() or path.is_symlink():
+                pkg_linked_out.append(path.relative_to(source_root).as_posix())
             return None
         if _is_store(real, source_root, roots):
             rel = path.relative_to(source_root).as_posix()
@@ -268,11 +277,17 @@ def _resolve_pypi(source_root: Path, package: str, looked_in: list) -> Optional[
             continue
         # A dist-info (or its METADATA / top_level.txt) linked out of the repo
         # is not read: its name and version would name the snapshot.
-        dist_infos = [
-            Path(p) for p in glob(str(sp / "*.dist-info"))
-            if Path(p).is_dir()
-            and _metadata_in_repo(Path(p), source_root, ("METADATA", "top_level.txt"))
-        ]
+        dist_infos = []
+        for p in glob(str(sp / "*.dist-info")):
+            di = Path(p)
+            if not di.is_dir():
+                continue
+            if _metadata_in_repo(di, source_root, ("METADATA", "top_level.txt")):
+                dist_infos.append(di)
+            elif _pep503_normalize(di.name[: -len(".dist-info")].rsplit("-", 1)[0]) == want:
+                # The matching distribution's metadata is outside the repo:
+                # refuse rather than fall back to a version-less directory.
+                pkg_linked_out.append(di.relative_to(source_root).as_posix())
         match: Optional[Path] = None
         for di in dist_infos:
             dist_name = di.name[: -len(".dist-info")].rsplit("-", 1)[0]
@@ -285,6 +300,8 @@ def _resolve_pypi(source_root: Path, package: str, looked_in: list) -> Optional[
                 if package in _top_levels(di):
                     match = di
                     break
+        if match is None and pkg_linked_out:
+            return linked_out_error()
         if match is not None:
             name, version, readme_in_meta = _read_metadata_fields(match)
             tops = _top_levels(match)
@@ -298,6 +315,8 @@ def _resolve_pypi(source_root: Path, package: str, looked_in: list) -> Optional[
                     break
             if pkg_dir is None and store_link:
                 return {"ecosystem": "pypi", "error": f"{store_link[0]} {_STORE_REFUSAL}"}
+            if pkg_dir is None and pkg_linked_out:
+                return linked_out_error()
             if pkg_dir is None:
                 single = [
                     t for t in (tops or [package])
@@ -335,6 +354,8 @@ def _resolve_pypi(source_root: Path, package: str, looked_in: list) -> Optional[
             }
     if any_store_link:
         return {"ecosystem": "pypi", "error": f"{any_store_link[0]} {_STORE_REFUSAL}"}
+    if pkg_linked_out:
+        return linked_out_error()
     if linked_out:
         return {"ecosystem": "pypi", "error": (
             f"{package!r} was not found, and {', '.join(linked_out)} links to a "
