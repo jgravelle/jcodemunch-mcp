@@ -484,7 +484,7 @@ def test_pnpm_package_json_linked_inside_the_repo_still_resolves(host):
     assert res["resolved"]["version"] == "1.0.0"
 
 
-def test_a_linked_out_dist_info_matched_by_import_name_is_refused(host):
+def test_a_linked_out_dist_info_matched_by_import_name_is_withheld(host):
     out_di = host["outside"] / "PyYAML-6.0.dist-info"
     out_di.mkdir()
     (out_di / "METADATA").write_text("Name: PyYAML\nVersion: 6.0")
@@ -497,4 +497,69 @@ def test_a_linked_out_dist_info_matched_by_import_name_is_refused(host):
     except (OSError, NotImplementedError):
         pytest.skip("this platform cannot create a directory symlink here")
     res = index_dependency(host["repo"], "yaml", ecosystem="pypi", storage_path=host["store"])
+    # The linked-out dist-info cannot be read, so it is not used: the directory
+    # is served, the version left unknown, and the withheld metadata named.
+    assert "error" not in res, res
+    assert res["resolved"]["version"] == ""
+    assert res["resolved"]["withheld_metadata"] == [".venv/Lib/site-packages/PyYAML-6.0.dist-info"]
+    assert "6.0" not in json.dumps(res["resolved"]["version"])
+
+
+def test_an_unrelated_linked_out_dist_info_does_not_block_a_package(host):
+    out_di = host["outside"] / "requests-2.0.dist-info"
+    out_di.mkdir()
+    (out_di / "METADATA").write_text("Name: requests\nVersion: 2.0")
+    sp = host["src"] / ".venv" / "Lib" / "site-packages"
+    (sp / "foo").mkdir(parents=True)
+    (sp / "foo" / "__init__.py").write_text("def foo_fn():\n    return 1\n")
+    try:
+        os.symlink(out_di, sp / "requests-2.0.dist-info", target_is_directory=True)
+    except (OSError, NotImplementedError):
+        pytest.skip("this platform cannot create a directory symlink here")
+    res = index_dependency(host["repo"], "foo", ecosystem="pypi", storage_path=host["store"])
+    assert "error" not in res, res
+
+
+def test_a_dist_info_whose_in_repo_top_level_names_the_package_is_refused(host):
+    out = host["outside"] / "METADATA"
+    out.write_text("Name: OUTNAME\nVersion: 6.6.6")
+    sp = host["src"] / ".venv" / "Lib" / "site-packages"
+    (sp / "yaml").mkdir(parents=True)
+    (sp / "yaml" / "__init__.py").write_text("def load():\n    return 1\n")
+    di = sp / "PyYAML-6.0.dist-info"
+    di.mkdir()
+    (di / "top_level.txt").write_text("yaml\n")
+    _link_file(out, di / "METADATA")
+    res = index_dependency(host["repo"], "yaml", ecosystem="pypi", storage_path=host["store"])
     assert "error" in res and "outside the repo" in res["error"], res
+    assert "OUTNAME" not in json.dumps(res)
+
+
+def test_the_requested_top_level_linked_out_is_refused_not_swapped(host):
+    (host["outside"] / "foo").mkdir()
+    (host["outside"] / "foo" / "__init__.py").write_text(MARKER)
+    sp = host["src"] / ".venv" / "Lib" / "site-packages"
+    di = sp / "foo-1.0.dist-info"
+    di.mkdir(parents=True)
+    (di / "METADATA").write_text("Name: foo\nVersion: 1.0")
+    (di / "top_level.txt").write_text("foo\nbar\n")
+    (sp / "bar").mkdir()
+    (sp / "bar" / "__init__.py").write_text("def bar_fn():\n    return 1\n")
+    try:
+        os.symlink(host["outside"] / "foo", sp / "foo", target_is_directory=True)
+    except (OSError, NotImplementedError):
+        pytest.skip("this platform cannot create a directory symlink here")
+    res = index_dependency(host["repo"], "foo", ecosystem="pypi", storage_path=host["store"])
+    assert "error" in res and "outside the repo" in res["error"], res
+
+
+def test_a_symlinked_file_in_a_package_is_counted_as_skipped(host):
+    pkg = host["src"] / "node_modules" / "withlink"
+    pkg.mkdir(parents=True)
+    (pkg / "package.json").write_text(json.dumps({"name": "withlink", "version": "1.0.0"}))
+    (pkg / "index.js").write_text("function withLink() { return 1; }")
+    _link_file(host["outside"] / "index.js", pkg / "extra.js")
+    res = index_dependency(host["repo"], "withlink", ecosystem="npm", storage_path=host["store"])
+    assert "error" not in res, res
+    assert res["skipped_on_copy"].get("symlink") == 1, res.get("skipped_on_copy")
+    assert not _store_has_marker(host["store"])

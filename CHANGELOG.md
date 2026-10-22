@@ -33,8 +33,10 @@ Four behavior changes:
   that stays inside the repo still resolves.
 - A repo-local virtualenv whose site-packages is a symlink to a directory
   outside the repo is no longer read; `index_dependency` says so in its
-  error, as it does for a package directory or a `.dist-info` linked out of
-  the repo. A package directory linked from site-packages to elsewhere inside
+  error, as it does for a package directory linked out of the repo, or a
+  `.dist-info` linked out that belongs to the package asked for. A package
+  served beside a `.dist-info` that links out but cannot be read lists it
+  under `resolved.withheld_metadata`, and its version is left empty. A package directory linked from site-packages to elsewhere inside
   the repo still resolves.
 - A `node_modules` entry with no `package.json` of its own (an `@scope`
   directory, a package-manager store, or an incomplete install), or one

@@ -352,18 +352,36 @@ def _resolve_pypi(source_root: Path, package: str, looked_in: list) -> Optional[
         # Not when a dist-info here was dropped for linking out: it may be this
         # package's (matched by import name), and serving it version-less would
         # hide that.
-        if dropped_dist_infos and (sp / package).is_dir():
-            pkg_linked_out.extend(dropped_dist_infos)
-            return linked_out_error()
+        # A dist-info dropped for linking out may be this package's (matched by
+        # import name). Refuse when its in-repo top_level.txt says so; when it
+        # cannot be read, serve the directory and name what was withheld,
+        # rather than refuse an install that may be unrelated.
+        withheld: list[str] = []
+        if (sp / package).is_dir():
+            for rel in dropped_dist_infos:
+                di = source_root / rel
+                top = di / "top_level.txt"
+                if (_contained(di, source_root) is not None and top.is_file()
+                        and _contained(top, source_root) is not None):
+                    if package in _top_levels(di):
+                        pkg_linked_out.append(rel)
+                        return linked_out_error()
+                    continue
+                withheld.append(rel)
         bare = package_dir(sp / package)
         if bare is not None and bare.is_dir():
-            return {
+            resolved_bare = {
                 "ecosystem": "pypi", "name": package, "version": "",
                 "installed_path": str(bare),
                 "resolved_from": str(sp.relative_to(source_root)).replace("\\", "/"),
                 "readme_in_metadata": False,
                 "additional_top_levels": [],
             }
+            if withheld:
+                # The version is unknown, not absent: metadata here links out of
+                # the repo and was not read; it may or may not be this package's.
+                resolved_bare["withheld_metadata"] = withheld
+            return resolved_bare
     if any_store_link:
         return {"ecosystem": "pypi", "error": f"{any_store_link[0]} {_STORE_REFUSAL}"}
     if pkg_linked_out:
