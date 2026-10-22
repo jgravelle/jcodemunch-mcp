@@ -7,13 +7,14 @@
 `index_dependency` now accepts only a package name: an npm name (`lodash`,
 `@scope/name`) or a PyPI name (`requests`), never a path. Each name read from
 an installed distribution's `top_level.txt` must be a module name, and every
-package directory, after symlinks, must be inside the repo. The snapshot is always one
+package directory, after symlinks, must be inside the repo, and never the
+repo root, `node_modules` or a virtualenv itself. The snapshot is always one
 directory inside the store's `deps/`, whatever name and version the
 package's own metadata gives.
 
 The snapshot copy applies the checks the indexer applies to every file it
 walks: secret and credential files, files over the size cap and binary files
-are not copied, and the response's `_meta.skipped_on_copy` counts them. A
+are not copied, and the response's `skipped_on_copy` counts them. A
 snapshot already in the store is rebuilt rather than added to, so files an
 earlier version copied do not linger there. A package that lives elsewhere
 in the repo (a workspace package linked from `node_modules`) is copied

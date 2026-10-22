@@ -68,6 +68,32 @@ def _contained(path: Path, root: Path) -> Optional[Path]:
     return resolve_within(root, str(path))
 
 
+def _store_roots(source_root: Path) -> set:
+    """The directories a package directory must never BE: the repo root, its
+    node_modules, and each repo-local site-packages and virtualenv root. A
+    link to one of them would snapshot the whole repo or every installed
+    package as if it were one dependency."""
+    roots = {source_root.resolve(), (source_root / "node_modules").resolve()}
+    for sp in _site_packages_dirs(source_root):
+        roots.add(sp.resolve())
+        # The virtualenv root only when site-packages was found under it; a
+        # workspace that is merely named env/ or venv/ is not a store.
+        for venv_name in _VENV_DIR_CANDIDATES:
+            venv = source_root / venv_name
+            if venv in sp.parents:
+                roots.add(venv.resolve())
+    return roots
+
+
+def _package_dir(path: Path, source_root: Path) -> Optional[Path]:
+    """``path`` resolved if it is a package directory inside the repo: inside
+    ``source_root`` and not one of ``_store_roots``. None otherwise."""
+    real = _contained(path, source_root)
+    if real is None or real in _store_roots(source_root):
+        return None
+    return real
+
+
 def _pep503_normalize(name: str) -> str:
     return re.sub(r"[-_.]+", "-", name).lower()
 
@@ -109,10 +135,10 @@ def _resolve_npm(source_root: Path, package: str) -> Optional[dict]:
             "npm link, or a store outside the repo); only installs inside the "
             "repo are read."
         )}
-    if real == source_root.resolve():
+    if real in _store_roots(source_root):
         return {"ecosystem": "npm", "error": (
-            f"node_modules/{package} links to the repo root itself; only a "
-            "package directory is read."
+            f"node_modules/{package} links to the repo root or a package store "
+            "itself; only a package directory is read."
         )}
     meta = _read_package_json(real)
     return {
@@ -173,8 +199,10 @@ def _top_levels(dist_info: Path) -> list[str]:
 def _resolve_pypi(source_root: Path, package: str, looked_in: list) -> Optional[dict]:
     """Match a distribution (PEP-503 name) or import name in repo-local venvs.
 
-    The name must be a PyPI name, and every directory it resolves to must stay
-    inside the site-packages it was found in.
+    The name must be a PyPI name, and every directory it resolves to must be
+    a package directory inside the repo (``_package_dir``): a link to
+    elsewhere in the repo is followed, one out of it, or to the repo root or
+    a package store itself, is not.
     """
     if not _valid_name(package, _PYPI_NAME_RE):
         return None
@@ -205,7 +233,7 @@ def _resolve_pypi(source_root: Path, package: str, looked_in: list) -> Optional[
             for top in ([package] + tops) if package in tops else (tops or [package]):
                 # `top` is a validated module name, so the join cannot climb;
                 # a link to elsewhere in the repo is followed, one out of it is not.
-                cand = _contained(sp / top, source_root)
+                cand = _package_dir(sp / top, source_root)
                 if cand is not None and cand.is_dir():
                     pkg_dir = cand
                     break
@@ -235,7 +263,7 @@ def _resolve_pypi(source_root: Path, package: str, looked_in: list) -> Optional[
                 "additional_top_levels": [t for t in tops if t != pkg_dir.name],
             }
         # No dist-info matched; a bare package dir still counts, version unknown.
-        bare = _contained(sp / package, source_root)
+        bare = _package_dir(sp / package, source_root)
         if bare is not None and bare.is_dir():
             return {
                 "ecosystem": "pypi", "name": package, "version": "",
@@ -532,7 +560,9 @@ def index_dependency(
         },
     }
     if copied.get("skipped"):
-        response["_meta"]["skipped_on_copy"] = copied["skipped"]
+        # In the body, not _meta: _meta is stripped on a default install, and
+        # what the copy withheld is part of the answer.
+        response["skipped_on_copy"] = copied["skipped"]
     if notes:
         response["_meta"]["notes"] = notes
     return response
