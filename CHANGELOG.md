@@ -11,7 +11,11 @@ advice on Read, Grep, Glob and Bash, the briefing a subagent gets when it
 starts, and the context restored after compaction. The policy block is part
 of every request, and the advice is added each time one of those tools runs.
 In the Claude Code sessions we measured, the advice did not change which
-tools the agent used, so a default install no longer pays for it.
+tools the agent used, so a default install no longer pays for it. That is a
+tradeoff, not a correction: the earlier default was a reasonable call when
+it was made, and it put the tools in front of every agent. What gets an
+agent to use jcodemunch is the user asking for it by name, and `init` now
+says so when it finishes.
 
 A default `init` (including `--yes`, `install <agent>`, and the refresh
 `upgrade` runs) now registers the server and installs only the hooks whose

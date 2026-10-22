@@ -1755,6 +1755,8 @@ def run_init(
         print("Dry run complete -- no changes were made.")
     else:
         print("Done. Restart your MCP client(s) to connect.")
+        if os.environ.get(UPGRADE_REFRESH_ENV) != "1":
+            print(ASK_BY_NAME_LINE)
         if os.environ.get(UPGRADE_REFRESH_ENV) != "1" and not _licence_key_configured():
             print()
             for line in _LICENCE_LINES:
@@ -2010,6 +2012,13 @@ def _strip_guidance_hooks(data: dict[str, Any]) -> list[str]:
 
 
 REMOVE_GUIDANCE_COMMAND = "jcodemunch-mcp init --remove-guidance"
+
+# Asking for the tool by name is what gets an agent to use it; a default
+# install adds no instructions that would ask on the user's behalf.
+ASK_BY_NAME_LINE = (
+    'Tip: ask your agent to use jcodemunch by name ("use jcodemunch to find '
+    'where X is handled"). That is what gets it used.'
+)
 
 
 def _policy_targets() -> "list[tuple[str, Path]]":

@@ -358,3 +358,8 @@ def test_config_check_passes_a_light_install(box, capsys):
     assert "init --policy" in out
     for sub in ("hook-pretooluse", "hook-sessionstart", "hook-subagent-start"):
         assert f"{sub} not installed (opt-in" in out, sub
+
+
+def test_init_tells_the_user_to_ask_for_it_by_name(box, capsys):
+    assert _init() == 0
+    assert init_module.ASK_BY_NAME_LINE in capsys.readouterr().out
