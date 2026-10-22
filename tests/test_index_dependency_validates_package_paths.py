@@ -363,12 +363,34 @@ def test_a_pypi_name_linked_to_the_repo_root_is_refused(host, how):
     assert "error" in res, res
 
 
-def test_a_link_to_node_modules_itself_is_refused(host):
+@pytest.mark.parametrize("target", ["node_modules", "node_modules/@types"])
+def test_a_link_to_node_modules_or_a_scope_is_refused(host, target):
+    """A real package sits next to the link, so only the store refusal (not
+    "no indexable code") can produce the error."""
     node_modules = host["src"] / "node_modules"
-    node_modules.mkdir()
+    real = node_modules / "@types" / "real"
+    real.mkdir(parents=True)
+    (real / "package.json").write_text(json.dumps({"name": "@types/real", "version": "1.0.0"}))
+    (real / "index.js").write_text("function realPkg() { return 1; }\n")
     try:
-        os.symlink(node_modules, node_modules / "everything", target_is_directory=True)
+        os.symlink(host["src"] / target, node_modules / "everything", target_is_directory=True)
     except (OSError, NotImplementedError):
         pytest.skip("this platform cannot create a directory symlink here")
     res = index_dependency(host["repo"], "everything", ecosystem="npm", storage_path=host["store"])
-    assert "error" in res, res
+    assert "error" in res and "only a package directory" in res["error"], res
+    assert not os.path.isdir(os.path.join(host["store"], "deps")) or not os.listdir(
+        os.path.join(host["store"], "deps")
+    )
+
+
+@pytest.mark.parametrize("target", [".venv/Lib", ".venv"])
+def test_a_pypi_link_to_part_of_a_virtualenv_is_refused(host, target):
+    sp = host["src"] / ".venv" / "Lib" / "site-packages"
+    (sp / "realpkg").mkdir(parents=True)
+    (sp / "realpkg" / "__init__.py").write_text("def real_fn():\n    return 1\n")
+    try:
+        os.symlink(host["src"] / target, sp / "allpkgs", target_is_directory=True)
+    except (OSError, NotImplementedError):
+        pytest.skip("this platform cannot create a directory symlink here")
+    res = index_dependency(host["repo"], "allpkgs", ecosystem="pypi", storage_path=host["store"])
+    assert "error" in res and "only a package directory" in res["error"], res

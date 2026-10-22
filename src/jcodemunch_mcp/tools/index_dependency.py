@@ -69,10 +69,10 @@ def _contained(path: Path, root: Path) -> Optional[Path]:
 
 
 def _store_roots(source_root: Path) -> set:
-    """The directories a package directory must never BE: the repo root, its
-    node_modules, and each repo-local site-packages and virtualenv root. A
-    link to one of them would snapshot the whole repo or every installed
-    package as if it were one dependency."""
+    """The repo root, its node_modules, and each repo-local site-packages and
+    virtualenv root. A package directory may not be or contain any of them
+    (``_is_store``): a link to one would snapshot the whole repo or every
+    installed package as if it were one dependency."""
     roots = {source_root.resolve(), (source_root / "node_modules").resolve()}
     for sp in _site_packages_dirs(source_root):
         roots.add(sp.resolve())
@@ -85,13 +85,25 @@ def _store_roots(source_root: Path) -> set:
     return roots
 
 
-def _package_dir(path: Path, source_root: Path) -> Optional[Path]:
-    """``path`` resolved if it is a package directory inside the repo: inside
-    ``source_root`` and not one of ``_store_roots``. None otherwise."""
-    real = _contained(path, source_root)
-    if real is None or real in _store_roots(source_root):
-        return None
-    return real
+def _is_store(real: Path, source_root: Path, roots: set) -> bool:
+    """Is ``real`` (resolved) a store rather than one package?
+
+    True when it is or contains a store root: that covers the root itself and
+    every directory between a virtualenv and its site-packages (``.venv/Lib``,
+    ``venv/lib/python3.12``), whatever the layout. An ``@scope`` directory
+    directly under node_modules holds a whole scope of packages, so it counts
+    too.
+    """
+    if any(_contained(r, real) is not None for r in roots):
+        return True
+    node_modules = (source_root / "node_modules").resolve()
+    return real.parent == node_modules and real.name.startswith("@")
+
+
+_STORE_REFUSAL = (
+    "links to the repo root, node_modules, a virtualenv or a package scope "
+    "rather than to one package; only a package directory is read."
+)
 
 
 def _pep503_normalize(name: str) -> str:
@@ -135,11 +147,8 @@ def _resolve_npm(source_root: Path, package: str) -> Optional[dict]:
             "npm link, or a store outside the repo); only installs inside the "
             "repo are read."
         )}
-    if real in _store_roots(source_root):
-        return {"ecosystem": "npm", "error": (
-            f"node_modules/{package} links to the repo root or a package store "
-            "itself; only a package directory is read."
-        )}
+    if _is_store(real, source_root, _store_roots(source_root)):
+        return {"ecosystem": "npm", "error": f"node_modules/{package} {_STORE_REFUSAL}"}
     meta = _read_package_json(real)
     return {
         "ecosystem": "npm",
@@ -200,14 +209,26 @@ def _resolve_pypi(source_root: Path, package: str, looked_in: list) -> Optional[
     """Match a distribution (PEP-503 name) or import name in repo-local venvs.
 
     The name must be a PyPI name, and every directory it resolves to must be
-    a package directory inside the repo (``_package_dir``): a link to
-    elsewhere in the repo is followed, one out of it, or to the repo root or
-    a package store itself, is not.
+    a package directory inside the repo: a link to elsewhere in the repo is
+    followed, one out of it is not, and nothing that is or contains a store
+    (``_is_store``) is read.
     """
     if not _valid_name(package, _PYPI_NAME_RE):
         return None
     want = _pep503_normalize(package)
     linked_out: list[str] = []
+    roots = _store_roots(source_root)
+    store_link: list[str] = []
+
+    def package_dir(path: Path) -> Optional[Path]:
+        real = _contained(path, source_root)
+        if real is None:
+            return None
+        if _is_store(real, source_root, roots):
+            store_link.append(path.relative_to(source_root).as_posix())
+            return None
+        return real
+
     for sp in _site_packages_dirs(source_root):
         looked_in.append(str(sp))
         if _contained(sp, source_root) is None:
@@ -233,10 +254,12 @@ def _resolve_pypi(source_root: Path, package: str, looked_in: list) -> Optional[
             for top in ([package] + tops) if package in tops else (tops or [package]):
                 # `top` is a validated module name, so the join cannot climb;
                 # a link to elsewhere in the repo is followed, one out of it is not.
-                cand = _package_dir(sp / top, source_root)
+                cand = package_dir(sp / top)
                 if cand is not None and cand.is_dir():
                     pkg_dir = cand
                     break
+            if pkg_dir is None and store_link:
+                return {"ecosystem": "pypi", "error": f"{store_link[0]} {_STORE_REFUSAL}"}
             if pkg_dir is None:
                 single = [
                     t for t in (tops or [package])
@@ -263,7 +286,7 @@ def _resolve_pypi(source_root: Path, package: str, looked_in: list) -> Optional[
                 "additional_top_levels": [t for t in tops if t != pkg_dir.name],
             }
         # No dist-info matched; a bare package dir still counts, version unknown.
-        bare = _package_dir(sp / package, source_root)
+        bare = package_dir(sp / package)
         if bare is not None and bare.is_dir():
             return {
                 "ecosystem": "pypi", "name": package, "version": "",
@@ -272,6 +295,8 @@ def _resolve_pypi(source_root: Path, package: str, looked_in: list) -> Optional[
                 "readme_in_metadata": False,
                 "additional_top_levels": [],
             }
+    if store_link:
+        return {"ecosystem": "pypi", "error": f"{store_link[0]} {_STORE_REFUSAL}"}
     if linked_out:
         return {"ecosystem": "pypi", "error": (
             f"{package!r} was not found, and {', '.join(linked_out)} links to a "
