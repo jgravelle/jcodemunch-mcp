@@ -4,6 +4,16 @@
 
 ## [1.108.390] - 2026-10-21 - the local embedding model is pinned and checked before it is used
 
+### Changed - Pillow is no longer installed on Python 3.10
+
+The `groq-explain` and `all` extras installed Pillow on every Python. Every
+current Pillow security fix is in 13.0.0, which requires Python 3.11, so on
+Python 3.10 these extras installed 12.3.0, which has known vulnerabilities and
+no patched release. The extras now install Pillow (13.0.0 or newer) only on
+Python 3.11 and later. On Python 3.10, `gcm explain` (the only feature that
+uses Pillow) says it needs Python 3.11 instead of suggesting an install that
+cannot help. Nothing else changes for Python 3.10 users.
+
 ### Fixed - the local embedding model is pinned and checked, and its size is stated correctly
 
 `download-model`, and the first semantic encode with the `[local-embed]` extra,
