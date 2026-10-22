@@ -36,7 +36,9 @@ Four behavior changes:
   error, as it does for a package directory linked out of the repo, or a
   `.dist-info` linked out that belongs to the package asked for. A package
   served beside a `.dist-info` that links out but cannot be read lists it
-  under `resolved.withheld_metadata`, and its version is left empty. A package directory linked from site-packages to elsewhere inside
+  under `resolved.withheld_metadata` (at most 20, with
+  `withheld_metadata_total` and `withheld_metadata_truncated`), and its
+  version is left empty. A package directory linked from site-packages to elsewhere inside
   the repo still resolves.
 - A `node_modules` entry with no `package.json` of its own (an `@scope`
   directory, a package-manager store, or an incomplete install), or one

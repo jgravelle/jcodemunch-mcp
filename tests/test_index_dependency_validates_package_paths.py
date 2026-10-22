@@ -502,7 +502,6 @@ def test_a_linked_out_dist_info_matched_by_import_name_is_withheld(host):
     assert "error" not in res, res
     assert res["resolved"]["version"] == ""
     assert res["resolved"]["withheld_metadata"] == [".venv/Lib/site-packages/PyYAML-6.0.dist-info"]
-    assert "6.0" not in json.dumps(res["resolved"]["version"])
 
 
 def test_an_unrelated_linked_out_dist_info_does_not_block_a_package(host):
@@ -518,6 +517,9 @@ def test_an_unrelated_linked_out_dist_info_does_not_block_a_package(host):
         pytest.skip("this platform cannot create a directory symlink here")
     res = index_dependency(host["repo"], "foo", ecosystem="pypi", storage_path=host["store"])
     assert "error" not in res, res
+    assert res["resolved"]["withheld_metadata"] == [".venv/Lib/site-packages/requests-2.0.dist-info"]
+    assert res["resolved"]["withheld_metadata_total"] == 1
+    assert res["resolved"]["withheld_metadata_truncated"] is False
 
 
 def test_a_dist_info_whose_in_repo_top_level_names_the_package_is_refused(host):
@@ -551,6 +553,7 @@ def test_the_requested_top_level_linked_out_is_refused_not_swapped(host):
         pytest.skip("this platform cannot create a directory symlink here")
     res = index_dependency(host["repo"], "foo", ecosystem="pypi", storage_path=host["store"])
     assert "error" in res and "outside the repo" in res["error"], res
+    assert not _store_has_marker(host["store"])
 
 
 def test_a_symlinked_file_in_a_package_is_counted_as_skipped(host):
@@ -563,3 +566,25 @@ def test_a_symlinked_file_in_a_package_is_counted_as_skipped(host):
     assert "error" not in res, res
     assert res["skipped_on_copy"].get("symlink") == 1, res.get("skipped_on_copy")
     assert not _store_has_marker(host["store"])
+
+
+def test_the_withheld_list_is_capped_with_its_total(host):
+    from jcodemunch_mcp.tools import index_dependency as dep_module
+
+    sp = host["src"] / ".venv" / "Lib" / "site-packages"
+    (sp / "foo").mkdir(parents=True)
+    (sp / "foo" / "__init__.py").write_text("def foo_fn():\n    return 1\n")
+    n = dep_module._WITHHELD_LIST_CAP + 5
+    for i in range(n):
+        out_di = host["outside"] / f"pkg{i}-1.0.dist-info"
+        out_di.mkdir()
+        (out_di / "METADATA").write_text(f"Name: pkg{i}\nVersion: 1.0")
+        try:
+            os.symlink(out_di, sp / f"pkg{i}-1.0.dist-info", target_is_directory=True)
+        except (OSError, NotImplementedError):
+            pytest.skip("this platform cannot create a directory symlink here")
+    res = index_dependency(host["repo"], "foo", ecosystem="pypi", storage_path=host["store"])
+    resolved = res["resolved"]
+    assert len(resolved["withheld_metadata"]) == dep_module._WITHHELD_LIST_CAP
+    assert resolved["withheld_metadata_total"] == n
+    assert resolved["withheld_metadata_truncated"] is True

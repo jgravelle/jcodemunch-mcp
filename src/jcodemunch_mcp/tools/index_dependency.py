@@ -38,6 +38,9 @@ _SKIP_COPY_DIRS = frozenset({"node_modules", ".git", "__pycache__", ".venv", "ve
 _SKIP_COPY_SUFFIXES = (".min.js", ".min.ts", ".bundle.js", ".map", ".pyc", ".pyo")
 _DOC_FILE_RE = re.compile(r"^(readme|changelog|history|license|licence|notice)", re.IGNORECASE)
 _DEFAULT_MAX_FILES = 2000
+# At most this many withheld dist-info paths are listed; the total and a
+# truncated flag ride beside the list.
+_WITHHELD_LIST_CAP = 20
 
 _THIN_DOCS_NOTE = (
     "This package ships minimal doc files; symbol signatures and docstrings "
@@ -380,7 +383,9 @@ def _resolve_pypi(source_root: Path, package: str, looked_in: list) -> Optional[
             if withheld:
                 # The version is unknown, not absent: metadata here links out of
                 # the repo and was not read; it may or may not be this package's.
-                resolved_bare["withheld_metadata"] = withheld
+                resolved_bare["withheld_metadata"] = withheld[:_WITHHELD_LIST_CAP]
+                resolved_bare["withheld_metadata_total"] = len(withheld)
+                resolved_bare["withheld_metadata_truncated"] = len(withheld) > _WITHHELD_LIST_CAP
             return resolved_bare
     if any_store_link:
         return {"ecosystem": "pypi", "error": f"{any_store_link[0]} {_STORE_REFUSAL}"}
