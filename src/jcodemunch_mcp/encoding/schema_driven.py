@@ -58,6 +58,22 @@ UNIVERSAL_META_JSON = frozenset({
 })
 
 
+# Top-level keys every encoder must carry, the body-level twin of
+# UNIVERSAL_META_JSON. A warning in the answer was dropped by every schema that
+# did not list it, so on the default `server_output: adaptive`, which picks the
+# compact form whenever it is smaller, `search_symbols`' "Low-confidence
+# matches ... Verify before claiming this feature exists" reached the agent as
+# bare rows. Any top-level key whose name contains "warning" is carried too, so
+# a warning a tool adds later needs no schema edit.
+UNIVERSAL_BODY_JSON = frozenset({
+    "negative_evidence",  # search_symbols: the weak-match or no-match verdict
+})
+
+
+def is_universal_body_key(key: str) -> bool:
+    return key in UNIVERSAL_BODY_JSON or "warning" in key.lower()
+
+
 @dataclass
 class TableSpec:
     key: str                       # response dict key holding list[dict]
@@ -199,9 +215,14 @@ def encode(
             scalar_payload[f"__json._meta.{k}"] = json.dumps(
                 meta[k], separators=(",", ":")
             )
+    json_blobs = list(json_blobs)
     for k in json_blobs:
         if k in response:
             scalar_payload[f"__json.{k}"] = json.dumps(response[k], separators=(",", ":"))
+    declared_body = set(scalars) | set(json_blobs) | {t.key for t in tables} | set(nested_dicts)
+    for k, v in response.items():
+        if k not in declared_body and not k.startswith("_") and is_universal_body_key(k):
+            scalar_payload[f"__json.{k}"] = json.dumps(v, separators=(",", ":"))
     scalar_types_out: dict[str, str] = {}
     for k, v in scalar_payload.items():
         if k.startswith("__"):
@@ -331,6 +352,18 @@ def decode(
                 result[k] = json.loads(raw_scalars[prefixed])
             except Exception:
                 result[k] = raw_scalars[prefixed]
+    # Universal body keys (see UNIVERSAL_BODY_JSON): whatever the schema did
+    # not declare but the encoder carried anyway.
+    for prefixed, raw in raw_scalars.items():
+        if not prefixed.startswith("__json.") or prefixed.startswith("__json._meta."):
+            continue
+        k = prefixed[len("__json."):]
+        if k in result or not is_universal_body_key(k):
+            continue
+        try:
+            result[k] = json.loads(raw)
+        except Exception:
+            result[k] = raw
 
     # Tables
     for t in tables:

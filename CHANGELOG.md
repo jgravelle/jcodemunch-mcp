@@ -43,6 +43,8 @@ a missing policy or model-facing hook as opt-in, not as a problem.
 The front-door tools still load up front where a client defers MCP tools;
 that is server-side and unchanged.
 
+## [1.108.392] - 2026-10-22 - a warning in a tool's answer survives the compact encoding
+
 ### Fixed - a question about code ranks code above settings files
 
 With tests weighted down in 1.108.391, the next thing to crowd a question
@@ -117,6 +119,33 @@ with nothing to say which function each one reaches the target through.
   wording leaves both exactly as they were.
 - The compact encoding is `ch2` and carries all of it (`ch1` still decodes).
   `get_blast_radius`, which shares the walk, also gains `via` on its callers.
+
+### Fixed - a warning in a tool's answer survives the compact encoding
+
+`search_symbols` answers a weak match with `⚠ warning` ("Low-confidence
+matches ... Verify before claiming this feature exists") and
+`negative_evidence`. Neither was declared in its compact schema, and the
+schema encoder dropped every top-level key a schema did not declare. The
+default `server_output: adaptive` picks the compact form whenever it is
+smaller, so on a default install a low-confidence answer with ten rows
+reached the agent as ten rows and `result_count`, with no warning: the
+guard against claiming a feature exists was lost exactly when there were
+results to mislead.
+
+It was not one schema's omission. Every schema-driven encoder dropped a
+top-level warning the same way, including the `budget_warning` the server
+adds to a result when the session's token budget runs low. The fix is in
+two layers, so a schema written later inherits it:
+
+- The schema encoder carries `negative_evidence` and any top-level key whose
+  name contains "warning", the body-level twin of the `_meta` contract keys
+  it already carried. `get_file_outline`'s batch form, which rebuilds the
+  response before encoding, passes them through too.
+- When a response carries one of these keys, the compact form is decoded
+  before it is sent, and if any of them did not survive the response goes
+  out as JSON instead. A response without one pays nothing for the check.
+
+Older compact payloads decode as before.
 
 ## [1.108.391] - 2026-10-21 - a question about how code works ranks the code above its tests
 

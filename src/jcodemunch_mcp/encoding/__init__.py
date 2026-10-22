@@ -25,7 +25,8 @@ import json
 import logging
 from typing import Any
 
-from . import gate, generic
+from . import decoder, gate, generic
+from . import schema_driven as _sd
 from .schemas import registry
 
 logger = logging.getLogger(__name__)
@@ -93,6 +94,26 @@ def encode_response(
     except Exception:
         logger.debug("Encoder failed for %s; falling back to JSON", tool_name, exc_info=True)
         return response, {"encoding": "json", "json_bytes": json_bytes}
+
+    # A warning or `negative_evidence` must survive the wire whatever a schema
+    # does to the response first. The schema encoder carries them, but a schema
+    # that reshapes the response before encoding (a batch flatten) can lose
+    # one, and the next such schema would too. Checked only when one is
+    # present, so an ordinary response pays nothing.
+    contract = {
+        k: v for k, v in response.items()
+        if not k.startswith("_") and _sd.is_universal_body_key(k)
+    }
+    if contract:
+        try:
+            back = decoder.decode(payload)
+            kept = all(back.get(k) == v for k, v in contract.items())
+        except Exception:
+            logger.debug("Decode check failed for %s", tool_name, exc_info=True)
+            kept = False
+        if not kept:
+            logger.debug("Encoder for %s dropped a warning; falling back to JSON", tool_name)
+            return response, {"encoding": "json", "json_bytes": json_bytes}
 
     encoded_bytes = len(payload)
     if fmt == "auto" and not gate.passes(json_bytes, encoded_bytes, repo=repo):

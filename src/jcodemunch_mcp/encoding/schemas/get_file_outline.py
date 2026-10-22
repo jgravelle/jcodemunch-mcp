@@ -91,6 +91,11 @@ def _flatten_batch(response: dict) -> dict:
         flat["repo"] = response["repo"]
     if "_meta" in response:
         flat["_meta"] = response["_meta"]
+    # A warning on the batch response (`budget_warning` is promoted to the top
+    # level of every result) must reach the encoder, which carries it.
+    for k, v in response.items():
+        if not k.startswith("_") and sd.is_universal_body_key(k):
+            flat[k] = v
     return flat
 
 
@@ -121,6 +126,9 @@ def _unflatten_batch(flat: dict) -> dict:
         out["repo"] = repo
     if "_meta" in flat:
         out["_meta"] = flat["_meta"]
+    for k, v in flat.items():
+        if not k.startswith("_") and sd.is_universal_body_key(k):
+            out[k] = v
     return out
 
 

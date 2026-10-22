@@ -2878,3 +2878,13 @@ The 1.108.388 entry, verbatim as it stood in `CLAUDE.md`:
 The `Tests:` line's 1.108.388 count, verbatim:
 
 - ⚠ Prior (1.108.388): 18284 passed, 25 skipped, **0 failed** (18309 total).
+
+## Current State rotation (2026-10-22, release 1.108.392)
+
+The 1.108.389 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.389):** **the core tools load up front where clients defer MCP tools** (#1197): `_apply_always_load` marks `_instruction_tool_names(surface)` with `_meta["anthropic/alwaysLoad"]` (one list for both); stdio startup `_indexed_here` (resolve_repo, 1.5 s, source_root must contain cwd) makes the note say "is indexed (N files)"; the counter hook names `order` and its load step (#1188); `cli.policy` resolves the surface like the server (#1189). Full text: `CHANGELOG.md`.
+
+The `Tests:` line's 1.108.389 count, verbatim:
+
+- ⚠ Prior (1.108.389): 18330 passed, 24 skipped, **0 failed** (18354 total).
