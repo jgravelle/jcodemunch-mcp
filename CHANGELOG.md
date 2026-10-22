@@ -24,7 +24,32 @@ worktree is no longer briefed with the checkout's symbols, and Read/Grep steerin
 no longer points it at the checkout's index. `index_file` keeps its existing
 refusal for a file in a nested worktree. Reported by @zaphod72.
 
+### Fixed - the `.windsurfrules` backup is named `.windsurfrules.bak`
+
+`init` and `uninstall` back up a rules file before they change it, and named
+the backup by swapping the file's suffix: `path.with_suffix(".windsurfrules.bak")`.
+`.windsurfrules` is a dotfile with no suffix, so `with_suffix` appended instead
+of replacing, and the backup came out as `.windsurfrules.windsurfrules.bak`.
+Nothing was lost, but a user looking for `.windsurfrules.bak` did not find it.
+Every other backup site guessed the suffix the same way and was right
+only because each guess matched its file. Every one of those backups now goes
+through `cli/backup.backup_path`, which appends `.bak` to the whole name, so the
+other sites write the same names as before. (`policy-refresh` already named its
+timestamped backups from the whole name and is unchanged.) `tests/test_backup_is_named_after_the_file.py`
+checks both Windsurf paths and the helper, and fails on any `with_suffix` call
+that builds a `.bak` name under `cli/`.
+
 ## [1.108.390] - 2026-10-21 - the local embedding model is pinned and checked before it is used
+
+### Changed - Pillow is no longer installed on Python 3.10
+
+The `groq-explain` and `all` extras installed Pillow on every Python. Every
+current Pillow security fix is in 13.0.0, which requires Python 3.11, so on
+Python 3.10 these extras installed 12.3.0, which has known vulnerabilities and
+no patched release. The extras now install Pillow (13.0.0 or newer) only on
+Python 3.11 and later. On Python 3.10, `gcm explain` (the only feature that
+uses Pillow) says it needs Python 3.11 instead of suggesting an install that
+cannot help. Nothing else changes for Python 3.10 users.
 
 ### Fixed - the local embedding model is pinned and checked, and its size is stated correctly
 

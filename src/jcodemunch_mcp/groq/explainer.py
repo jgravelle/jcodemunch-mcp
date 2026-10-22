@@ -8,7 +8,8 @@ Pipeline:
   5. Composite slides + audio into MP4 via FFmpeg
 
 MVP: static slides (no animation). Requires FFmpeg on PATH.
-Requires: pip install "jcodemunch-mcp[groq-explain]"
+Requires: Python 3.11 or newer, and pip install "jcodemunch-mcp[groq-explain]"
+(the extra installs Pillow only on Python 3.11+).
 """
 
 import json
@@ -96,7 +97,15 @@ def _check_deps() -> Optional[str]:
     if missing:
         parts = []
         pip_pkgs = [m for m in missing if m != "ffmpeg (system binary, not pip)"]
-        if pip_pkgs:
+        if pip_pkgs and sys.version_info < (3, 11):
+            # The extra installs Pillow only on Python 3.11+: no Pillow release
+            # for 3.10 carries the current security fixes (13.0.0 needs 3.11).
+            parts.append(
+                "The explainer needs Python 3.11 or newer: on Python 3.10 the "
+                "groq-explain extra does not install Pillow, because no Pillow "
+                "release for 3.10 has the current security fixes."
+            )
+        elif pip_pkgs:
             parts.append('pip install "jcodemunch-mcp[groq-explain]"')
         if "ffmpeg (system binary, not pip)" in missing:
             parts.append("Install FFmpeg: https://ffmpeg.org/download.html")
