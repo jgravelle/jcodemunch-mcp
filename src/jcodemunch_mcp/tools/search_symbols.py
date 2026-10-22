@@ -420,7 +420,7 @@ def _bm25_breakdown(sym: dict, query_terms: list[str], idf: dict[str, float], av
         "summary": _tokenize(sym.get("summary", "")) * _FIELD_REPS["summary"],
         "docstring": _tokenize(sym.get("docstring", "")) * _FIELD_REPS["docstring"],
     }
-    out: dict[str, float] = {}
+    out: dict[str, float | str] = {}
     for fname, ftoks in fields.items():
         tf_raw: dict[str, int] = {}
         for t in ftoks:
