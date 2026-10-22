@@ -4,9 +4,9 @@
 `init --hooks --yes`) used to write the Code Exploration Policy into the global
 CLAUDE.md and AGENTS.md and install six Claude Code hooks, three of which put
 text in front of the model: the PreToolUse advice on Read/Grep/Glob/Bash, the
-SubagentStart briefing and the SessionStart restore after compaction. Measured on
-Claude Code, the advice was followed 0 times in 329 deliveries, and the policy
-and advice are paid for on every request.
+SubagentStart briefing and the SessionStart restore after compaction. The policy
+and the advice are paid for on every request they apply to, and in Claude Code
+sessions we measured, the advice did not change which tools the agent used.
 
 Now the default writes the server registration and the silent hooks
 (PostToolUse reindex, PreCompact, TaskCompleted). `--guidance` adds the three

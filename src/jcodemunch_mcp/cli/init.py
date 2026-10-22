@@ -128,9 +128,9 @@ def _guidance_hooks() -> dict[str, Any]:
 
     The PreToolUse advice on Read/Grep/Glob/Bash, the SubagentStart briefing and
     the SessionStart restore after compaction each cost tokens on the turns they
-    fire. Measured on Claude Code, the advice was followed 0 times in 329
-    deliveries, so they are no longer installed by default. An install that
-    already has them keeps them (see ``install_enforcement_hooks``).
+    fire, and in Claude Code sessions we measured the advice did not change
+    which tools the agent used, so they are no longer installed by default. An
+    install that already has them keeps them (see ``install_enforcement_hooks``).
     """
     exe = _hook_invocation()
     return {
