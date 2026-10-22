@@ -61,15 +61,11 @@ def _valid_name(package: str, pattern: "re.Pattern[str]") -> bool:
 
 
 def _contained(path: Path, root: Path) -> Optional[Path]:
-    """``path`` resolved, if it stays inside ``root`` resolved; else None."""
-    try:
-        resolved = path.resolve()
-        root_resolved = root.resolve()
-        if os.path.commonpath([str(root_resolved), str(resolved)]) != str(root_resolved):
-            return None
-        return resolved
-    except (OSError, ValueError):
-        return None
+    """``path`` resolved, if it stays inside ``root`` resolved; else None.
+
+    The confinement rule is ``security.resolve_within``'s, applied to a path
+    that is already absolute (joining an absolute path keeps it)."""
+    return resolve_within(root, str(path))
 
 
 def _pep503_normalize(name: str) -> str:
@@ -107,11 +103,16 @@ def _resolve_npm(source_root: Path, package: str) -> Optional[dict]:
     if not candidate.is_dir():
         return None
     real = _contained(candidate, source_root)
-    if real is None or real == source_root.resolve():
+    if real is None:
         return {"ecosystem": "npm", "error": (
             f"node_modules/{package} links to a directory outside the repo (an "
             "npm link, or a store outside the repo); only installs inside the "
             "repo are read."
+        )}
+    if real == source_root.resolve():
+        return {"ecosystem": "npm", "error": (
+            f"node_modules/{package} links to the repo root itself; only a "
+            "package directory is read."
         )}
     meta = _read_package_json(real)
     return {
@@ -180,6 +181,12 @@ def _resolve_pypi(source_root: Path, package: str, looked_in: list) -> Optional[
     want = _pep503_normalize(package)
     for sp in _site_packages_dirs(source_root):
         looked_in.append(str(sp))
+        if _contained(sp, source_root) is None:
+            return {"ecosystem": "pypi", "error": (
+                f"{sp.relative_to(source_root).as_posix()} links to a directory "
+                "outside the repo (a virtualenv kept elsewhere); only installs "
+                "inside the repo are read."
+            )}
         dist_infos = [Path(p) for p in glob(str(sp / "*.dist-info")) if Path(p).is_dir()]
         match: Optional[Path] = None
         for di in dist_infos:
@@ -253,13 +260,22 @@ def _host_gitignore_root(source_root: Path, installed: Path) -> Optional[Path]:
     from node_modules) is ordinary repo content, and its gitignored files stay
     out of the snapshot as they stay out of the repo's own index.
     """
+    root = source_root.resolve()
     try:
-        rel = installed.resolve().relative_to(source_root.resolve()).parts
+        real = installed.resolve()
+        rel = real.relative_to(root).parts
     except (OSError, ValueError):
         return None
-    if "node_modules" in rel or (rel and rel[0] in _VENV_DIR_CANDIDATES):
+    # Exempt only the stores this tool reads: the repo's own top-level
+    # node_modules, and the site-packages directories it found. A directory
+    # that merely has one of those names (a workspace at env/, or a nested
+    # tools/node_modules) is repo content and keeps the repo's .gitignore.
+    if rel and rel[0] == "node_modules":
         return None
-    return source_root.resolve()
+    for sp in _site_packages_dirs(source_root):
+        if _contained(real, sp) is not None:
+            return None
+    return root
 
 
 def _copy_snapshot(
@@ -445,6 +461,7 @@ def index_dependency(
                 f"{resolved['installed_path']} but found no indexable code files."
             ),
             "resolved": resolved,
+            **({"skipped_on_copy": copied["skipped"]} if copied.get("skipped") else {}),
         }
 
     result = index_folder(

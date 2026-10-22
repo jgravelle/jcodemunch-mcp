@@ -1365,9 +1365,19 @@ def _gitignore_chain(walk_root: Path, directory: Path) -> dict:
     return specs
 
 
-def _explicit_path_is_gitignored(walk_root: Path, file_path: Path) -> bool:
-    """Is ``file_path`` excluded by a .gitignore between ``walk_root`` and it?"""
-    specs = _gitignore_chain(walk_root, file_path.parent)
+def _explicit_path_is_gitignored(walk_root: Path, file_path: Path, cache: Optional[dict] = None) -> bool:
+    """Is ``file_path`` excluded by a .gitignore between ``walk_root`` and it?
+
+    ``cache`` maps a directory to its chain, so a long list of files in a few
+    directories reads each .gitignore once.
+    """
+    parent = file_path.parent
+    if cache is not None and parent in cache:
+        specs = cache[parent]
+    else:
+        specs = _gitignore_chain(walk_root, parent)
+        if cache is not None:
+            cache[parent] = specs
     return bool(specs) and _is_gitignored(file_path, specs)
 
 
@@ -1420,6 +1430,7 @@ def resolve_explicit_paths(
     seen: set = set()
 
     cap = max_files if max_files is not None else 10_000_000
+    gitignore_cache: dict = {}
 
     for raw in paths:
         if len(files) >= cap:
@@ -1498,7 +1509,7 @@ def resolve_explicit_paths(
             skip_counts["secret"] = skip_counts.get("secret", 0) + 1
             continue
 
-        if honor_gitignore and _explicit_path_is_gitignored(walk_root, p):
+        if honor_gitignore and _explicit_path_is_gitignored(walk_root, p, gitignore_cache):
             warnings.append(f"Skipped gitignored file: {_rel}")
             skip_counts["gitignore"] = skip_counts.get("gitignore", 0) + 1
             continue

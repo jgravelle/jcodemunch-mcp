@@ -26,7 +26,7 @@ Two behavior changes:
   repo (as `npm link` makes, or a package store kept outside the repo) is no
   longer followed; `index_dependency` says so in its error. A workspace link
   that stays inside the repo still resolves.
-- `index_folder(paths=...)` honours `.gitignore` the way a full index does: a
+- `index_folder(paths=...)` honors `.gitignore` the way a full index does: a
   listed file, or a file under a listed folder, that a `.gitignore` between
   the repo root and the file excludes is skipped with a warning. Before, a
   listed file was indexed even when ignored. Skip-directory rules still do not apply to listed files.

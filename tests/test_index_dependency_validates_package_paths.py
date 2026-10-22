@@ -7,7 +7,7 @@ directory it resolves to (after symlinks) must stay inside the folder it was
 looked up in and inside the repo. The snapshot copy applies the same
 per-file checks the indexer applies to a walked file: no secret or credential
 file, nothing over the size cap, nothing binary. And `index_folder(paths=...)`
-honours .gitignore like the walk does; only index_dependency's own filtered
+honors .gitignore like the walk does; only index_dependency's own filtered
 snapshot opts out.
 
 Each test plants a marker outside the repo (or a file that must not be copied)
@@ -130,7 +130,7 @@ def test_the_copy_skips_secret_oversize_and_binary_files(host, monkeypatch):
     assert sum(skipped.values()) == 3, skipped
 
 
-def test_explicit_paths_honour_gitignore(tmp_path):
+def test_explicit_paths_honor_gitignore(tmp_path):
     root = tmp_path / "repo"
     root.mkdir()
     (root / ".gitignore").write_text("local_settings.py\n")
@@ -208,7 +208,7 @@ def test_a_name_with_a_trailing_newline_is_refused(host):
     assert "error" in res and "not a package name" in res["error"], res
 
 
-def test_a_listed_folder_honours_a_gitignore_above_it(tmp_path):
+def test_a_listed_folder_honors_a_gitignore_above_it(tmp_path):
     root = tmp_path / "repo"
     (root / "sub").mkdir(parents=True)
     (root / ".gitignore").write_text("sub/local_settings.py\n")
@@ -237,7 +237,11 @@ def test_a_crafted_version_cannot_move_the_snapshot(host, tmp_path, version):
     index_dependency(host["repo"], "crafted", storage_path=host["store"])
     assert os.path.exists(os.path.join(other, "keep.js"))  # no other snapshot removed
     assert not (tmp_path / "victim").exists()
-    for entry in os.listdir(os.path.join(host["store"], "deps")):
+    deps = os.path.join(host["store"], "deps")
+    for entry in os.listdir(deps):
+        # Every snapshot is one directory directly under deps/; nothing is
+        # written into deps/ itself.
+        assert os.path.isdir(os.path.join(deps, entry)), entry
         assert ".." not in entry and "/" not in entry
 
 
@@ -249,7 +253,7 @@ def test_a_link_to_the_repo_root_is_refused(host):
     except (OSError, NotImplementedError):
         pytest.skip("this platform cannot create a directory symlink here")
     res = index_dependency(host["repo"], "self", ecosystem="npm", storage_path=host["store"])
-    assert "error" in res and "outside the repo" in res["error"], res
+    assert "error" in res and "repo root" in res["error"], res
 
 
 def test_a_workspace_package_keeps_its_gitignored_files_out(host):
@@ -269,3 +273,39 @@ def test_a_workspace_package_keeps_its_gitignored_files_out(host):
     assert "error" not in res, res
     copied = set(os.listdir(res["snapshot_path"]))
     assert "index.js" in copied and "local_settings.js" not in copied, copied
+
+
+@pytest.mark.parametrize("folder", ["env", "venv", "tools/node_modules/ws"])
+def test_a_workspace_named_like_a_store_keeps_its_gitignore(host, folder):
+    """Only the repo's top-level node_modules and the site-packages actually
+    found are exempt; a folder that merely has one of those names is not."""
+    (host["src"] / ".gitignore").write_text(f"{folder}/local.js\n")
+    target = host["src"] / folder
+    target.mkdir(parents=True)
+    (target / "package.json").write_text(json.dumps({"name": "ws", "version": "0.1.0"}))
+    (target / "index.js").write_text("export function ws() { return 1; }\n")
+    (target / "local.js").write_text("export const local = 'internal';\n")
+    node_modules = host["src"] / "node_modules"
+    node_modules.mkdir(exist_ok=True)
+    try:
+        os.symlink(target, node_modules / "ws", target_is_directory=True)
+    except (OSError, NotImplementedError):
+        pytest.skip("this platform cannot create a directory symlink here")
+    res = index_dependency(host["repo"], "ws", ecosystem="npm", storage_path=host["store"])
+    assert "error" not in res, res
+    copied = set(os.listdir(res["snapshot_path"]))
+    assert "index.js" in copied and "local.js" not in copied, copied
+
+
+def test_a_virtualenv_linked_out_of_the_repo_says_so(host):
+    real_sp = host["outside"] / "site-packages"
+    (real_sp / "pkg").mkdir(parents=True)
+    (real_sp / "pkg" / "__init__.py").write_text(MARKER)
+    lib = host["src"] / ".venv" / "Lib"
+    lib.mkdir(parents=True)
+    try:
+        os.symlink(real_sp, lib / "site-packages", target_is_directory=True)
+    except (OSError, NotImplementedError):
+        pytest.skip("this platform cannot create a directory symlink here")
+    res = index_dependency(host["repo"], "pkg", ecosystem="pypi", storage_path=host["store"])
+    assert "error" in res and "outside the repo" in res["error"], res
