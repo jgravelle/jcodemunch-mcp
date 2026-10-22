@@ -12,16 +12,22 @@ default `server_output: adaptive` picks the compact form whenever it is
 smaller, so on a default install a low-confidence answer with ten rows
 reached the agent as ten rows and `result_count`, with no warning: the
 guard against claiming a feature exists was lost exactly when there were
-results to mislead. An empty answer kept its warning only because the
-compact form was not smaller.
+results to mislead.
 
 It was not one schema's omission. Every schema-driven encoder dropped a
-top-level warning the same way, so the fix is in the encoder rather than in
-`search_symbols`' schema: every encoder now carries `negative_evidence` and
-any top-level key whose name contains "warning", the body-level twin of the
-`_meta` contract keys it already carried. A warning a tool adds later needs
-no schema edit, and a test checks every registered encoder. Older compact
-payloads decode as before.
+top-level warning the same way, including the `budget_warning` the server
+adds to a result when the session's token budget runs low. The fix is in
+two layers, so a schema written later inherits it:
+
+- The schema encoder carries `negative_evidence` and any top-level key whose
+  name contains "warning", the body-level twin of the `_meta` contract keys
+  it already carried. `get_file_outline`'s batch form, which rebuilds the
+  response before encoding, passes them through too.
+- When a response carries one of these keys, the compact form is decoded
+  before it is sent, and if any of them did not survive the response goes
+  out as JSON instead. A response without one pays nothing for the check.
+
+Older compact payloads decode as before.
 
 ## [1.108.391] - 2026-10-21 - a question about how code works ranks the code above its tests
 
