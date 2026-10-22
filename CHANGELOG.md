@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.392] - 2026-10-22 - a warning in a tool's answer survives the compact encoding
+
 ### Fixed - a question about code ranks code above settings files
 
 With tests weighted down in 1.108.391, the next thing to crowd a question
