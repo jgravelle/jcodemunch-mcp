@@ -1,6 +1,12 @@
 {
-  "current": "1.108.391",
+  "current": "1.108.392",
   "entries": [
+    {
+      "version": "1.108.392",
+      "date": "2026-10-22",
+      "title": "a warning in a tool's answer survives the compact encoding",
+      "summary": "A warning in a tool's answer, and its negative_evidence, now survive the compact encoding on a default install, where they were dropped; if any declared key would still be lost the answer falls back to JSON. A question about code ranks code above settings files: symbols from YAML, TOML, JSON and XML files and from stylesheets count for half unless the query names configuration or styling. get_call_hierarchy says which callers are direct (depth 1) and, for an indirect one, which row it is reached from (via), with direct_caller_count beside caller_count."
+    },
     {
       "version": "1.108.391",
       "date": "2026-10-21",
