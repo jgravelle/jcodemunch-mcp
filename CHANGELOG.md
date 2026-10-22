@@ -2,6 +2,44 @@
 
 ## [Unreleased]
 
+### Fixed - a question about code ranks functions above settings files and data fields
+
+With tests weighted down in 1.108.391, the next thing to crowd a question
+about how code works was everything else that shares a word with it and does
+nothing: CI workflow keys, `pyproject.toml` tables, CSS selectors, and the
+fields and constants named after the concept. On the pinned fastapi checkout,
+"dependency injection Depends resolution" returned five copies of the
+workflow's `UV_RESOLUTION` key (it matches "resolution"), and the other six
+questions in the same set carried one to three fields or constants in their
+top 5 (`SolvedDependency.dependency_cache`, `APIRoute.dependencies`,
+`Operation.operationId`). A repository's settings files can hold as many
+symbols as its code: that checkout has about 6,400 YAML symbols beside 7,000
+Python ones.
+
+`rank_factor` in `retrieval/scoring.py`, which every lexical scorer reads,
+now weights two more groups at half (`NON_CODE_WEIGHT`, `DATA_KIND_WEIGHT`),
+beside the test weight and never on top of it:
+
+- symbols from configuration files (YAML, TOML, JSON, XML, INI, properties),
+  unless the query names configuration ("config", "workflow", "ci",
+  "pyproject", ...), and from stylesheets, unless it names styling. A
+  configuration word does not lift the stylesheet;
+- fields and constants, unless the query names values ("field", "constant",
+  "attribute", "property", ...).
+
+On the same seven questions no settings-file symbol, field or constant is
+left in any top 5; `Depends` moves to 5th or better on five of them (from
+20th, 9th and 8th on three, and from 66th and 68th to 20th and 22nd on the
+short forms), and `solve_dependencies` from 22nd to 7th on "how are path
+operation dependencies solved".
+
+Half, not a quarter: at a quarter, "python version matrix" lost the workflow
+keys it was asking about. Only ranking reads the weight. The identity channel
+is untouched, so an exact name (`UV_RESOLUTION`, `dependency_cache`) still
+ranks first, and a match found only in settings files is still a match, with
+no low-confidence warning. The `debug=True` breakdown names the weight and
+why (`rank_weight`, `rank_weight_reason`); `test_weight` stays on test rows.
+
 ## [1.108.391] - 2026-10-21 - a question about how code works ranks the code above its tests
 
 ### Fixed - a question about how code works ranks the code above its tests
