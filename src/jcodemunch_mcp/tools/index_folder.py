@@ -1344,27 +1344,6 @@ def _refresh_git_head_if_advanced(store, owner, name, folder_path, stored_head):
         return ""
 
 
-def _gitignore_chain(walk_root: Path, directory: Path) -> dict:
-    """The .gitignore specs from ``walk_root`` down to ``directory``, inclusive.
-
-    Reads only the .gitignore files on that one ancestor chain, so a
-    single-file reindex stays cheap.
-    """
-    specs: dict[Path, pathspec.PathSpec] = {}
-    try:
-        rel_parts = directory.relative_to(walk_root).parts
-    except ValueError:
-        return specs
-    current = walk_root
-    for part in ("",) + rel_parts:
-        if part:
-            current = current / part
-        spec = _load_gitignore(current)
-        if spec is not None:
-            specs[current.resolve()] = spec
-    return specs
-
-
 def _explicit_path_is_gitignored(walk_root: Path, file_path: Path, cache: Optional[dict] = None) -> bool:
     """Is ``file_path`` excluded by a .gitignore between ``walk_root`` and it?
 
@@ -1375,10 +1354,13 @@ def _explicit_path_is_gitignored(walk_root: Path, file_path: Path, cache: Option
     if cache is not None and parent in cache:
         specs = cache[parent]
     else:
-        specs = _gitignore_chain(walk_root, parent)
+        try:
+            specs = _gitignore_specs_on_path(walk_root, file_path)
+        except ValueError:
+            return False
         if cache is not None:
             cache[parent] = specs
-    return bool(specs) and _is_gitignored(file_path, specs)
+    return bool(specs) and _is_gitignored_fast(str(file_path), specs)
 
 
 def resolve_explicit_paths(
@@ -1474,10 +1456,10 @@ def resolve_explicit_paths(
                 skip_counts[k] = skip_counts.get(k, 0) + v
             # The subtree walk reads the .gitignore files inside ``p``; the
             # ones above it, up to ``walk_root``, are applied here.
-            above = _gitignore_chain(walk_root, p.parent) if honor_gitignore and p != walk_root else {}
+            above = _gitignore_specs_on_path(walk_root, p) if honor_gitignore and p != walk_root else []
             for f in sub_files:
                 fr = f.resolve()
-                if above and _is_gitignored(fr, above):
+                if above and _is_gitignored_fast(str(fr), above):
                     skip_counts["gitignore"] = skip_counts.get("gitignore", 0) + 1
                     continue
                 if fr not in seen:

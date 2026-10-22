@@ -309,3 +309,35 @@ def test_a_virtualenv_linked_out_of_the_repo_says_so(host):
         pytest.skip("this platform cannot create a directory symlink here")
     res = index_dependency(host["repo"], "pkg", ecosystem="pypi", storage_path=host["store"])
     assert "error" in res and "outside the repo" in res["error"], res
+
+
+def test_a_site_packages_link_inside_the_repo_still_resolves(host):
+    target = host["src"] / "lib" / "mypkg"
+    target.mkdir(parents=True)
+    (target / "__init__.py").write_text("def mypkg_fn():\n    return 1\n")
+    sp = host["src"] / ".venv" / "Lib" / "site-packages"
+    di = sp / "mypkg-1.0.dist-info"
+    di.mkdir(parents=True)
+    (di / "METADATA").write_text("Name: mypkg\nVersion: 1.0")
+    (di / "top_level.txt").write_text("mypkg\n")
+    try:
+        os.symlink(target, sp / "mypkg", target_is_directory=True)
+    except (OSError, NotImplementedError):
+        pytest.skip("this platform cannot create a directory symlink here")
+    res = index_dependency(host["repo"], "mypkg", ecosystem="pypi", storage_path=host["store"])
+    assert "error" not in res, res
+
+
+def test_one_virtualenv_linked_out_does_not_hide_another(host):
+    lib = host["src"] / ".venv" / "Lib"
+    lib.mkdir(parents=True)
+    try:
+        os.symlink(host["outside"], lib / "site-packages", target_is_directory=True)
+    except (OSError, NotImplementedError):
+        pytest.skip("this platform cannot create a directory symlink here")
+    real = host["src"] / "venv" / "Lib" / "site-packages" / "goodpkg"
+    real.mkdir(parents=True)
+    (real / "__init__.py").write_text("def goodpkg_fn():\n    return 1\n")
+    res = index_dependency(host["repo"], "goodpkg", ecosystem="pypi", storage_path=host["store"])
+    assert "error" not in res, res
+    assert not _store_has_marker(host["store"])

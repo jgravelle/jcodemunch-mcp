@@ -179,14 +179,12 @@ def _resolve_pypi(source_root: Path, package: str, looked_in: list) -> Optional[
     if not _valid_name(package, _PYPI_NAME_RE):
         return None
     want = _pep503_normalize(package)
+    linked_out: list[str] = []
     for sp in _site_packages_dirs(source_root):
         looked_in.append(str(sp))
         if _contained(sp, source_root) is None:
-            return {"ecosystem": "pypi", "error": (
-                f"{sp.relative_to(source_root).as_posix()} links to a directory "
-                "outside the repo (a virtualenv kept elsewhere); only installs "
-                "inside the repo are read."
-            )}
+            linked_out.append(sp.relative_to(source_root).as_posix())
+            continue
         dist_infos = [Path(p) for p in glob(str(sp / "*.dist-info")) if Path(p).is_dir()]
         match: Optional[Path] = None
         for di in dist_infos:
@@ -205,17 +203,17 @@ def _resolve_pypi(source_root: Path, package: str, looked_in: list) -> Optional[
             tops = _top_levels(match)
             pkg_dir: Optional[Path] = None
             for top in ([package] + tops) if package in tops else (tops or [package]):
-                cand = resolve_within(sp, top)
-                if cand is not None and _contained(cand, source_root) is None:
-                    cand = None  # site-packages (or the venv) links out of the repo
+                # `top` is a validated module name, so the join cannot climb;
+                # a link to elsewhere in the repo is followed, one out of it is not.
+                cand = _contained(sp / top, source_root)
                 if cand is not None and cand.is_dir():
                     pkg_dir = cand
                     break
             if pkg_dir is None:
                 single = [
                     t for t in (tops or [package])
-                    if (f := resolve_within(sp, f"{t}.py")) is not None
-                    and _contained(f, source_root) is not None and f.is_file()
+                    if (f := _contained(sp / f"{t}.py", source_root)) is not None
+                    and f.is_file()
                 ]
                 if single:
                     return {"ecosystem": "pypi", "error": (
@@ -237,9 +235,7 @@ def _resolve_pypi(source_root: Path, package: str, looked_in: list) -> Optional[
                 "additional_top_levels": [t for t in tops if t != pkg_dir.name],
             }
         # No dist-info matched; a bare package dir still counts, version unknown.
-        bare = resolve_within(sp, package)
-        if bare is not None and _contained(bare, source_root) is None:
-            bare = None
+        bare = _contained(sp / package, source_root)
         if bare is not None and bare.is_dir():
             return {
                 "ecosystem": "pypi", "name": package, "version": "",
@@ -248,6 +244,12 @@ def _resolve_pypi(source_root: Path, package: str, looked_in: list) -> Optional[
                 "readme_in_metadata": False,
                 "additional_top_levels": [],
             }
+    if linked_out:
+        return {"ecosystem": "pypi", "error": (
+            f"{package!r} was not found, and {', '.join(linked_out)} links to a "
+            "directory outside the repo (a virtualenv kept elsewhere); only "
+            "installs inside the repo are read."
+        )}
     return None
 
 
@@ -299,7 +301,7 @@ def _copy_snapshot(
     # nothing that resolves outside the package.
     src_root = Path(os.path.realpath(src))
     max_size = get_max_file_size(None, repo=repo)
-    from .index_folder import _gitignore_chain, _is_gitignored
+    from .index_folder import _gitignore_specs_on_path, _is_gitignored_fast
 
     chains: dict = {}
 
@@ -337,8 +339,11 @@ def _copy_snapshot(
                 real_file = Path(os.path.realpath(src_file))
                 parent = real_file.parent
                 if parent not in chains:
-                    chains[parent] = _gitignore_chain(gitignore_root, parent)
-                if chains[parent] and _is_gitignored(real_file, chains[parent]):
+                    try:
+                        chains[parent] = _gitignore_specs_on_path(gitignore_root, real_file)
+                    except ValueError:
+                        chains[parent] = []
+                if chains[parent] and _is_gitignored_fast(str(real_file), chains[parent]):
                     reason = "gitignore"
             if reason is not None:
                 skipped[reason] = skipped.get(reason, 0) + 1
@@ -448,6 +453,11 @@ def index_dependency(
         # Rebuild rather than add to it: a snapshot written by an older
         # version may hold files today's copy filters would not copy.
         shutil.rmtree(snapshot, ignore_errors=True)
+        if snapshot.exists():
+            return {"error": (
+                f"Could not clear the earlier snapshot at {snapshot}; remove it "
+                "and run index_dependency again."
+            ), "resolved": resolved}
     snapshot.mkdir(parents=True, exist_ok=True)
     installed = Path(resolved["installed_path"])
     copied = _copy_snapshot(
