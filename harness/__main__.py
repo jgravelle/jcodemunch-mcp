@@ -654,6 +654,7 @@ DELEGATED = {
     "ci.skips_ubuntu": "this runner / pr-gate.yml full tier, pytest summary",
     "ci.skips_windows": "this runner / pr-gate.yml full tier, pytest summary",
     "suite.full_seconds_ci_windows": "harness full tier on a GitHub windows runner",
+    "suite.full_seconds_ci_ubuntu_py310": "harness full tier on the GitHub ubuntu runner under Python 3.10",
     "suite.fast_skips_max": "harness fast tier, pytest summary",
 }
 
@@ -741,9 +742,19 @@ def _skips_floor_id() -> str:
 
 
 def _full_wall_floor_id() -> str:
-    """A GitHub-hosted windows runner is ~3x this box on the full tier (docs/cicd/FINDINGS.md C-9)."""
-    if os.environ.get("GITHUB_ACTIONS") and sys.platform.startswith("win"):
-        return "suite.full_seconds_ci_windows"
+    """Which full-tier wall Floor this runner is judged by.
+
+    A GitHub-hosted windows runner is ~3x this box on the full tier
+    (docs/cicd/FINDINGS.md C-9). The ubuntu Python 3.10 leg has its own Floor
+    (L-232): its median sat just under the shared one and tripped it with every
+    test passing. Every other ubuntu leg and every non-CI run keeps
+    `suite.full_seconds`.
+    """
+    if os.environ.get("GITHUB_ACTIONS"):
+        if sys.platform.startswith("win"):
+            return "suite.full_seconds_ci_windows"
+        if sys.platform.startswith("linux") and sys.version_info[:2] == (3, 10):
+            return "suite.full_seconds_ci_ubuntu_py310"
     return "suite.full_seconds"
 
 

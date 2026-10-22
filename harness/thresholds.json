@@ -735,6 +735,36 @@
       }
     },
     {
+      "id": "suite.full_seconds_ci_ubuntu_py310",
+      "criterion": "N1",
+      "metric": "full-tier pytest wall seconds on the GitHub-hosted ubuntu runner under Python 3.10 (GITHUB_ACTIONS set, sys.platform linux, Python 3.10)",
+      "comparator": "<=",
+      "floor": 450,
+      "unit": "seconds",
+      "set_at": {
+        "commit": "601ae435",
+        "date": "2026-10-21",
+        "reason": "L-232. The last 30 distinct completed runs of `full: test (ubuntu-latest, 3.10)` (2026-10-21 05:25Z to 22:03Z; a re-run's real second attempt counted, a job carried over unchanged into a re-run's attempt counted once; samples per run and job id in the PR) measured min 216.2, median 345.4, p95 367.7, max 370.3 s; 5 of 30 exceeded the shared 360 s Floor with every test passing, each passing on re-run. Floor = max x 1.2, rounded up to 10 s = 450: it clears the slowest observed run by 80 s and still fails a leg about 31% slower than today's median. Approved by the maintainer, 2026-10-21."
+      },
+      "measured": null,
+      "history": [
+        {
+          "floor": 360,
+          "commit": "457a758",
+          "date": "2026-09-03",
+          "reason": "Inherited from `suite.full_seconds` until this scoped Floor existed. That Floor stays at 360 for every other ubuntu leg and every non-CI run. This Floor deliberately departs from the tolerance rule in docs/harness/DESIGN.md (ceil(2 x median) = 691 here): twice this leg's median would let a near-2x slowdown pass, so it is set from the observed maximum instead."
+        }
+      ],
+      "enforced_by": [
+        "harness/__main__.py",
+        ".github/workflows/pr-gate.yml"
+      ],
+      "loosened": {
+        "by": "jjg, 2026-10-21",
+        "reason": "360 -> 450 for the ubuntu Python 3.10 CI leg only, from 30 real runs: the leg's median (345.4 s) sat 15 s under the shared Floor and tripped it on three PRs in one day with no code cause. Every other leg and every local run keeps 360."
+      }
+    },
+    {
       "id": "release.unreleased_max_hours",
       "criterion": "N8",
       "metric": "hours since CHANGELOG.md's [Unreleased] block last went from empty to non-empty on the measured ref's first-parent chain (committer time); origin/main locally, the merge ref on a pull_request run, not evaluated on any other GitHub event",
