@@ -22,7 +22,7 @@ same query now returns `RouteContext`, `_merge_lifespan_context`,
 verdicts, confidence and absence read the raw score. The `debug=True`
 breakdown names it as `rank_weight_reason: "data_kind"`.
 
-### Changed - the published token benchmark is re-measured, and its headline falls
+### Changed - the published token benchmark is re-measured: lookups return the code asked about, at some token cost
 
 The reference was last captured at 1.108.364. Since then three ranking
 changes moved what a benchmark lookup fetches: tests (1.108.391), settings
@@ -34,7 +34,9 @@ fetches fastapi's route-context code instead of short settings keys, fields
 and constants. Single lookups moved both ways
 elsewhere (gin's "request response" from 1,366 to 1,761, gin's "context
 bind" from 1,687 to 1,247). Against a grep-and-read agent the published
-figure goes from 96.6% (29.2x) to 96.2% (26.5x); README, `TOKEN_SAVINGS.md`,
+figure goes from 96.6% (29.2x) to 96.2% (26.5x). That is the tradeoff these
+changes make: a lookup now fetches the code a question is about, which is
+longer than the short keys and constants it used to fetch. README, `TOKEN_SAVINGS.md`,
 `benchmarks/` and the registry description carry the new run.
 
 The rise a repo may show against the reference before the weekly benchmark
