@@ -70,7 +70,7 @@ UNIVERSAL_BODY_JSON = frozenset({
 })
 
 
-def _is_universal_body_key(key: str) -> bool:
+def is_universal_body_key(key: str) -> bool:
     return key in UNIVERSAL_BODY_JSON or "warning" in key.lower()
 
 
@@ -221,7 +221,7 @@ def encode(
             scalar_payload[f"__json.{k}"] = json.dumps(response[k], separators=(",", ":"))
     declared_body = set(scalars) | set(json_blobs) | {t.key for t in tables} | set(nested_dicts)
     for k, v in response.items():
-        if k not in declared_body and not k.startswith("_") and _is_universal_body_key(k):
+        if k not in declared_body and not k.startswith("_") and is_universal_body_key(k):
             scalar_payload[f"__json.{k}"] = json.dumps(v, separators=(",", ":"))
     scalar_types_out: dict[str, str] = {}
     for k, v in scalar_payload.items():
@@ -358,7 +358,7 @@ def decode(
         if not prefixed.startswith("__json.") or prefixed.startswith("__json._meta."):
             continue
         k = prefixed[len("__json."):]
-        if k in result or not _is_universal_body_key(k):
+        if k in result or not is_universal_body_key(k):
             continue
         try:
             result[k] = json.loads(raw)

@@ -96,14 +96,92 @@ def test_every_compact_encoder_carries_contract_keys(key, value):
     """Not a per-schema list: a schema written next inherits the rule."""
     modules = _schema_modules()
     assert len(modules) > 10  # non-vacuity: the registry really loaded
-    dropped = []
+    dropped, encoded = [], 0
     for mod in modules:
         tool = mod.TOOLS[0]
         try:
             payload, _ = mod.encode(tool, {key: value})
         except Exception:
             continue  # an encoder that refuses falls back to JSON, which keeps the key
+        encoded += 1
         back = decoder.decode(payload)
         if back.get(key) != value:
             dropped.append(tool)
+    assert encoded > 10, encoded  # non-vacuity: the encoders really ran
     assert not dropped, f"{key!r} dropped by: {dropped}"
+
+
+# --- shapes a schema reshapes before encoding ------------------------------------
+
+CONTRACT = {
+    "budget_warning": "Token budget 80% used.",
+    "⚠ warning": "Verify before claiming.",
+}
+
+
+def _round_trip(tool, response):
+    from jcodemunch_mcp.encoding.schemas import registry as reg
+
+    reg._discover()  # noqa: SLF001
+    mod = reg.for_tool(tool)
+    assert mod is not None, tool
+    payload, _ = mod.encode(tool, response)
+    return decoder.decode(payload)
+
+
+def test_a_batch_file_outline_keeps_a_warning(weak_match_repo, tmp_path):
+    """The batch outline rebuilds the response before encoding (its flatten)."""
+    from jcodemunch_mcp.tools.get_file_outline import get_file_outline
+
+    rid, store = weak_match_repo
+    res = get_file_outline(repo=rid, file_paths=["a.py", "a.py"], storage_path=store)
+    assert "results" in res, res  # non-vacuity: the batch shape
+    back = _round_trip("get_file_outline", {**res, **CONTRACT})
+    for k, v in CONTRACT.items():
+        assert back.get(k) == v, (k, sorted(back))
+
+
+def test_search_text_and_find_references_keep_a_warning(weak_match_repo):
+    from jcodemunch_mcp.tools.find_references import find_references
+    from jcodemunch_mcp.tools.search_text import search_text
+
+    rid, store = weak_match_repo
+    st = search_text(repo=rid, query="payment", storage_path=store)
+    assert st["results"], st
+    fr = find_references(repo=rid, identifier="handler_1", storage_path=store)
+    for tool, res in (("search_text", st), ("find_references", fr)):
+        back = _round_trip(tool, {**res, **CONTRACT})
+        for k, v in CONTRACT.items():
+            assert back.get(k) == v, (tool, k, sorted(back))
+
+
+def test_a_compact_form_that_loses_a_warning_falls_back_to_json(monkeypatch):
+    """Whatever a future schema does, the response the agent gets keeps it."""
+    from jcodemunch_mcp.encoding import schema_driven as sd
+    from jcodemunch_mcp.encoding.schemas import registry as reg
+
+    class Lossy:
+        TOOLS = ("lossy_tool",)
+
+        @staticmethod
+        def encode(tool, response):
+            return sd.encode(
+                tool,
+                {"result_count": response["result_count"]},
+                "lz1",
+                scalars=("result_count",),
+            ), "lz1"
+
+    monkeypatch.setattr(
+        reg, "for_tool", lambda name: Lossy if name == "lossy_tool" else None
+    )
+    response = {"result_count": 3, "⚠ warning": "Verify before claiming."}
+    payload, meta = encode_response("lossy_tool", response, requested_format="compact")
+    assert (
+        meta["encoding"] == "json" and payload["⚠ warning"] == "Verify before claiming."
+    )
+    # Non-vacuity: without the warning, the same lossy encoder is used.
+    payload, meta = encode_response(
+        "lossy_tool", {"result_count": 3}, requested_format="compact"
+    )
+    assert meta["encoding"] == "lz1"
