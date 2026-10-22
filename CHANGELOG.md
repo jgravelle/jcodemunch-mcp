@@ -2,6 +2,29 @@
 
 ## [Unreleased]
 
+### Fixed - a caller list says which callers are direct and how an indirect one gets there
+
+`get_call_hierarchy` walks three levels by default and returned every level
+in one `callers` list under one `caller_count`. On `test_file_factor` in this
+repository that was 735 callers, 12 of them direct: 434 at depth 2 and 289 at
+depth 3, each marked only by a `depth` number. A reader who took "callers" and
+`caller_count` at their word had 723 indirect callers presented as callers,
+with nothing to say which function each one reaches the target through.
+
+- A row deeper than 1 now carries `via`, the id of the row one level
+  shallower that it is reached through; following `via` back walks the chain
+  to a direct caller. Callees get the same.
+- The response carries `direct_caller_count` and `callers_by_depth`
+  (`{"1": 12, "2": 434, "3": 289}` for the case above), and the callee
+  equivalents. `caller_count` still counts every depth.
+- Rows are ordered by depth. Compile-time (SCIP) evidence appends its direct
+  callers after the walk, which used to put depth-1 rows after depth-3 ones.
+- The tool description says only depth-1 rows are direct. That sentence
+  costs 42 tokens on the `standard` and `full` tool lists; `core` and the
+  `counter` front door are unchanged.
+- The compact encoding is `ch2` and carries all of it (`ch1` still decodes).
+  `get_blast_radius`, which shares the walk, also gains `via` on its callers.
+
 ## [1.108.391] - 2026-10-21 - a question about how code works ranks the code above its tests
 
 ### Fixed - a question about how code works ranks the code above its tests
