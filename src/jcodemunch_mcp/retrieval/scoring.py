@@ -314,13 +314,15 @@ _STYLE_INTENT = frozenset({
 _DATA_INTENT = frozenset({
     "field", "fields", "constant", "constants", "attribute", "attributes",
     "property", "properties", "variable", "variables", "setting", "settings",
+    "value", "values",
 })
 
 # Multipliers for a NON_CODE_LANGUAGES symbol and for a data symbol (see
 # `is_data_symbol`). 0.5 is a chosen value, checked on the pinned fastapi
-# questions: it cleared every settings-file symbol, field and constant from
-# their top 5 while "python version matrix" still ranked a workflow key first,
-# which 0.25 did not. Only RANKING reads the reduced score; verdicts,
+# questions: it cleared every settings-file symbol from their top 5 while
+# "python version matrix" still ranked a workflow key first, which 0.25 did
+# not. The data weight reuses the value; on "context bind" it moved a field
+# and an UPPER_CASE constant out of the top 5. Only RANKING reads the reduced score; verdicts,
 # confidence and absence read the raw one.
 NON_CODE_WEIGHT = 0.5
 DATA_KIND_WEIGHT = 0.5
@@ -340,7 +342,9 @@ def is_data_symbol(sym: dict) -> bool:
     if kind != "constant":
         return False
     name = (sym.get("name") or "").rsplit(".", 1)[-1].lstrip("_")
-    return any(c.isalpha() for c in name) and name == name.upper()
+    # A cased letter is required: a name in a script with no case (CJK, for
+    # one) equals its own upper-case form and says nothing about convention.
+    return any(c.isupper() for c in name) and name == name.upper()
 
 
 def rank_factor(sym: dict, terms: list[str]) -> tuple[float, str | None]:

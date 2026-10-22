@@ -82,7 +82,7 @@ worth checking on your hardware rather than taking on faith.
 
 ## What you should get
 
-Captured on CI 2026-10-22 at jcodemunch-mcp 1.108.391 (the symbol counts move with the
+Captured on CI 2026-10-22 at jcodemunch-mcp 1.108.391, commit `15afcf75`, whose version string is 1.108.391 but which also carries the settings-file and field/constant ranking changes released after it (the symbol counts move with the
 extractor; the files and baseline tokens are fixed by the pins):
 
 | Repo | Commit | Files | Symbols | Baseline tokens |

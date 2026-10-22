@@ -115,7 +115,26 @@ def test_a_lower_case_binding_is_code_not_a_value(name):
     assert scoring.rank_factor(sym, ["routing"]) == (1.0, None)
 
 
-@pytest.mark.parametrize("word", ["field", "constant", "attribute", "property"])
+@pytest.mark.parametrize(
+    "name,expected",
+    [
+        ("MAX_SIZE", True),
+        ("__VERSION__", True),
+        ("HTTP2", True),
+        ("X", True),
+        ("Config.MAX_SIZE", True),
+        ("MAX.size", False),
+        ("__all__", False),
+        ("_123", False),
+        ("名前", False),  # no case in the script: not a convention signal
+        ("StatusOK", False),
+    ],
+)
+def test_the_upper_case_rule_on_edge_names(name, expected):
+    assert scoring.is_data_symbol({"kind": "constant", "name": name}) is expected
+
+
+@pytest.mark.parametrize("word", ["field", "constant", "attribute", "property", "value"])
 def test_a_question_about_values_weights_no_field(word):
     sym = {"file": "app/models.py", "language": "python", "kind": "field", "name": "x"}
     assert scoring.rank_factor(sym, ["dependency", word]) == (1.0, None)

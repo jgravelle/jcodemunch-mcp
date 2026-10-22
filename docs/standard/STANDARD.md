@@ -48,7 +48,7 @@ Method: `python benchmarks/harness/run_benchmark.py --out benchmarks/results.md 
 Current: committed 24,249 jcm tokens vs 664,975 grep-top-3 = 27.4x (captured 2026-08-25 at 1.108.297). CI re-measure 2026-09-03 (run 33713310141): 23,440 jcm tokens, i.e. 28.4x, and the workflow is warning that the committed artifact is stale.
 Floor: [`token.grand_ratio_vs_grep`] at least 20x fewer tokens than grep-top-3 on the pinned corpus, and [`token.per_repo_rise_max`] no repo's `jmunch_total_tokens` more than 10% ABOVE its committed value.
 Target: the committed artifact never more than one week older than the last weekly run that disagreed with it.
-Status: MEASURED and GATED: `run_benchmark.py --floor` fails the weekly `benchmark.yml` on an upward move (2026-09-03); the verdict logic is pinned offline by `tests/test_token_benchmark_floor.py`, which also asserts the committed `results.md` clears the floor.
+Status: MEASURED and GATED: `run_benchmark.py --floor` fails the weekly `benchmark.yml` on an upward move (2026-09-03); an approved rise is re-baselined only through `accept_rise` (Definition of Regression 6, 2026-10-22); the verdict logic is pinned offline by `tests/test_token_benchmark_floor.py`, which also asserts the committed `results.md` clears the floor.
 Gap: none for the gate. The downward drift warning (FINDINGS F-10) still needs the Practice 4 re-sync.
 
 ### 3. Index freshness and incremental cost
@@ -238,7 +238,7 @@ following holds on the same job and same corpus as the committed value:
 3. Any `find_implementations` channel recall falls below 1.0 on the goldset.
 4. `core_compact` exceeds 4,000 tokens, or any surface moves more than 5% from `schema_baseline.json` without a regenerated baseline and a CHANGELOG entry that states the cache-write cost.
 5. The `counter` surface bytes change without a CHANGELOG entry.
-6. Any repo's `jmunch_total_tokens` in the token benchmark rises more than 10% above its committed value, or the grand ratio vs grep-top-3 falls below 20x.
+6. Any repo's `jmunch_total_tokens` in the token benchmark rises more than 10% above its committed value, or the grand ratio vs grep-top-3 falls below 20x. One exception: a rise a maintainer has approved, applied only by a `benchmark.yml` reference dispatch that names the repo in `accept_rise`, with the approval, the repo, the query that rose and why recorded in the same PR's CHANGELOG entry and in the `docs/harness/ARCHAEOLOGY.md` history row for the re-capture. The Floor value does not move, the grand ratio and every other repo are still judged, and the next weekly run judges against the new reference.
 7. Route@1 on the held-out CONTROL subset of `benchmarks/route_recall/holdout.json` falls below the [`route.control_at1`] floor (the regression assertion in `tests/test_catalog_moratorium.py`). Its target is the moratorium EXIT bar, not a regression line, and the human corpus is measured, not gated (#715).
 8. `ruff check src/` reports any error.
 9. Coverage falls below 74%.

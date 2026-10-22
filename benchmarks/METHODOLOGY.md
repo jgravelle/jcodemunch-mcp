@@ -73,8 +73,8 @@ thumb is on the other side of the scale:
 1. **The grep cost is `rg -l` — paths only.** That is the leanest output a real
    agent gets. `rg` *with* matched lines is also measured
    (`grep_match_lines_tokens`, 528,394 tokens across the corpus) and is strictly
-   larger; using it would roughly double Baseline B and report **~49x instead of
-   ~28x**. The smaller number is the published one.
+   larger; using it would make Baseline B, and so the ratio, substantially
+   larger. The smaller number is the published one.
 2. **Files are ranked by match count.** Real grep output has no ranking — the
    agent guesses. Ranking gives the baseline a better-than-chance shot at the
    right file.
@@ -270,8 +270,9 @@ user can hit.
 its baseline tokens, so 225.2x is largely a statement about fastapi (aggregate
 225.2x vs median 135.7x). **That objection is weaker for Baseline B**, whose
 aggregate and median sit closer together (26.5x vs 19.1x, fastapi share 64.1%), because
-grep cost tracks matches rather than repository size. Choosing B settles the
-aggregate-vs-median question rather than inheriting it.
+grep cost tracks matches rather than repository size. It does not go away: the
+aggregate is 1.39 times the median, so the typical query saves less than the
+headline says. Quote the per-query spread beside it.
 
 Every number above is re-measured by the same run, and the machine-readable copy lives in
 [`jcm_reference.json`](jcm_reference.json). The comparison harnesses in `harness/` read that
@@ -313,8 +314,10 @@ because it cuts our way: the read-all aggregate is badly distorted by the larges
 repo (aggregate 225.2x vs median 135.7x, with fastapi contributing 72.9% of
 baseline tokens). Baseline B's aggregate and median sit closer together (**26.5x vs
 19.1x**, fastapi share 64.1%), because grep cost tracks *matches* rather than
-repository size. **The realistic baseline is not merely smaller — it is a
-better-behaved statistic.**
+repository size. The gap that remains (aggregate 1.39 times the median, against
+1.66 for read-all) is on our side: a few queries where jCodeMunch fetches very
+little pull the aggregate up, so the median is the better guide to a typical
+query.
 
 So 99.6% measures **what symbol-level retrieval avoids relative to loading the
 corpus** — a ceiling on removable waste, and the right answer to "how much of a
