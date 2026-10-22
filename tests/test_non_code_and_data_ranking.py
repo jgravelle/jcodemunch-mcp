@@ -236,6 +236,11 @@ def test_search_symbols_ranks_functions_above_settings_and_fields(repo, q):
     ]
     assert rows and rows[0]["name"] in WANT, _rows(rows)
     assert not any(r["file"].endswith((".yml", ".css")) for r in rows[:3]), _rows(rows)
+    # A settings key can still rank high on an exact name (pyproject's
+    # `dependencies`), but never ahead of the code the question is about.
+    settings = [i for i, r in enumerate(rows) if r["file"].endswith((".yml", ".toml", ".css"))]
+    code = [i for i, r in enumerate(rows) if r["name"] in WANT]
+    assert code and (not settings or code[0] < settings[0]), _rows(rows)
 
 
 def test_get_ranked_context_leads_with_a_function(repo):

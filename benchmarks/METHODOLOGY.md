@@ -315,9 +315,10 @@ repo (aggregate 225.2x vs median 135.7x, with fastapi contributing 72.9% of
 baseline tokens). Baseline B's aggregate and median sit closer together (**26.5x vs
 19.1x**, fastapi share 64.1%), because grep cost tracks *matches* rather than
 repository size. The gap that remains (aggregate 1.39 times the median, against
-1.66 for read-all) is on our side: a few queries where jCodeMunch fetches very
-little pull the aggregate up, so the median is the better guide to a typical
-query.
+1.66 for read-all) comes from two fastapi queries with very large grep
+baselines, `router route handler` and `error exception`: without them the
+aggregate is 20.8x, near the 19.1x median. The median is the better guide to
+a typical query.
 
 So 99.6% measures **what symbol-level retrieval avoids relative to loading the
 corpus** — a ceiling on removable waste, and the right answer to "how much of a
