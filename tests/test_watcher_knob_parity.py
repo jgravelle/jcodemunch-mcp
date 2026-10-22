@@ -73,6 +73,9 @@ def test_every_behaviour_knob_reaches_the_watcher():
         "identity_mode": "fixed at index time; changing it mid-watch would "
                          "repoint the watcher at a different repo id",
         "max_size": "resolved from config/env per repo, with no per-run meaning",
+        "paths_honor_gitignore": "applies only to `paths=`, which the watcher "
+                                 "never passes; index_dependency alone sets it, "
+                                 "for its own pre-filtered snapshot",
     }
     expected = offered - set(not_the_watchers_to_set)
     reachable = _knobs(_CHAIN["watch_folders"]) | {"paths"}
