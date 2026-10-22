@@ -1005,7 +1005,9 @@ def bfs_callers(
 ) -> tuple[list[dict], int]:
     """BFS over callers up to *max_depth* hops.
 
-    Returns ``(results, depth_reached)`` where each result has a ``depth`` field.
+    Returns ``(results, depth_reached)`` where each result has a ``depth`` field,
+    and a row deeper than 1 a ``via`` field: the id of the row one level shallower
+    it was reached through.
     """
     sym_id = sym.get("id", "")
     visited: set[str] = {sym_id}
@@ -1035,7 +1037,7 @@ def bfs_callers(
             if c["id"] not in visited:
                 visited.add(c["id"])
                 new_depth = curr_depth + 1
-                results.append({**c, "depth": new_depth})
+                results.append({**c, "depth": new_depth, "via": curr_dict["id"]})
                 depth_reached = max(depth_reached, new_depth)
                 if new_depth < max_depth:
                     queue.append((c, new_depth))
@@ -1054,7 +1056,9 @@ def bfs_callees(
 ) -> tuple[list[dict], int]:
     """BFS over callees up to *max_depth* hops.
 
-    Returns ``(results, depth_reached)`` where each result has a ``depth`` field.
+    Returns ``(results, depth_reached)`` where each result has a ``depth`` field,
+    and a row deeper than 1 a ``via`` field: the id of the row one level shallower
+    it was reached through.
     """
     sym_id = sym.get("id", "")
     visited: set[str] = {sym_id}
@@ -1084,7 +1088,7 @@ def bfs_callees(
             if c["id"] not in visited:
                 visited.add(c["id"])
                 new_depth = curr_depth + 1
-                results.append({**c, "depth": new_depth})
+                results.append({**c, "depth": new_depth, "via": curr_dict["id"]})
                 depth_reached = max(depth_reached, new_depth)
                 if new_depth < max_depth:
                     queue.append((c, new_depth))
