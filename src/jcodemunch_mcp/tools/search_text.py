@@ -84,14 +84,6 @@ def search_text(
     arg_err = validate_query_args(query, is_regex)
     if arg_err is not None:
         return arg_err
-    if file_pattern and "{" in file_pattern and "}" in file_pattern:
-        # A glob here is fnmatch, which has no brace alternation: "{a,b}"
-        # matched no file and the empty result read like a real absence.
-        return {"error": (
-            f"file_pattern {file_pattern!r} uses a brace pattern ({{a,b}}), which "
-            "is not supported. Run one search per pattern, or use a broader "
-            "pattern such as 'dir/*'."
-        )}
 
     start = time.perf_counter()
     max_results = max(1, min(max_results, 100))
@@ -281,11 +273,20 @@ def search_text(
     _cap = getattr(index, "file_cap_status", None)
     if _cap and _cap.get("truncated"):
         _meta["index_truncated"] = _index_truncation_meta(_cap)
-    return {
+    # In the body, not only _meta: _meta is stripped on a default install,
+    # and a list cut short read as complete sends the agent searching again.
+    # `truncated` is the max_results cut; `timed_out` is the regex time budget.
+    body = {
         "result_count": result_count,
-        # In the body, not only _meta: _meta is stripped on a default install,
-        # and a capped list read as complete sends the agent searching again.
         "truncated": truncated,
+        "timed_out": timed_out,
         "results": results,
-        "_meta": _meta,
     }
+    if files_eligible == 0 and file_pattern:
+        # An empty result over a scope that matched no file is not an absence.
+        note = f"file_pattern {file_pattern!r} matched no indexed file, so nothing was searched."
+        if "{" in file_pattern and "}" in file_pattern:
+            note += " Brace alternation ({a,b}) is not supported; run one search per pattern."
+        body["note"] = note
+    body["_meta"] = _meta
+    return body

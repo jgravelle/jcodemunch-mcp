@@ -23,7 +23,7 @@ import json
 from .. import schema_driven as sd
 
 TOOLS = ("search_text",)
-ENCODING_ID = "st3"  # st3: enclosing-symbol columns and a body `truncated`
+ENCODING_ID = "st3"  # st3: enclosing-symbol columns; body `truncated`, `timed_out`, `note`
 LEGACY_ENCODING_IDS = ("st1", "st2")
 
 # Internal flat row shape used on the wire. `results` (nested) is pre-flattened
@@ -35,13 +35,12 @@ _TABLES = [
     sd.TableSpec(
         key=_ROWS_KEY,
         tag="t",
-        cols=["file", "line", "text", "before", "after",
-              "in_name", "in_kind", "in_id", "in_line", "in_end"],
-        intern=["file", "in_kind"],
+        cols=["file", "line", "text", "before", "after", "in_id", "in_line", "in_end"],
+        intern=["file", "in_id"],
         types={"line": "int", "in_line": "int", "in_end": "int"},
     ),
 ]
-_SCALARS = ("result_count", "truncated", "query", "repo")
+_SCALARS = ("result_count", "truncated", "timed_out", "note", "query", "repo")
 _META = (
     "timing_ms",
     "files_searched",
@@ -55,6 +54,7 @@ _META_JSON = ("verdict",)  # structured _meta that must survive compaction
 _SCALAR_TYPES: dict[str, str] = {
     "result_count": "int",
     "truncated": "bool",
+    "timed_out": "bool",
     "_meta.timing_ms": "float",
     "_meta.files_searched": "int",
     "_meta.truncated": "bool",
@@ -85,8 +85,6 @@ def _flatten(response: dict) -> dict:
                     "text": m.get("text", ""),
                     "before": json.dumps(before, separators=(",", ":")) if before else "",
                     "after": json.dumps(after, separators=(",", ":")) if after else "",
-                    "in_name": enclosing.get("name", ""),
-                    "in_kind": enclosing.get("kind", ""),
                     "in_id": enclosing.get("id", ""),
                     "in_line": enclosing.get("line"),
                     "in_end": enclosing.get("end_line"),
@@ -113,11 +111,9 @@ def _regroup(decoded: dict) -> dict:
                     match[ctx_key] = json.loads(raw)
                 except ValueError:
                     match[ctx_key] = [raw]
-        if row.get("in_name"):
+        if row.get("in_id"):
             match["in"] = {
-                "name": row.get("in_name"),
-                "kind": row.get("in_kind") or "",
-                "id": row.get("in_id") or "",
+                "id": row.get("in_id"),
                 "line": row.get("in_line"),
                 "end_line": row.get("in_end"),
             }

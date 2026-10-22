@@ -8,19 +8,26 @@
 usual next question, "which function is this in?", an agent had to open an
 outline or read the file, one call per file. Each match now carries the
 innermost function, method or class around it, as
-`in: {name, kind, id, line, end_line}`, read from the line spans the index
-already holds; a match at module level has no `in`. The compact encoding
-carries it too (encoding `st3`; `st1` and `st2` still decode).
+`in: {id, line, end_line}`, read from the line spans the index already
+holds; a match at module level has no `in`. The id (`file::Name#kind`) is
+the one `get_symbol_source` takes and already names the symbol and its kind,
+so they are not repeated beside it: this is a field every match carries, and
+its size is paid on every search. When a one-line class and its one-line
+method share a span, the method is the one reported. The compact encoding
+carries `in` too (encoding `st3`; `st1` and `st2` still decode).
 
 Two smaller changes to `search_text` from the same look at how agents use
 it:
 
-- `truncated` is in the response body as well as `_meta`. `_meta` is
-  stripped on a default install, so a list cut at `max_results` read as
-  complete and the agent searched again.
-- A `file_pattern` with a brace pattern (`{a,b}`) now returns an error
-  saying brace patterns are not supported. Before, it matched no file and
-  returned an empty result that read like a real absence.
+- `truncated` (cut at `max_results`) and `timed_out` (a regex search cut by
+  its time budget) are in the response body as well as `_meta`. `_meta` is
+  stripped on a default install, so a list cut short read as complete and
+  the agent searched again.
+- A `file_pattern` that matches no indexed file now returns a `note` saying
+  nothing was searched, and names brace alternation (`{a,b}`, which glob
+  matching does not support) when the pattern uses it. Before, the empty
+  result read like a real absence. A path with literal braces, such as a
+  `{{cookiecutter.name}}` template directory, still searches as before.
 
 ## [1.108.393] - 2026-10-22 - a default install adds nothing to the model's context
 

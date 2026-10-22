@@ -39,14 +39,13 @@ def attach_enclosing_symbols(results: list, symbols) -> None:
             line = match.get("line")
             best = None
             for start, end, sym in candidates:
-                if start <= line <= end and (best is None or end - start < best[1] - best[0]):
+                # The smallest span wins. On a tie (a one-line method inside a
+                # one-line class) the later symbol wins: symbols are stored
+                # outer-first, so the later one is the deeper one.
+                if start <= line <= end and (best is None or end - start <= best[1] - best[0]):
                     best = (start, end, sym)
             if best is not None:
                 start, end, sym = best
-                match["in"] = {
-                    "name": sym.get("qualified_name") or sym.get("name"),
-                    "kind": sym.get("kind"),
-                    "id": sym.get("id"),
-                    "line": start,
-                    "end_line": end,
-                }
+                # The id (``file::Name#kind``) carries the name and kind and is
+                # what get_symbol_source takes, so they are not repeated.
+                match["in"] = {"id": sym.get("id"), "line": start, "end_line": end}
