@@ -6,39 +6,45 @@
 
 With tests weighted down in 1.108.391, the next thing to crowd a question
 about how code works was everything else that shares a word with it and does
-nothing: CI workflow keys, `pyproject.toml` tables, CSS selectors, and the
-fields and constants named after the concept. On the pinned fastapi checkout,
-"dependency injection Depends resolution" returned five copies of the
-workflow's `UV_RESOLUTION` key (it matches "resolution"), and the other six
-questions in the same set carried one to three fields or constants in their
-top 5 (`SolvedDependency.dependency_cache`, `APIRoute.dependencies`,
-`Operation.operationId`). A repository's settings files can hold as many
-symbols as its code: that checkout has about 6,400 YAML symbols beside 7,000
-Python ones.
+nothing: CI workflow keys, `pyproject.toml` tables, stylesheet selectors, and
+the fields and constants named after the concept. On a pinned fastapi
+checkout, "dependency injection Depends resolution" returned the workflow's
+`UV_RESOLUTION` key and its `uv-resolution` matrix entries in all five top
+slots (they match "resolution"), and "dependency injection" put
+`SolvedDependency.dependency_cache` and `Depends.dependency`, two fields,
+second and third. Settings files can hold as many symbols as the code: that
+checkout's index has 6,399 YAML symbols beside 7,064 Python ones.
 
 `rank_factor` in `retrieval/scoring.py`, which every lexical scorer reads,
 now weights two more groups at half (`NON_CODE_WEIGHT`, `DATA_KIND_WEIGHT`),
 beside the test weight and never on top of it:
 
-- symbols from configuration files (YAML, TOML, JSON, XML, INI, properties),
-  unless the query names configuration ("config", "workflow", "ci",
-  "pyproject", ...), and from stylesheets, unless it names styling. A
-  configuration word does not lift the stylesheet;
-- fields and constants, unless the query names values ("field", "constant",
-  "attribute", "property", ...).
+- symbols from configuration files (YAML, TOML, JSON, XML), unless the query
+  names configuration ("config", "workflow", "ci", "pyproject", ...), and
+  from stylesheets (CSS, SCSS, Sass, Less, Stylus), unless it names styling.
+  A configuration word does not lift the stylesheet. HCL and OpenAPI files
+  are left alone: their symbols are infrastructure and API definitions a code
+  question may be about;
+- fields, and constants whose name is written as one (`RESOLUTION_ORDER`,
+  `_FASTAPI_SCOPE_KEY`), unless the query names values ("field", "constant",
+  "attribute", ...). A lower-case `const` is not touched: JavaScript and
+  TypeScript index `const app = express()` as a constant, and it is code.
 
-On the same seven questions no settings-file symbol, field or constant is
-left in any top 5; `Depends` moves to 5th or better on five of them (from
-20th, 9th and 8th on three, and from 66th and 68th to 20th and 22nd on the
-short forms), and `solve_dependencies` from 22nd to 7th on "how are path
-operation dependencies solved".
+On seven questions about fastapi's dependency injection, no settings-file
+symbol, field or constant is left in any top 5. `Depends` moved from 20th to
+5th, 9th to 5th and 8th to 3rd on three of them, and from 66th and 68th to
+20th and 22nd on the two shortest; `solve_dependencies` moved from 22nd to
+7th on "how are path operation dependencies solved".
 
-Half, not a quarter: at a quarter, "python version matrix" lost the workflow
-keys it was asking about. Only ranking reads the weight. The identity channel
-is untouched, so an exact name (`UV_RESOLUTION`, `dependency_cache`) still
-ranks first, and a match found only in settings files is still a match, with
-no low-confidence warning. The `debug=True` breakdown names the weight and
-why (`rank_weight`, `rank_weight_reason`); `test_weight` stays on test rows.
+Half, not a quarter: at a quarter, "python version matrix" no longer returned
+the workflow's `python-version` key first. Only ranking reads the weight;
+verdicts, confidence and absence read the raw score, and a match found only
+in settings files is still a match with no low-confidence warning. Exact
+names still rank first: `search_symbols` puts a declaration that matches the
+query ahead of everything else, and in `get_ranked_context` and `plan_turn`,
+where the weight also reaches the exact-name score, the names checked still
+come first. The `debug=True` breakdown names the weight and why
+(`rank_weight`, `rank_weight_reason`); `test_weight` stays on test rows.
 
 ## [1.108.391] - 2026-10-21 - a question about how code works ranks the code above its tests
 
