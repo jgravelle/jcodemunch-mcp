@@ -160,10 +160,10 @@ That's the highlight reel. The complete tour of 90+ tools, the MUNCH compact wir
 <!-- WHATSNEW:START -->
 #### What's new
 
+- **[v1.108.391](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.391)** (2026-10-21) — a question about how code works ranks the code above its tests
 - **[v1.108.390](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.390)** (2026-10-21) — the local embedding model is pinned and checked before it is used
 - **[v1.108.389](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.389)** (2026-10-21) — the core tools load up front where clients defer MCP tools
 - **[v1.108.388](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.388)** (2026-10-21) — the license names jMunch, LLC, and the product says "license"
-- **[v1.108.387](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.387)** (2026-10-21) — a licensed install is not shown a sales line
 <!-- WHATSNEW:END -->
 
 ---

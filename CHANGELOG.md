@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.391] - 2026-10-21 - a question about how code works ranks the code above its tests
+
 ### Fixed - a question about how code works ranks the code above its tests
 
 Lexical search scored every word of a question, so "How does dependency

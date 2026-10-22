@@ -1,6 +1,12 @@
 {
-  "current": "1.108.390",
+  "current": "1.108.391",
   "entries": [
+    {
+      "version": "1.108.391",
+      "date": "2026-10-21",
+      "title": "a question about how code works ranks the code above its tests",
+      "summary": "A question about how code works now ranks the code above its tests: function words such as \"how\" and \"does\" count less in a multi-word question (never in a name), and test-file symbols rank below source code unless the query is about tests. A git worktree nested inside an indexed checkout (such as .claude/worktrees/x) is no longer given that checkout's index, in resolve_repo and in the session hooks. The .windsurfrules backup is named .windsurfrules.bak."
+    },
     {
       "version": "1.108.390",
       "date": "2026-10-21",

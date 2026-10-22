@@ -2868,3 +2868,13 @@ The 1.108.387 entry, verbatim as it stood in `CLAUDE.md`:
 The `Tests:` line's 1.108.387 count, verbatim:
 
 - ⚠ Prior (1.108.387): 18280 passed, 25 skipped, **0 failed** (18305 total).
+
+## Current State rotation (2026-10-21, release 1.108.391)
+
+The 1.108.388 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.388):** **the license names jMunch, LLC, and the product says "license"**: LICENSE 1.2, effective 2026-10-21, copyright jMunch, LLC, terms and SPDX identifier unchanged (#1191, digest pin moved); "licence" respelled outside identifiers, quotations and released history, and a rejected key gets a support pointer (#1192). Full text: `CHANGELOG.md`.
+
+The `Tests:` line's 1.108.388 count, verbatim:
+
+- ⚠ Prior (1.108.388): 18284 passed, 25 skipped, **0 failed** (18309 total).
