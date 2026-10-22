@@ -3,6 +3,7 @@
 import fnmatch as _fnmatch
 import re
 import time
+from ._enclosing import attach_enclosing_symbols
 from typing import Optional
 
 from ..storage import IndexStore, record_savings, cost_avoided
@@ -83,6 +84,14 @@ def search_text(
     arg_err = validate_query_args(query, is_regex)
     if arg_err is not None:
         return arg_err
+    if file_pattern and "{" in file_pattern and "}" in file_pattern:
+        # A glob here is fnmatch, which has no brace alternation: "{a,b}"
+        # matched no file and the empty result read like a real absence.
+        return {"error": (
+            f"file_pattern {file_pattern!r} uses a brace pattern ({{a,b}}), which "
+            "is not supported. Run one search per pattern, or use a broader "
+            "pattern such as 'dir/*'."
+        )}
 
     start = time.perf_counter()
     max_results = max(1, min(max_results, 100))
@@ -191,6 +200,8 @@ def search_text(
         if truncated or timed_out:
             break
 
+    attach_enclosing_symbols(results, index.symbols)
+
     elapsed = (time.perf_counter() - start) * 1000
 
     # L-180: no credit. The answer is the matching lines, which Grep returns
@@ -272,6 +283,9 @@ def search_text(
         _meta["index_truncated"] = _index_truncation_meta(_cap)
     return {
         "result_count": result_count,
+        # In the body, not only _meta: _meta is stripped on a default install,
+        # and a capped list read as complete sends the agent searching again.
+        "truncated": truncated,
         "results": results,
         "_meta": _meta,
     }

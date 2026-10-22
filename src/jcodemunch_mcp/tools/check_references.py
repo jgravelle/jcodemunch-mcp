@@ -8,6 +8,7 @@ import posixpath
 import re
 import time
 import unicodedata
+from ._enclosing import attach_enclosing_symbols
 from typing import Optional
 
 from ..storage import IndexStore
@@ -209,6 +210,7 @@ def _check_single(
                     break
 
     content_count = len(content_references)
+    attach_enclosing_symbols(content_references, index.symbols)
 
     elapsed = (time.perf_counter() - start) * 1000
     is_referenced = import_count > 0 or content_count > 0

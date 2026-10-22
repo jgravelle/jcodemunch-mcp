@@ -2,6 +2,26 @@
 
 ## [Unreleased]
 
+### Changed - a text match says which function it is in
+
+`search_text` and `check_references` return line matches. To answer the
+usual next question, "which function is this in?", an agent had to open an
+outline or read the file, one call per file. Each match now carries the
+innermost function, method or class around it, as
+`in: {name, kind, id, line, end_line}`, read from the line spans the index
+already holds; a match at module level has no `in`. The compact encoding
+carries it too (encoding `st3`; `st1` and `st2` still decode).
+
+Two smaller changes to `search_text` from the same look at how agents use
+it:
+
+- `truncated` is in the response body as well as `_meta`. `_meta` is
+  stripped on a default install, so a list cut at `max_results` read as
+  complete and the agent searched again.
+- A `file_pattern` with a brace pattern (`{a,b}`) now returns an error
+  saying brace patterns are not supported. Before, it matched no file and
+  returned an empty result that read like a real absence.
+
 ## [1.108.393] - 2026-10-22 - a default install adds nothing to the model's context
 
 ### Changed - a default install adds nothing to the model's context
