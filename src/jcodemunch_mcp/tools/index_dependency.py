@@ -77,9 +77,12 @@ def _pep503_normalize(name: str) -> str:
 
 
 def _safe_snapshot_name(name: str, version: str) -> str:
+    """One directory name for a snapshot. Both parts come from the installed
+    package's own metadata, so neither may carry a separator or ".."."""
     safe = name.lstrip("@").replace("/", "__")
-    safe = re.sub(r"[^A-Za-z0-9._@\-]", "_", safe)
-    return f"{safe}@{version or 'unknown'}"
+    safe = re.sub(r"[^A-Za-z0-9._@\-]", "_", safe).replace("..", "_")
+    safe_version = re.sub(r"[^A-Za-z0-9._+\-]", "_", version or "unknown").replace("..", "_")
+    return f"{safe}@{safe_version}"
 
 
 def _read_package_json(pkg_dir: Path) -> dict:
@@ -104,8 +107,12 @@ def _resolve_npm(source_root: Path, package: str) -> Optional[dict]:
     if not candidate.is_dir():
         return None
     real = _contained(candidate, source_root)
-    if real is None:
-        return None
+    if real is None or real == source_root.resolve():
+        return {"ecosystem": "npm", "error": (
+            f"node_modules/{package} links to a directory outside the repo (an "
+            "npm link, or a store outside the repo); only installs inside the "
+            "repo are read."
+        )}
     meta = _read_package_json(real)
     return {
         "ecosystem": "npm",
@@ -237,7 +244,28 @@ def _resolve_pypi(source_root: Path, package: str, looked_in: list) -> Optional[
     return None
 
 
-def _copy_snapshot(src: Path, dest: Path, max_files: int, repo: Optional[str] = None) -> dict:
+def _host_gitignore_root(source_root: Path, installed: Path) -> Optional[Path]:
+    """The repo root whose .gitignore applies to a copy from ``installed``.
+
+    Package files under node_modules or a repo-local virtualenv are ignored by
+    convention and are what this tool exists to read, so they get no
+    .gitignore. A directory elsewhere in the repo (a workspace package linked
+    from node_modules) is ordinary repo content, and its gitignored files stay
+    out of the snapshot as they stay out of the repo's own index.
+    """
+    try:
+        rel = installed.resolve().relative_to(source_root.resolve()).parts
+    except (OSError, ValueError):
+        return None
+    if "node_modules" in rel or (rel and rel[0] in _VENV_DIR_CANDIDATES):
+        return None
+    return source_root.resolve()
+
+
+def _copy_snapshot(
+    src: Path, dest: Path, max_files: int, repo: Optional[str] = None,
+    gitignore_root: Optional[Path] = None,
+) -> dict:
     """Copy code + doc files from the installed package into the snapshot dir.
 
     Returns {code_rels, docs, files_copied, truncated}. We control the
@@ -255,6 +283,9 @@ def _copy_snapshot(src: Path, dest: Path, max_files: int, repo: Optional[str] = 
     # nothing that resolves outside the package.
     src_root = Path(os.path.realpath(src))
     max_size = get_max_file_size(None, repo=repo)
+    from .index_folder import _gitignore_chain, _is_gitignored
+
+    chains: dict = {}
 
     for dirpath, dirnames, filenames in os.walk(str(src), followlinks=False):
         dirnames[:] = [d for d in dirnames if d not in _SKIP_COPY_DIRS]
@@ -286,6 +317,13 @@ def _copy_snapshot(src: Path, dest: Path, max_files: int, repo: Optional[str] = 
             )
             if reason is None and is_binary_file(src_file):
                 reason = "binary_content"
+            if reason is None and gitignore_root is not None:
+                real_file = Path(os.path.realpath(src_file))
+                parent = real_file.parent
+                if parent not in chains:
+                    chains[parent] = _gitignore_chain(gitignore_root, parent)
+                if chains[parent] and _is_gitignored(real_file, chains[parent]):
+                    reason = "gitignore"
             if reason is not None:
                 skipped[reason] = skipped.get(reason, 0) + 1
                 continue
@@ -383,15 +421,22 @@ def index_dependency(
         return {"error": resolved["error"], "looked_in": looked_in}
 
     snapshot_root = store.base_path / "deps"
-    snapshot = snapshot_root / _safe_snapshot_name(resolved["name"], resolved["version"])
+    snapshot_name = _safe_snapshot_name(resolved["name"], resolved["version"])
+    snapshot = resolve_within(snapshot_root, snapshot_name)
+    # The snapshot must be one directory strictly inside deps/: both the
+    # rebuild below and the copy write there.
+    if snapshot is None or snapshot.parent != snapshot_root.resolve():
+        return {"error": f"Cannot place a snapshot named {snapshot_name!r}.", "resolved": resolved}
     cache_hit = snapshot.is_dir()
-    if cache_hit and _contained(snapshot, snapshot_root) is not None:
+    if cache_hit:
         # Rebuild rather than add to it: a snapshot written by an older
         # version may hold files today's copy filters would not copy.
         shutil.rmtree(snapshot, ignore_errors=True)
     snapshot.mkdir(parents=True, exist_ok=True)
+    installed = Path(resolved["installed_path"])
     copied = _copy_snapshot(
-        Path(resolved["installed_path"]), snapshot, max_files, repo=str(source_root),
+        installed, snapshot, max_files, repo=str(source_root),
+        gitignore_root=_host_gitignore_root(source_root, installed),
     )
     if not copied["code_rels"]:
         return {

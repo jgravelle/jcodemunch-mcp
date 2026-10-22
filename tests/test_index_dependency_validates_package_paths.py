@@ -220,3 +220,52 @@ def test_a_listed_folder_honours_a_gitignore_above_it(tmp_path):
     owner, name = res["repo"].split("/", 1)
     names = {s.get("name") for s in IndexStore(base_path=str(store)).load_index(owner, name).symbols}
     assert "a" in names and "local_setting" not in names
+
+
+@pytest.mark.parametrize("version", ["1.0.0/..", "1.0.0/../../../victim", "..", "../x"])
+def test_a_crafted_version_cannot_move_the_snapshot(host, tmp_path, version):
+    """The version comes from the installed package.json. It must not steer the
+    rebuild onto deps/ itself, or the copy outside the store."""
+    other = os.path.join(host["store"], "deps", "keepme@1.0.0")
+    os.makedirs(other)
+    with open(os.path.join(other, "keep.js"), "w") as fh:
+        fh.write("function keep() { return 1; }\n")
+    pkg = host["src"] / "node_modules" / "crafted"
+    pkg.mkdir(parents=True)
+    (pkg / "package.json").write_text(json.dumps({"name": "crafted", "version": version}))
+    (pkg / "index.js").write_text("function crafted() { return 1; }\n")
+    index_dependency(host["repo"], "crafted", storage_path=host["store"])
+    assert os.path.exists(os.path.join(other, "keep.js"))  # no other snapshot removed
+    assert not (tmp_path / "victim").exists()
+    for entry in os.listdir(os.path.join(host["store"], "deps")):
+        assert ".." not in entry and "/" not in entry
+
+
+def test_a_link_to_the_repo_root_is_refused(host):
+    node_modules = host["src"] / "node_modules"
+    node_modules.mkdir()
+    try:
+        os.symlink(host["src"], node_modules / "self", target_is_directory=True)
+    except (OSError, NotImplementedError):
+        pytest.skip("this platform cannot create a directory symlink here")
+    res = index_dependency(host["repo"], "self", ecosystem="npm", storage_path=host["store"])
+    assert "error" in res and "outside the repo" in res["error"], res
+
+
+def test_a_workspace_package_keeps_its_gitignored_files_out(host):
+    (host["src"] / ".gitignore").write_text("packages/util/local_settings.js\n")
+    target = host["src"] / "packages" / "util"
+    target.mkdir(parents=True)
+    (target / "package.json").write_text(json.dumps({"name": "@acme/util", "version": "0.1.0"}))
+    (target / "index.js").write_text("export function workspaceUtil() { return 1; }\n")
+    (target / "local_settings.js").write_text("export const localSetting = 'internal';\n")
+    scope = host["src"] / "node_modules" / "@acme"
+    scope.mkdir(parents=True)
+    try:
+        os.symlink(target, scope / "util", target_is_directory=True)
+    except (OSError, NotImplementedError):
+        pytest.skip("this platform cannot create a directory symlink here")
+    res = index_dependency(host["repo"], "@acme/util", storage_path=host["store"])
+    assert "error" not in res, res
+    copied = set(os.listdir(res["snapshot_path"]))
+    assert "index.js" in copied and "local_settings.js" not in copied, copied

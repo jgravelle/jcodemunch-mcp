@@ -6,26 +6,30 @@
 
 `index_dependency` now accepts only a package name: an npm name (`lodash`,
 `@scope/name`) or a PyPI name (`requests`), never a path. Each name read from
-an installed distribution's `top_level.txt` must be a module name. Every
-directory a name resolves to, after symlinks, must stay inside the
-`node_modules` or site-packages it was looked up in, and inside the repo.
+an installed distribution's `top_level.txt` must be a module name. A PyPI
+name must resolve inside the site-packages it was found in, and every package
+directory, after symlinks, must be inside the repo. The snapshot is always one
+directory inside the store's `deps/`, whatever name and version the
+package's own metadata gives.
 
 The snapshot copy applies the checks the indexer applies to every file it
 walks: secret and credential files, files over the size cap and binary files
 are not copied, and the response's `_meta.skipped_on_copy` counts them. A
 snapshot already in the store is rebuilt rather than added to, so files an
-earlier version copied do not linger there.
+earlier version copied do not linger there. A package that lives elsewhere
+in the repo (a workspace package linked from `node_modules`) is copied
+without the files the repo's `.gitignore` excludes.
 
 Two behavior changes:
 
 - A package whose `node_modules` entry is a symlink to a directory outside the
-  repo (as `npm link` makes) is no longer followed; `index_dependency` reports
-  it as not installed. A workspace link that stays inside the repo still
-  resolves.
+  repo (as `npm link` makes, or a package store kept outside the repo) is no
+  longer followed; `index_dependency` says so in its error. A workspace link
+  that stays inside the repo still resolves.
 - `index_folder(paths=...)` honours `.gitignore` the way a full index does: a
   listed file, or a file under a listed folder, that a `.gitignore` between
-  the repo root and the file excludes is skipped with a warning. Before, a listed file was indexed even when
-  ignored. Skip-directory rules still do not apply to listed files.
+  the repo root and the file excludes is skipped with a warning. Before, a
+  listed file was indexed even when ignored. Skip-directory rules still do not apply to listed files.
 
 ### Fixed - a question about code ranks functions above fields and constants
 
