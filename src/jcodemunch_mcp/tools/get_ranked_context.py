@@ -10,7 +10,7 @@ from ._utils import distinct_file_bytes, index_status_to_tool_error, ledger_base
 from .get_context_bundle import _count_tokens
 from ..retrieval.scoring import query_idf as _query_idf
 from ..retrieval.scoring import query_terms as _query_terms
-from ..retrieval.scoring import test_file_factor
+from ..retrieval.scoring import rank_factor
 from .search_symbols import (
     _bm25_score,
     _NEGATIVE_EVIDENCE_THRESHOLD,
@@ -372,10 +372,10 @@ def get_ranked_context(
         if raw_bm25 <= 0 and strategy != "centrality":
             continue
         pr_raw = pagerank.get(sym.get("file", ""), 0.0)
-        # The verdict below reads raw relevance; the ranking reads the test-weighted one.
+        # The verdict below reads raw relevance; the ranking reads the weighted one (`rank_factor`).
         if raw_bm25 > max_bm25:
             max_bm25 = raw_bm25
-        bm25 = raw_bm25 * test_file_factor(sym, query_terms)
+        bm25 = raw_bm25 * rank_factor(sym, query_terms)[0]
         raw_scores.append((bm25, pr_raw, sym))
 
     # Source-shaped exact seeding: identifiers the caller pasted verbatim

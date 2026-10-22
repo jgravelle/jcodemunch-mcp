@@ -286,6 +286,66 @@ def test_file_factor(sym: dict, terms: list[str]) -> float:
     return TEST_SYMBOL_WEIGHT if flag else 1.0
 
 
+# Languages whose symbols are settings, data or styling rather than code: a
+# workflow's env keys, a pyproject table, a CSS selector. An indexed repo can
+# hold as many of these as it holds functions (the pinned fastapi checkout has
+# 6,400 YAML symbols beside 7,000 Python ones), and a common word in a key
+# (`UV_RESOLUTION` for "resolution") fills a code question's top results with them.
+_CONFIG_LANGUAGES = frozenset({"yaml", "toml", "json", "xml", "ini", "properties"})
+_STYLE_LANGUAGES = frozenset({"css"})
+NON_CODE_LANGUAGES = _CONFIG_LANGUAGES | _STYLE_LANGUAGES
+
+# Words that make a query ABOUT configuration, or about styling; with one
+# present, that group of languages is not demoted (and only that group: a
+# question about the CI workflow is not a question about the stylesheet).
+_CONFIG_INTENT = frozenset({
+    "config", "configuration", "configure", "yaml", "yml", "toml", "json", "xml",
+    "ini", "workflow", "workflows", "ci", "setting", "settings", "pyproject",
+    "manifest", "env",
+})
+_STYLE_INTENT = frozenset({"css", "style", "styles", "stylesheet", "selector", "selectors"})
+
+# Symbol kinds that name a value rather than behaviour.
+DATA_KINDS = frozenset({"field", "constant"})
+
+# Words that make a query ABOUT values; with one present the data-kind
+# demotion is off.
+_DATA_INTENT = frozenset({
+    "field", "fields", "constant", "constants", "attribute", "attributes",
+    "property", "properties", "variable", "variables", "setting", "settings",
+})
+
+# Multipliers for a symbol from a NON_CODE_LANGUAGES file and for a field or
+# constant. 0.5 is a chosen value, checked on the pinned fastapi questions: it
+# cleared every non-library symbol from their top 5 while "python version
+# matrix" still ranked a workflow key first; 0.25 lost that one. Like the test
+# weight, only RANKING reads the reduced score, and the identity channel is
+# untouched, so an exact name (`UV_RESOLUTION`, `dependency_cache`) still ranks first.
+NON_CODE_WEIGHT = 0.5
+DATA_KIND_WEIGHT = 0.5
+
+
+def rank_factor(sym: dict, terms: list[str]) -> tuple[float, str | None]:
+    """The ranking multiplier for ``sym`` on this query, and why.
+
+    One reason applies, the first that matches: ``test_file``
+    (`test_file_factor`), ``non_code_file`` (a NON_CODE_LANGUAGES symbol on a
+    query with no configuration word) or ``data_kind`` (a field or constant on
+    a query with no value word). ``(1.0, None)`` otherwise."""
+    weight = test_file_factor(sym, terms)
+    if weight != 1.0:
+        return weight, "test_file"
+    lang = (sym.get("language") or "").lower()
+    if lang in NON_CODE_LANGUAGES:
+        intent = _CONFIG_INTENT if lang in _CONFIG_LANGUAGES else _STYLE_INTENT
+        if any(t in intent for t in terms):
+            return 1.0, None
+        return NON_CODE_WEIGHT, "non_code_file"
+    if sym.get("kind") in DATA_KINDS and not any(t in _DATA_INTENT for t in terms):
+        return DATA_KIND_WEIGHT, "data_kind"
+    return 1.0, None
+
+
 @functools.lru_cache(maxsize=256)
 def identity_query(query: str) -> str:
     """The query as the identity (exact-name) channel reads it: EVERY token.
