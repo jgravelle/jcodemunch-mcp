@@ -9298,9 +9298,12 @@ def _run_config(check: bool = False, init: bool = False, upgrade: bool = False) 
 
                 if "jcodemunch_guide" in cm_content:
                     print(f"  {green(CHECK)} CLAUDE.md uses jcodemunch_guide one-line form (version-pinned at runtime)")
-                elif not _has_policy_block(claude_md_path):
-                    # The policy is opt-in since the light default install: a
-                    # CLAUDE.md without it is the shipped default, never an issue.
+                elif not _has_policy_block(claude_md_path) and not any(
+                    t in cm_content for t in canonical_tools
+                ):
+                    # The policy is opt-in: a CLAUDE.md that never mentions
+                    # jcodemunch is the shipped default, never an issue. One
+                    # that names some tools still gets the drift check below.
                     print(f"  {dim('  CLAUDE.md has no jcodemunch policy block (opt-in: jcodemunch-mcp init --policy)')}")
                 else:
                     missing_in_cm = [t for t in canonical_tools if t not in cm_content]
