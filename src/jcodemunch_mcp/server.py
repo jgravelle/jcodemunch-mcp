@@ -10117,6 +10117,38 @@ def main(argv: Optional[list[str]] = None):
             "without --strict."
         ),
     )
+    init_parser.add_argument(
+        "--guidance",
+        action="store_true",
+        dest="guidance",
+        help=(
+            "Also install the hooks that put text in front of the model: the "
+            "PreToolUse advice on Read/Grep/Glob/Bash, the SubagentStart briefing "
+            "and the SessionStart restore after compaction. Off by default; an "
+            "install that already has them keeps them."
+        ),
+    )
+    init_parser.add_argument(
+        "--policy",
+        action="store_true",
+        dest="policy",
+        help=(
+            "Also write the Code Exploration Policy into CLAUDE.md (global, or as "
+            "--claude-md says), AGENTS.md and, for Cursor and Windsurf, their rules "
+            "files. Off by default; an existing policy block is left as it is."
+        ),
+    )
+    init_parser.add_argument(
+        "--remove-guidance",
+        action="store_true",
+        dest="remove_guidance",
+        help=(
+            "Remove the model-facing hooks and every jcodemunch policy block "
+            "(global CLAUDE.md; CLAUDE.md, AGENTS.md, Cursor and Windsurf rules in "
+            "this directory), backing up each file changed. Keeps the silent hooks "
+            "and the server registration. Does nothing else."
+        ),
+    )
 
     # --- install (per-agent sugar over init) ---
     install_parser = subparsers.add_parser(
@@ -10135,6 +10167,18 @@ def main(argv: Optional[list[str]] = None):
         action="store_true",
         dest="list_targets",
         help="List valid install targets and exit",
+    )
+    install_parser.add_argument(
+        "--guidance",
+        action="store_true",
+        dest="guidance",
+        help="Also install the model-facing hooks (see `init --guidance`). Off by default.",
+    )
+    install_parser.add_argument(
+        "--policy",
+        action="store_true",
+        dest="policy",
+        help="Also write the Code Exploration Policy (see `init --policy`). Off by default.",
     )
     install_parser.add_argument(
         "--status",
@@ -10957,6 +11001,9 @@ def main(argv: Optional[list[str]] = None):
             share_savings=getattr(args, "share_savings", None),
             minimal=getattr(args, "minimal", False),
             strict=getattr(args, "strict", False),
+            guidance=getattr(args, "guidance", False),
+            policy=getattr(args, "policy", False),
+            remove_guidance=getattr(args, "remove_guidance", False),
         ))
 
     if args.command == "install":
@@ -10991,7 +11038,10 @@ def main(argv: Optional[list[str]] = None):
         client_arg = None if target.lower() == "all" else [target.lower()]
         sys.exit(run_init(
             clients=client_arg or ["auto"],
-            claude_md="global",
+            # The policy paste is opt-in since the light default install.
+            claude_md="global" if getattr(args, "policy", False) else None,
+            guidance=getattr(args, "guidance", False),
+            policy=getattr(args, "policy", False),
             hooks=True,
             copilot_hooks=False,
             index=False,

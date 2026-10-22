@@ -615,7 +615,7 @@ class TestEnforcementHooksInstall:
         settings.write_text("{}", encoding="utf-8")
 
         with mock.patch("jcodemunch_mcp.cli.init._settings_json_path", return_value=settings):
-            msg = install_enforcement_hooks(dry_run=False, backup=False)
+            msg = install_enforcement_hooks(dry_run=False, backup=False, guidance=True)
 
         assert "PreToolUse" in msg or "PostToolUse" in msg or "PreCompact" in msg
         data = json.loads(settings.read_text(encoding="utf-8"))
@@ -639,8 +639,8 @@ class TestEnforcementHooksInstall:
         settings.write_text("{}", encoding="utf-8")
 
         with mock.patch("jcodemunch_mcp.cli.init._settings_json_path", return_value=settings):
-            install_enforcement_hooks(dry_run=False, backup=False)
-            msg2 = install_enforcement_hooks(dry_run=False, backup=False)
+            install_enforcement_hooks(dry_run=False, backup=False, guidance=True)
+            msg2 = install_enforcement_hooks(dry_run=False, backup=False, guidance=True)
 
         assert "already present" in msg2
         data = json.loads(settings.read_text(encoding="utf-8"))
@@ -660,7 +660,7 @@ class TestEnforcementHooksInstall:
         settings.write_text(json.dumps(existing), encoding="utf-8")
 
         with mock.patch("jcodemunch_mcp.cli.init._settings_json_path", return_value=settings):
-            install_enforcement_hooks(dry_run=False, backup=False)
+            install_enforcement_hooks(dry_run=False, backup=False, guidance=True)
 
         data = json.loads(settings.read_text(encoding="utf-8"))
         assert "SessionStart" in data["hooks"]  # preserved
@@ -689,7 +689,7 @@ class TestEnforcementHooksInstall:
         settings.write_text("{}", encoding="utf-8")
 
         with mock.patch("jcodemunch_mcp.cli.init._settings_json_path", return_value=settings):
-            install_enforcement_hooks(dry_run=False, backup=False)
+            install_enforcement_hooks(dry_run=False, backup=False, guidance=True)
 
         data = json.loads(settings.read_text(encoding="utf-8"))
         hooks = data["hooks"]
