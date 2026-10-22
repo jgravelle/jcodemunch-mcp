@@ -19,13 +19,20 @@ with nothing to say which function each one reaches the target through.
   equivalents. `caller_count` still counts every depth.
 - Rows are ordered by depth. Compile-time (SCIP) evidence appends its direct
   callers after the walk, which used to put depth-1 rows after depth-3 ones.
+- A caller the compiler proves references the target is direct, even when
+  the walk first reached it through another caller: it moves to depth 1, and
+  every row reached through it moves up with it. A row with no usable depth
+  is counted under `"unknown"`, never as direct.
+- The labels cost bytes. For the 735-row case above the response grows from
+  185,720 to 239,254 bytes as JSON and from 102,129 to 111,992 in the compact
+  encoding, inside the 1 MB response ceiling.
 - The tool description says only depth-1 rows are direct. That sentence
   costs 43 tokens on each `standard` and `full` row of
   `benchmarks/schema_baseline.json`; `core` and the `counter` front door are
   unchanged. A first wording ("the row it goes through") cost a routing
   question about how a request travels through the code its top-3 tool
-  (route recall @3 86.4 to 84.7); the shipped wording leaves route and menu
-  recall exactly as they were.
+  (route recall @3 86.4 to 84.7, menu recall @3 67.8 to 66.1); the shipped
+  wording leaves both exactly as they were.
 - The compact encoding is `ch2` and carries all of it (`ch1` still decodes).
   `get_blast_radius`, which shares the walk, also gains `via` on its callers.
 
