@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import Optional
 
 from ..parser import LANGUAGE_EXTENSIONS, get_language_for_path
+from ..security import get_max_file_size, is_binary_file, resolve_within, should_exclude_file
 from ..storage import IndexStore
 from .index_folder import index_folder
 from ._utils import resolve_repo
@@ -42,6 +43,33 @@ _THIN_DOCS_NOTE = (
     "This package ships minimal doc files; symbol signatures and docstrings "
     "are still indexed and queryable."
 )
+
+
+# What a package name may look like. An npm name is one segment, or a scoped
+# "@scope/name"; a PyPI distribution or import name is one segment. Neither may
+# be absolute, contain "..", a backslash or a drive letter: the name is joined
+# onto node_modules / site-packages, so anything else could name a directory
+# outside them.
+_NPM_NAME_RE = re.compile(r"^(?:@[A-Za-z0-9][A-Za-z0-9._~-]*/)?[A-Za-z0-9][A-Za-z0-9._~-]*$")
+_PYPI_NAME_RE = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$")
+# A top_level.txt entry is an importable module name.
+_TOP_LEVEL_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+
+def _valid_name(package: str, pattern: "re.Pattern[str]") -> bool:
+    return bool(pattern.match(package)) and ".." not in package
+
+
+def _contained(path: Path, root: Path) -> Optional[Path]:
+    """``path`` resolved, if it stays inside ``root`` resolved; else None."""
+    try:
+        resolved = path.resolve()
+        root_resolved = root.resolve()
+        if os.path.commonpath([str(root_resolved), str(resolved)]) != str(root_resolved):
+            return None
+        return resolved
+    except (OSError, ValueError):
+        return None
 
 
 def _pep503_normalize(name: str) -> str:
@@ -63,11 +91,21 @@ def _read_package_json(pkg_dir: Path) -> dict:
 
 
 def _resolve_npm(source_root: Path, package: str) -> Optional[dict]:
-    """Locate ``node_modules/<package>`` (scoped names ok, pnpm symlinks followed)."""
-    candidate = source_root / "node_modules" / Path(*package.split("/"))
-    if not candidate.is_dir():
+    """Locate ``node_modules/<package>`` (scoped names ok, pnpm symlinks followed).
+
+    The name must be an npm name, and the resolved directory (after symlinks,
+    which is where pnpm keeps the real files) must stay inside the repo.
+    """
+    if not _valid_name(package, _NPM_NAME_RE):
         return None
-    real = Path(os.path.realpath(candidate))
+    node_modules = source_root / "node_modules"
+    candidate = resolve_within(node_modules, package)
+    if candidate is None or not candidate.is_dir():
+        return None
+    real = _contained(candidate, source_root)
+    if real is None:
+        return None
+    candidate = node_modules / Path(*package.split("/"))
     meta = _read_package_json(real)
     return {
         "ecosystem": "npm",
@@ -114,15 +152,24 @@ def _read_metadata_fields(dist_info: Path) -> tuple[str, str, bool]:
 
 
 def _top_levels(dist_info: Path) -> list[str]:
+    """Importable names from top_level.txt. A line that is not a module name
+    (a path, "..", anything with a separator) is dropped: the file comes from
+    the installed package, and each name is joined onto site-packages."""
     try:
         lines = (dist_info / "top_level.txt").read_text(encoding="utf-8", errors="replace").splitlines()
-        return [ln.strip() for ln in lines if ln.strip()]
+        return [ln.strip() for ln in lines if _TOP_LEVEL_RE.match(ln.strip())]
     except Exception:
         return []
 
 
 def _resolve_pypi(source_root: Path, package: str, looked_in: list) -> Optional[dict]:
-    """Match a distribution (PEP-503 name) or import name in repo-local venvs."""
+    """Match a distribution (PEP-503 name) or import name in repo-local venvs.
+
+    The name must be a PyPI name, and every directory it resolves to must stay
+    inside the site-packages it was found in.
+    """
+    if not _valid_name(package, _PYPI_NAME_RE):
+        return None
     want = _pep503_normalize(package)
     for sp in _site_packages_dirs(source_root):
         looked_in.append(str(sp))
@@ -144,12 +191,15 @@ def _resolve_pypi(source_root: Path, package: str, looked_in: list) -> Optional[
             tops = _top_levels(match)
             pkg_dir: Optional[Path] = None
             for top in ([package] + tops) if package in tops else (tops or [package]):
-                cand = sp / top
-                if cand.is_dir():
+                cand = resolve_within(sp, top)
+                if cand is not None and cand.is_dir():
                     pkg_dir = cand
                     break
             if pkg_dir is None:
-                single = [t for t in (tops or [package]) if (sp / f"{t}.py").is_file()]
+                single = [
+                    t for t in (tops or [package])
+                    if (f := resolve_within(sp, f"{t}.py")) is not None and f.is_file()
+                ]
                 if single:
                     return {"ecosystem": "pypi", "error": (
                         f"{name or package!r} is a single-module distribution "
@@ -170,8 +220,8 @@ def _resolve_pypi(source_root: Path, package: str, looked_in: list) -> Optional[
                 "additional_top_levels": [t for t in tops if t != pkg_dir.name],
             }
         # No dist-info matched; a bare package dir still counts, version unknown.
-        bare = sp / package
-        if bare.is_dir():
+        bare = resolve_within(sp, package)
+        if bare is not None and bare.is_dir():
             return {
                 "ecosystem": "pypi", "name": package, "version": "",
                 "installed_path": str(bare),
@@ -193,6 +243,13 @@ def _copy_snapshot(src: Path, dest: Path, max_files: int) -> dict:
     docs = {"readme": None, "changelog": None, "docs_dir": None}
     files_copied = 0
     truncated = False
+    skipped: dict[str, int] = {}
+    # The copy is a second way into the index store, so every file passes the
+    # checks the indexer applies to a walked file before it is copied: no
+    # secret or credential file, nothing over the size cap, nothing binary,
+    # nothing that resolves outside the package.
+    src_root = Path(os.path.realpath(src))
+    max_size = get_max_file_size(None)
 
     for dirpath, dirnames, filenames in os.walk(str(src), followlinks=False):
         dirnames[:] = [d for d in dirnames if d not in _SKIP_COPY_DIRS]
@@ -219,6 +276,14 @@ def _copy_snapshot(src: Path, dest: Path, max_files: int) -> dict:
             src_file = Path(dirpath) / fname
             if src_file.is_symlink():
                 continue
+            reason = should_exclude_file(
+                Path(os.path.realpath(src_file)), src_root, max_file_size=max_size,
+            )
+            if reason is None and is_binary_file(src_file):
+                reason = "binary_content"
+            if reason is not None:
+                skipped[reason] = skipped.get(reason, 0) + 1
+                continue
             dest_file = dest / rel
             try:
                 dest_file.parent.mkdir(parents=True, exist_ok=True)
@@ -238,7 +303,8 @@ def _copy_snapshot(src: Path, dest: Path, max_files: int) -> dict:
             if rel_dir.split("/", 1)[0].lower() in ("docs", "doc") and docs["docs_dir"] is None:
                 docs["docs_dir"] = rel_dir.split("/", 1)[0]
     return {"code_rels": code_rels, "docs": docs,
-            "files_copied": files_copied, "truncated": truncated}
+            "files_copied": files_copied, "truncated": truncated,
+            "skipped": skipped}
 
 
 def index_dependency(
@@ -271,6 +337,11 @@ def index_dependency(
         return {"error": "ecosystem must be one of: auto, npm, pypi"}
     if not package or not isinstance(package, str):
         return {"error": "Provide 'package' (npm or PyPI name as installed)."}
+    if not (_valid_name(package, _NPM_NAME_RE) or _valid_name(package, _PYPI_NAME_RE)):
+        return {"error": (
+            f"{package!r} is not a package name. Give an npm name (lodash, "
+            "@scope/name) or a PyPI name (requests); paths are not accepted."
+        )}
 
     try:
         owner, name = resolve_repo(repo, storage_path)
@@ -326,6 +397,9 @@ def index_dependency(
         use_ai_summaries=False,
         storage_path=storage_path,
         paths=copied["code_rels"],
+        # The snapshot is our own copy, already filtered file by file above;
+        # a package's .gitignore (often listing dist/) must not drop its code.
+        paths_honor_gitignore=False,
     )
     if not (isinstance(result, dict) and result.get("success")):
         return {"error": f"Indexing the snapshot failed: {result}", "resolved": resolved}
@@ -375,6 +449,8 @@ def index_dependency(
             "truncated": copied["truncated"],
         },
     }
+    if copied.get("skipped"):
+        response["_meta"]["skipped_on_copy"] = copied["skipped"]
     if notes:
         response["_meta"]["notes"] = notes
     return response

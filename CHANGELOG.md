@@ -2,6 +2,23 @@
 
 ## [Unreleased]
 
+### Security - index_dependency validates package paths
+
+`index_dependency` now accepts only a package name: an npm name (`lodash`,
+`@scope/name`) or a PyPI name (`requests`), never a path. Each name read from
+an installed distribution's `top_level.txt` must be a module name. Every
+directory a name resolves to, after symlinks, must stay inside the
+`node_modules` or site-packages it was looked up in, and inside the repo.
+
+The snapshot copy applies the checks the indexer applies to every file it
+walks: secret and credential files, files over the size cap and binary files
+are not copied, and the response's `_meta.skipped_on_copy` counts them.
+
+`index_folder(paths=...)` honours `.gitignore` the way a full index does: a
+listed file that a `.gitignore` between the repo root and the file excludes
+is skipped with a warning. Before, a listed file was indexed even when
+ignored. Skip-directory rules still do not apply to listed files.
+
 ### Fixed - a question about code ranks functions above fields and constants
 
 After tests and settings files, the next thing crowding a question about
