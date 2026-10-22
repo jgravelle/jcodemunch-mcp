@@ -287,42 +287,59 @@ def test_file_factor(sym: dict, terms: list[str]) -> float:
 
 
 # Languages whose symbols are settings, data or styling rather than code: a
-# workflow's env keys, a pyproject table, a CSS selector. An indexed repo can
-# hold as many of these as it holds functions (the pinned fastapi checkout has
-# 6,400 YAML symbols beside 7,000 Python ones), and a common word in a key
-# (`UV_RESOLUTION` for "resolution") fills a code question's top results with them.
-_CONFIG_LANGUAGES = frozenset({"yaml", "toml", "json", "xml", "ini", "properties"})
-_STYLE_LANGUAGES = frozenset({"css"})
+# workflow's env keys, a pyproject table, a CSS selector. Settings files can
+# hold as many symbols as the code beside them, and a common word in a key
+# (`UV_RESOLUTION` for "resolution") fills a code question's top results with
+# them. Every name here is one `parser/languages.py` produces (a test holds
+# that). Left out on purpose: `hcl` and `openapi`, whose symbols are
+# infrastructure and API definitions a code question may be asking about.
+_CONFIG_LANGUAGES = frozenset({"yaml", "toml", "json", "xml"})
+_STYLE_LANGUAGES = frozenset({"css", "scss", "sass", "less", "styl"})
 NON_CODE_LANGUAGES = _CONFIG_LANGUAGES | _STYLE_LANGUAGES
 
 # Words that make a query ABOUT configuration, or about styling; with one
-# present, that group of languages is not demoted (and only that group: a
+# present, that group of languages is not weighted (and only that group: a
 # question about the CI workflow is not a question about the stylesheet).
 _CONFIG_INTENT = frozenset({
     "config", "configuration", "configure", "yaml", "yml", "toml", "json", "xml",
-    "ini", "workflow", "workflows", "ci", "setting", "settings", "pyproject",
-    "manifest", "env",
+    "workflow", "workflows", "ci", "setting", "settings", "pyproject", "manifest", "env",
 })
-_STYLE_INTENT = frozenset({"css", "style", "styles", "stylesheet", "selector", "selectors"})
+_STYLE_INTENT = frozenset({
+    "css", "scss", "sass", "less", "style", "styles", "stylesheet", "selector", "selectors",
+})
 
-# Symbol kinds that name a value rather than behaviour.
-DATA_KINDS = frozenset({"field", "constant"})
-
-# Words that make a query ABOUT values; with one present the data-kind
-# demotion is off.
+# Words that make a query ABOUT values; with one present no field or constant
+# is weighted.
 _DATA_INTENT = frozenset({
     "field", "fields", "constant", "constants", "attribute", "attributes",
     "property", "properties", "variable", "variables", "setting", "settings",
 })
 
-# Multipliers for a symbol from a NON_CODE_LANGUAGES file and for a field or
-# constant. 0.5 is a chosen value, checked on the pinned fastapi questions: it
-# cleared every non-library symbol from their top 5 while "python version
-# matrix" still ranked a workflow key first; 0.25 lost that one. Like the test
-# weight, only RANKING reads the reduced score, and the identity channel is
-# untouched, so an exact name (`UV_RESOLUTION`, `dependency_cache`) still ranks first.
+# Multipliers for a NON_CODE_LANGUAGES symbol and for a data symbol (see
+# `is_data_symbol`). 0.5 is a chosen value, checked on the pinned fastapi
+# questions: it cleared every settings-file symbol, field and constant from
+# their top 5 while "python version matrix" still ranked a workflow key first,
+# which 0.25 did not. Only RANKING reads the reduced score; verdicts,
+# confidence and absence read the raw one.
 NON_CODE_WEIGHT = 0.5
 DATA_KIND_WEIGHT = 0.5
+
+
+def is_data_symbol(sym: dict) -> bool:
+    """A field, or a constant whose name is written as one (UPPER_CASE).
+
+    The kind alone is not enough: JavaScript and TypeScript index every
+    module-level `const` as a constant, so `const app = express()` and
+    `const router = express.Router()` are kind ``constant`` and are the code a
+    routing question is asking about. The UPPER_CASE spelling is the
+    convention for a value across languages."""
+    kind = sym.get("kind")
+    if kind == "field":
+        return True
+    if kind != "constant":
+        return False
+    name = (sym.get("name") or "").rsplit(".", 1)[-1].lstrip("_")
+    return any(c.isalpha() for c in name) and name == name.upper()
 
 
 def rank_factor(sym: dict, terms: list[str]) -> tuple[float, str | None]:
@@ -330,8 +347,9 @@ def rank_factor(sym: dict, terms: list[str]) -> tuple[float, str | None]:
 
     One reason applies, the first that matches: ``test_file``
     (`test_file_factor`), ``non_code_file`` (a NON_CODE_LANGUAGES symbol on a
-    query with no configuration word) or ``data_kind`` (a field or constant on
-    a query with no value word). ``(1.0, None)`` otherwise."""
+    query with no configuration, or styling, word) or ``data_kind``
+    (`is_data_symbol`, on a query with no value word). ``(1.0, None)``
+    otherwise."""
     weight = test_file_factor(sym, terms)
     if weight != 1.0:
         return weight, "test_file"
@@ -341,7 +359,7 @@ def rank_factor(sym: dict, terms: list[str]) -> tuple[float, str | None]:
         if any(t in intent for t in terms):
             return 1.0, None
         return NON_CODE_WEIGHT, "non_code_file"
-    if sym.get("kind") in DATA_KINDS and not any(t in _DATA_INTENT for t in terms):
+    if is_data_symbol(sym) and not any(t in _DATA_INTENT for t in terms):
         return DATA_KIND_WEIGHT, "data_kind"
     return 1.0, None
 
