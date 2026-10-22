@@ -62,6 +62,13 @@ def _attach_scip_to_hierarchy(response: dict, store, owner: str, name: str) -> d
             if existing is not None:
                 if existing.get("source") != "scip":
                     existing["verification"] = "compiler_verified"
+                # The compiler says this symbol references the target itself,
+                # so it is a direct caller even if the walk first reached it
+                # through another one. `_label_depths` re-derives the rows
+                # reached through it.
+                if (existing.get("depth") or 1) > 1:
+                    existing["depth"] = 1
+                    existing.pop("via", None)
                 continue
             entry = {
                 "id": r["id"],
@@ -97,6 +104,58 @@ def _attach_scip_to_hierarchy(response: dict, store, owner: str, name: str) -> d
     finally:
         conn.close()
     return response
+
+
+def _label_depths(response: dict) -> None:
+    """Order each list by depth and say how many rows sit at each depth.
+
+    One ``callers`` list held every depth under one ``caller_count``: at the
+    default depth 3, 735 rows for one function here, 12 of them direct. A row
+    carries its ``depth`` (and, deeper than 1, ``via``), and the response now
+    also carries ``direct_caller_count`` and ``callers_by_depth`` (callees the
+    same). The sort is stable, so the walk's order holds within a depth; it
+    runs after compile-time evidence, which appends its direct callers last
+    and can promote a row the walk reached deeper to depth 1.
+
+    A row's depth is re-derived from its ``via`` chain (one more than the row
+    it is reached through), so a promotion shortens every chain through it.
+    A row with no usable depth is counted under ``"unknown"`` and sorted last;
+    it is never counted as direct.
+    """
+    for key, direct_key, by_depth_key in (
+        ("callers", "direct_caller_count", "callers_by_depth"),
+        ("callees", "direct_callee_count", "callees_by_depth"),
+    ):
+        rows = response.get(key) or []
+        by_id = {r.get("id"): r for r in rows}
+        resolved: dict[Optional[str], Optional[int]] = {}
+
+        def depth_of(r: dict, seen: frozenset = frozenset()) -> Optional[int]:
+            rid = r.get("id")
+            if rid in resolved:
+                return resolved[rid]
+            parent = by_id.get(r.get("via"))
+            if parent is not None and rid not in seen:
+                pd = depth_of(parent, seen | {rid})
+                d = pd + 1 if pd is not None else None
+            else:
+                raw = r.get("depth")
+                d = raw if isinstance(raw, int) and not isinstance(raw, bool) and raw >= 1 else None
+            resolved[rid] = d
+            return d
+
+        for r in rows:
+            d = depth_of(r)
+            if d is not None:
+                r["depth"] = d
+        rows.sort(key=lambda r: resolved.get(r.get("id")) or 10**9)
+        counts: dict[str, int] = {}
+        for r in rows:
+            d = resolved.get(r.get("id"))
+            label = str(d) if d is not None else "unknown"
+            counts[label] = counts.get(label, 0) + 1
+        response[direct_key] = counts.get("1", 0)
+        response[by_depth_key] = counts
 
 
 def get_call_hierarchy(
@@ -305,6 +364,7 @@ def get_call_hierarchy(
     # Compile-time evidence (SCIP): union compiler-verified callers the AST missed.
     # Honest no-op when no .scip was ingested.
     response = _attach_scip_to_hierarchy(response, store, owner, name)
+    _label_depths(response)
 
     # Disclose inbound edges the callers query could not consult (jcm#423).
     # Attached AFTER SCIP, because a compiler-verified caller is a real answer

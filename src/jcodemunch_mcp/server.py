@@ -3284,6 +3284,7 @@ def _build_tools_list(
                 "For a 'what breaks if I delete this?' answer, use get_impact_preview instead."
             
                 " Detection is name-based, so same-name symbols in different modules can merge and dynamic dispatch is missed."
+                " Only depth-1 rows are direct callers; on a deeper row, `via` names the row it is reached from. `caller_count` counts every depth, `direct_caller_count` depth 1."
             ),
             inputSchema={
                 "type": "object",
