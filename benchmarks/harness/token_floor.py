@@ -58,8 +58,18 @@ def per_repo_rise(results: list[dict], reference: dict | None) -> dict[str, floa
     return out
 
 
-def verdicts(results: list[dict], reference: dict | None) -> tuple[bool, list[str]]:
-    """Return (all_pass, lines). Lines are the harness's one-per-threshold format."""
+def verdicts(
+    results: list[dict],
+    reference: dict | None,
+    accept_rise: frozenset = frozenset(),
+) -> tuple[bool, list[str]]:
+    """Return (all_pass, lines). Lines are the harness's one-per-threshold format.
+
+    ``accept_rise`` names repos whose rise a maintainer has approved while the
+    committed reference is being replaced (`run_benchmark.py --reference
+    --accept-rise REPO`). Their rise is printed and not judged; every other
+    repo, and ``token.grand_ratio_vs_grep``, are judged as always.
+    """
     ok = True
     lines = []
     ratio = grand_ratio_vs_grep(results)
@@ -71,11 +81,17 @@ def verdicts(results: list[dict], reference: dict | None) -> tuple[bool, list[st
         lines.append(line)
         ok = ok and line.endswith("PASS")
     rises = per_repo_rise(results, reference)
-    if rises:
-        worst = max(rises.values())
+    accepted = {r: v for r, v in rises.items() if r in accept_rise}
+    judged = {r: v for r, v in rises.items() if r not in accept_rise}
+    if accepted:
+        lines.append(f"token.per_repo_rise_max: rise accepted for re-baselining, not judged: {accepted}")
+    if judged:
+        worst = max(judged.values())
         line = T.verdict_line("token.per_repo_rise_max", worst)
-        lines.append(line + f"   per repo: {rises}")
+        lines.append(line + f"   per repo: {judged}")
         ok = ok and line.endswith("PASS")
+    elif accepted:
+        pass
     else:
         lines.append("token.per_repo_rise_max: no reference row to compare against (first run); not a failure")
     return ok, lines

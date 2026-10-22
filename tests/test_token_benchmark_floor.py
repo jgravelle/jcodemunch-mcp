@@ -63,3 +63,46 @@ def test_committed_reference_clears_the_ratio_floor():
     grep_total, jcm_total = int(g.group(1).replace(",", "")), int(j.group(1).replace(",", ""))
     assert jcm_total == ref["grand"]["jmunch_tokens"], "results.md and jcm_reference.json disagree on jcm tokens"
     T.assert_passes("token.grand_ratio_vs_grep", round(grep_total / jcm_total, 2), context="committed benchmarks/results.md")
+
+
+# --- an approved rise while the reference is replaced --------------------------------
+
+
+def _two_repos(express_jcm: int, fastapi_jcm: int, grep: int = 10_000_000):
+    return _results(express_jcm, grep) + _results(fastapi_jcm, grep, repo="fastapi/fastapi")
+
+
+def test_an_accepted_rise_is_printed_not_judged():
+    rise = T.floor("token.per_repo_rise_max")
+    ref = {"repos": {"expressjs/express": {"jmunch_total_tokens": 1000},
+                     "fastapi/fastapi": {"jmunch_total_tokens": 1000}}}
+    over = int(1000 * (1 + rise) / 5) + 50
+    results = _two_repos(200, over)
+    ok, lines = F.verdicts(results, ref)
+    assert not ok  # non-vacuity: without acceptance the fastapi rise fails
+    ok, lines = F.verdicts(results, ref, frozenset({"fastapi/fastapi"}))
+    assert ok, lines
+    assert any("accepted" in l and "fastapi/fastapi" in l for l in lines), lines
+
+
+def test_accepting_one_repo_still_judges_the_others():
+    rise = T.floor("token.per_repo_rise_max")
+    ref = {"repos": {"expressjs/express": {"jmunch_total_tokens": 1000},
+                     "fastapi/fastapi": {"jmunch_total_tokens": 1000}}}
+    over = int(1000 * (1 + rise) / 5) + 50
+    ok, lines = F.verdicts(_two_repos(over, over), ref, frozenset({"fastapi/fastapi"}))
+    assert not ok and any("FAIL" in l and "expressjs/express" in l for l in lines), lines
+
+
+def test_accepting_a_rise_does_not_waive_the_grep_ratio():
+    floor = T.floor("token.grand_ratio_vs_grep")
+    ref = {"repos": {"expressjs/express": {"jmunch_total_tokens": 1000}}}
+    ok, lines = F.verdicts(_results(100, int(100 * floor) - 1), ref, frozenset({"expressjs/express"}))
+    assert not ok, lines
+
+
+def test_accept_rise_without_reference_is_refused(monkeypatch):
+    import run_benchmark as R
+
+    monkeypatch.setattr(sys, "argv", ["run_benchmark.py", "--floor", "--accept-rise", "fastapi/fastapi"])
+    assert R.main() == 2

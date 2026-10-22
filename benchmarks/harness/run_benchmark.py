@@ -968,6 +968,15 @@ def main():
              "a DOWNWARD move stays the re-sync warning",
     )
     parser.add_argument(
+        "--accept-rise",
+        action="append",
+        default=[],
+        metavar="OWNER/REPO",
+        help="with --reference only: a repo whose token rise a maintainer approved, so "
+             "--floor prints it instead of failing on it while the reference is replaced. "
+             "Repeat for more than one repo. Every other repo is judged as usual.",
+    )
+    parser.add_argument(
         "--reference",
         nargs="?",
         const=str(REFERENCE_PATH),
@@ -990,6 +999,12 @@ def main():
              "counts are identical (they should be; there is no seed to pin)",
     )
     args = parser.parse_args()
+    if args.accept_rise and not args.reference:
+        # Accepting a rise without replacing the reference would silence the
+        # gate for every later run; it is only meaningful while re-baselining.
+        print("--accept-rise needs --reference: it accepts a rise only while the reference is replaced",
+              file=sys.stderr)
+        return 2
 
     repos = args.repos or DEFAULT_REPOS
 
@@ -1046,7 +1061,7 @@ def main():
 
     if args.floor:
         from token_floor import verdicts as _floor_verdicts
-        _ok, _lines = _floor_verdicts(results, load_reference())
+        _ok, _lines = _floor_verdicts(results, load_reference(), frozenset(args.accept_rise))
         for _line in _lines:
             print(_line)
         if not _ok:
