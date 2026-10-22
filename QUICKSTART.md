@@ -179,7 +179,7 @@ You can also add the same block to a project-level `CLAUDE.md` in your repo root
 > `jcodemunch-mcp init` handles steps 2 and 3 automatically.
 
 > [!IMPORTANT]
-> **CLAUDE.md is a soft rule.** It works well under normal conditions, but agents can ignore it when moving fast, under load, or deep in a complex task — not because they forgot, but because native tools feel faster in the moment. If you need reliable enforcement, install the [hook scripts](AGENT_HOOKS.md) — they intercept `Grep`, `Glob`, and `Bash` at the tool-call level and redirect Claude before the shortcut fires.
+> **CLAUDE.md is a soft rule.** It works well under normal conditions, but agents can ignore it when moving fast, under load, or deep in a complex task — not because they forgot, but because native tools feel faster in the moment. If you need reliable enforcement, install the [hook scripts](AGENT_HOOKS.md) with `jcodemunch-mcp init --guidance` — they intercept `Grep`, `Glob`, and `Bash` at the tool-call level and redirect Claude before the shortcut fires.
 
 #### OpenClaw
 
@@ -270,7 +270,7 @@ Want a slowest-tools / coldest-caches view? Ask: *"Run analyze_perf"* — the ag
 
 **Agent uses jCodeMunch in simple tasks but falls back to file reads in complex ones**
 → This is the "pressure bypass" — the agent sees the rule and skips it anyway because native tools feel faster.
-→ Claude Code: CLAUDE.md can't stop this. Install the enforcement hooks: [AGENT_HOOKS.md](AGENT_HOOKS.md).
+→ Claude Code: CLAUDE.md can't stop this. Install the enforcement hooks with `jcodemunch-mcp init --guidance`: [AGENT_HOOKS.md](AGENT_HOOKS.md).
 → OpenClaw: name in your systemPromptFile the questions that go to the index (who uses a symbol, what a change breaks, who calls a function). An absolute rule against the built-in tools costs more than it saves on a small repository.
 
 **`jcodemunch-mcp` not found**

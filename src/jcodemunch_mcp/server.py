@@ -9284,6 +9284,14 @@ def _run_config(check: bool = False, init: bool = False, upgrade: bool = False) 
 
         # ── CLAUDE.md drift check ────────────────────────────────────────────
         section("CLAUDE.md check")
+
+        def _names_jcodemunch(text: str) -> bool:
+            # Does this file talk about jcodemunch at all? "jcodemunch", or a
+            # tool name with an underscore. A bare word such as "digest" is
+            # also a tool name and is ordinary English, so it does not count.
+            if "jcodemunch" in text.lower():
+                return True
+            return any("_" in t and t in text for t in _CANONICAL_TOOL_NAMES)
         claude_md_path = Path.home() / ".claude" / "CLAUDE.md"
         canonical_tools = list(_CANONICAL_TOOL_NAMES)
         if claude_md_path.exists():
@@ -9298,9 +9306,7 @@ def _run_config(check: bool = False, init: bool = False, upgrade: bool = False) 
 
                 if "jcodemunch_guide" in cm_content:
                     print(f"  {green(CHECK)} CLAUDE.md uses jcodemunch_guide one-line form (version-pinned at runtime)")
-                elif not _has_policy_block(claude_md_path) and not any(
-                    t in cm_content for t in canonical_tools
-                ):
+                elif not _has_policy_block(claude_md_path) and not _names_jcodemunch(cm_content):
                     # The policy is opt-in: a CLAUDE.md that never mentions
                     # jcodemunch is the shipped default, never an issue. One
                     # that names some tools still gets the drift check below.
@@ -9348,8 +9354,8 @@ def _run_config(check: bool = False, init: bool = False, upgrade: bool = False) 
             except Exception as _e:
                 print(f"  {yellow(WARN)} Could not read CLAUDE.md: {_e}")
         else:
-            print(f"  {yellow(WARN)} CLAUDE.md not found: {claude_md_path}")
-            print(f"  {dim('  Run: jcodemunch-mcp claude-md --generate > /path/to/CLAUDE.md')}")
+            # No CLAUDE.md is the shipped default: the policy is opt-in.
+            print(f"  {dim(f'  No CLAUDE.md at {claude_md_path} (the jcodemunch policy is opt-in: jcodemunch-mcp init --policy)')}")
 
         # ── Hook check ─────────────────────────────────────────────────────────
         section("Hooks check")
@@ -11059,7 +11065,7 @@ def main(argv: Optional[list[str]] = None):
         client_arg = None if target.lower() == "all" else [target.lower()]
         sys.exit(run_init(
             clients=client_arg or ["auto"],
-            # The policy paste is opt-in since the light default install.
+            # The policy paste is opt-in (default install made light 2026-10-22).
             claude_md="global" if getattr(args, "policy", False) else None,
             guidance=getattr(args, "guidance", False),
             policy=getattr(args, "policy", False),

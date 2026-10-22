@@ -1670,7 +1670,8 @@ class TestClaudeMdDriftCheck:
             assert "one-line form" in out
 
     def test_check_warns_when_claude_md_absent(self, capsys, monkeypatch):
-        """check should warn (not error) when CLAUDE.md is not found."""
+        """check should report (not error) when CLAUDE.md is not found. Since the
+        policy became opt-in (2026-10-22) the report names it as opt-in."""
         with tempfile.TemporaryDirectory() as tmpdir:
             # No CLAUDE.md created — only config
             fn = self._run_check(monkeypatch, tmpdir, claude_md_content=None)
@@ -1681,7 +1682,7 @@ class TestClaudeMdDriftCheck:
                 out_lines = capsys.readouterr().out.splitlines()
             except SystemExit:
                 out_lines = capsys.readouterr().out.splitlines()
-            assert any("CLAUDE.md not found" in l or "not mentioned" in l for l in out_lines)
+            assert any("No CLAUDE.md at" in l and "init --policy" in l for l in out_lines)
 
 
 class TestClaudeMdGenerate:

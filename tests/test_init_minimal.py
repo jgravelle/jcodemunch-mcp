@@ -113,7 +113,7 @@ class TestMinimalMode:
             audit=False,         # audit is opt-in even under --yes
             yes=True,
             minimal=False,       # explicitly non-minimal
-            policy=True,         # policy pastes are opt-in since the light default install
+            policy=True,         # policy pastes are opt-in since 2026-10-22
         )
 
         assert rc == 0

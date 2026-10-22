@@ -1539,7 +1539,7 @@ def run_init(
     selected_names = {c.name for c in targets}
 
     # 2a: CLAUDE.md (Claude Code / Claude Desktop)
-    # ⚠ Opt-in since the light default install: the policy block is paid for on
+    # ⚠ Opt-in since the default install was made light (2026-10-22): the policy block is paid for on
     # every request. `--policy` or an explicit `--claude-md SCOPE` adds it; an
     # existing block is left as it is (and `claude-md --refresh` still updates it).
     md_scope = claude_md
@@ -2017,7 +2017,7 @@ REMOVE_GUIDANCE_COMMAND = "jcodemunch-mcp init --remove-guidance"
 # install adds no instructions that would ask on the user's behalf.
 ASK_BY_NAME_LINE = (
     'Tip: ask your agent to use jcodemunch by name ("use jcodemunch to find '
-    'where X is handled"). That is what gets it used.'
+    'where X is handled").'
 )
 
 

@@ -98,7 +98,7 @@ No virtualenv to manage, nothing written into system Python, and it works as-is 
 
 `init` auto-detects your MCP clients (Claude Code, Claude Desktop, Cursor, Windsurf, Continue), writes their config entries, installs the hooks that keep the index fresh without adding anything to the model's context (re-index after an edit, a pre-compaction checkpoint, a task-complete note to you), optionally indexes your project, and audits your agent config files for token waste. Two extras are opt-in because the model reads them on every turn they apply: `--policy` writes the Code Exploration Policy into CLAUDE.md, AGENTS.md and the Cursor and Windsurf rules files, and `--guidance` adds the hooks that advise the model on Read/Grep/Glob/Bash, brief subagents and restore context after compaction. An install that already has them keeps them; `jcodemunch-mcp init --remove-guidance` removes them, with backups.
 
-**Ask for it by name.** Tell your agent to use jcodemunch ("use jcodemunch to find where X is handled"). That is what gets it used.
+**Ask for it by name.** Tell your agent to use jcodemunch ("use jcodemunch to find where X is handled"). In the sessions we measured, agents used it when the user asked for it by name.
 
 <details>
 <summary><b>Other install paths</b></summary>

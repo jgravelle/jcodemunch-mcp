@@ -12,10 +12,10 @@ starts, and the context restored after compaction. The policy block is part
 of every request, and the advice is added each time one of those tools runs.
 In the Claude Code sessions we measured, the advice did not change which
 tools the agent used, so a default install no longer pays for it. That is a
-tradeoff, not a correction: the earlier default was a reasonable call when
-it was made, and it put the tools in front of every agent. What gets an
-agent to use jcodemunch is the user asking for it by name, and `init` now
-says so when it finishes.
+tradeoff: the earlier default was a reasonable call when it was made, and it
+put the tools in front of every agent. In the same sessions, agents used
+jcodemunch when the user asked for it by name, so `init` now suggests that
+when it finishes.
 
 A default `init` (including `--yes`, `install <agent>`, and the refresh
 `upgrade` runs) now registers the server and installs only the hooks whose
@@ -38,7 +38,8 @@ backing each file up first, and keeps the silent hooks and the server
 registration. It also drops the `--strict` setting, which only governs the
 advice hook. `init` and `install-status` name that command when an install
 still carries any of it, and neither runs it for you. `config --check` reports
-a missing policy or model-facing hook as opt-in, not as a problem.
+a missing policy, a missing CLAUDE.md or a missing model-facing hook as
+opt-in, never as a problem.
 
 The front-door tools still load up front where a client defers MCP tools;
 that is server-side and unchanged.

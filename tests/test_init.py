@@ -313,7 +313,7 @@ def test_run_init_dry_run_yes(tmp_path, monkeypatch, capsys):
 
 
 def test_run_init_full_yes(tmp_path, monkeypatch, capsys):
-    """--yes --policy configures the client and writes the CLAUDE.md policy (opt-in since the light default install)."""
+    """--yes --policy configures the client and writes the CLAUDE.md policy (opt-in since the default install was made light, 2026-10-22)."""
     monkeypatch.setattr("jcodemunch_mcp.cli.init._detect_clients", lambda: [
         MCPClient("TestClient", tmp_path / "mcp.json", "json_patch"),
     ])

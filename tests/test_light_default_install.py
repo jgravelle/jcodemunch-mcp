@@ -341,19 +341,31 @@ def test_remove_guidance_cleans_the_cursor_and_windsurf_rules(box, monkeypatch):
     assert any(n != ".windsurfrules" and n.startswith(".windsurfrules") for n in names), names
 
 
-def test_config_check_passes_a_light_install(box, capsys):
+@pytest.mark.parametrize(
+    "claude_md",
+    [
+        "# My notes",
+        "Every Friday, write a weekly digest of merged PRs.",  # "digest" is also a tool name
+        None,  # no CLAUDE.md at all
+    ],
+)
+def test_config_check_passes_a_light_install(box, capsys, claude_md):
     """`config --check` must not fail the shipped default: a personal CLAUDE.md
-    without the policy, and only the silent hooks."""
+    (or none) without the policy, and only the silent hooks. The exit status is
+    what a client reads as a broken install, so it is asserted."""
     from jcodemunch_mcp import server
 
-    (box["home"] / ".claude" / "CLAUDE.md").write_text("# My notes\n", encoding="utf-8")
+    if claude_md is not None:
+        (box["home"] / ".claude" / "CLAUDE.md").write_text(claude_md, encoding="utf-8")
     assert _init() == 0
     capsys.readouterr()
+    code = 0
     try:
         server.main(["config", "--check"])
-    except SystemExit:
-        pass
+    except SystemExit as exc:
+        code = exc.code or 0
     out = capsys.readouterr().out
+    assert code == 0, out
     assert "not mentioned in CLAUDE.md" not in out
     assert "init --policy" in out
     for sub in ("hook-pretooluse", "hook-sessionstart", "hook-subagent-start"):
@@ -363,3 +375,9 @@ def test_config_check_passes_a_light_install(box, capsys):
 def test_init_tells_the_user_to_ask_for_it_by_name(box, capsys):
     assert _init() == 0
     assert init_module.ASK_BY_NAME_LINE in capsys.readouterr().out
+
+
+def test_the_upgrade_refresh_does_not_print_the_ask_by_name_line(box, capsys, monkeypatch):
+    monkeypatch.setenv(init_module.UPGRADE_REFRESH_ENV, "1")
+    assert _init(hooks=True, hooks_explicit=True) == 0
+    assert init_module.ASK_BY_NAME_LINE not in capsys.readouterr().out
