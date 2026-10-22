@@ -172,6 +172,13 @@ This installs three Python CLI hooks into `~/.claude/settings.json`:
 
 These hooks are idempotent (safe to re-run), backup-aware, and respect `--dry-run`.
 
+> **Since the light default install:** a default `init` (and `init --hooks`) installs only
+> the hooks whose output the model never sees: `hook-posttooluse`, `hook-precompact` and
+> `hook-taskcomplete`. The model-facing ones (`hook-pretooluse`, `hook-sessionstart`,
+> `hook-subagent-start`) need `init --guidance`; `init --strict` still adds
+> `hook-pretooluse`. An install that already has them keeps them, and
+> `jcodemunch-mcp init --remove-guidance` removes them with backups.
+
 > **macOS / Linux note (v1.80.5+):** `init --hooks` writes the **absolute path**
 > to `jcodemunch-mcp` into `~/.claude/settings.json` — not the bare name. Claude
 > Code spawns hooks via `/bin/sh`, which uses a minimal PATH that does **not**

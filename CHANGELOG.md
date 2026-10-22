@@ -2,6 +2,41 @@
 
 ## [Unreleased]
 
+### Changed - a default install adds nothing to the model's context
+
+`init` used to write the Code Exploration Policy into the global CLAUDE.md
+and AGENTS.md (and the Cursor and Windsurf rules files) and to install six
+Claude Code hooks. Three of those hooks put text in front of the model: the
+advice on Read, Grep, Glob and Bash, the briefing a subagent gets when it
+starts, and the context restored after compaction. The policy block is read
+on every request and the advice on most of them. In the Claude Code sessions
+we measured, neither changed which tools the agent reached for, so a default
+install was charging every user tokens for nothing.
+
+A default `init` (including `--yes`, `install <agent>`, and the refresh
+`upgrade` runs) now registers the server and installs only the hooks whose
+output the model never sees: re-indexing after an edit, the pre-compaction
+checkpoint, and the task-complete note, which goes to you rather than to the
+model. The rest is opt-in:
+
+- `--policy` writes the policy into CLAUDE.md, AGENTS.md and, for Cursor and
+  Windsurf, their rules files. `--claude-md global|project` still writes
+  CLAUDE.md on its own.
+- `--guidance` adds the three model-facing hooks. `--strict` still adds the
+  advice hook it turns into a refusal.
+
+Nothing is taken away from an existing install. A re-run of `init`, or an
+`upgrade`, keeps every hook and policy block already there, refreshed as
+before. `jcodemunch-mcp init --remove-guidance` removes the model-facing
+hooks and every jcodemunch policy block (global CLAUDE.md; CLAUDE.md,
+AGENTS.md and the Cursor and Windsurf rules in the current directory),
+backing each file up first, and keeps the silent hooks and the server
+registration. `init` and `install-status` name that command when an install
+still carries any of it, and neither runs it for you.
+
+The front-door tools still load up front where a client defers MCP tools;
+that is server-side and unchanged.
+
 ### Fixed - a question about code ranks code above settings files
 
 With tests weighted down in 1.108.391, the next thing to crowd a question
