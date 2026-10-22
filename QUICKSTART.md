@@ -29,8 +29,8 @@ jcodemunch-mcp init
 `init` walks you through everything interactively:
 
 1. **Detects your MCP clients** (Claude Code, Claude Desktop, Cursor, Windsurf, Continue) and writes the config entry for each
-2. **Installs the CLAUDE.md prompt policy** so your agent actually uses jCodeMunch instead of brute-reading files
-3. **Optionally installs enforcement hooks** (`--hooks`) — PreToolUse read guard, PostToolUse auto-reindex, and PreCompact session snapshot for Claude Code
+2. **Installs the Claude Code hooks whose output the model never sees** — PostToolUse auto-reindex after an edit, the PreCompact checkpoint and the task-complete note. Nothing is added to your agent's context by default.
+3. **Optionally adds guidance** — `--policy` writes the Code Exploration Policy into CLAUDE.md and AGENTS.md (and the Cursor and Windsurf rules); `--guidance` adds the model-facing hooks (the PreToolUse read advice, the SubagentStart briefing and the SessionStart restore). Both put text in front of the model on the turns they apply to.
 4. **Optionally indexes your current project**
 5. **Audits your agent config files** for token waste — flags bloated CLAUDE.md files, stale symbol references, redundancy between global and project configs, and scope leaks
 

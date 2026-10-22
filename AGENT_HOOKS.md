@@ -162,7 +162,9 @@ After editing a file: index_file { "path": "/abs/path" } to keep the index fresh
 jcodemunch-mcp init --hooks
 ```
 
-This installs three Python CLI hooks into `~/.claude/settings.json`:
+This installs Python CLI hooks into `~/.claude/settings.json`. By default only the ones
+whose output the model never sees (`hook-posttooluse`, `hook-precompact`,
+`hook-taskcomplete`); `hook-pretooluse` below needs `init --guidance` or `init --strict`:
 
 | Hook | Event | What it does |
 |------|-------|-------------|
@@ -172,7 +174,7 @@ This installs three Python CLI hooks into `~/.claude/settings.json`:
 
 These hooks are idempotent (safe to re-run), backup-aware, and respect `--dry-run`.
 
-> **Since the light default install:** a default `init` (and `init --hooks`) installs only
+> **Default install:** a default `init` (and `init --hooks`) installs only
 > the hooks whose output the model never sees: `hook-posttooluse`, `hook-precompact` and
 > `hook-taskcomplete`. The model-facing ones (`hook-pretooluse`, `hook-sessionstart`,
 > `hook-subagent-start`) need `init --guidance`; `init --strict` still adds

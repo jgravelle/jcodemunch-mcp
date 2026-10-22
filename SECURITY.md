@@ -265,7 +265,8 @@ piece of developer configuration that steers an AI agent.
   after an edit), PreCompact and TaskCompleted, none of which put text in
   front of the model. PreToolUse, SessionStart and SubagentStart, which
   do, need `--guidance` (PreToolUse also comes with `--strict`); the
-  worktree hooks need `--hooks`. The hook commands run every relevant
+  worktree hooks need `--hooks`
+  (`install <agent>` passes it). The hook commands run every relevant
   tool call in the host agent.
 * `.github/hooks/hooks.json` — analogous hook surface for GitHub Copilot
   CLI / cloud agent flows.

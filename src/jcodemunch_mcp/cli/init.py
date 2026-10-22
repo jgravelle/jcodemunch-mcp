@@ -1999,6 +1999,13 @@ def _strip_guidance_hooks(data: dict[str, Any]) -> list[str]:
             del hooks[event_name]
     if not hooks:
         data.pop("hooks", None)
+    # `--strict` only strengthens the PreToolUse advice hook; with that hook
+    # gone the setting governs nothing, so it leaves with it.
+    env = data.get("env")
+    if "PreToolUse" in touched and isinstance(env, dict) and env.get("JCODEMUNCH_ENFORCE") == "strict":
+        del env["JCODEMUNCH_ENFORCE"]
+        if not env:
+            data.pop("env", None)
     return touched
 
 

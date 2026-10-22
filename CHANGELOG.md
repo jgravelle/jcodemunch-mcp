@@ -8,10 +8,10 @@
 and AGENTS.md (and the Cursor and Windsurf rules files) and to install six
 Claude Code hooks. Three of those hooks put text in front of the model: the
 advice on Read, Grep, Glob and Bash, the briefing a subagent gets when it
-starts, and the context restored after compaction. The policy block is read
-on every request and the advice on most of them. In the Claude Code sessions
-we measured, neither changed which tools the agent reached for, so a default
-install was charging every user tokens for nothing.
+starts, and the context restored after compaction. The policy block is part
+of every request, and the advice is added each time one of those tools runs.
+In the Claude Code sessions we measured, the advice did not change which
+tools the agent used, so a default install no longer pays for it.
 
 A default `init` (including `--yes`, `install <agent>`, and the refresh
 `upgrade` runs) now registers the server and installs only the hooks whose
@@ -31,8 +31,10 @@ before. `jcodemunch-mcp init --remove-guidance` removes the model-facing
 hooks and every jcodemunch policy block (global CLAUDE.md; CLAUDE.md,
 AGENTS.md and the Cursor and Windsurf rules in the current directory),
 backing each file up first, and keeps the silent hooks and the server
-registration. `init` and `install-status` name that command when an install
-still carries any of it, and neither runs it for you.
+registration. It also drops the `--strict` setting, which only governs the
+advice hook. `init` and `install-status` name that command when an install
+still carries any of it, and neither runs it for you. `config --check` reports
+a missing policy or model-facing hook as opt-in, not as a problem.
 
 The front-door tools still load up front where a client defers MCP tools;
 that is server-side and unchanged.

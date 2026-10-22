@@ -9294,8 +9294,14 @@ def _run_config(check: bool = False, init: bool = False, upgrade: bool = False) 
                 # That tool returns the per-version policy at runtime, so the
                 # full canonical tool list is not expected to appear in CLAUDE.md.
                 # Treat any mention of jcodemunch_guide as valid setup.
+                from .cli.init import _has_policy as _has_policy_block
+
                 if "jcodemunch_guide" in cm_content:
                     print(f"  {green(CHECK)} CLAUDE.md uses jcodemunch_guide one-line form (version-pinned at runtime)")
+                elif not _has_policy_block(claude_md_path):
+                    # The policy is opt-in since the light default install: a
+                    # CLAUDE.md without it is the shipped default, never an issue.
+                    print(f"  {dim('  CLAUDE.md has no jcodemunch policy block (opt-in: jcodemunch-mcp init --policy)')}")
                 else:
                     missing_in_cm = [t for t in canonical_tools if t not in cm_content]
                     if missing_in_cm:
@@ -9349,7 +9355,7 @@ def _run_config(check: bool = False, init: bool = False, upgrade: bool = False) 
         # reports a hook `init` really installs as "not installed", i.e. the
         # diagnostic disagreeing with the runtime; `hook-sessionstart` was
         # omitted from the copy the day it shipped.
-        from .cli.init import _enforcement_hooks, _extract_jcm_subcommand
+        from .cli.init import _enforcement_hooks, _extract_jcm_subcommand, _guidance_hooks
         _expected_hooks = {}
         for _event, _rules in _enforcement_hooks().items():
             for _rule in _rules:
@@ -9357,6 +9363,15 @@ def _run_config(check: bool = False, init: bool = False, upgrade: bool = False) 
                     _sub = _extract_jcm_subcommand(_h.get("command", ""))
                     if _sub:
                         _expected_hooks[_sub] = (_event, _rule.get("matcher", ""))
+        # The guidance hooks are opt-in (`init --guidance`): absent is the
+        # shipped default, so their absence is reported as such, never as a
+        # hook `init --hooks` would install.
+        _opt_in_hooks = {
+            _extract_jcm_subcommand(_h.get("command", ""))
+            for _rules in _guidance_hooks().values()
+            for _rule in _rules
+            for _h in _rule.get("hooks", [])
+        }
         if _settings_path.exists():
             try:
                 _settings = json.loads(_settings_path.read_text(encoding="utf-8"))
@@ -9392,6 +9407,8 @@ def _run_config(check: bool = False, init: bool = False, upgrade: bool = False) 
                             f"'{_matcher}'. Re-run: jcodemunch-mcp init --hooks"
                         )
                     _found_any = True
+                elif _hook_cmd in _opt_in_hooks:
+                    print(f"  {dim(f'  {_hook_cmd} not installed (opt-in: jcodemunch-mcp init --guidance)')}")
                 else:
                     print(f"  {dim(f'  {_hook_cmd} not installed')}")
             if not _found_any:

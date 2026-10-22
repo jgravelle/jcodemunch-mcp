@@ -296,3 +296,65 @@ def test_remove_guidance_dry_run_changes_nothing(box):
         p: p.read_bytes() for p in [box["settings"], *_policy_files(box)] if p.exists()
     }
     assert before == after
+
+
+# --- review follow-ups: the cases a reader could break without a symptom -----------------
+
+
+def test_a_partial_guidance_install_keeps_what_it_has_and_gains_nothing(box):
+    """An install with only the advice hook keeps it (converged) and is not given
+    the other two model-facing hooks by a default re-run."""
+    data = {"hooks": json.loads(json.dumps(init_module._silent_hooks()))}
+    data["hooks"]["PreToolUse"] = json.loads(
+        json.dumps(init_module._guidance_hooks()["PreToolUse"])
+    )
+    box["settings"].write_text(json.dumps(data), encoding="utf-8")
+    assert _init() == 0
+    assert _events(box["settings"]) == SILENT | {"PreToolUse"}
+
+
+def test_remove_guidance_drops_the_strict_setting_with_the_hook_it_governs(box):
+    assert _init(strict=True) == 0
+    data = json.loads(box["settings"].read_text(encoding="utf-8"))
+    data.setdefault("env", {})["MY_VAR"] = "1"
+    box["settings"].write_text(json.dumps(data), encoding="utf-8")
+    assert init_module.run_init(yes=True, remove_guidance=True) == 0
+    data = json.loads(box["settings"].read_text(encoding="utf-8"))
+    assert "JCODEMUNCH_ENFORCE" not in data.get("env", {})
+    assert data["env"]["MY_VAR"] == "1"  # the user's own setting stays
+
+
+def test_remove_guidance_cleans_the_cursor_and_windsurf_rules(box, monkeypatch):
+    cursor = box["project"] / ".cursor" / "rules" / "jcodemunch.mdc"
+    cursor.parent.mkdir(parents=True)
+    windsurf = box["project"] / ".windsurfrules"
+    monkeypatch.setattr(init_module, "_cursor_rules_path", lambda: cursor)
+    monkeypatch.setattr(init_module, "_windsurf_rules_path", lambda: windsurf)
+    cursor.write_text("---\nalwaysApply: true\n---\n\n" + _CLAUDE_MD_POLICY, encoding="utf-8")
+    windsurf = box["project"] / ".windsurfrules"
+    windsurf.write_text("# My rules\n\nKeep these.\n\n" + _CLAUDE_MD_POLICY, encoding="utf-8")
+    assert init_module.run_init(yes=True, remove_guidance=True) == 0
+    assert not init_module._has_policy(cursor)
+    assert "Keep these." in windsurf.read_text(encoding="utf-8")
+    assert not init_module._has_policy(windsurf)
+    names = [p.name for p in box["project"].iterdir()]
+    assert any(n != ".windsurfrules" and n.startswith(".windsurfrules") for n in names), names
+
+
+def test_config_check_passes_a_light_install(box, capsys):
+    """`config --check` must not fail the shipped default: a personal CLAUDE.md
+    without the policy, and only the silent hooks."""
+    from jcodemunch_mcp import server
+
+    (box["home"] / ".claude" / "CLAUDE.md").write_text("# My notes\n", encoding="utf-8")
+    assert _init() == 0
+    capsys.readouterr()
+    try:
+        server.main(["config", "--check"])
+    except SystemExit:
+        pass
+    out = capsys.readouterr().out
+    assert "not mentioned in CLAUDE.md" not in out
+    assert "init --policy" in out
+    for sub in ("hook-pretooluse", "hook-sessionstart", "hook-subagent-start"):
+        assert f"{sub} not installed (opt-in" in out, sub
