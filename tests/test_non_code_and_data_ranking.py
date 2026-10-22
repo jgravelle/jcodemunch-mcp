@@ -47,6 +47,21 @@ def test_a_question_about_configuration_weights_no_settings_symbol(word):
     assert scoring.rank_factor(sym, ["resolution", word]) == (1.0, None)
 
 
+@pytest.mark.parametrize(
+    "lang,word",
+    [
+        ("css", "css"),
+        ("scss", "scss"),
+        ("sass", "sass"),
+        ("less", "less"),
+        ("styl", "stylus"),
+    ],
+)
+def test_naming_a_stylesheet_language_lifts_it(lang, word):
+    sym = {"file": f"ui/site.{lang}", "language": lang, "kind": "class"}
+    assert scoring.rank_factor(sym, ["badge", word]) == (1.0, None)
+
+
 def test_a_configuration_word_does_not_lift_the_stylesheet():
     css = {"file": "docs/site.css", "language": "css", "kind": "class"}
     assert scoring.rank_factor(css, ["ci", "workflow"])[1] == "non_code_file"

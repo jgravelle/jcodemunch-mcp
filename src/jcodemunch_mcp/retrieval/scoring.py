@@ -305,7 +305,8 @@ _CONFIG_INTENT = frozenset({
     "workflow", "workflows", "ci", "setting", "settings", "pyproject", "manifest", "env",
 })
 _STYLE_INTENT = frozenset({
-    "css", "scss", "sass", "less", "style", "styles", "stylesheet", "selector", "selectors",
+    "css", "scss", "sass", "less", "styl", "stylus", "style", "styles", "stylesheet",
+    "selector", "selectors",
 })
 
 # Words that make a query ABOUT values; with one present no field or constant
