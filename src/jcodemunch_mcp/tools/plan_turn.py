@@ -5,8 +5,10 @@ import time
 from typing import Optional
 
 from ._utils import load_repo_index_or_error
+from ..retrieval.scoring import query_idf as _query_idf
+from ..retrieval.scoring import query_terms as _query_terms
+from ..retrieval.scoring import test_file_factor
 from .search_symbols import (
-    _tokenize,
     _bm25_score,
     ensure_bm25_cache,
 )
@@ -58,12 +60,14 @@ def plan_turn(
     # full-corpus BM25 state (#370), nor observe a half-published one (#490).
     cache = ensure_bm25_cache(index)
     idf = cache["idf"]
+    # Function words count at FUNCTION_WORD_WEIGHT for this query; the cache is untouched.
+    idf = _query_idf(idf, query)
     avgdl = cache["avgdl"]
     centrality = cache["centrality"]
     inverted = cache["inverted"]
 
     # Tokenize query
-    query_terms = _tokenize(query) or [query.lower()]
+    query_terms = _query_terms(query)
     # Guard: empty string in query_terms causes "" to match every filename
     query_terms = [t for t in query_terms if t]
 
@@ -85,12 +89,14 @@ def plan_turn(
     hits = 0
 
     for sym in candidates:
-        score = _bm25_score(sym, query_terms, idf, avgdl, centrality, raw_query=query)
-        if score <= 0:
+        raw_score = _bm25_score(sym, query_terms, idf, avgdl, centrality, raw_query=query)
+        if raw_score <= 0:
             continue
         hits += 1
-        if score > max_score:
-            max_score = score
+        # The confidence grade reads raw relevance; the ranking reads the test-weighted one.
+        if raw_score > max_score:
+            max_score = raw_score
+        score = raw_score * test_file_factor(sym, query_terms)
 
         entry = {
             "id": sym["id"],

@@ -2,6 +2,41 @@
 
 ## [Unreleased]
 
+### Fixed - a question about how code works ranks the code above its tests
+
+Lexical search scored every word of a question, so "How does dependency
+injection work?" matched "how" and "does" as content. On a project whose test
+names read like sentences (fastapi's `test_route_does_not_match_websocket`,
+`test_endpoint_works`), the tests won: on the pinned fastapi checkout that
+question returned 10 test functions in `search_symbols`' top 10 and 9 in
+`get_ranked_context`'s. Two rules now apply to every lexical scorer, from
+`retrieval/scoring.py`:
+
+- Function words ("how", "does", "the", ...) count at a quarter of their
+  weight (`FUNCTION_WORD_WEIGHT`) in a multi-word query where they stand as
+  plain words. They are not removed: "is valid" and "value of" still rank
+  `is_valid` and `value_of` first, which they reach only through the "is" and
+  "of" they contain. A one-word query is taken as a name, and a part of an
+  identifier is never down-weighted: the "at" in `ndcg_at_k` counts in full.
+- A symbol in a test file (the shared test-file rule) ranks with its score
+  multiplied by `TEST_SYMBOL_WEIGHT` (0.25) when the query is not about tests.
+  A query that mentions tests, fixtures or mocks is not affected. Only the
+  ranking uses the reduced score: the low-confidence warning, the confidence
+  value and `plan_turn`'s grade read the unreduced one, so a match that exists
+  only in tests is not reported as possibly absent. The reduction applies to
+  the whole score, exact-name match included: looking up a test helper by its
+  exact name still finds it first, but a looser query ranks matching source
+  code above it.
+
+On seven fastapi questions about dependency injection, tests in the top 10
+fell to 0 on every one, in both tools. `Depends` moved from 19 to 3, 15 to 3,
+55 to 20 and 48 to 9. One question regressed: "where are Depends dependencies
+resolved for a request" moved `Depends` from 3 to 8 (while
+`solve_dependencies` rose from 59 to 31). The goal of returning all four core
+functions (`Depends`, `solve_dependencies`, `get_dependant`, `analyze_param`)
+in the top 10 is not met: `get_dependant` and `analyze_param` still do not
+appear in `search_symbols`' top 100 for any of the seven. The replay benchmark is unchanged.
+
 ### Fixed - a worktree inside an indexed checkout is not given that checkout's index (#1202)
 
 `resolve_repo` on a linked git worktree that sits inside an indexed checkout,

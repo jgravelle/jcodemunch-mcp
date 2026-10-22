@@ -171,11 +171,13 @@ def build_lexical_channel(
 
     Reuses the existing ``_bm25_score`` function from search_symbols.
     """
+    from .scoring import test_file_factor  # noqa: PLC0415
 
     scored: list[tuple[float, str]] = []
     for sym in symbols:
         # BM25 score WITHOUT identity (we have a separate identity channel)
         score = _bm25_score_no_identity(sym, query_terms, idf, avgdl, centrality)
+        score *= test_file_factor(sym, query_terms)  # a ranking channel
         if score > 0:
             scored.append((score, sym["id"]))
 
@@ -362,6 +364,8 @@ def _bm25_score_no_identity(
     if centrality and score > 0:
         score += centrality.get(sym.get("file", ""), 0.0)
 
+    # Raw relevance. A caller that RANKS multiplies by `test_file_factor`; one
+    # that asks whether anything matched reads this value unchanged.
     return score
 
 
