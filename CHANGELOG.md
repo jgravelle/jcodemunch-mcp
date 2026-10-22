@@ -12,16 +12,19 @@ directory a name resolves to, after symlinks, must stay inside the
 
 The snapshot copy applies the checks the indexer applies to every file it
 walks: secret and credential files, files over the size cap and binary files
-are not copied, and the response's `_meta.skipped_on_copy` counts them.
+are not copied, and the response's `_meta.skipped_on_copy` counts them. A
+snapshot already in the store is rebuilt rather than added to, so files an
+earlier version copied do not linger there.
 
 Two behavior changes:
 
 - A package whose `node_modules` entry is a symlink to a directory outside the
   repo (as `npm link` makes) is no longer followed; `index_dependency` reports
-  it as not installed.
+  it as not installed. A workspace link that stays inside the repo still
+  resolves.
 - `index_folder(paths=...)` honours `.gitignore` the way a full index does: a
-  listed file that a `.gitignore` between the repo root and the file excludes
-  is skipped with a warning. Before, a listed file was indexed even when
+  listed file, or a file under a listed folder, that a `.gitignore` between
+  the repo root and the file excludes is skipped with a warning. Before, a listed file was indexed even when
   ignored. Skip-directory rules still do not apply to listed files.
 
 ### Fixed - a question about code ranks functions above fields and constants

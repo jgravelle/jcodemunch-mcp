@@ -157,3 +157,66 @@ def test_a_package_whose_gitignore_lists_dist_still_indexes(host):
     res = index_dependency(host["repo"], "distonly", storage_path=host["store"])
     assert "error" not in res, res
     assert res["symbol_count"] > 0
+
+
+def test_a_virtualenv_linked_out_of_the_repo_is_not_followed(host):
+    real_sp = host["outside"] / "site-packages"
+    (real_sp / "secretmod").mkdir(parents=True)
+    (real_sp / "secretmod" / "__init__.py").write_text(MARKER)
+    lib = host["src"] / ".venv" / "Lib"
+    lib.mkdir(parents=True)
+    try:
+        os.symlink(real_sp, lib / "site-packages", target_is_directory=True)
+    except (OSError, NotImplementedError):
+        pytest.skip("this platform cannot create a directory symlink here")
+    res = index_dependency(host["repo"], "secretmod", ecosystem="pypi", storage_path=host["store"])
+    assert "error" in res, res
+    assert not _store_has_marker(host["store"])
+
+
+def test_a_workspace_link_inside_the_repo_still_resolves(host):
+    target = host["src"] / "packages" / "util"
+    target.mkdir(parents=True)
+    (target / "package.json").write_text(json.dumps({"name": "@acme/util", "version": "0.1.0"}))
+    (target / "index.js").write_text("export function workspaceUtil() { return 1; }\n")
+    scope = host["src"] / "node_modules" / "@acme"
+    scope.mkdir(parents=True)
+    try:
+        os.symlink(target, scope / "util", target_is_directory=True)
+    except (OSError, NotImplementedError):
+        pytest.skip("this platform cannot create a directory symlink here")
+    res = index_dependency(host["repo"], "@acme/util", storage_path=host["store"])
+    assert "error" not in res, res
+
+
+def test_a_snapshot_from_an_older_copy_is_rebuilt(host):
+    pkg = host["src"] / "node_modules" / "leftover"
+    pkg.mkdir(parents=True)
+    (pkg / "package.json").write_text(json.dumps({"name": "leftover", "version": "1.0.0"}))
+    (pkg / "index.js").write_text("function leftover() { return 1; }\n")
+    stale = os.path.join(host["store"], "deps", "leftover@1.0.0")
+    os.makedirs(stale)
+    with open(os.path.join(stale, "credentials.json"), "w") as fh:
+        fh.write('{"token": "old"}')
+    res = index_dependency(host["repo"], "leftover", storage_path=host["store"])
+    assert "error" not in res, res
+    assert not os.path.exists(os.path.join(stale, "credentials.json"))
+
+
+def test_a_name_with_a_trailing_newline_is_refused(host):
+    res = index_dependency(host["repo"], "lodash\n", storage_path=host["store"])
+    assert "error" in res and "not a package name" in res["error"], res
+
+
+def test_a_listed_folder_honours_a_gitignore_above_it(tmp_path):
+    root = tmp_path / "repo"
+    (root / "sub").mkdir(parents=True)
+    (root / ".gitignore").write_text("sub/local_settings.py\n")
+    (root / "sub" / "a.py").write_text("def a():\n    return 1\n")
+    (root / "sub" / "local_settings.py").write_text("def local_setting():\n    return 'internal'\n")
+    store = tmp_path / "store"
+    res = index_folder(str(root), use_ai_summaries=False, storage_path=str(store), paths=["sub"])
+    assert res["success"] is True
+    owner, name = res["repo"].split("/", 1)
+    names = {s.get("name") for s in IndexStore(base_path=str(store)).load_index(owner, name).symbols}
+    assert "a" in names and "local_setting" not in names

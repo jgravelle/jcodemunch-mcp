@@ -57,7 +57,7 @@ _TOP_LEVEL_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
 def _valid_name(package: str, pattern: "re.Pattern[str]") -> bool:
-    return bool(pattern.match(package)) and ".." not in package
+    return bool(pattern.fullmatch(package)) and ".." not in package
 
 
 def _contained(path: Path, root: Path) -> Optional[Path]:
@@ -94,18 +94,18 @@ def _resolve_npm(source_root: Path, package: str) -> Optional[dict]:
     """Locate ``node_modules/<package>`` (scoped names ok, pnpm symlinks followed).
 
     The name must be an npm name, and the resolved directory (after symlinks,
-    which is where pnpm keeps the real files) must stay inside the repo.
+    which is where pnpm and workspaces keep the real files) must stay inside
+    the repo. A link to a directory outside the repo is not followed.
     """
     if not _valid_name(package, _NPM_NAME_RE):
         return None
     node_modules = source_root / "node_modules"
-    candidate = resolve_within(node_modules, package)
-    if candidate is None or not candidate.is_dir():
+    candidate = node_modules / Path(*package.split("/"))
+    if not candidate.is_dir():
         return None
     real = _contained(candidate, source_root)
     if real is None:
         return None
-    candidate = node_modules / Path(*package.split("/"))
     meta = _read_package_json(real)
     return {
         "ecosystem": "npm",
@@ -157,7 +157,7 @@ def _top_levels(dist_info: Path) -> list[str]:
     the installed package, and each name is joined onto site-packages."""
     try:
         lines = (dist_info / "top_level.txt").read_text(encoding="utf-8", errors="replace").splitlines()
-        return [ln.strip() for ln in lines if _TOP_LEVEL_RE.match(ln.strip())]
+        return [ln.strip() for ln in lines if _TOP_LEVEL_RE.fullmatch(ln.strip())]
     except Exception:
         return []
 
@@ -192,13 +192,16 @@ def _resolve_pypi(source_root: Path, package: str, looked_in: list) -> Optional[
             pkg_dir: Optional[Path] = None
             for top in ([package] + tops) if package in tops else (tops or [package]):
                 cand = resolve_within(sp, top)
+                if cand is not None and _contained(cand, source_root) is None:
+                    cand = None  # site-packages (or the venv) links out of the repo
                 if cand is not None and cand.is_dir():
                     pkg_dir = cand
                     break
             if pkg_dir is None:
                 single = [
                     t for t in (tops or [package])
-                    if (f := resolve_within(sp, f"{t}.py")) is not None and f.is_file()
+                    if (f := resolve_within(sp, f"{t}.py")) is not None
+                    and _contained(f, source_root) is not None and f.is_file()
                 ]
                 if single:
                     return {"ecosystem": "pypi", "error": (
@@ -221,6 +224,8 @@ def _resolve_pypi(source_root: Path, package: str, looked_in: list) -> Optional[
             }
         # No dist-info matched; a bare package dir still counts, version unknown.
         bare = resolve_within(sp, package)
+        if bare is not None and _contained(bare, source_root) is None:
+            bare = None
         if bare is not None and bare.is_dir():
             return {
                 "ecosystem": "pypi", "name": package, "version": "",
@@ -232,7 +237,7 @@ def _resolve_pypi(source_root: Path, package: str, looked_in: list) -> Optional[
     return None
 
 
-def _copy_snapshot(src: Path, dest: Path, max_files: int) -> dict:
+def _copy_snapshot(src: Path, dest: Path, max_files: int, repo: Optional[str] = None) -> dict:
     """Copy code + doc files from the installed package into the snapshot dir.
 
     Returns {code_rels, docs, files_copied, truncated}. We control the
@@ -249,7 +254,7 @@ def _copy_snapshot(src: Path, dest: Path, max_files: int) -> dict:
     # secret or credential file, nothing over the size cap, nothing binary,
     # nothing that resolves outside the package.
     src_root = Path(os.path.realpath(src))
-    max_size = get_max_file_size(None)
+    max_size = get_max_file_size(None, repo=repo)
 
     for dirpath, dirnames, filenames in os.walk(str(src), followlinks=False):
         dirnames[:] = [d for d in dirnames if d not in _SKIP_COPY_DIRS]
@@ -380,9 +385,14 @@ def index_dependency(
     snapshot_root = store.base_path / "deps"
     snapshot = snapshot_root / _safe_snapshot_name(resolved["name"], resolved["version"])
     cache_hit = snapshot.is_dir()
-    if not cache_hit:
-        snapshot.mkdir(parents=True, exist_ok=True)
-    copied = _copy_snapshot(Path(resolved["installed_path"]), snapshot, max_files)
+    if cache_hit and _contained(snapshot, snapshot_root) is not None:
+        # Rebuild rather than add to it: a snapshot written by an older
+        # version may hold files today's copy filters would not copy.
+        shutil.rmtree(snapshot, ignore_errors=True)
+    snapshot.mkdir(parents=True, exist_ok=True)
+    copied = _copy_snapshot(
+        Path(resolved["installed_path"]), snapshot, max_files, repo=str(source_root),
+    )
     if not copied["code_rels"]:
         return {
             "error": (

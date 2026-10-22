@@ -1344,24 +1344,30 @@ def _refresh_git_head_if_advanced(store, owner, name, folder_path, stored_head):
         return ""
 
 
-def _explicit_path_is_gitignored(walk_root: Path, file_path: Path) -> bool:
-    """Is ``file_path`` excluded by a .gitignore between ``walk_root`` and it?
+def _gitignore_chain(walk_root: Path, directory: Path) -> dict:
+    """The .gitignore specs from ``walk_root`` down to ``directory``, inclusive.
 
     Reads only the .gitignore files on that one ancestor chain, so a
     single-file reindex stays cheap.
     """
     specs: dict[Path, pathspec.PathSpec] = {}
     try:
-        rel_parts = file_path.parent.relative_to(walk_root).parts
+        rel_parts = directory.relative_to(walk_root).parts
     except ValueError:
-        return False
-    directory = walk_root
+        return specs
+    current = walk_root
     for part in ("",) + rel_parts:
         if part:
-            directory = directory / part
-        spec = _load_gitignore(directory)
+            current = current / part
+        spec = _load_gitignore(current)
         if spec is not None:
-            specs[directory.resolve()] = spec
+            specs[current.resolve()] = spec
+    return specs
+
+
+def _explicit_path_is_gitignored(walk_root: Path, file_path: Path) -> bool:
+    """Is ``file_path`` excluded by a .gitignore between ``walk_root`` and it?"""
+    specs = _gitignore_chain(walk_root, file_path.parent)
     return bool(specs) and _is_gitignored(file_path, specs)
 
 
@@ -1455,8 +1461,14 @@ def resolve_explicit_paths(
             warnings.extend(sub_warnings)
             for k, v in sub_skip.items():
                 skip_counts[k] = skip_counts.get(k, 0) + v
+            # The subtree walk reads the .gitignore files inside ``p``; the
+            # ones above it, up to ``walk_root``, are applied here.
+            above = _gitignore_chain(walk_root, p.parent) if honor_gitignore and p != walk_root else {}
             for f in sub_files:
                 fr = f.resolve()
+                if above and _is_gitignored(fr, above):
+                    skip_counts["gitignore"] = skip_counts.get("gitignore", 0) + 1
+                    continue
                 if fr not in seen:
                     seen.add(fr)
                     files.append(f)
@@ -1479,8 +1491,8 @@ def resolve_explicit_paths(
         # secrets/*.yaml, credentials.json) was indexed and later served
         # unredacted by the source-dump tools, while the full walk refused it.
         # The explicit-paths branch must apply the same secret filter the walk
-        # does; it intentionally still opts past gitignore/skip-dir so callers
-        # can name generated/ignored source files on purpose.
+        # does; .gitignore is applied below, and skip-dir rules are not, so a
+        # caller can name a generated source file on purpose.
         if is_secret_file(_rel, repo=str(walk_root)):
             warnings.append(f"Skipped secret file: {_rel}")
             skip_counts["secret"] = skip_counts.get("secret", 0) + 1
