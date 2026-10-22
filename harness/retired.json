@@ -183,6 +183,13 @@
       "replacement": "tests/test_hook_steering_fixes.py::test_no_cwd_overlap_briefs_no_repo",
       "commit": "#1139",
       "date": "2026-10-19"
+    },
+    {
+      "path": "tests/test_non_code_and_data_ranking.py::test_search_symbols_ranks_code_above_settings_files",
+      "lesson": "The test (from #1210, in tests/test_non_code_ranking.py, renamed with the file when fields and constants joined the rule) asserted only that the top row was a .py file and that the first wanted function came before the first settings-file symbol. A .py field or UPPER_CASE constant satisfied both while crowding the functions the question was about. Renamed and strengthened in place, never deleted.",
+      "replacement": "tests/test_non_code_and_data_ranking.py::test_search_symbols_ranks_functions_above_settings_and_fields",
+      "commit": "421c6af5",
+      "date": "2026-10-22"
     }
   ]
 }
