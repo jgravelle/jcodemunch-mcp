@@ -2,6 +2,47 @@
 
 ## [Unreleased]
 
+### Fixed - a question about code ranks code above settings files
+
+With tests weighted down in 1.108.391, the next thing to crowd a question
+about how code works was the settings files beside it: CI workflow keys,
+`pyproject.toml` tables and stylesheet selectors that share a word with the
+question and do nothing. On a pinned fastapi checkout, "dependency injection
+Depends resolution" returned the workflow's `UV_RESOLUTION` key and its
+`uv-resolution` matrix entries in all five top slots (they match
+"resolution"). Settings files can hold as many symbols as the code: that
+checkout's index has 6,399 YAML symbols beside 7,064 Python ones.
+
+`rank_factor` in `retrieval/scoring.py`, which every lexical scorer reads,
+now weights a symbol from a configuration file (YAML, TOML, JSON, XML) at
+half (`NON_CODE_WEIGHT`), unless the query names configuration ("config",
+"workflow", "ci", "pyproject", ...), and a symbol from a stylesheet (CSS,
+SCSS, Sass, Less, Stylus) the same way, unless the query names styling. A
+configuration word does not lift the stylesheet. HCL and OpenAPI files are
+left alone: their symbols are infrastructure and API definitions a code
+question may be about. The weight sits beside the test weight, never on top
+of it.
+
+On seven questions about fastapi's dependency injection, no settings-file
+symbol is left in any top 5. `Depends` moved from 20th to 9th on the
+question above, and from 66th and 68th to 31st and 33rd on the two shortest;
+`solve_dependencies` from 63rd and 64th to 30th and 31st on those two.
+
+Half, not a quarter: at a quarter, "python version matrix" no longer returned
+the workflow's `python-version` key first. Only ranking reads the weight;
+verdicts, confidence and absence read the raw score, and a match found only
+in settings files is still a match with no low-confidence warning. Exact
+names still rank first: `search_symbols` puts a declaration that matches the
+query ahead of everything else, and in `get_ranked_context` and `plan_turn`,
+where the weight also reaches the exact-name score, the names checked still
+come first. The `debug=True` breakdown names the weight and why
+(`rank_weight`, `rank_weight_reason`); `test_weight` stays on test rows.
+
+Tokens per lookup on the pinned benchmark rise 4.3% on fastapi, all of it
+one query: "context bind" used to return a coverage setting and CI
+workflow keys of 22 to 48 bytes, and now returns fastapi's route-context
+code.
+
 ### Fixed - a caller list says which callers are direct and how an indirect one gets there
 
 `get_call_hierarchy` walks three levels by default and returned every level
