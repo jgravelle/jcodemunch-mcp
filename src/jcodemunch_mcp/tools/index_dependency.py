@@ -101,9 +101,23 @@ def _is_store(real: Path, source_root: Path, roots: set) -> bool:
 
 
 _STORE_REFUSAL = (
-    "links to the repo root, node_modules, a virtualenv or a package scope "
+    "resolves to the repo root, node_modules, a site-packages or a virtualenv "
     "rather than to one package; only a package directory is read."
 )
+
+
+def _metadata_in_repo(directory: Path, source_root: Path, names: tuple) -> bool:
+    """Are ``directory`` and each of its metadata ``names`` that exist inside
+    the repo after symlinks? Metadata is read for a package's name and
+    version, which become the snapshot's name, so it must come from the repo
+    like the package itself."""
+    if _contained(directory, source_root) is None:
+        return False
+    for name in names:
+        path = directory / name
+        if (path.exists() or path.is_symlink()) and _contained(path, source_root) is None:
+            return False
+    return True
 
 
 def _pep503_normalize(name: str) -> str:
@@ -147,11 +161,22 @@ def _resolve_npm(source_root: Path, package: str) -> Optional[dict]:
             "npm link, or a store outside the repo); only installs inside the "
             "repo are read."
         )}
-    # An npm package is a directory with its own package.json. That property,
-    # not a list of store names, is what refuses a link to node_modules, a
-    # scope, yarn's .store or any other directory holding many packages.
-    if _is_store(real, source_root, _store_roots(source_root)) or not (real / "package.json").is_file():
+    if _is_store(real, source_root, _store_roots(source_root)):
         return {"ecosystem": "npm", "error": f"node_modules/{package} {_STORE_REFUSAL}"}
+    # An npm package is a directory with its own package.json. That property,
+    # not a list of store names, is what refuses a scope, yarn's .store or any
+    # other directory holding many packages.
+    if not (real / "package.json").is_file():
+        return {"ecosystem": "npm", "error": (
+            f"node_modules/{package} has no package.json of its own, so it is not "
+            "one npm package (a scope, a package-manager store, or an incomplete "
+            "install); only a package directory is read."
+        )}
+    if not _metadata_in_repo(real, source_root, ("package.json",)):
+        return {"ecosystem": "npm", "error": (
+            f"node_modules/{package}/package.json links to a file outside the "
+            "repo; only installs inside the repo are read."
+        )}
     meta = _read_package_json(real)
     return {
         "ecosystem": "npm",
@@ -221,14 +246,17 @@ def _resolve_pypi(source_root: Path, package: str, looked_in: list) -> Optional[
     want = _pep503_normalize(package)
     linked_out: list[str] = []
     roots = _store_roots(source_root)
-    store_link: list[str] = []
+    store_link: list[str] = []  # this site-packages only
+    any_store_link: list[str] = []  # every site-packages, for the final report
 
     def package_dir(path: Path) -> Optional[Path]:
         real = _contained(path, source_root)
         if real is None:
             return None
         if _is_store(real, source_root, roots):
-            store_link.append(path.relative_to(source_root).as_posix())
+            rel = path.relative_to(source_root).as_posix()
+            store_link.append(rel)
+            any_store_link.append(rel)
             return None
         return real
 
@@ -238,7 +266,13 @@ def _resolve_pypi(source_root: Path, package: str, looked_in: list) -> Optional[
         if _contained(sp, source_root) is None:
             linked_out.append(sp.relative_to(source_root).as_posix())
             continue
-        dist_infos = [Path(p) for p in glob(str(sp / "*.dist-info")) if Path(p).is_dir()]
+        # A dist-info (or its METADATA / top_level.txt) linked out of the repo
+        # is not read: its name and version would name the snapshot.
+        dist_infos = [
+            Path(p) for p in glob(str(sp / "*.dist-info"))
+            if Path(p).is_dir()
+            and _metadata_in_repo(Path(p), source_root, ("METADATA", "top_level.txt"))
+        ]
         match: Optional[Path] = None
         for di in dist_infos:
             dist_name = di.name[: -len(".dist-info")].rsplit("-", 1)[0]
@@ -299,8 +333,8 @@ def _resolve_pypi(source_root: Path, package: str, looked_in: list) -> Optional[
                 "readme_in_metadata": False,
                 "additional_top_levels": [],
             }
-    if store_link:
-        return {"ecosystem": "pypi", "error": f"{store_link[0]} {_STORE_REFUSAL}"}
+    if any_store_link:
+        return {"ecosystem": "pypi", "error": f"{any_store_link[0]} {_STORE_REFUSAL}"}
     if linked_out:
         return {"ecosystem": "pypi", "error": (
             f"{package!r} was not found, and {', '.join(linked_out)} links to a "

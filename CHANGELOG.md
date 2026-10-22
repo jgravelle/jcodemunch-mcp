@@ -10,7 +10,8 @@ an installed distribution's `top_level.txt` must be a module name, and every
 package directory, after symlinks, must be inside the repo, and must be one
 package: never a directory that is or contains the repo root, `node_modules`,
 a site-packages or a virtualenv. An npm package must have its own
-`package.json`. The snapshot is always one
+`package.json`, and a package's metadata (`package.json`, `METADATA`,
+`top_level.txt`) is read only from inside the repo too. The snapshot is always one
 directory inside the store's `deps/`, whatever name and version the
 package's own metadata gives.
 
@@ -32,9 +33,9 @@ Four behavior changes:
   outside the repo is no longer read; `index_dependency` says so in its
   error. A package directory linked from site-packages to elsewhere inside
   the repo still resolves.
-- A `node_modules` entry linked to a directory holding many packages (an
-  `@scope` directory, `node_modules` itself, or a package-manager store) is
-  refused; link the one package instead.
+- A `node_modules` entry with no `package.json` of its own (an `@scope`
+  directory, a package-manager store, or an incomplete install), or one
+  linked to `node_modules` itself, is refused; name the one package instead.
 - `index_folder(paths=...)` honors `.gitignore` the way a full index does: a
   listed file, or a file under a listed folder, that a `.gitignore` between
   the repo root and the file excludes is skipped with a warning. Before, a

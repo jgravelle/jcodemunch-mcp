@@ -412,3 +412,43 @@ def test_a_link_to_a_multi_package_store_is_refused(host):
         pytest.skip("this platform cannot create a directory symlink here")
     res = index_dependency(host["repo"], "everything", ecosystem="npm", storage_path=host["store"])
     assert "error" in res and "only a package directory" in res["error"], res
+
+
+def _link_file(target, link):
+    try:
+        os.symlink(target, link)
+    except (OSError, NotImplementedError):
+        pytest.skip("this platform cannot create a file symlink here")
+
+
+def test_a_package_json_linked_out_of_the_repo_is_not_read(host):
+    (host["outside"] / "package.json").write_text(json.dumps({"name": "LEAKNAME", "version": "9.9.9"}))
+    pkg = host["src"] / "node_modules" / "metalink"
+    pkg.mkdir(parents=True)
+    (pkg / "index.js").write_text("function metalink() { return 1; }")
+    _link_file(host["outside"] / "package.json", pkg / "package.json")
+    res = index_dependency(host["repo"], "metalink", ecosystem="npm", storage_path=host["store"])
+    assert "error" in res, res
+    assert "LEAKNAME" not in json.dumps(res)
+
+
+@pytest.mark.parametrize("linked", ["METADATA", "dist-info"])
+def test_pypi_metadata_linked_out_of_the_repo_is_not_read(host, linked):
+    out_di = host["outside"] / "leak-6.6.6.dist-info"
+    out_di.mkdir()
+    (out_di / "METADATA").write_text("Name: OUTNAME\nVersion: 6.6.6")
+    sp = host["src"] / ".venv" / "Lib" / "site-packages"
+    (sp / "leak").mkdir(parents=True)
+    (sp / "leak" / "__init__.py").write_text("def leak_fn():\n    return 1\n")
+    if linked == "METADATA":
+        di = sp / "leak-1.0.dist-info"
+        di.mkdir()
+        _link_file(out_di / "METADATA", di / "METADATA")
+    else:
+        try:
+            os.symlink(out_di, sp / "leak-1.0.dist-info", target_is_directory=True)
+        except (OSError, NotImplementedError):
+            pytest.skip("this platform cannot create a directory symlink here")
+    res = index_dependency(host["repo"], "leak", ecosystem="pypi", storage_path=host["store"])
+    assert "OUTNAME" not in json.dumps(res), res
+    assert "6.6.6" not in json.dumps(res), res
