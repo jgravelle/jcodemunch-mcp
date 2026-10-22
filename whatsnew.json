@@ -1,6 +1,12 @@
 {
-  "current": "1.108.392",
+  "current": "1.108.393",
   "entries": [
+    {
+      "version": "1.108.393",
+      "date": "2026-10-22",
+      "title": "a default install adds nothing to the model's context",
+      "summary": "A default `init` registers the server and installs only the hooks whose output the model never sees; the policy pastes (`--policy`) and the model-facing hooks (`--guidance`) are opt-in, an existing install keeps what it has, and `init --remove-guidance` removes them with backups. A question about how code works ranks functions, classes and methods above fields and UPPER_CASE constants that share a word with it, unless the query names values. The published token benchmark is re-measured: a lookup now fetches the code a question is about, so the headline against a grep-and-read agent moves from 96.6% (29.2x) to 96.2% (26.5x)."
+    },
     {
       "version": "1.108.392",
       "date": "2026-10-22",

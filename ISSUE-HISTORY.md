@@ -2888,3 +2888,13 @@ The 1.108.389 entry, verbatim as it stood in `CLAUDE.md`:
 The `Tests:` line's 1.108.389 count, verbatim:
 
 - ⚠ Prior (1.108.389): 18330 passed, 24 skipped, **0 failed** (18354 total).
+
+## Current State rotation (2026-10-22, release 1.108.393)
+
+The 1.108.390 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.390):** **the local embedding model is pinned and checked before it is used** (#1201): `local_encoder.download_model` fetches `MODEL_REVISION` and checks each file against `MODEL_SHA256` (fails closed on a missing digest); a fetch goes to `<name>.part` and `os.replace`s only after it matches; a mismatching file on disk is removed and re-fetched. The search-time load does not re-hash; the sentence-transformers route is not pinned. Size now stated as about 90 MB. Full text: `CHANGELOG.md`.
+
+The `Tests:` line's 1.108.390 count, verbatim:
+
+- ⚠ Prior (1.108.390): 18339 passed, 24 skipped, **0 failed** (18363 total).

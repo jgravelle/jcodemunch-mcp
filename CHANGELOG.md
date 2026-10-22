@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.393] - 2026-10-22 - a default install adds nothing to the model's context
+
 ### Changed - a default install adds nothing to the model's context
 
 `init` used to write the Code Exploration Policy into the global CLAUDE.md
