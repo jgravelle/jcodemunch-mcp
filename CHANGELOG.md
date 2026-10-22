@@ -2,6 +2,27 @@
 
 ## [Unreleased]
 
+### Fixed - a warning in a tool's answer survives the compact encoding
+
+`search_symbols` answers a weak match with `⚠ warning` ("Low-confidence
+matches ... Verify before claiming this feature exists") and
+`negative_evidence`. Neither was declared in its compact schema, and the
+schema encoder dropped every top-level key a schema did not declare. The
+default `server_output: adaptive` picks the compact form whenever it is
+smaller, so on a default install a low-confidence answer with ten rows
+reached the agent as ten rows and `result_count`, with no warning: the
+guard against claiming a feature exists was lost exactly when there were
+results to mislead. An empty answer kept its warning only because the
+compact form was not smaller.
+
+It was not one schema's omission. Every schema-driven encoder dropped a
+top-level warning the same way, so the fix is in the encoder rather than in
+`search_symbols`' schema: every encoder now carries `negative_evidence` and
+any top-level key whose name contains "warning", the body-level twin of the
+`_meta` contract keys it already carried. A warning a tool adds later needs
+no schema edit, and a test checks every registered encoder. Older compact
+payloads decode as before.
+
 ## [1.108.391] - 2026-10-21 - a question about how code works ranks the code above its tests
 
 ### Fixed - a question about how code works ranks the code above its tests
