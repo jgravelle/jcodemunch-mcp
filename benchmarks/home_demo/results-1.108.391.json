@@ -1,0 +1,125 @@
+{
+ "pin": "a64dfbbd21a445288ff583d58e1f646fe6baf3af",
+ "jcodemunch_mcp": "1.108.391",
+ "harness": "benchmarks/harness/run_benchmark.py @ v1.108.389 (0e636483)",
+ "tokenizer": "cl100k_base",
+ "read_all_library_source": {
+  "rule": "every *.py under fastapi/ (the package); excludes tests/, docs/, docs_src/, scripts/",
+  "files": 48,
+  "tokens": 151227
+ },
+ "answer_rule": {
+  "fastapi/dependencies/utils.py::solve_dependencies#function": "solve_dependencies",
+  "fastapi/dependencies/utils.py::get_dependant#function": "get_dependant",
+  "fastapi/param_functions.py::Depends#function": "Depends",
+  "fastapi/params.py::Depends#class": "Depends"
+ },
+ "candidates": [
+  {
+   "n": 1,
+   "query": "how does fastapi dependency injection work",
+   "read_all_tokens": 151227,
+   "grep_top3_tokens": 101778,
+   "jcm_tokens": 3469,
+   "jcm_search_tokens": 1115,
+   "jcm_fetch_tokens": 2354,
+   "top5": [
+    "fastapi/openapi/docs.py::_html_safe_json#function",
+    "fastapi/routing.py::_FASTAPI_SCOPE_KEY#constant",
+    "fastapi/param_functions.py::Depends#function",
+    "fastapi/dependencies/utils.py::SolvedDependency.dependency_cache#field",
+    "fastapi/params.py::Depends.dependency#field"
+   ],
+   "answer_in_top5": [
+    "Depends"
+   ],
+   "answer_ranks_top100": {
+    "Depends": 3
+   }
+  },
+  {
+   "n": 2,
+   "query": "how does FastAPI resolve Depends",
+   "read_all_tokens": 151227,
+   "grep_top3_tokens": 95045,
+   "jcm_tokens": 27490,
+   "jcm_search_tokens": 9433,
+   "jcm_fetch_tokens": 18057,
+   "top5": [
+    "fastapi/applications.py::FastAPI.include_router#method",
+    "fastapi/applications.py::FastAPI.__init__#method",
+    "fastapi/params.py::Depends#class",
+    "fastapi/dependencies/utils.py::ParamDetails.depends#field",
+    "fastapi/routing.py::APIRouter.include_router#method"
+   ],
+   "answer_in_top5": [
+    "Depends"
+   ],
+   "answer_ranks_top100": {
+    "Depends": 3
+   }
+  },
+  {
+   "n": 3,
+   "query": "where are Depends dependencies resolved for a request",
+   "read_all_tokens": 151227,
+   "grep_top3_tokens": 134405,
+   "jcm_tokens": 1224,
+   "jcm_search_tokens": 530,
+   "jcm_fetch_tokens": 694,
+   "top5": [
+    "fastapi/routing.py::_FrontendStaticFiles._get_resolved_directory#method",
+    "fastapi/routing.py::_get_resolved_absolute_path#function",
+    "fastapi/routing.py::APIRoute.dependencies#field",
+    "fastapi/routing.py::_APIRouteLike.dependencies#field",
+    "fastapi/routing.py::_EffectiveRouteContext.dependencies#field"
+   ],
+   "answer_in_top5": [],
+   "answer_ranks_top100": {
+    "solve_dependencies": 31,
+    "Depends": 8
+   }
+  },
+  {
+   "n": 4,
+   "query": "dependency injection Depends resolution",
+   "read_all_tokens": 151227,
+   "grep_top3_tokens": 8019,
+   "jcm_tokens": 1192,
+   "jcm_search_tokens": 546,
+   "jcm_fetch_tokens": 646,
+   "top5": [
+    ".github/workflows/test.yml::jobs.test.env.UV_RESOLUTION#constant",
+    ".github/workflows/test.yml::jobs.benchmark.env.UV_RESOLUTION#constant",
+    ".github/workflows/test.yml::jobs.test.strategy.matrix.include.[2].uv-resolution#constant",
+    ".github/workflows/test.yml::jobs.test.strategy.matrix.include.[3].uv-resolution#constant",
+    ".github/workflows/test.yml::jobs.test.strategy.matrix.include.[4].uv-resolution#constant"
+   ],
+   "answer_in_top5": [],
+   "answer_ranks_top100": {
+    "Depends": 20
+   }
+  },
+  {
+   "n": 5,
+   "query": "how are path operation dependencies solved",
+   "read_all_tokens": 151227,
+   "grep_top3_tokens": 129663,
+   "jcm_tokens": 1463,
+   "jcm_search_tokens": 588,
+   "jcm_fetch_tokens": 875,
+   "top5": [
+    "fastapi/dependencies/utils.py::SolvedDependency#class",
+    "fastapi/utils.py::generate_operation_id_for_path#function",
+    "pyproject.toml::tool.ruff.lint.per-file-ignores.docs_src/path_operation_advanced_configuration/tutorial007_py310.py#constant",
+    "fastapi/openapi/models.py::Link.operationId#field",
+    "fastapi/openapi/models.py::Operation.operationId#field"
+   ],
+   "answer_in_top5": [],
+   "answer_ranks_top100": {
+    "solve_dependencies": 22,
+    "Depends": 9
+   }
+  }
+ ]
+}

@@ -25,6 +25,10 @@ on:
         description: "Also run --reference and upload jcm_reference.json, results.md and provenance/measured.json (harness F-13: the reference is captured on THIS runner, not a dev box)"
         type: boolean
         default: false
+      accept_rise:
+        description: "With reference=true only: space-separated owner/repo whose token rise a maintainer approved; printed, not judged, while the reference is replaced. Every other repo and the grep ratio are still judged."
+        type: string
+        default: ""
   push:
     paths:
       - "benchmarks/tasks.json"
@@ -94,14 +98,23 @@ jobs:
       - name: Run the benchmark
         env:
           CODE_INDEX_PATH: ${{ runner.temp }}/bench-index
+          REFERENCE_DISPATCH: ${{ github.event.inputs.reference }}
+          ACCEPT_RISE: ${{ github.event.inputs.accept_rise }}
         run: |
           set -euo pipefail
+          if [ -n "${ACCEPT_RISE:-}" ] && [ "${REFERENCE_DISPATCH:-}" != "true" ]; then
+            echo "accept_rise applies only with reference=true" >&2; exit 2
+          fi
           # --floor: exit non-zero when the run violates harness/thresholds.json
           # token.grand_ratio_vs_grep / token.per_repo_rise_max (STANDARD s2).
           # A DOWNWARD move stays the warning printed by the compare step.
+          # In a reference dispatch the Floors are judged by the reference step
+          # below, against the reference it replaces, with any approved rise named.
+          FLOOR="--floor"
+          if [ "${REFERENCE_DISPATCH:-}" = "true" ]; then FLOOR=""; fi
           uv run python benchmarks/harness/run_benchmark.py \
             --verify-determinism \
-            --floor \
+            $FLOOR \
             --json "${RUNNER_TEMP}/benchmark.json" \
             --out "${RUNNER_TEMP}/benchmark.md"
 
@@ -109,9 +122,16 @@ jobs:
         if: ${{ github.event.inputs.reference == 'true' }}
         env:
           CODE_INDEX_PATH: ${{ runner.temp }}/bench-index
+          ACCEPT_RISE: ${{ github.event.inputs.accept_rise }}
         run: |
           set -euo pipefail
-          uv run python benchmarks/harness/run_benchmark.py             --verify-determinism --floor --reference             --out benchmarks/results.md
+          ACCEPT=""
+          set -f  # a glob in the input must not expand against the checkout
+          for repo in $ACCEPT_RISE; do
+            [[ "$repo" =~ ^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$ ]] || { echo "accept_rise: not owner/repo: $repo" >&2; exit 2; }
+            ACCEPT="$ACCEPT --accept-rise $repo"
+          done
+          uv run python benchmarks/harness/run_benchmark.py --verify-determinism --floor --reference $ACCEPT --out benchmarks/results.md
           mkdir -p "${RUNNER_TEMP}/reference"
           cp benchmarks/jcm_reference.json benchmarks/results.md benchmarks/provenance/measured.json "${RUNNER_TEMP}/reference/"
           git diff --stat

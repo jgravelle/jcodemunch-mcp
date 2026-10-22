@@ -1,17 +1,19 @@
-"""A question about code ranks functions above settings files.
+"""A question about code ranks functions above settings files and data fields.
 
 After tests were demoted (``test_conceptual_query_ranking.py``), the pinned
 fastapi questions filled their top 5 with other things that share a word with
 the question but carry no behaviour: CI workflow keys (``UV_RESOLUTION`` for
-"resolution", all five slots on one query), ``pyproject.toml`` tables and CSS
-selectors. ``rank_factor`` in ``retrieval/scoring.py`` weights a symbol from a
-``NON_CODE_LANGUAGES`` file down for ranking, beside the test weight, unless
-the query names configuration ("config", "workflow", "yaml", ...) or styling.
-Fields and constants in code are not weighted.
+"resolution", all five slots on one query), ``pyproject.toml`` tables, CSS
+selectors, and dataclass fields named ``dependencies``. ``rank_factor`` in
+``retrieval/scoring.py`` weights both down for ranking, beside the test weight:
 
-Only ranking reads the weight, so an exact name still ranks first, and a match
-found only in settings files is still a match. The fixture below is the
-fastapi shape in miniature.
+- a symbol from a ``NON_CODE_LANGUAGES`` file, unless the query names
+  configuration ("config", "workflow", "yaml", ...);
+- a field or constant, unless the query names values ("field", "constant", ...).
+
+Only ranking reads the weight. The identity channel is untouched, so an exact
+name still ranks first, and a match found only in settings files is still a
+match. The fixture below is the fastapi shape in miniature.
 """
 
 from __future__ import annotations
@@ -83,7 +85,62 @@ def test_every_stylesheet_and_settings_extension_is_covered(ext):
     assert LANGUAGE_EXTENSIONS[ext] in scoring.NON_CODE_LANGUAGES
 
 
-@pytest.mark.parametrize("kind", ["function", "method", "class", "field", "constant"])
+@pytest.mark.parametrize(
+    "kind,name",
+    [
+        ("field", "dependency_cache"),
+        ("constant", "RESOLUTION_ORDER"),
+        ("constant", "_FASTAPI_SCOPE_KEY"),
+    ],
+)
+def test_a_field_or_constant_is_weighted_down_for_a_code_question(kind, name):
+    sym = {"file": "app/models.py", "language": "python", "kind": kind, "name": name}
+    assert scoring.rank_factor(sym, ["dependency"]) == (
+        scoring.DATA_KIND_WEIGHT,
+        "data_kind",
+    )
+    assert 0 < scoring.DATA_KIND_WEIGHT < 1
+
+
+@pytest.mark.parametrize("name", ["app", "router", "resolver", "useDependency"])
+def test_a_lower_case_binding_is_code_not_a_value(name):
+    """JS/TS index every module-level ``const`` as a constant; ``const app =
+    express()`` is the code a routing question is asking about."""
+    sym = {
+        "file": "src/server.js",
+        "language": "javascript",
+        "kind": "constant",
+        "name": name,
+    }
+    assert scoring.rank_factor(sym, ["routing"]) == (1.0, None)
+
+
+@pytest.mark.parametrize(
+    "name,expected",
+    [
+        ("MAX_SIZE", True),
+        ("__VERSION__", True),
+        ("HTTP2", True),
+        ("X", True),
+        ("Config.MAX_SIZE", True),
+        ("MAX.size", False),
+        ("__all__", False),
+        ("_123", False),
+        ("名前", False),  # no case in the script: not a convention signal
+        ("StatusOK", False),
+    ],
+)
+def test_the_upper_case_rule_on_edge_names(name, expected):
+    assert scoring.is_data_symbol({"kind": "constant", "name": name}) is expected
+
+
+@pytest.mark.parametrize("word", ["field", "constant", "attribute", "property", "value"])
+def test_a_question_about_values_weights_no_field(word):
+    sym = {"file": "app/models.py", "language": "python", "kind": "field", "name": "x"}
+    assert scoring.rank_factor(sym, ["dependency", word]) == (1.0, None)
+
+
+@pytest.mark.parametrize("kind", ["function", "method", "class"])
 def test_code_is_not_weighted(kind):
     sym = {"file": "app/core.py", "language": "python", "kind": kind}
     assert scoring.rank_factor(sym, ["dependency"]) == (1.0, None)
@@ -169,26 +226,21 @@ def _rows(res):
     return [(r.get("name"), r.get("kind"), r.get("file")) for r in res]
 
 
-def _first(rows, names):
-    return next(i for i, r in enumerate(rows) if r.get("name") in names)
-
-
-def _first_settings(rows):
-    """Index of the first settings-file row; past the end if none was returned."""
-    exts = (".yml", ".toml", ".css")
-    return next((i for i, r in enumerate(rows) if r["file"].endswith(exts)), len(rows))
-
-
 @pytest.mark.parametrize(
     "q", ["dependency resolution", "how are dependencies resolved for a request"]
 )
-def test_search_symbols_ranks_code_above_settings_files(repo, q):
+def test_search_symbols_ranks_functions_above_settings_and_fields(repo, q):
     rid, store = repo
     rows = search_symbols(repo=rid, query=q, max_results=10, storage_path=store)[
         "results"
     ]
-    assert rows and rows[0]["file"].endswith(".py"), _rows(rows)
-    assert _first(rows, WANT) < _first_settings(rows), _rows(rows)
+    assert rows and rows[0]["name"] in WANT, _rows(rows)
+    assert not any(r["file"].endswith((".yml", ".css")) for r in rows[:3]), _rows(rows)
+    # A settings key can still rank high on an exact name (pyproject's
+    # `dependencies`), but never ahead of the code the question is about.
+    settings = [i for i, r in enumerate(rows) if r["file"].endswith((".yml", ".toml", ".css"))]
+    code = [i for i, r in enumerate(rows) if r["name"] in WANT]
+    assert code and (not settings or code[0] < settings[0]), _rows(rows)
 
 
 def test_get_ranked_context_leads_with_a_function(repo):
@@ -196,8 +248,7 @@ def test_get_ranked_context_leads_with_a_function(repo):
     items = get_ranked_context(
         repo=rid, query="dependency resolution", token_budget=2000, storage_path=store
     )["context_items"]
-    assert items and items[0]["file"].endswith(".py"), _rows(items)
-    assert _first(items, WANT) < _first_settings(items), _rows(items)
+    assert items and items[0]["name"] in WANT, _rows(items)
 
 
 @pytest.mark.parametrize(
@@ -250,6 +301,14 @@ def test_a_question_about_the_workflow_still_returns_workflow_keys(repo):
     assert rows and rows[0]["file"].endswith((".yml", ".toml")), _rows(rows)
 
 
+def test_a_question_about_fields_still_returns_fields(repo):
+    rid, store = repo
+    rows = search_symbols(
+        repo=rid, query="dependency fields", max_results=5, storage_path=store
+    )["results"]
+    assert rows and rows[0]["kind"] == "field", _rows(rows)
+
+
 def test_the_debug_breakdown_names_the_weight_and_its_reason(repo):
     rid, store = repo
     rows = search_symbols(
@@ -264,7 +323,7 @@ def test_the_debug_breakdown_names_the_weight_and_its_reason(repo):
         for r in rows
         if "score_breakdown" in r
     }
-    assert "non_code_file" in reasons and "data_kind" not in reasons, reasons
+    assert {"non_code_file", "data_kind"} <= reasons, reasons
     for r in rows:
         bd = r.get("score_breakdown") or {}
         if "rank_weight" in bd:

@@ -309,20 +309,51 @@ _STYLE_INTENT = frozenset({
     "selector", "selectors",
 })
 
-# Multiplier for a NON_CODE_LANGUAGES symbol. 0.5 is a chosen value, checked
-# on the pinned fastapi questions: it cleared every settings-file symbol from
-# their top 5 while "python version matrix" still ranked a workflow key first,
-# which 0.25 did not. Only RANKING reads the reduced score; verdicts,
+# Words that make a query ABOUT values; with one present no field or constant
+# is weighted.
+_DATA_INTENT = frozenset({
+    "field", "fields", "constant", "constants", "attribute", "attributes",
+    "property", "properties", "variable", "variables", "setting", "settings",
+    "value", "values",
+})
+
+# Multipliers for a NON_CODE_LANGUAGES symbol and for a data symbol (see
+# `is_data_symbol`). 0.5 is a chosen value, checked on the pinned fastapi
+# questions: it cleared every settings-file symbol from their top 5 while
+# "python version matrix" still ranked a workflow key first, which 0.25 did
+# not. The data weight reuses the value; on "context bind" it moved a field
+# and an UPPER_CASE constant out of the top 5. Only RANKING reads the reduced score; verdicts,
 # confidence and absence read the raw one.
 NON_CODE_WEIGHT = 0.5
+DATA_KIND_WEIGHT = 0.5
+
+
+def is_data_symbol(sym: dict) -> bool:
+    """A field, or a constant whose name is written as one (UPPER_CASE).
+
+    The kind alone is not enough: JavaScript and TypeScript index every
+    module-level `const` as a constant, so `const app = express()` and
+    `const router = express.Router()` are kind ``constant`` and are the code a
+    routing question is asking about. The UPPER_CASE spelling is the
+    convention for a value across languages."""
+    kind = sym.get("kind")
+    if kind == "field":
+        return True
+    if kind != "constant":
+        return False
+    name = (sym.get("name") or "").rsplit(".", 1)[-1].lstrip("_")
+    # A cased letter is required: a name in a script with no case (CJK, for
+    # one) equals its own upper-case form and says nothing about convention.
+    return any(c.isupper() for c in name) and name == name.upper()
 
 
 def rank_factor(sym: dict, terms: list[str]) -> tuple[float, str | None]:
     """The ranking multiplier for ``sym`` on this query, and why.
 
     One reason applies, the first that matches: ``test_file``
-    (`test_file_factor`) or ``non_code_file`` (a NON_CODE_LANGUAGES symbol on a
-    query with no configuration, or styling, word). ``(1.0, None)``
+    (`test_file_factor`), ``non_code_file`` (a NON_CODE_LANGUAGES symbol on a
+    query with no configuration, or styling, word) or ``data_kind``
+    (`is_data_symbol`, on a query with no value word). ``(1.0, None)``
     otherwise."""
     weight = test_file_factor(sym, terms)
     if weight != 1.0:
@@ -333,6 +364,8 @@ def rank_factor(sym: dict, terms: list[str]) -> tuple[float, str | None]:
         if any(t in intent for t in terms):
             return 1.0, None
         return NON_CODE_WEIGHT, "non_code_file"
+    if is_data_symbol(sym) and not any(t in _DATA_INTENT for t in terms):
+        return DATA_KIND_WEIGHT, "data_kind"
     return 1.0, None
 
 

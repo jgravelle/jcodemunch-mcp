@@ -44,6 +44,53 @@ opt-in, never as a problem.
 The front-door tools still load up front where a client defers MCP tools;
 that is server-side and unchanged.
 
+### Fixed - a question about code ranks functions above fields and constants
+
+After tests and settings files, the next thing crowding a question about
+how code works was data: a one-line field or a constant that shares a word
+with the question. On the pinned fastapi checkout, "context bind" put
+`_IncludedRouter.include_context`, a 38-byte field, first and the 64-byte
+`_FASTAPI_EFFECTIVE_ROUTE_CONTEXT_KEY` constant fourth.
+
+`rank_factor` now weights a field, and a constant whose name is written as
+one (UPPER_CASE), at half (`DATA_KIND_WEIGHT`), unless the query names
+values ("field", "constant", "attribute", "property", "variable",
+"setting", "value", and their plurals). A lower-case constant is not touched:
+JavaScript and TypeScript index every module-level `const` as a constant,
+so `const app = express()` is the code a routing question is about. The
+same query now returns `RouteContext`, `_merge_lifespan_context`,
+`_EffectiveRouteContext`, `iter_route_contexts` and
+`_IncludedRouter._build_effective_context`. Only ranking reads the weight;
+verdicts, confidence and absence read the raw score. The `debug=True`
+breakdown names it as `rank_weight_reason: "data_kind"`.
+
+### Changed - the published token benchmark is re-measured: lookups return the code asked about, at some token cost
+
+The reference was last captured at 1.108.364. Since then three ranking
+changes moved what a benchmark lookup fetches: tests (1.108.391), settings
+files (1.108.392) and fields and constants (this entry). The reference was
+re-measured on CI at commit `15afcf75`, which carries all three. Tokens per lookup rose 21.9% on
+fastapi, 2.4% on express and fell 0.2% on gin. Most of fastapi's rise is
+one query: "context bind" went from 1,205 to 3,334 tokens, because it now
+fetches fastapi's route-context code instead of short settings keys, fields
+and constants. Single lookups moved both ways
+elsewhere (gin's "request response" from 1,366 to 1,761, gin's "context
+bind" from 1,687 to 1,247). Against a grep-and-read agent the published
+figure goes from 96.6% (29.2x) to 96.2% (26.5x). That is the tradeoff these
+changes make: a lookup now fetches the code a question is about, which is
+longer than the short keys and constants it used to fetch. README, `TOKEN_SAVINGS.md`,
+`benchmarks/` and the registry description carry the new run.
+
+The rise a repo may show against the reference before the weekly benchmark
+fails is unchanged at 10%; fastapi's rise is over it and was approved by
+the maintainer. `docs/standard/STANDARD.md` now states that exception and
+where its approval is recorded. To replace the reference after such an
+approval, `benchmark.yml` takes an `accept_rise` input: it applies only with
+`reference=true`, names each accepted repo as `owner/repo`, and prints that
+repo's rise instead of judging it; every other repo and the grep ratio are
+still judged. `run_benchmark.py --accept-rise` refuses to run without
+`--reference`.
+
 ## [1.108.392] - 2026-10-22 - a warning in a tool's answer survives the compact encoding
 
 ### Fixed - a question about code ranks code above settings files

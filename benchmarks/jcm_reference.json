@@ -1,19 +1,19 @@
 {
   "schema": "jcm-benchmark-reference/v2",
-  "captured_at": "2026-10-15T08:12:12+0000",
-  "jcodemunch_version": "1.108.364",
+  "captured_at": "2026-10-22T11:31:40+0000",
+  "jcodemunch_version": "1.108.391",
   "tokenizer": "cl100k_base",
   "workflow": "search_symbols(max_results=5) + get_symbol_source x3",
   "baseline_definition": "all indexed source files concatenated",
   "grand": {
     "baseline_tokens": 5658685,
-    "jmunch_tokens": 22741,
+    "jmunch_tokens": 25132,
     "task_runs": 15
   },
   "repos": {
     "expressjs/express": {
-      "avg_tokens_per_query": 967,
-      "jmunch_total_tokens": 4833,
+      "avg_tokens_per_query": 990,
+      "jmunch_total_tokens": 4948,
       "queries": 5,
       "baseline_tokens": 154569,
       "file_count": 186,
@@ -27,8 +27,8 @@
       }
     },
     "fastapi/fastapi": {
-      "avg_tokens_per_query": 2097,
-      "jmunch_total_tokens": 10486,
+      "avg_tokens_per_query": 2556,
+      "jmunch_total_tokens": 12779,
       "queries": 5,
       "baseline_tokens": 825326,
       "file_count": 1186,
@@ -42,8 +42,8 @@
       }
     },
     "gin-gonic/gin": {
-      "avg_tokens_per_query": 1484,
-      "jmunch_total_tokens": 7422,
+      "avg_tokens_per_query": 1481,
+      "jmunch_total_tokens": 7405,
       "queries": 5,
       "baseline_tokens": 151842,
       "file_count": 98,
