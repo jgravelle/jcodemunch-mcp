@@ -162,10 +162,10 @@ That's the highlight reel. The complete tour of 90+ tools, the MUNCH compact wir
 <!-- WHATSNEW:START -->
 #### What's new
 
+- **[v1.108.394](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.394)** (2026-10-22) — index_dependency validates package paths
 - **[v1.108.393](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.393)** (2026-10-22) — a default install adds nothing to the model's context
 - **[v1.108.392](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.392)** (2026-10-22) — a warning in a tool's answer survives the compact encoding
 - **[v1.108.391](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.391)** (2026-10-21) — a question about how code works ranks the code above its tests
-- **[v1.108.390](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.390)** (2026-10-21) — the local embedding model is pinned and checked before it is used
 <!-- WHATSNEW:END -->
 
 ---

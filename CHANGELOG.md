@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.394] - 2026-10-22 - index_dependency validates package paths
+
 ### Fixed - index_dependency validates package paths
 
 `index_dependency` now accepts only a package name: an npm name (`lodash`,
