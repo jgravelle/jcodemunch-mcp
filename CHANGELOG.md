@@ -2,6 +2,49 @@
 
 ## [Unreleased]
 
+### Fixed - a question about code ranks functions above fields and constants
+
+After tests and settings files, the next thing crowding a question about
+how code works was data: a one-line field or a constant that shares a word
+with the question. On the pinned fastapi checkout, "context bind" put
+`_IncludedRouter.include_context`, a 38-byte field, first and the 64-byte
+`_FASTAPI_EFFECTIVE_ROUTE_CONTEXT_KEY` constant fourth.
+
+`rank_factor` now weights a field, and a constant whose name is written as
+one (UPPER_CASE), at half (`DATA_KIND_WEIGHT`), unless the query names
+values ("field", "constant", "attribute", "property", "variable",
+"setting", and their plurals). A lower-case constant is not touched:
+JavaScript and TypeScript index every module-level `const` as a constant,
+so `const app = express()` is the code a routing question is about. The
+same query now returns `RouteContext`, `_merge_lifespan_context`,
+`_EffectiveRouteContext`, `iter_route_contexts` and
+`_IncludedRouter._build_effective_context`. Only ranking reads the weight;
+verdicts, confidence and absence read the raw score. The `debug=True`
+breakdown names it as `rank_weight_reason: "data_kind"`.
+
+### Changed - the published token benchmark is re-measured, and its headline falls
+
+The three ranking changes in this release (tests, settings files, fields and
+constants) change what a benchmark lookup fetches, so the reference numbers
+were re-measured on CI at 1.108.391. Tokens per lookup rose 21.9% on
+fastapi, 2.4% on express and fell 0.2% on gin. Most of fastapi's rise is
+one query: "context bind" went from 1,205 to 3,334 tokens, because it now
+fetches fastapi's route-context code instead of settings keys, a field and
+a constant a few dozen bytes long. Single lookups moved both ways
+elsewhere (gin's "request response" from 1,366 to 1,761, gin's "context
+bind" from 1,687 to 1,247). Against a grep-and-read agent the published
+figure goes from 96.6% (29.2x) to 96.2% (26.5x); README, `TOKEN_SAVINGS.md`,
+`benchmarks/` and the registry description carry the new run.
+
+The rise a repo may show against the reference before the weekly benchmark
+fails (`token.per_repo_rise_max`) is unchanged; fastapi's rise is over it
+and was approved by the maintainer. To replace the reference after such an
+approval, `benchmark.yml` takes an `accept_rise` input: it applies only with
+`reference=true`, names each accepted repo as `owner/repo`, and prints that
+repo's rise instead of judging it; every other repo and the grep ratio are
+still judged. `run_benchmark.py --accept-rise` refuses to run without
+`--reference`.
+
 ### Fixed - a question about code ranks code above settings files
 
 With tests weighted down in 1.108.391, the next thing to crowd a question
