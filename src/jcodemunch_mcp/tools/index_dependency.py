@@ -147,7 +147,10 @@ def _resolve_npm(source_root: Path, package: str) -> Optional[dict]:
             "npm link, or a store outside the repo); only installs inside the "
             "repo are read."
         )}
-    if _is_store(real, source_root, _store_roots(source_root)):
+    # An npm package is a directory with its own package.json. That property,
+    # not a list of store names, is what refuses a link to node_modules, a
+    # scope, yarn's .store or any other directory holding many packages.
+    if _is_store(real, source_root, _store_roots(source_root)) or not (real / "package.json").is_file():
         return {"ecosystem": "npm", "error": f"node_modules/{package} {_STORE_REFUSAL}"}
     meta = _read_package_json(real)
     return {
@@ -231,6 +234,7 @@ def _resolve_pypi(source_root: Path, package: str, looked_in: list) -> Optional[
 
     for sp in _site_packages_dirs(source_root):
         looked_in.append(str(sp))
+        store_link.clear()  # report a store link only for the site-packages it is in
         if _contained(sp, source_root) is None:
             linked_out.append(sp.relative_to(source_root).as_posix())
             continue

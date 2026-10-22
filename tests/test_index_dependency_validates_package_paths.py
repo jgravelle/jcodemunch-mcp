@@ -3,8 +3,9 @@
 `package` is joined onto `node_modules` or a virtualenv's site-packages, and a
 `top_level.txt` line from the installed distribution is joined onto
 site-packages too. Each is validated as a package or module name, and every
-directory it resolves to (after symlinks) must be inside the repo, and never
-the repo root, node_modules or a virtualenv itself. The snapshot copy applies the same
+directory it resolves to (after symlinks) must be inside the repo and be one
+package: never a directory that is or contains a store root, and for npm a
+directory with its own package.json. The snapshot copy applies the same
 per-file checks the indexer applies to a walked file: no secret or credential
 file, nothing over the size cap, nothing binary. And `index_folder(paths=...)`
 honors .gitignore like the walk does; only index_dependency's own filtered
@@ -393,4 +394,21 @@ def test_a_pypi_link_to_part_of_a_virtualenv_is_refused(host, target):
     except (OSError, NotImplementedError):
         pytest.skip("this platform cannot create a directory symlink here")
     res = index_dependency(host["repo"], "allpkgs", ecosystem="pypi", storage_path=host["store"])
+    assert "error" in res and "only a package directory" in res["error"], res
+
+
+def test_a_link_to_a_multi_package_store_is_refused(host):
+    """yarn's node_modules/.store (or any directory holding several packages)
+    has no package.json of its own, so it is not one package."""
+    store = host["src"] / "node_modules" / ".store"
+    for name in ("a-npm-1.0.0-x", "b-npm-1.0.0-y"):
+        pkg = store / name / "package"
+        pkg.mkdir(parents=True)
+        (pkg / "package.json").write_text(json.dumps({"name": name, "version": "1.0.0"}))
+        (pkg / "index.js").write_text("function storePkg() { return 1; }\n")
+    try:
+        os.symlink(store, host["src"] / "node_modules" / "everything", target_is_directory=True)
+    except (OSError, NotImplementedError):
+        pytest.skip("this platform cannot create a directory symlink here")
+    res = index_dependency(host["repo"], "everything", ecosystem="npm", storage_path=host["store"])
     assert "error" in res and "only a package directory" in res["error"], res

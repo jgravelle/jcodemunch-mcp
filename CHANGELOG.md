@@ -7,8 +7,10 @@
 `index_dependency` now accepts only a package name: an npm name (`lodash`,
 `@scope/name`) or a PyPI name (`requests`), never a path. Each name read from
 an installed distribution's `top_level.txt` must be a module name, and every
-package directory, after symlinks, must be inside the repo, and never the
-repo root, `node_modules` or a virtualenv itself. The snapshot is always one
+package directory, after symlinks, must be inside the repo, and must be one
+package: never a directory that is or contains the repo root, `node_modules`,
+a site-packages or a virtualenv. An npm package must have its own
+`package.json`. The snapshot is always one
 directory inside the store's `deps/`, whatever name and version the
 package's own metadata gives.
 
@@ -20,7 +22,7 @@ earlier version copied do not linger there. A package that lives elsewhere
 in the repo (a workspace package linked from `node_modules`) is copied
 without the files the repo's `.gitignore` excludes.
 
-Three behavior changes:
+Four behavior changes:
 
 - A package whose `node_modules` entry is a symlink to a directory outside the
   repo (as `npm link` makes, or a package store kept outside the repo) is no
@@ -30,6 +32,9 @@ Three behavior changes:
   outside the repo is no longer read; `index_dependency` says so in its
   error. A package directory linked from site-packages to elsewhere inside
   the repo still resolves.
+- A `node_modules` entry linked to a directory holding many packages (an
+  `@scope` directory, `node_modules` itself, or a package-manager store) is
+  refused; link the one package instead.
 - `index_folder(paths=...)` honors `.gitignore` the way a full index does: a
   listed file, or a file under a listed folder, that a `.gitignore` between
   the repo root and the file excludes is skipped with a warning. Before, a
