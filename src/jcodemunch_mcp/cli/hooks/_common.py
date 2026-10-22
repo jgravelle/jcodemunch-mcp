@@ -135,13 +135,40 @@ def _path_overlaps(root: str, source_roots: list[str]) -> bool:
 
     A filesystem root already ends in a separator (`C:\\`, `/`), so appending
     one more made the ancestor test fail for every root (L-195).
+
+    ⚠ (#1202) A path INSIDE an indexed root is served by it only if no separate
+    checkout sits between them: a linked worktree nested in the checkout
+    (``.claude/worktrees/<name>``) is another branch the index does not hold
+    (#372), and so is a nested independent clone. ``resolve_repo`` answers both
+    ``indexed: false``; steering toward the parent's index there would send the
+    agent to another branch's code.
     """
     from ...path_prefix import dir_prefix  # noqa: PLC0415  (leaf, stdlib only)
 
     for sr in source_roots:
-        if root == sr or root.startswith(dir_prefix(sr)) or sr.startswith(dir_prefix(root)):
+        if root == sr or sr.startswith(dir_prefix(root)):
+            return True
+        if root.startswith(dir_prefix(sr)) and not _crosses_a_checkout(root, sr):
             return True
     return False
+
+
+def _crosses_a_checkout(path: str, source_root: str) -> bool:
+    """True when a linked worktree or independent repo lies between the two.
+
+    Stats only (``checkout_boundary`` is a stdlib leaf), so the per-call hook
+    cost is a few ``stat`` calls on the path's own ancestors. Any doubt is
+    False: a wrong True would switch steering off for an indexed file.
+    """
+    from pathlib import Path  # noqa: PLC0415
+
+    from ...checkout_boundary import separate_checkout_between  # noqa: PLC0415
+
+    try:
+        return separate_checkout_between(Path(path), Path(source_root), worktrees=True) is not None
+    except Exception:
+        logger.debug("checkout boundary probe failed", exc_info=True)
+        return False
 
 
 def _repo_owner_name(entry: dict) -> "tuple[str, str]":

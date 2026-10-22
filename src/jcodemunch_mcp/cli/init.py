@@ -34,6 +34,7 @@ from .policy import (  # noqa: F401,E402
 # Constants
 # ---------------------------------------------------------------------------
 
+from .backup import backup_path as _backup_path  # noqa: E402  (L-203)
 from .policy import POLICY_MARKER as _CLAUDE_MD_MARKER  # noqa: E402, F401  (#871: one marker; re-exported, L-186)
 
 
@@ -282,7 +283,7 @@ def _read_json(path: Path) -> dict[str, Any]:
 def _write_json(path: Path, data: dict[str, Any], *, backup: bool = True) -> None:
     """Write JSON, optionally creating a .bak backup first."""
     if backup and path.exists():
-        bak = path.with_suffix(path.suffix + ".bak")
+        bak = _backup_path(path)
         shutil.copy2(path, bak)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
@@ -391,7 +392,7 @@ def _patch_codex_config(
         return f"  would add [mcp_servers.jcodemunch] to {path} (command = {exe})"
 
     if backup and path.exists():
-        shutil.copy2(path, path.with_suffix(".toml.bak"))
+        shutil.copy2(path, _backup_path(path))
 
     block = (
         "\n[mcp_servers.jcodemunch]\n"
@@ -686,7 +687,7 @@ def install_claude_md(scope: str = "global", *, dry_run: bool = False, backup: b
 
     path.parent.mkdir(parents=True, exist_ok=True)
     if backup and path.exists():
-        shutil.copy2(path, path.with_suffix(".md.bak"))
+        shutil.copy2(path, _backup_path(path))
 
     policy = active_policy()
     with open(path, "a", encoding="utf-8") as f:
@@ -719,7 +720,7 @@ def install_cursor_rules(*, dry_run: bool = False, backup: bool = True) -> str:
 
     path.parent.mkdir(parents=True, exist_ok=True)
     if backup and path.exists():
-        shutil.copy2(path, path.with_suffix(".mdc.bak"))
+        shutil.copy2(path, _backup_path(path))
 
     # Cursor gets the same surface-matched policy as everyone else; only the MDC
     # frontmatter differs. Reading the policy from `active_policy` rather than
@@ -753,7 +754,7 @@ def install_windsurf_rules(*, dry_run: bool = False, backup: bool = True) -> str
         return f"  would append policy to {path}"
 
     if backup and path.exists():
-        shutil.copy2(path, path.with_suffix(".windsurfrules.bak"))
+        shutil.copy2(path, _backup_path(path))
 
     policy = active_policy()
     with open(path, "a", encoding="utf-8") as f:
@@ -785,7 +786,7 @@ def install_agents_md(*, dry_run: bool = False, backup: bool = True) -> str:
         if dry_run:
             return f"  would append policy to {target}"
         if backup:
-            shutil.copy2(target, target.with_suffix(".md.bak"))
+            shutil.copy2(target, _backup_path(target))
         target.write_text(existing.rstrip() + "\n\n" + policy + "\n", encoding="utf-8")
     else:
         if dry_run:
@@ -1068,7 +1069,7 @@ def install_copilot_hooks(*, dry_run: bool = False, backup: bool = True) -> str:
             data.setdefault("version", 1)
             msg = f"  appended Copilot postToolUse hook to {hooks_path}"
         if backup:
-            hooks_path.with_suffix(".json.bak").write_text(raw, encoding="utf-8")
+            _backup_path(hooks_path).write_text(raw, encoding="utf-8")
         hooks_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
         return msg
 
@@ -1772,7 +1773,7 @@ def uninstall_claude_md(scope: str = "global", *, dry_run: bool = False, backup:
     if dry_run:
         return f"  would strip policy from {path}"
     if backup:
-        shutil.copy2(path, path.with_suffix(".md.bak"))
+        shutil.copy2(path, _backup_path(path))
     if new_text.strip():
         path.write_text(new_text, encoding="utf-8")
         return f"  stripped policy from {path}"
@@ -1788,7 +1789,7 @@ def uninstall_cursor_rules(*, dry_run: bool = False, backup: bool = True) -> str
     if dry_run:
         return f"  would remove {path}"
     if backup:
-        shutil.copy2(path, path.with_suffix(".mdc.bak"))
+        shutil.copy2(path, _backup_path(path))
     path.unlink()
     return f"  removed {path}"
 
@@ -1804,7 +1805,7 @@ def uninstall_windsurf_rules(*, dry_run: bool = False, backup: bool = True) -> s
     if dry_run:
         return f"  would strip policy from {path}"
     if backup:
-        shutil.copy2(path, path.with_suffix(".windsurfrules.bak"))
+        shutil.copy2(path, _backup_path(path))
     if new_text.strip():
         path.write_text(new_text, encoding="utf-8")
         return f"  stripped policy from {path}"
@@ -1823,7 +1824,7 @@ def uninstall_agents_md(*, dry_run: bool = False, backup: bool = True) -> str:
     if dry_run:
         return f"  would strip policy from {path}"
     if backup:
-        shutil.copy2(path, path.with_suffix(".md.bak"))
+        shutil.copy2(path, _backup_path(path))
     if new_text.strip():
         path.write_text(new_text, encoding="utf-8")
         return f"  stripped policy from {path}"
@@ -1901,7 +1902,7 @@ def uninstall_copilot_hooks(*, dry_run: bool = False, backup: bool = True) -> st
     if dry_run:
         return f"  would remove jcodemunch Copilot hook from {hooks_path}"
     if backup:
-        hooks_path.with_suffix(".json.bak").write_text(
+        _backup_path(hooks_path).write_text(
             hooks_path.read_text(encoding="utf-8"), encoding="utf-8"
         )
     if kept:
