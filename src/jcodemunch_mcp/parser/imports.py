@@ -2136,9 +2136,9 @@ _SQL_STEM_CACHE_MAX = 4
 _SQL_STEM_LOCK = threading.Lock()
 # The same stems keyed by the caller's whole frozenset. Building the .sql key
 # above reads every path, so it cost O(files) on every call: resolve_specifier
-# reaches this for every unresolved bare name, and on a 24k-file repo the key
-# alone was most of the first query's wait. A frozenset caches its own hash,
-# so looking the caller's set up here is O(1) after the first call.
+# reaches this for every unresolved bare name, once per import of every file
+# when the import graph is built. A frozenset caches its own hash, so looking
+# the caller's set up here is O(1) after the first call.
 _sql_stem_by_files: dict[frozenset, dict[str, str]] = {}
 
 
@@ -2938,6 +2938,9 @@ def _tail_memo(source_files, alias_map) -> Optional[dict]:
             if len(_tail_memos) >= _TAIL_MEMO_MAX:
                 _tail_memos.pop(next(iter(_tail_memos)))
             entries = _tail_memos[source_files] = []
+        # An empty map and None resolve alike (the alias step is skipped), and
+        # callers often pass a fresh `{}`, so both share one memo.
+        alias_map = alias_map or None
         for held_map, memo in entries:
             if held_map is alias_map:
                 return memo

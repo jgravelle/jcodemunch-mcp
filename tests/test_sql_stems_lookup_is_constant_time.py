@@ -3,9 +3,8 @@
 resolve_specifier falls back to SQL stems for every bare name it cannot place
 otherwise, and the import-graph builders call it once per import. The stem
 cache was keyed by the set of .sql paths, so finding the cached entry meant
-reading every indexed path to build that key: on a 24k-file repository this
-was most of the first query's wait. A frozenset caller now finds its stems
-without that scan.
+reading every indexed path to build that key, once per import of every file.
+A frozenset caller now finds its stems without that scan.
 """
 
 from __future__ import annotations
