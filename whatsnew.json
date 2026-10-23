@@ -1,6 +1,12 @@
 {
-  "current": "1.108.395",
+  "current": "1.108.396",
   "entries": [
+    {
+      "version": "1.108.396",
+      "date": "2026-10-23",
+      "title": "the first search on a large repository resolves each import once",
+      "summary": "The first search in a process resolves each distinct import once per file set instead of once per importing file. On a copy of the home-assistant/core index the first search_symbols took 24.4 s instead of 102.2 s, with identical import resolution."
+    },
     {
       "version": "1.108.395",
       "date": "2026-10-22",

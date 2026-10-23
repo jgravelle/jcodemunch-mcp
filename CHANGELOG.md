@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.396] - 2026-10-23 - the first search on a large repository resolves each import once
+
 ### Changed - the first search on a large repository resolves each import once
 
 The first `search_symbols` in a process builds the import graph to rank files

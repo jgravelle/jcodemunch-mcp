@@ -2918,3 +2918,13 @@ The 1.108.392 entry, verbatim as it stood in `CLAUDE.md`:
 The `Tests:` line's 1.108.392 count, verbatim:
 
 - ⚠ Prior (1.108.392): 18479 passed, 24 skipped, **0 failed** (18503 total).
+
+## Current State rotation (2026-10-23, release 1.108.396)
+
+The 1.108.393 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.393):** **a default install adds nothing to the model's context** (#1218): `_silent_hooks` (PostToolUse, PreCompact, TaskCompleted) are the default; `_guidance_hooks` need `init --guidance`, policy pastes `--policy`; an install keeps what it has; `init --remove-guidance` strips both with backups; `config --check` treats their absence as opt-in. Also #1217: `scoring.is_data_symbol` fields and UPPER_CASE constants weighted at `DATA_KIND_WEIGHT` unless the query names values; benchmark reference re-captured with an approved rise (`--accept-rise`, reference-only; STANDARD Regression 6). Full text: `CHANGELOG.md`.
+
+The `Tests:` line's 1.108.393 count, verbatim:
+
+- ⚠ Prior (1.108.393): 18537 passed, 24 skipped, **0 failed** (18561 total).
