@@ -2,6 +2,29 @@
 
 ## [Unreleased]
 
+### Changed - the first search on a large repository resolves each import once
+
+The first `search_symbols` in a process builds the import graph to rank files
+by how often they are imported. On a large repository that meant resolving
+every import of every file, one at a time, and two parts of the resolver
+repeated work on each call:
+
+- The SQL-stem fallback (for bare names such as a dbt `ref`) found its cached
+  table by first reading every indexed path to build the cache key, on every
+  call that reached it.
+- The steps that do not depend on the importing file (absolute paths, Python
+  module paths, tsconfig aliases, SQL stems) were recomputed for each file,
+  although a large repository imports the same modules from thousands of
+  files.
+
+The stem table is now found by the caller's file set directly, and those
+steps are computed once per specifier and file set. Steps that do depend on
+the importing file (relative paths, Python script folders, Racket, Web Forms,
+Gleam) still run for each import. On a copy of the home-assistant/core index,
+resolving all 459654 imports took 4.9 s instead of 33.7 s with identical
+results, and the first `search_symbols` in a fresh process took 24.4 s instead
+of 102.2 s. A second search is unchanged.
+
 ## [1.108.394] - 2026-10-22 - index_dependency validates package paths
 
 ### Fixed - index_dependency validates package paths
