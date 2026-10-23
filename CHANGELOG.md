@@ -25,6 +25,8 @@ resolving all 459654 imports took 4.9 s instead of 33.7 s with identical
 results, and the first `search_symbols` in a fresh process took 24.4 s instead
 of 102.2 s. A second search is unchanged.
 
+## [1.108.395] - 2026-10-22 - a text match says which function it is in
+
 ### Changed - a text match says which function it is in
 
 `search_text` and `check_references` return line matches. To answer the

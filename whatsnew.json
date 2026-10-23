@@ -1,6 +1,12 @@
 {
-  "current": "1.108.394",
+  "current": "1.108.395",
   "entries": [
+    {
+      "version": "1.108.395",
+      "date": "2026-10-22",
+      "title": "a text match says which function it is in",
+      "summary": "search_text and check_references give each match the innermost function, method or class around it, as in: {id, line, end_line}. search_text reports truncated and timed_out in the response body, and a file_pattern that matches no file returns a note saying nothing was searched."
+    },
     {
       "version": "1.108.394",
       "date": "2026-10-22",
