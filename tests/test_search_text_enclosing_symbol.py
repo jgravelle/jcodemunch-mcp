@@ -1,8 +1,7 @@
 """search_text says which function or class each match sits in.
 
-In a measured agent run on a large repository, the step most often repeated
-after a text search was finding the enclosing function of each match: one
-file outline (or a native read) per file. The index already holds every
+After a text search, an agent usually needs the function each match sits in,
+which took one file outline (or a native read) per file. The index already holds every
 symbol's line span, so each match now carries the innermost function, method
 or class around it, as ``in: {id, line, end_line}``; the id
 (``file::Name#kind``) names it. A match at module level has no ``in``.
