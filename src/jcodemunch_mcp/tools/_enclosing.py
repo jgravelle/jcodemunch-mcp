@@ -7,9 +7,11 @@ without a per-file outline call.
 
 from __future__ import annotations
 
-# Symbol kinds that hold a value rather than a body of code; a match is never
-# said to be "in" one of them.
-_NOT_ENCLOSING = frozenset({"constant", "field", "variable", "property", "import"})
+from ..parser.symbols import STATE_KINDS
+
+# Symbol kinds that hold a value rather than a body of code (declared state,
+# from the one list of them) and imports; a match is never said to be "in" one.
+_NOT_ENCLOSING = frozenset(STATE_KINDS) | {"import"}
 
 
 def attach_enclosing_symbols(results: list, symbols) -> None:
