@@ -1,6 +1,12 @@
 {
-  "current": "1.108.393",
+  "current": "1.108.394",
   "entries": [
+    {
+      "version": "1.108.394",
+      "date": "2026-10-22",
+      "title": "index_dependency validates package paths",
+      "summary": "index_dependency accepts only package names and reads only what is installed inside the repo: every package directory and its metadata must resolve inside the repo and be one package, the snapshot stays one directory in the store, and the copy skips secret, oversize, binary, symlinked and repo-gitignored files. index_folder(paths=...) honors .gitignore like a full index."
+    },
     {
       "version": "1.108.393",
       "date": "2026-10-22",

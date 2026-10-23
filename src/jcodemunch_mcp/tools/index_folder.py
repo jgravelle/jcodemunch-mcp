@@ -1344,12 +1344,32 @@ def _refresh_git_head_if_advanced(store, owner, name, folder_path, stored_head):
         return ""
 
 
+def _explicit_path_is_gitignored(walk_root: Path, file_path: Path, cache: Optional[dict] = None) -> bool:
+    """Is ``file_path`` excluded by a .gitignore between ``walk_root`` and it?
+
+    ``cache`` maps a directory to its chain, so a long list of files in a few
+    directories reads each .gitignore once.
+    """
+    parent = file_path.parent
+    if cache is not None and parent in cache:
+        specs = cache[parent]
+    else:
+        try:
+            specs = _gitignore_specs_on_path(walk_root, file_path)
+        except ValueError:
+            return False
+        if cache is not None:
+            cache[parent] = specs
+    return bool(specs) and _is_gitignored_fast(str(file_path), specs)
+
+
 def resolve_explicit_paths(
     walk_root: Path,
     paths: list,
     max_files: Optional[int],
     max_size: Optional[int] = None,
     follow_symlinks: bool = False,
+    honor_gitignore: bool = True,
 ) -> tuple[list[Path], list[str], dict[str, int], list[str]]:
     """Materialise a caller-supplied list of paths into the (files, warnings,
     skip_counts, requested_rels) shape that the standard indexing pipeline
@@ -1368,9 +1388,13 @@ def resolve_explicit_paths(
     non-existent paths, symlink escapes, oversize files, secret/credential
     files, and binary files are rejected with per-entry warnings. The
     security-relevant filters (symlink, secret, binary, size) mirror the full
-    walk; unlike the walk, explicit paths deliberately opt past gitignore and
-    skip-directory rules so a caller can name a generated/ignored source file
-    on purpose (e.g. ``index_dependency`` indexing a ``dist/`` snapshot).
+    walk, and so does .gitignore: a listed file that a .gitignore between
+    ``walk_root`` and the file excludes is skipped, because a gitignored file
+    can hold credentials the secret patterns do not name. Skip-directory rules
+    still do not apply, so a caller can name a generated source file.
+    ``honor_gitignore=False`` is for ``index_dependency`` alone, which indexes
+    its own filtered snapshot of a package whose .gitignore often lists
+    ``dist/``.
 
     Used by ``index_folder(paths=...)`` so agents can re-index exactly the
     files they already know about (git-diff list, edited-files list,
@@ -1388,6 +1412,7 @@ def resolve_explicit_paths(
     seen: set = set()
 
     cap = max_files if max_files is not None else 10_000_000
+    gitignore_cache: dict = {}
 
     for raw in paths:
         if len(files) >= cap:
@@ -1429,8 +1454,14 @@ def resolve_explicit_paths(
             warnings.extend(sub_warnings)
             for k, v in sub_skip.items():
                 skip_counts[k] = skip_counts.get(k, 0) + v
+            # The subtree walk reads the .gitignore files inside ``p``; the
+            # ones above it, up to ``walk_root``, are applied here.
+            above = _gitignore_specs_on_path(walk_root, p) if honor_gitignore and p != walk_root else []
             for f in sub_files:
                 fr = f.resolve()
+                if above and _is_gitignored_fast(str(fr), above):
+                    skip_counts["gitignore"] = skip_counts.get("gitignore", 0) + 1
+                    continue
                 if fr not in seen:
                     seen.add(fr)
                     files.append(f)
@@ -1453,11 +1484,16 @@ def resolve_explicit_paths(
         # secrets/*.yaml, credentials.json) was indexed and later served
         # unredacted by the source-dump tools, while the full walk refused it.
         # The explicit-paths branch must apply the same secret filter the walk
-        # does; it intentionally still opts past gitignore/skip-dir so callers
-        # can name generated/ignored source files on purpose.
+        # does; .gitignore is applied below, and skip-dir rules are not, so a
+        # caller can name a generated source file on purpose.
         if is_secret_file(_rel, repo=str(walk_root)):
             warnings.append(f"Skipped secret file: {_rel}")
             skip_counts["secret"] = skip_counts.get("secret", 0) + 1
+            continue
+
+        if honor_gitignore and _explicit_path_is_gitignored(walk_root, p, gitignore_cache):
+            warnings.append(f"Skipped gitignored file: {_rel}")
+            skip_counts["gitignore"] = skip_counts.get("gitignore", 0) + 1
             continue
 
         if get_language_for_path(str(p)) is None and p.suffix not in LANGUAGE_EXTENSIONS:
@@ -1704,6 +1740,7 @@ def index_folder(
     identity_mode: str = "config",
     force_reparse: bool = False,
     max_size: Optional[int] = None,
+    paths_honor_gitignore: bool = True,
 ) -> dict:
     """Index a local folder containing source code.
 
@@ -2514,6 +2551,7 @@ def index_folder(
                 max_files=max_files,
                 max_size=max_size,
                 follow_symlinks=follow_symlinks,
+                honor_gitignore=paths_honor_gitignore,
             )
         else:
             source_files, discover_warnings, skip_counts = discover_local_files(

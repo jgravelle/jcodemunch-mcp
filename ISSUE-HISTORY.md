@@ -2898,3 +2898,13 @@ The 1.108.390 entry, verbatim as it stood in `CLAUDE.md`:
 The `Tests:` line's 1.108.390 count, verbatim:
 
 - ⚠ Prior (1.108.390): 18339 passed, 24 skipped, **0 failed** (18363 total).
+
+## Current State rotation (2026-10-22, release 1.108.394)
+
+The 1.108.391 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.391):** **a question about how code works ranks the code above its tests** (#1207): `scoring.query_idf` weights plain-word function words in a multi-word query at `FUNCTION_WORD_WEIGHT`; `test_file_factor` (`TEST_SYMBOL_WEIGHT`) applies only where a caller RANKS, verdicts read the raw score. Also #1204 (#1202): `checkout_boundary.separate_checkout_between(worktrees=True)` keeps a nested worktree out of the parent's index in resolve_repo and the hooks; #1205: CLI backups are `cli/backup.backup_path`; #1208: the ubuntu 3.10 CI leg has its own wall Floor. Full text: `CHANGELOG.md`.
+
+The `Tests:` line's 1.108.391 count, verbatim:
+
+- ⚠ Prior (1.108.391): 18417 passed, 24 skipped, **0 failed** (18441 total).
