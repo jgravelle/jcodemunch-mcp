@@ -3,6 +3,7 @@
 import fnmatch as _fnmatch
 import re
 import time
+from ._enclosing import attach_enclosing_symbols
 from typing import Optional
 
 from ..storage import IndexStore, record_savings, cost_avoided
@@ -191,6 +192,8 @@ def search_text(
         if truncated or timed_out:
             break
 
+    attach_enclosing_symbols(results, index.symbols)
+
     elapsed = (time.perf_counter() - start) * 1000
 
     # L-180: no credit. The answer is the matching lines, which Grep returns
@@ -270,8 +273,20 @@ def search_text(
     _cap = getattr(index, "file_cap_status", None)
     if _cap and _cap.get("truncated"):
         _meta["index_truncated"] = _index_truncation_meta(_cap)
-    return {
+    # In the body, not only _meta: _meta is stripped on a default install,
+    # and a list cut short read as complete sends the agent searching again.
+    # `truncated` is the max_results cut; `timed_out` is the regex time budget.
+    body = {
         "result_count": result_count,
+        "truncated": truncated,
+        "timed_out": timed_out,
         "results": results,
-        "_meta": _meta,
     }
+    if files_eligible == 0 and file_pattern:
+        # An empty result over a scope that matched no file is not an absence.
+        note = f"file_pattern {file_pattern!r} matched no indexed file, so nothing was searched."
+        if "{" in file_pattern and "}" in file_pattern:
+            note += " Brace alternation ({a,b}) is not supported; run one search per pattern."
+        body["note"] = note
+    body["_meta"] = _meta
+    return body

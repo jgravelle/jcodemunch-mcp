@@ -23,8 +23,8 @@ import json
 from .. import schema_driven as sd
 
 TOOLS = ("search_text",)
-ENCODING_ID = "st2"  # bumped from st1: flat rows + typed scalars
-LEGACY_ENCODING_IDS = ("st1",)
+ENCODING_ID = "st3"  # st3: enclosing-symbol columns; body `truncated`, `timed_out`, `note`
+LEGACY_ENCODING_IDS = ("st1", "st2")
 
 # Internal flat row shape used on the wire. `results` (nested) is pre-flattened
 # into this key on encode, and regrouped back into `results` on decode. The
@@ -35,12 +35,12 @@ _TABLES = [
     sd.TableSpec(
         key=_ROWS_KEY,
         tag="t",
-        cols=["file", "line", "text", "before", "after"],
-        intern=["file"],
-        types={"line": "int"},
+        cols=["file", "line", "text", "before", "after", "in_id", "in_line", "in_end"],
+        intern=["file", "in_id"],
+        types={"line": "int", "in_line": "int", "in_end": "int"},
     ),
 ]
-_SCALARS = ("result_count", "query", "repo")
+_SCALARS = ("result_count", "truncated", "timed_out", "note", "query", "repo")
 _META = (
     "timing_ms",
     "files_searched",
@@ -53,6 +53,8 @@ _META_JSON = ("verdict",)  # structured _meta that must survive compaction
 # instead of raw strings.
 _SCALAR_TYPES: dict[str, str] = {
     "result_count": "int",
+    "truncated": "bool",
+    "timed_out": "bool",
     "_meta.timing_ms": "float",
     "_meta.files_searched": "int",
     "_meta.truncated": "bool",
@@ -75,6 +77,7 @@ def _flatten(response: dict) -> dict:
                 continue
             before = m.get("before")
             after = m.get("after")
+            enclosing = m.get("in") or {}
             rows.append(
                 {
                     "file": file_path,
@@ -82,6 +85,9 @@ def _flatten(response: dict) -> dict:
                     "text": m.get("text", ""),
                     "before": json.dumps(before, separators=(",", ":")) if before else "",
                     "after": json.dumps(after, separators=(",", ":")) if after else "",
+                    "in_id": enclosing.get("id", ""),
+                    "in_line": enclosing.get("line"),
+                    "in_end": enclosing.get("end_line"),
                 }
             )
     out[_ROWS_KEY] = rows
@@ -105,6 +111,12 @@ def _regroup(decoded: dict) -> dict:
                     match[ctx_key] = json.loads(raw)
                 except ValueError:
                     match[ctx_key] = [raw]
+        if row.get("in_id"):
+            match["in"] = {
+                "id": row.get("in_id"),
+                "line": row.get("in_line"),
+                "end_line": row.get("in_end"),
+            }
         if file_path not in groups:
             groups[file_path] = []
             order.append(file_path)
