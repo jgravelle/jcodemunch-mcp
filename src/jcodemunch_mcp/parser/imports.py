@@ -2915,6 +2915,19 @@ _TAIL_MEMO_MAX = 4
 _TAIL_MEMO_LOCK = threading.Lock()
 
 
+def clear_resolution_caches() -> None:
+    """Drop the SQL-stem caches and the specifier memo.
+
+    Callers use this rather than importing the dicts, because a dict imported
+    by name stays the old object once this module rebinds the global.
+    """
+    with _SQL_STEM_LOCK:
+        _sql_stem_cache.clear()
+        _sql_stem_by_files.clear()
+    with _TAIL_MEMO_LOCK:
+        _tail_memos.clear()
+
+
 def _tail_memo(source_files, alias_map) -> Optional[dict]:
     """The specifier memo for one file set and alias map, or None if not cacheable."""
     if not isinstance(source_files, frozenset):
