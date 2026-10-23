@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.395] - 2026-10-22 - a text match says which function it is in
+
 ### Changed - a text match says which function it is in
 
 `search_text` and `check_references` return line matches. To answer the

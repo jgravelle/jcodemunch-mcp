@@ -2908,3 +2908,13 @@ The 1.108.391 entry, verbatim as it stood in `CLAUDE.md`:
 The `Tests:` line's 1.108.391 count, verbatim:
 
 - ⚠ Prior (1.108.391): 18417 passed, 24 skipped, **0 failed** (18441 total).
+
+## Current State rotation (2026-10-22, release 1.108.395)
+
+The 1.108.392 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.392):** **a warning in a tool's answer survives the compact encoding** (#1212): `schema_driven.UNIVERSAL_BODY_JSON` / `is_universal_body_key` (`negative_evidence` and any key containing "warning") ride every encoder as `__json.<key>` and are restored on decode; `encode_response` decodes and compares the contract keys and falls back to JSON if one is lost. Also #1210: `scoring.rank_factor` returns `(weight, reason)`, `non_code_file` at `NON_CODE_WEIGHT` for config and stylesheet symbols unless the query names them; #1211: call-hierarchy rows carry `via`, depth is re-derived along it, `direct_caller_count`, encoder `ch2`. Full text: `CHANGELOG.md`.
+
+The `Tests:` line's 1.108.392 count, verbatim:
+
+- ⚠ Prior (1.108.392): 18479 passed, 24 skipped, **0 failed** (18503 total).
