@@ -2134,11 +2134,33 @@ def resolve_php_namespace(
 _sql_stem_cache: dict[frozenset, dict[str, str]] = {}
 _SQL_STEM_CACHE_MAX = 4
 _SQL_STEM_LOCK = threading.Lock()
+# The same stems keyed by the caller's whole frozenset. Building the .sql key
+# above reads every path, so it cost O(files) on every call: resolve_specifier
+# reaches this for every unresolved bare name, and on a 24k-file repo the key
+# alone was most of the first query's wait. A frozenset caches its own hash,
+# so looking the caller's set up here is O(1) after the first call.
+_sql_stem_by_files: dict[frozenset, dict[str, str]] = {}
 
 
 def _get_sql_stems(source_files: set[str]) -> dict[str, str]:
     """Return a lowered-stem -> file_path dict for .sql files, cached by content."""
-    key = frozenset(f for f in source_files if f.endswith(".sql"))
+    whole = source_files if isinstance(source_files, frozenset) else None
+    if whole is not None:
+        with _SQL_STEM_LOCK:
+            cached = _sql_stem_by_files.get(whole)
+        if cached is not None:
+            return cached
+    stems = _sql_stems_for(frozenset(f for f in source_files if f.endswith(".sql")))
+    if whole is not None:
+        with _SQL_STEM_LOCK:
+            if len(_sql_stem_by_files) >= _SQL_STEM_CACHE_MAX:
+                _sql_stem_by_files.pop(next(iter(_sql_stem_by_files)))
+            _sql_stem_by_files[whole] = stems
+    return stems
+
+
+def _sql_stems_for(key: frozenset) -> dict[str, str]:
+    """The stems of one set of .sql paths, cached by that set."""
     with _SQL_STEM_LOCK:
         cached = _sql_stem_cache.get(key)
         if cached is not None:
@@ -2868,6 +2890,58 @@ def resolve_specifier(
                 if c in source_files:
                     return c
 
+    # Everything below reads the importer only for Gleam. For any other
+    # importer the answer depends on the specifier, the file set and the alias
+    # map alone, so it is computed once per specifier and file set: the
+    # import-graph builders resolve every import of every file, and a large
+    # repository repeats the same specifiers across thousands of files.
+    if not importer_path.endswith(".gleam"):
+        memo = _tail_memo(source_files, alias_map)
+        if memo is not None:
+            hit = memo.get(specifier, _TAIL_MISS)
+            if hit is _TAIL_MISS:
+                hit = _resolve_tail(specifier, importer_path, source_files, alias_map)
+                memo[specifier] = hit
+            return hit
+    return _resolve_tail(specifier, importer_path, source_files, alias_map)
+
+
+_TAIL_MISS = object()
+# file set -> [(alias_map, {specifier: resolved})]. The file set is a frozenset
+# (it caches its own hash); an alias map is matched by identity, because the
+# maps come from one cache per source root and are never edited in place.
+_tail_memos: dict[frozenset, list] = {}
+_TAIL_MEMO_MAX = 4
+_TAIL_MEMO_LOCK = threading.Lock()
+
+
+def _tail_memo(source_files, alias_map) -> Optional[dict]:
+    """The specifier memo for one file set and alias map, or None if not cacheable."""
+    if not isinstance(source_files, frozenset):
+        return None
+    with _TAIL_MEMO_LOCK:
+        entries = _tail_memos.get(source_files)
+        if entries is None:
+            if len(_tail_memos) >= _TAIL_MEMO_MAX:
+                _tail_memos.pop(next(iter(_tail_memos)))
+            entries = _tail_memos[source_files] = []
+        for held_map, memo in entries:
+            if held_map is alias_map:
+                return memo
+        memo = {}
+        if len(entries) >= _TAIL_MEMO_MAX:
+            entries.pop(0)
+        entries.append((alias_map, memo))
+        return memo
+
+
+def _resolve_tail(
+    specifier: str,
+    importer_path: str,
+    source_files: set[str],
+    alias_map: Optional[dict[str, list[str]]],
+) -> Optional[str]:
+    """resolve_specifier's absolute, Gleam, Python-module, alias and stem steps."""
     # Absolute: try direct match first (e.g., for Go or absolute paths)
     for c in _candidates(specifier):
         if c in source_files:
