@@ -23,8 +23,8 @@ import json
 from .. import schema_driven as sd
 
 TOOLS = ("search_text",)
-ENCODING_ID = "st3"  # st3: enclosing-symbol columns; body `truncated`, `timed_out`, `note`
-LEGACY_ENCODING_IDS = ("st1", "st2")
+ENCODING_ID = "st4"  # st4: `more_files` table + its three scalars; st3: enclosing-symbol columns, body `truncated`/`timed_out`/`note`
+LEGACY_ENCODING_IDS = ("st1", "st2", "st3")
 
 # Internal flat row shape used on the wire. `results` (nested) is pre-flattened
 # into this key on encode, and regrouped back into `results` on decode. The
@@ -39,8 +39,19 @@ _TABLES = [
         intern=["file", "in_id"],
         types={"line": "int", "in_line": "int", "in_end": "int"},
     ),
+    # A truncated page's list of the matching files it left off.
+    sd.TableSpec(
+        key="more_files",
+        tag="mf",
+        cols=["file", "matches"],
+        intern=["file"],
+        types={"matches": "int"},
+    ),
 ]
-_SCALARS = ("result_count", "truncated", "timed_out", "note", "query", "repo")
+_SCALARS = (
+    "result_count", "truncated", "timed_out", "note", "query", "repo",
+    "more_files_total", "more_files_truncated", "more_files_complete",
+)
 _META = (
     "timing_ms",
     "files_searched",
@@ -55,6 +66,9 @@ _SCALAR_TYPES: dict[str, str] = {
     "result_count": "int",
     "truncated": "bool",
     "timed_out": "bool",
+    "more_files_total": "int",
+    "more_files_truncated": "bool",
+    "more_files_complete": "bool",
     "_meta.timing_ms": "float",
     "_meta.files_searched": "int",
     "_meta.truncated": "bool",

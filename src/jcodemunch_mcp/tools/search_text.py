@@ -1,6 +1,7 @@
 """Full-text search across indexed file contents."""
 
 import fnmatch as _fnmatch
+import itertools
 import re
 import time
 from ._enclosing import attach_enclosing_symbols
@@ -50,6 +51,108 @@ def validate_query_args(query, is_regex: bool) -> Optional[dict]:
 # overlap and look-ahead-driven blowup slip through. Cap total regex time
 # so a crafted pattern can't pin a worker thread indefinitely.
 _REGEX_BUDGET_SEC = 2.0
+
+# Brace alternation in file_pattern: `a/{b,c}/**` is `a/b/**` or `a/c/**`.
+# fnmatch has no braces, so an agent that wrote one got an empty scope and
+# then ran one search per directory. The pattern as written is always tried
+# too, so a path with literal braces (a `{{cookiecutter.name}}` template
+# directory) keeps matching. Bounded: nested or unclosed braces, or more than
+# MAX_BRACE_ALTERNATIVES patterns in all, are matched as written only.
+MAX_BRACE_ALTERNATIVES = 32
+
+# A page cut at max_results names the matching files it left off, with a
+# count each, so the next search can go straight to them. Capped; the total
+# and whether the list was cut ride beside it.
+MORE_FILES_CAP = 20
+
+
+def _file_patterns(file_pattern: str) -> list[str]:
+    """The pattern as written, then its brace expansions (bounded, no nesting)."""
+    pieces: list[list[str]] = []
+    literal, group, in_group = "", "", False
+    for ch in file_pattern:
+        if ch == "{":
+            if in_group:
+                return [file_pattern]
+            in_group, group = True, ""
+        elif ch == "}" and in_group:
+            in_group = False
+            if "," in group:
+                pieces.append([literal])
+                pieces.append(group.split(","))
+                literal = ""
+            else:
+                literal += "{" + group + "}"
+        elif in_group:
+            group += ch
+        else:
+            literal += ch
+    if in_group:
+        return [file_pattern]
+    pieces.append([literal])
+    total = 1
+    for alternatives in pieces:
+        total *= len(alternatives)
+    if total == 1 or total > MAX_BRACE_ALTERNATIVES:
+        return [file_pattern]
+    out = [file_pattern]
+    for combo in itertools.product(*pieces):
+        expanded = "".join(combo)
+        if expanded not in out:
+            out.append(expanded)
+    return out
+
+
+def _count_matching_lines(lines, pattern, query_lower, deadline) -> tuple[int, bool]:
+    """Lines that match, the same test the page uses; (count, finished)."""
+    n = 0
+    for line_index, line in enumerate(lines):
+        if deadline is not None and (line_index & 0xFF) == 0 and time.perf_counter() > deadline:
+            return n, False
+        line = line.rstrip("\n")
+        if pattern.search(line) if pattern else (query_lower in line.lower()):
+            n += 1
+    return n, True
+
+
+def _count_matches(store, content_dir, files, pattern, query_lower, deadline):
+    """Matching-line counts per file; (counts, complete, unreadable)."""
+    counts: dict[str, int] = {}
+    unreadable = 0
+    # Most files in a broad scope hold no match. For an ASCII query, a bytes
+    # search on the ASCII-lowered file rules them out without decoding; it
+    # can only over-select (a match still passes), never drop one.
+    probe = query_lower.encode("ascii") if query_lower is not None and query_lower.isascii() else None
+    for file_path in files:
+        if deadline is not None and time.perf_counter() > deadline:
+            return counts, False, unreadable
+        full_path = store._safe_content_path(content_dir, file_path)
+        if not full_path:
+            unreadable += 1
+            continue
+        try:
+            with open(full_path, "rb") as f:
+                raw = f.read()
+        except OSError:
+            unreadable += 1
+            continue
+        if probe is not None and probe not in raw.lower():
+            continue
+        text = raw.decode("utf-8", errors="replace").replace("\r\n", "\n").replace("\r", "\n")
+        if pattern is None and query_lower not in text.lower():
+            continue
+        # Split as readlines() does (text mode already turned \r\n into \n);
+        # splitlines() would also break on \f, \x1c and friends and count
+        # lines the page never sees.
+        lines = text.split("\n")
+        if lines and lines[-1] == "":
+            lines.pop()
+        n, finished = _count_matching_lines(lines, pattern, query_lower, deadline)
+        if n:
+            counts[file_path] = n
+        if not finished:
+            return counts, False, unreadable
+    return counts, True, unreadable
 
 
 def search_text(
@@ -109,10 +212,11 @@ def search_text(
 
     # Pre-compile file pattern into a single regex (avoids double fnmatch per file)
     files = index.source_files
+    scope_patterns = _file_patterns(file_pattern) if file_pattern else []
     if file_pattern:
-        pat_re = re.compile(
-            _fnmatch.translate(file_pattern) + "|" + _fnmatch.translate(f"*/{file_pattern}")
-        )
+        pat_re = re.compile("|".join(
+            _fnmatch.translate(p) + "|" + _fnmatch.translate(f"*/{p}") for p in scope_patterns
+        ))
         files = [f for f in files if pat_re.match(f)]
 
     # #377 item 6: identity before the scan, compared after it. search_text
@@ -134,7 +238,9 @@ def search_text(
     # is linear and not a ReDoS vector.
     _budget_deadline = (start + _REGEX_BUDGET_SEC) if pattern is not None else None
 
-    for file_path in files:
+    cut_index = -1
+    cut_rest: list[str] = []
+    for file_index, file_path in enumerate(files):
         if _budget_deadline is not None and time.perf_counter() > _budget_deadline:
             timed_out = True
             break
@@ -184,6 +290,7 @@ def search_text(
             result_count += 1
             if result_count >= max_results:
                 truncated = True
+                cut_index, cut_rest = file_index, lines[line_index + 1:]
                 break
 
         if file_matches:
@@ -191,6 +298,29 @@ def search_text(
 
         if truncated or timed_out:
             break
+
+    # A cut page names the files it left off. The rest of the scope is
+    # counted with the page's own line test and inside its time budget.
+    more_files = None
+    if truncated and not timed_out:
+        rest_in_cut, finished = _count_matching_lines(cut_rest, pattern, query_lower, _budget_deadline)
+        counts: dict[str, int] = {}
+        if rest_in_cut:
+            counts[files[cut_index]] = rest_in_cut
+        complete = finished
+        if finished:
+            later, complete, unreadable = _count_matches(
+                store, content_dir, files[cut_index + 1:], pattern, query_lower, _budget_deadline,
+            )
+            counts.update(later)
+            complete = complete and unreadable == 0
+        ranked = sorted(counts.items(), key=lambda kv: -kv[1])  # stable: index order on ties
+        more_files = {
+            "more_files": [{"file": f, "matches": n} for f, n in ranked[:MORE_FILES_CAP]],
+            "more_files_total": len(ranked),
+            "more_files_truncated": len(ranked) > MORE_FILES_CAP,
+            "more_files_complete": complete,
+        }
 
     attach_enclosing_symbols(results, index.symbols)
 
@@ -282,11 +412,16 @@ def search_text(
         "timed_out": timed_out,
         "results": results,
     }
+    if more_files is not None:
+        body.update(more_files)
     if files_eligible == 0 and file_pattern:
         # An empty result over a scope that matched no file is not an absence.
         note = f"file_pattern {file_pattern!r} matched no indexed file, so nothing was searched."
-        if "{" in file_pattern and "}" in file_pattern:
-            note += " Brace alternation ({a,b}) is not supported; run one search per pattern."
+        if len(scope_patterns) == 1 and "{" in file_pattern and "," in file_pattern:
+            note += (
+                f" Brace alternation ({{a,b}}) is expanded only without nesting and up to "
+                f"{MAX_BRACE_ALTERNATIVES} patterns, so this one was matched as written."
+            )
         body["note"] = note
     body["_meta"] = _meta
     return body
