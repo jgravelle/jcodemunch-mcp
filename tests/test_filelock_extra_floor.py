@@ -7,11 +7,13 @@ for the interpreter. The advisories leave two clean ranges:
 
 - 3.20.3 alone. Everything below it is GHSA-qmgc-5h2g-mvrw (and
   GHSA-w853-jp5j-5j7f below 3.20.1); 3.20.4 to 4.2.0 is GHSA-v4x8-3wr5-3wq8
-  and five more.
+  and GHSA-9vhv-jxww-xfm5, joined by four more further up the range.
 - 4.2.1 and later. Those need Python 3.11.
 
-So on Python 3.10 the newest installable filelock is a vulnerable 4.1.x, and a
-plain floor (`>=3.20.3`) still admits it there. The 3.10 requirement is an exact
+So on Python 3.10 the newest installable filelock is a vulnerable 4.1.0, and a
+plain floor (`>=3.20.3`) still admits it there. A floor at 4.2.1 without a
+marker is wrong the other way: nothing satisfies it on 3.10, so the extra
+cannot be installed there at all. The 3.10 requirement is an exact
 pin; 3.11 and later get a floor at the fix.
 
 Each extra is evaluated for each interpreter the project supports, with the
@@ -46,8 +48,8 @@ _VULNERABLE = (
 )
 _CLEAN = ("3.20.3", "4.2.1", "4.2.4", "5.0.0")
 # The newest filelock each interpreter can install, at the time of writing:
-# 4.1.2 and later need Python 3.11.
-_INSTALLABLE_MAX = {"3.10": Version("4.1.1")}
+# 4.1.1 and later need Python 3.11 (PyPI `requires_python`).
+_INSTALLABLE_MAX = {"3.10": Version("4.1.0")}
 
 PYTHONS = ("3.10", "3.11", "3.12", "3.13", "3.14")
 
@@ -69,9 +71,19 @@ def _effective(entries: list[str], python: str) -> SpecifierSet | None:
     return spec
 
 
+def _installable(version: str, python: str) -> bool:
+    cap = _INSTALLABLE_MAX.get(python)
+    return cap is None or Version(version) <= cap
+
+
+def _installable_clean(spec: SpecifierSet | None, python: str) -> list[str]:
+    """Clean releases the spec admits that `python` can install; empty means the extra cannot install."""
+    return [v for v in _CLEAN if _installable(v, python) and (spec is None or spec.contains(v))]
+
+
 def _admitted(spec: SpecifierSet | None, python: str) -> list[str]:
     cap = _INSTALLABLE_MAX.get(python)
-    candidates = [v for v in _VULNERABLE if cap is None or Version(v) <= cap]
+    candidates = [v for v in _VULNERABLE if _installable(v, python)]
     if spec is None:
         return candidates
     return [v for v in candidates if spec.contains(v)]
@@ -97,7 +109,7 @@ def test_the_extra_admits_no_vulnerable_filelock(extra, python):
     entries = _extras()[extra]
     spec = _effective(entries, python)
     assert _admitted(spec, python) == [], (extra, python, str(spec))
-    assert spec is not None and any(spec.contains(v) for v in _CLEAN), (extra, python, str(spec))
+    assert spec is not None and _installable_clean(spec, python), (extra, python, str(spec))
 
 
 @pytest.mark.parametrize("python", ["3.11", "3.12", "3.13", "3.14"])
@@ -121,6 +133,26 @@ def test_python_311_and_later_keep_every_fixed_release(python):
 )
 def test_the_check_sees_a_floor_that_is_wrong_for_one_interpreter(entries, python, expect_admitted):
     assert bool(_admitted(_effective(entries, python), python)) is expect_admitted
+
+
+@pytest.mark.parametrize(
+    "entries",
+    [
+        ["sentence-transformers>=5.6.0", "filelock>=4.2.1"],
+        ["sentence-transformers>=5.6.0", "filelock>=4.2.1; python_version < '3.11'"],
+        ["sentence-transformers>=5.6.0", "filelock>=4.2.4"],
+    ],
+)
+def test_the_check_sees_a_floor_that_makes_the_extra_uninstallable_on_310(entries):
+    """No vulnerable release is admitted, and no release 3.10 can install is either."""
+    spec = _effective(entries, "3.10")
+    assert _admitted(spec, "3.10") == []
+    assert _installable_clean(spec, "3.10") == []
+
+
+def test_the_pinned_extras_install_on_310():
+    for extra in ("all", "semantic"):
+        assert _installable_clean(_effective(_extras()[extra], "3.10"), "3.10") == ["3.20.3"], extra
 
 
 def test_the_lock_holds_only_clean_filelock_releases():

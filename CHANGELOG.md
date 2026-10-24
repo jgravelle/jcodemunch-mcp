@@ -15,15 +15,17 @@ so 3.20.3 is the only clean release that installs on 3.10. A floor alone
 
 - The `semantic` and `all` extras now carry `filelock==3.20.3` on Python 3.10
   and `filelock>=4.2.1` on Python 3.11 and later.
-- On Python 3.11 and later pip already picked a fixed release, and the floor
-  admits every one of them, so nothing changes there.
+- On Python 3.11 and later the newest filelock, 4.2.4, is already fixed, so
+  pip picked a fixed release (measured on 3.12) and the floor admits every
+  one of them. Nothing changes there.
 - A base install has no filelock and is unchanged.
 
 **Tradeoff.** On Python 3.10 the requirement is an exact pin, so an
 environment that also needs a newer filelock for another package can't
 install the `semantic` or `all` extra beside it. That newer filelock would be
 one of the vulnerable releases, since none past 3.20.3 is both fixed and
-installable on 3.10.
+installable on 3.10. If filelock later ships a fixed release that installs on
+3.10, the pin holds 3.10 at 3.20.3 until it is widened.
 
 ## [1.108.397] - 2026-10-24 - a cut search names the files it left off, and file_pattern takes braces
 
