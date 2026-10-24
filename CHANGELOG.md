@@ -26,9 +26,6 @@ because glob matching has no braces. It then ran one search per directory.
   `{{cookiecutter.name}}` template directory, keeps matching. Nested braces,
   an unclosed brace, or more than 32 patterns in all are matched as written
   only. The empty-scope note says so when that happens.
-- **The count matches the page.** A file holding a non-ASCII letter that
-  lowers to the query (U+212A KELVIN SIGN lowers to `k`) is counted, and so
-  are lines split by a bare carriage return, as the page reads them.
 
 **Tradeoffs.**
 - **Braces:** this reverses the earlier decision to leave braces unexpanded.
@@ -38,12 +35,13 @@ because glob matching has no braces. It then ran one search per directory.
   braces now matches more files than before. The literal match is kept, so
   nothing it matched before is lost. `entry_point_patterns` is unchanged.
 - **Wall time:** a cut search now reads its whole scope, as an uncut one
-  already did. On the home-assistant index copy (warm cache), the broad task
-  search went from 2.3 s to 7.6 s with the list. The same search uncut
-  (`max_results=100`) took 8.6 s on the previous code. An
-  untruncated search does no extra work, and its response is unchanged.
+  already did. On the home-assistant index copy (warm cache, median of 5 runs,
+  two rounds), the broad task search took 2.9 and 2.7 s before and 7.4 and
+  8.1 s with the list. The same search uncut (`max_results=100`) took 8.4 and
+  8.0 s on the previous code. An untruncated search does no extra work, and
+  its response body is unchanged.
 - **Size:** that cut search's response grew from 4161 to 4964 bytes of JSON
-  body, and from 3500 to 4133 bytes compact.
+  body, and from 3499 to 4132 bytes compact.
 
 The compact encoding carries the list as a table (encoding `st4`; `st1` to
 `st3` still decode). No tool, argument or description changed.

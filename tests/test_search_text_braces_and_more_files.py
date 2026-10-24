@@ -225,6 +225,16 @@ def test_stored_content_with_raw_carriage_returns_counts_like_the_page(tmp_path)
     assert cut["result_count"] + sum(m["matches"] for m in cut["more_files"]) == 4, cut
 
 
+def test_a_trailing_newline_is_not_an_extra_line(tmp_path):
+    # readlines() gives no empty line after the final newline; a regex that
+    # matches an empty line must not count one there.
+    rid, store = _index(tmp_path, {"a.py": "x = 1\n\n", "b.py": "y = 2\n\n\n"})
+    full = search_text(rid, "^$", is_regex=True, max_results=100, storage_path=store)
+    cut = search_text(rid, "^$", is_regex=True, max_results=1, storage_path=store)
+    assert full["truncated"] is False
+    assert cut["result_count"] + sum(m["matches"] for m in cut["more_files"]) == full["result_count"], (full, cut)
+
+
 def test_an_unreadable_file_makes_the_list_incomplete(tmp_path, monkeypatch):
     from jcodemunch_mcp.storage import IndexStore
     files = {f"m{i}.py": "x = 'needle'\n" for i in range(4)}
