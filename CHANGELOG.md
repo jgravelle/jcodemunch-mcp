@@ -2,6 +2,29 @@
 
 ## [Unreleased]
 
+### Security - the semantic and all extras install a fixed filelock on every Python
+
+`filelock` reaches an install only through `sentence-transformers` (torch and
+huggingface-hub depend on it with no useful floor). pip resolves without our
+lock, so `pip install "jcodemunch-mcp[semantic]"` took the newest filelock the
+interpreter could install. On Python 3.10 that was 4.1.0, inside the range of
+GHSA-v4x8-3wr5-3wq8 (high) and five other advisories. filelock's fix (4.2.1)
+needs Python 3.11, and every release below 3.20.3 has an advisory of its own,
+so 3.20.3 is the only clean release that installs on 3.10. A floor alone
+(`>=3.20.3`) would still admit 4.1.x there.
+
+- The `semantic` and `all` extras now carry `filelock==3.20.3` on Python 3.10
+  and `filelock>=4.2.1` on Python 3.11 and later.
+- On Python 3.11 and later pip already picked a fixed release, and the floor
+  admits every one of them, so nothing changes there.
+- A base install has no filelock and is unchanged.
+
+**Tradeoff.** On Python 3.10 the requirement is an exact pin, so an
+environment that also needs a newer filelock for another package can't
+install the `semantic` or `all` extra beside it. That newer filelock would be
+one of the vulnerable releases, since none past 3.20.3 is both fixed and
+installable on 3.10.
+
 ## [1.108.397] - 2026-10-24 - a cut search names the files it left off, and file_pattern takes braces
 
 ### Changed - a cut search names the files it left off, and file_pattern takes braces
