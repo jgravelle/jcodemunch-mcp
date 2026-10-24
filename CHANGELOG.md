@@ -2,6 +2,52 @@
 
 ## [Unreleased]
 
+### Changed - a cut search names the files it left off, and file_pattern takes braces
+
+An agent asked for every caller of a module on a large repository. Its first
+broad `search_text` stopped at `max_results` (20 lines by default). On the
+home-assistant/core index those 20 lines came from the first 4 files in index
+order. The files it needed weren't on the page, and nothing said which files
+were, so it narrowed by guesswork. When it then wrote a brace pattern such as
+`components/{update,websocket_api,hassio}/**`, `file_pattern` matched nothing,
+because glob matching has no braces. It then ran one search per directory.
+
+- **A cut page names the files it left off.** When `truncated` is true, the
+  search counts matching lines through the rest of its scope. It reports the
+  files it didn't show as `more_files: [{file, matches}]`, most matches first.
+  A file cut partway counts only the lines it didn't show, so the page plus
+  the list add up to every match. The list holds at most 20 files.
+  `more_files_total`, `more_files_truncated` and `more_files_complete` sit
+  beside it. In regex mode the count stays inside the existing time budget,
+  and `more_files_complete` is false if the budget runs out.
+- **`file_pattern` expands brace alternation.** `a/{b,c}/**` matches what
+  `a/b/**` or `a/c/**` matches, and several groups combine. The pattern as
+  written is still tried, so a path with literal braces, such as a
+  `{{cookiecutter.name}}` template directory, keeps matching. Nested braces,
+  an unclosed brace, or more than 32 patterns in all are matched as written
+  only. The empty-scope note says so when that happens.
+- **The count matches the page.** A file holding a non-ASCII letter that
+  lowers to the query (U+212A KELVIN SIGN lowers to `k`) is counted, and so
+  are lines split by a bare carriage return, as the page reads them.
+
+**Tradeoffs.**
+- **Braces:** this reverses the earlier decision to leave braces unexpanded.
+  That decision was taken for `entry_point_patterns`, where a pattern with
+  literal `{}` matching such filenames meant expansion would change existing
+  results. The same is true here: a `file_pattern` holding a comma inside
+  braces now matches more files than before. The literal match is kept, so
+  nothing it matched before is lost. `entry_point_patterns` is unchanged.
+- **Wall time:** a cut search now reads its whole scope, as an uncut one
+  already did. On the home-assistant index copy (warm cache), the broad task
+  search went from 2.3 s to 7.6 s with the list. The same search uncut
+  (`max_results=100`) took 8.6 s on the previous code. An
+  untruncated search does no extra work, and its response is unchanged.
+- **Size:** that cut search's response grew from 4161 to 4964 bytes of JSON
+  body, and from 3500 to 4133 bytes compact.
+
+The compact encoding carries the list as a table (encoding `st4`; `st1` to
+`st3` still decode). No tool, argument or description changed.
+
 ## [1.108.396] - 2026-10-23 - the first search on a large repository resolves each import once
 
 ### Changed - the first search on a large repository resolves each import once
