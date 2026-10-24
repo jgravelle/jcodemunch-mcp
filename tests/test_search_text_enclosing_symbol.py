@@ -123,7 +123,7 @@ def test_a_scope_that_matches_no_file_says_so_in_the_body(repo):
     res = search_text(rid, "needle", file_pattern="nomatch/*.zz", storage_path=store)
     assert res["result_count"] == 0
     assert "matched no indexed file" in res["note"], res
-    # Brace alternation is expanded since the task-3 change, so this pattern
+    # Brace alternation is expanded now, so this pattern
     # now searches both files instead of returning the empty-scope note.
     res = search_text(rid, "needle", file_pattern="{engine,many_1}.py", storage_path=store)
     assert "note" not in res, res

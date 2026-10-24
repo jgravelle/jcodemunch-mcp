@@ -36,7 +36,7 @@ because glob matching has no braces. It then ran one search per directory.
   nothing it matched before is lost. `entry_point_patterns` is unchanged.
 - **Wall time:** a cut search now reads its whole scope, as an uncut one
   already did. On the home-assistant index copy (warm cache, median of 5 runs,
-  two rounds), the broad task search took 2.9 and 2.7 s before and 7.4 and
+  two rounds), the broad search took 2.9 and 2.7 s before and 7.4 and
   8.1 s with the list. The same search uncut (`max_results=100`) took 8.4 and
   8.0 s on the previous code. An untruncated search does no extra work, and
   its response body is unchanged.
