@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.397] - 2026-10-24 - a cut search names the files it left off, and file_pattern takes braces
+
 ### Changed - a cut search names the files it left off, and file_pattern takes braces
 
 An agent asked for every caller of a module on a large repository. Its first

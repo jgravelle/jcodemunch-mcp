@@ -2928,3 +2928,13 @@ The 1.108.393 entry, verbatim as it stood in `CLAUDE.md`:
 The `Tests:` line's 1.108.393 count, verbatim:
 
 - ⚠ Prior (1.108.393): 18537 passed, 24 skipped, **0 failed** (18561 total).
+
+## Current State rotation (2026-10-24, release 1.108.397)
+
+The 1.108.394 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.394):** **index_dependency validates package paths** (#1220): npm/PyPI names and `top_level.txt` entries are name-validated; every package dir and its metadata must resolve inside the repo and not be or contain a store root (`_is_store`, `_metadata_in_repo`); the snapshot is one dir directly under `deps/` and is rebuilt; `_copy_snapshot` runs `should_exclude_file` + binary + host-gitignore; `index_folder(paths_honor_gitignore=True)` applies the ancestor `.gitignore` to `paths=`. Full text: `CHANGELOG.md`.
+
+The `Tests:` line's 1.108.394 count, verbatim:
+
+- ⚠ Prior (1.108.394): 18584 passed, 24 skipped, **0 failed** (18608 total).

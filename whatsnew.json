@@ -1,6 +1,12 @@
 {
-  "current": "1.108.396",
+  "current": "1.108.397",
   "entries": [
+    {
+      "version": "1.108.397",
+      "date": "2026-10-24",
+      "title": "a cut search names the files it left off, and file_pattern takes braces",
+      "summary": "When search_text stops at max_results it lists the matching files it left off, with a count each (at most 20, with a total). file_pattern expands brace alternation such as a/{b,c}/**, bounded; a literal-brace path still matches."
+    },
     {
       "version": "1.108.396",
       "date": "2026-10-23",
