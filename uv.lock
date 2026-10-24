@@ -9,11 +9,7 @@ resolution-markers = [
 ]
 
 [manifest]
-constraints = [
-    { name = "filelock", marker = "python_full_version < '3.11'", specifier = "==3.20.3" },
-    { name = "filelock", marker = "python_full_version >= '3.11'", specifier = ">=4.2.1" },
-    { name = "setuptools", specifier = ">=84.1.0" },
-]
+constraints = [{ name = "setuptools", specifier = ">=84.1.0" }]
 
 [[package]]
 name = "annotated-doc"
@@ -1053,6 +1049,8 @@ dependencies = [
 all = [
     { name = "anthropic" },
     { name = "anyio" },
+    { name = "filelock", version = "3.20.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
+    { name = "filelock", version = "4.2.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
     { name = "google-generativeai" },
     { name = "jinja2" },
     { name = "keyring" },
@@ -1118,6 +1116,8 @@ openai = [
     { name = "openai" },
 ]
 semantic = [
+    { name = "filelock", version = "3.20.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
+    { name = "filelock", version = "4.2.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
     { name = "sentence-transformers" },
 ]
 watch = [
@@ -1145,6 +1145,10 @@ requires-dist = [
     { name = "anthropic", marker = "extra == 'bench'", specifier = ">=0.40.0" },
     { name = "anyio", marker = "extra == 'all'", specifier = ">=4.14.2" },
     { name = "anyio", marker = "extra == 'http'", specifier = ">=4.14.2" },
+    { name = "filelock", marker = "python_full_version >= '3.11' and extra == 'all'", specifier = ">=4.2.1" },
+    { name = "filelock", marker = "python_full_version >= '3.11' and extra == 'semantic'", specifier = ">=4.2.1" },
+    { name = "filelock", marker = "python_full_version < '3.11' and extra == 'all'", specifier = "==3.20.3" },
+    { name = "filelock", marker = "python_full_version < '3.11' and extra == 'semantic'", specifier = "==3.20.3" },
     { name = "google-generativeai", marker = "extra == 'all'", specifier = ">=0.8.0" },
     { name = "google-generativeai", marker = "extra == 'gemini'", specifier = ">=0.8.0" },
     { name = "httpx", specifier = ">=0.27.0" },

@@ -89,7 +89,7 @@ zhipu = ["openai>=1.0.0"]
 dbt = ["pyyaml>=6.0"]
 http = ["uvicorn>=0.20.0", "starlette>=1.3.1", "anyio>=4.14.2"]
 watch = ["watchfiles>=1.0.0"]
-semantic = ["sentence-transformers>=5.6.0"]
+semantic = ["sentence-transformers>=5.6.0", "filelock==3.20.3; python_version < '3.11'", "filelock>=4.2.1; python_version >= '3.11'"]
 local-embed = ["onnxruntime>=1.16.0"]
 groq = ["openai>=1.0.0"]
 groq-voice = ["openai>=1.0.0", "sounddevice>=0.4.6", "numpy>=1.24.0"]
@@ -98,7 +98,7 @@ keyring = ["keyring>=24.0"]
 bench = ["openai>=1.0.0", "anthropic>=0.40.0", "pyyaml>=6.0", "rich>=13.0", "jinja2>=3.1"]
 # `all` is a hand-maintained union of every extra above. When you add a new
 # extra or a new dependency to one, mirror it here (there is no auto-union).
-all = ["anthropic>=0.40.0", "google-generativeai>=0.8.0", "openai>=1.0.0", "pyyaml>=6.0", "uvicorn>=0.20.0", "starlette>=1.3.1", "anyio>=4.14.2", "watchfiles>=1.0.0", "sentence-transformers>=5.6.0", "onnxruntime>=1.16.0", "sounddevice>=0.4.6", "numpy>=1.24.0", "Pillow>=13.0.0; python_version >= '3.11'", "rich>=13.0", "jinja2>=3.1", "keyring>=24.0"]
+all = ["anthropic>=0.40.0", "google-generativeai>=0.8.0", "openai>=1.0.0", "pyyaml>=6.0", "uvicorn>=0.20.0", "starlette>=1.3.1", "anyio>=4.14.2", "watchfiles>=1.0.0", "sentence-transformers>=5.6.0", "filelock==3.20.3; python_version < '3.11'", "filelock>=4.2.1; python_version >= '3.11'", "onnxruntime>=1.16.0", "sounddevice>=0.4.6", "numpy>=1.24.0", "Pillow>=13.0.0; python_version >= '3.11'", "rich>=13.0", "jinja2>=3.1", "keyring>=24.0"]
 
 
 [project.scripts]
@@ -243,13 +243,10 @@ dev = [
 ]
 
 [tool.uv]
-# Lock-only constraints; they do not change what pip installs for users.
-# filelock and setuptools reach the lock only through the `semantic` extra
-# (sentence-transformers, then torch and huggingface-hub). They keep the lock
-# past published advisories. filelock's fix (4.2.1) needs Python 3.11, so
-# Python 3.10 keeps 3.20.3, the last release before the affected range.
+# A lock-only constraint; it does not change what pip installs for users.
+# setuptools reaches the lock only through torch (the `semantic` extra), and
+# this keeps the lock past a published advisory. filelock needs no entry here:
+# the `semantic` and `all` extras pin it for pip and the lock alike.
 constraint-dependencies = [
-    "filelock>=4.2.1; python_version >= '3.11'",
-    "filelock==3.20.3; python_version < '3.11'",
     "setuptools>=84.1.0",
 ]
