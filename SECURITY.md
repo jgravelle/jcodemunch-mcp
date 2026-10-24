@@ -4,6 +4,45 @@ jcodemunch-mcp indexes source code from local folders and GitHub repositories. T
 
 ---
 
+## Reporting a vulnerability
+
+Report privately through GitHub's private vulnerability reporting, which is
+enabled on this repository: open the **Security** tab and choose **Report a
+vulnerability**, or go straight to
+<https://github.com/jgravelle/jcodemunch-mcp/security/advisories/new>.
+Do not open a public issue for a suspected vulnerability.
+
+- **Contact:** the report goes to the maintainer,
+  [@jgravelle](https://github.com/jgravelle), and stays private between you
+  and the maintainer until an advisory is published.
+- **What helps:** the version you ran, the steps or input that show the
+  problem, and what an attacker could do with it.
+- **What to expect:** an acknowledgement within **3 days** and a verdict
+  (confirmed, not a vulnerability, or needs more information) within
+  **14 days**. A confirmed report ships as a fix release under the project's
+  normal cadence, and the release is not held back for other findings.
+- **Credit:** you are credited in the advisory, `CHANGELOG.md` and the
+  release notes, unless you ask otherwise.
+- **Scope:** the `jcodemunch-mcp` package on PyPI, this repository's
+  workflows, and the published container of the MCP registry entry. The
+  pinned benchmark corpora and the observatory are out of scope.
+
+---
+
+## Past advisories (all fixed)
+
+Every advisory published for this project, with the version that fixed it.
+Dates are UTC. "Fixed" is the day the fixed version was uploaded to PyPI.
+
+| Advisory | Severity | Affected | Fixed in | Reported | Fixed | Reported by |
+| --- | --- | --- | --- | --- | --- | --- |
+| [GHSA-876x-crhg-hp8h](https://github.com/jgravelle/jcodemunch-mcp/security/advisories/GHSA-876x-crhg-hp8h) | High | >= 1.108.94, <= 1.108.393 | 1.108.394 | 2026-10-21 | 2026-10-23 | [@3099404236](https://github.com/3099404236) |
+| [GHSA-xxx4-frv5-chp2](https://github.com/jgravelle/jcodemunch-mcp/security/advisories/GHSA-xxx4-frv5-chp2) | Low | <= 1.108.380 | 1.108.381 | 2026-10-08 | 2026-10-19 | [@mich3333](https://github.com/mich3333) |
+
+To be safe from both, run 1.108.394 or later.
+
+---
+
 ## Path Traversal Prevention
 
 All user-supplied paths are validated before any file is read or written.
@@ -386,25 +425,6 @@ controls that matter to a reporter or a contributor:
 * **Everything is audited.** Every run writes a record (job, model,
   prompt version, decision, actions, outcome) to the `inbound-ledger`
   branch. The switch is off by default and fails closed.
-
-## Reporting a vulnerability
-
-Report privately through GitHub's advisory form:
-<https://github.com/jgravelle/jcodemunch-mcp/security/advisories/new>.
-Do not open a public issue for a suspected vulnerability.
-
-- You will get an acknowledgement within **3 days** and a verdict (confirmed,
-  not a vulnerability, or needs more information) within **14 days**.
-- A confirmed report ships as a fix release under this project's normal
-  cadence, credited to you in `CHANGELOG.md` and the release notes unless you
-  ask otherwise. Policy 2 in `CLAUDE.md` applies: a release is never held
-  for a second finding.
-- Scope: the `jcodemunch-mcp` package on PyPI, this repository's workflows,
-  and the published container of the MCP registry entry. The pinned
-  benchmark corpora and the observatory are out of scope.
-- ⚠ This section is asserted by `tests/test_security_md_policy.py` in the
-  harness fast tier: the advisory URL and both response windows must stay
-  present.
 
 ## Summary of Controls
 
