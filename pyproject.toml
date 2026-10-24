@@ -241,3 +241,15 @@ dev = [
     # it, which is exactly how its jCodeMunch constants went four months stale.
     "tiktoken>=0.7.0",
 ]
+
+[tool.uv]
+# Lock-only constraints; they do not change what pip installs for users.
+# filelock and setuptools reach the lock only through the `semantic` extra
+# (sentence-transformers, then torch and huggingface-hub). They keep the lock
+# past published advisories. filelock's fix (4.2.1) needs Python 3.11, so
+# Python 3.10 keeps 3.20.3, the last release before the affected range.
+constraint-dependencies = [
+    "filelock>=4.2.1; python_version >= '3.11'",
+    "filelock==3.20.3; python_version < '3.11'",
+    "setuptools>=84.1.0",
+]
