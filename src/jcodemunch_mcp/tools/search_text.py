@@ -119,9 +119,11 @@ def _count_matches(store, content_dir, files, pattern, query_lower, deadline):
     """Matching-line counts per file; (counts, complete, unreadable)."""
     counts: dict[str, int] = {}
     unreadable = 0
-    # Most files in a broad scope hold no match. For an ASCII query, a bytes
-    # search on the ASCII-lowered file rules them out without decoding; it
-    # can only over-select (a match still passes), never drop one.
+    # Most files in a broad scope hold no match. For an ASCII query over an
+    # ASCII file, a bytes search on the lowered file rules it out without
+    # decoding. A non-ASCII file always takes the full test: str.lower() maps
+    # some non-ASCII letters to ASCII (U+212A KELVIN SIGN to "k", U+0130 to
+    # "i" plus a dot), which bytes.lower() cannot see.
     probe = query_lower.encode("ascii") if query_lower is not None and query_lower.isascii() else None
     for file_path in files:
         if deadline is not None and time.perf_counter() > deadline:
@@ -136,7 +138,7 @@ def _count_matches(store, content_dir, files, pattern, query_lower, deadline):
         except OSError:
             unreadable += 1
             continue
-        if probe is not None and probe not in raw.lower():
+        if probe is not None and raw.isascii() and probe not in raw.lower():
             continue
         text = raw.decode("utf-8", errors="replace").replace("\r\n", "\n").replace("\r", "\n")
         if pattern is None and query_lower not in text.lower():

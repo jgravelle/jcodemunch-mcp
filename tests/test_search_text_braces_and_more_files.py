@@ -1,8 +1,8 @@
 """search_text: brace alternation in file_pattern, and the files a cut page left off.
 
 On a large repository, an agent asked for every caller of a module. Its first
-broad search_text came back cut at max_results (20 lines, all from the first
-three files), so it could not see which other files matched and narrowed by
+broad search_text came back cut at max_results (20 lines, from the first
+four files in index order), so it could not see which other files matched and narrowed by
 guesswork. When it then sent a brace pattern such as
 ``components/{update,websocket_api,hassio}/**``, file_pattern matched nothing
 (fnmatch has no braces) and it ran one search per directory.
@@ -33,7 +33,7 @@ def _index(tmp_path, files: dict[str, str]):
     for rel, text in files.items():
         p = src / rel
         p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text(text)
+        p.write_text(text, encoding="utf-8")
     store = tmp_path / "store"
     res = index_folder(str(src), use_ai_summaries=False, storage_path=str(store))
     assert res["success"] is True, res
@@ -175,6 +175,101 @@ def test_the_count_stops_at_the_time_budget_and_says_it_is_incomplete(tmp_path):
         st, content_dir, ["m0.py", "m1.py"], re.compile("needle"), None, deadline=0.0,
     )
     assert complete is False and counts == {}
+
+
+@pytest.mark.parametrize("query, odd", [("kb", "Kb"), ("i", "İ")])
+def test_a_non_ascii_letter_that_lowers_to_the_query_is_counted(tmp_path, query, odd):
+    # str.lower() maps U+212A to "k" and U+0130 to "i" plus a dot; the page
+    # finds these, so the list must too.
+    rid, store = _index(tmp_path, {"a.py": f"x = '{query}'\n", "b.py": f"y = '{odd}'\n"})
+    full = search_text(rid, query, max_results=100, storage_path=store)
+    cut = search_text(rid, query, max_results=1, storage_path=store)
+    assert full["result_count"] == 2, full
+    assert cut["result_count"] + sum(m["matches"] for m in cut["more_files"]) == 2, cut
+    assert cut["more_files_complete"] is True
+
+
+def test_line_endings_count_the_way_the_page_counts(tmp_path):
+    # CRLF, a lone CR and a form feed: the page splits as readlines() does.
+    raw = {
+        "crlf.py": b"a = 'needle'\r\nb = 'needle'\r\n",
+        "cr.py": b"a = 'needle'\rb = 'needle'\r",
+        "ff.py": b"a = 'needle'\x0cb = 'needle'\n",
+        "mixed.py": b"a = 'needle'\r\n\rb = 'needle'\n",
+    }
+    src = tmp_path / "src"
+    src.mkdir()
+    for rel, data in raw.items():
+        (src / rel).write_bytes(data)
+    store = tmp_path / "store"
+    rid = index_folder(str(src), use_ai_summaries=False, storage_path=str(store))["repo"]
+    full = search_text(rid, "needle", max_results=100, storage_path=str(store))
+    cut = search_text(rid, "needle", max_results=1, storage_path=str(store))
+    assert full["truncated"] is False
+    assert cut["result_count"] + sum(m["matches"] for m in cut["more_files"]) == full["result_count"], (full, cut)
+
+
+def test_stored_content_with_raw_carriage_returns_counts_like_the_page(tmp_path):
+    # Indexing stores normalised text, but a content file written another way
+    # (an older store, a copied cache) can hold bare CRs. The page reads in
+    # text mode, which splits on them, so the count must too.
+    from jcodemunch_mcp.storage import IndexStore
+    rid, store = _index(tmp_path, {"a.py": "x = 'needle'\n", "cr.py": "y = 1\n"})
+    owner, name = rid.split("/", 1)
+    st = IndexStore(base_path=store)
+    st._safe_content_path(st._content_dir(owner, name), "cr.py").write_bytes(
+        b"a = 'needle'\rb = 'needle'\r\nc = 'needle'\r")
+    full = search_text(rid, "needle", max_results=100, storage_path=store)
+    cut = search_text(rid, "needle", max_results=1, storage_path=store)
+    assert full["result_count"] == 4, full
+    assert cut["result_count"] + sum(m["matches"] for m in cut["more_files"]) == 4, cut
+
+
+def test_an_unreadable_file_makes_the_list_incomplete(tmp_path, monkeypatch):
+    from jcodemunch_mcp.storage import IndexStore
+    files = {f"m{i}.py": "x = 'needle'\n" for i in range(4)}
+    rid, store = _index(tmp_path, files)
+    real = IndexStore._safe_content_path
+
+    def gone(self, content_dir, rel):
+        return None if rel == "m3.py" else real(self, content_dir, rel)
+
+    monkeypatch.setattr(IndexStore, "_safe_content_path", gone)
+    res = search_text(rid, "needle", max_results=1, storage_path=store)
+    assert "m3.py" not in {m["file"] for m in res["more_files"]}
+    assert res["more_files_complete"] is False, res
+
+
+def test_the_budget_running_out_in_the_cut_file_makes_the_list_incomplete(tmp_path, monkeypatch):
+    rid, store = _index(tmp_path, {"big.py": "".join("v = 'needle'\n" for _ in range(4)), "z.py": "x = 'needle'\n"})
+    real = st_mod._count_matching_lines
+    calls = []
+
+    def first_call_runs_out(lines, pattern, query_lower, deadline):
+        calls.append(1)
+        if len(calls) == 1:
+            return 0, False
+        return real(lines, pattern, query_lower, deadline)
+
+    monkeypatch.setattr(st_mod, "_count_matching_lines", first_call_runs_out)
+    res = search_text(rid, "needle", max_results=1, storage_path=store)
+    assert res["truncated"] is True
+    assert res["more_files_complete"] is False, res
+
+
+def test_a_regex_count_cut_by_the_budget_says_so_end_to_end(tmp_path, monkeypatch):
+    files = {f"m{i}.py": "x = 'needle'\n" for i in range(6)}
+    rid, store = _index(tmp_path, files)
+    real = st_mod._count_matches
+
+    def out_of_time(store_, content_dir, files_, pattern, query_lower, deadline):
+        assert pattern is not None and deadline is not None
+        return real(store_, content_dir, files_, pattern, query_lower, 0.0)
+
+    monkeypatch.setattr(st_mod, "_count_matches", out_of_time)
+    res = search_text(rid, "needle", is_regex=True, max_results=1, storage_path=store)
+    assert res["truncated"] is True and res["timed_out"] is False
+    assert res["more_files_complete"] is False, res
 
 
 def test_the_compact_encoding_keeps_the_list(tmp_path):
