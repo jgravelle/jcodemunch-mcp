@@ -29,6 +29,16 @@ one of the vulnerable releases, since none past 3.20.3 is both fixed and
 installable on 3.10. If filelock later ships a fixed release that installs on
 3.10, the pin holds 3.10 at 3.20.3 until it is widened.
 
+### Changed - the install-time license links say they came from the terminal
+
+The license line printed at the end of `init` and `install`, and the "Get a
+license" line in the `install-pack` listing, linked to the site with no
+source. A visit or a sale that started in the terminal looked like any other
+direct visit. Those links now carry `utm_source=cli`, `utm_medium=install`
+and a campaign naming the line: `license-line` for the `init`/`install` notice,
+`starter-pack` for the pack listing. The wording is unchanged, and an install
+with a license key still prints neither line.
+
 ## [1.108.397] - 2026-10-24 - a cut search names the files it left off, and file_pattern takes braces
 
 ### Changed - a cut search names the files it left off, and file_pattern takes braces
