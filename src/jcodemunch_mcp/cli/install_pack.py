@@ -314,7 +314,7 @@ def _list_packs(licensed: bool = False) -> int:
     from ..org.license import licence_key_configured
 
     if not (licensed or licence_key_configured()):  # paid clients are never marketed to (jjg, 2026-10-20)
-        print(f"  {_DIM}Get a license: https://jcodemunch.com/#pricing{_RESET}")
+        print(f"  {_DIM}Get a license: https://jcodemunch.com/?utm_source=cli&utm_medium=install&utm_campaign=starter-pack#pricing{_RESET}")
     print()
     return 0
 

@@ -50,8 +50,8 @@ def test_a_real_run_ends_with_the_licence_line_after_done(quiet_init, capsys):
     done = next(i for i, ln in enumerate(lines) if ln.startswith("Done."))
     tail = "\n".join(lines[done + 1:])
     assert "Using jCodeMunch at work? A commercial license is $79, one time:" in tail
-    assert "https://jcodemunch.com/descriptions.php" in tail
-    assert "(30-day money-back guarantee; terms: https://jcodemunch.com/guarantee.php)" in tail
+    assert "https://jcodemunch.com/descriptions.php?utm_source=cli&utm_medium=install&utm_campaign=license-line" in tail
+    assert "(30-day money-back guarantee; terms: https://jcodemunch.com/guarantee.php?utm_source=cli&utm_medium=install&utm_campaign=license-line)" in tail
     assert out.count("descriptions.php") == 1
 
 

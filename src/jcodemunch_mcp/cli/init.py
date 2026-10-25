@@ -1354,8 +1354,8 @@ def _prompt_scope(message: str) -> Optional[str]:
 #: text; `tests/test_init_licence_line.py` fails if any other `src/` module
 #: carries it. Wording is Marketing's (2026-10-17); $79 is Builder, README's price.
 _LICENCE_LINES = (
-    "Using jCodeMunch at work? A commercial license is $79, one time: https://jcodemunch.com/descriptions.php",
-    "(30-day money-back guarantee; terms: https://jcodemunch.com/guarantee.php)",
+    "Using jCodeMunch at work? A commercial license is $79, one time: https://jcodemunch.com/descriptions.php?utm_source=cli&utm_medium=install&utm_campaign=license-line",
+    "(30-day money-back guarantee; terms: https://jcodemunch.com/guarantee.php?utm_source=cli&utm_medium=install&utm_campaign=license-line)",
 )
 
 

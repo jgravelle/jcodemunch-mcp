@@ -106,7 +106,10 @@ def test_an_unlicensed_listing_says_where_to_get_a_licence(mock_httpx, capsys, m
     monkeypatch.delenv("JCODEMUNCH_LICENSE_KEY", raising=False)
     mock_httpx.get.return_value = _mock_catalog_response(_PACKS)
     assert _list_packs() == 0
-    assert "Get a license: https://jcodemunch.com/#pricing" in capsys.readouterr().out
+    assert (
+        "Get a license: https://jcodemunch.com/?utm_source=cli&utm_medium=install&utm_campaign=starter-pack#pricing"
+        in capsys.readouterr().out
+    )
 
 
 @patch("jcodemunch_mcp.cli.install_pack.httpx")
