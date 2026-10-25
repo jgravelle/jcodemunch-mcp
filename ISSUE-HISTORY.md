@@ -2938,3 +2938,13 @@ The 1.108.394 entry, verbatim as it stood in `CLAUDE.md`:
 The `Tests:` line's 1.108.394 count, verbatim:
 
 - ⚠ Prior (1.108.394): 18584 passed, 24 skipped, **0 failed** (18608 total).
+
+## Current State rotation (2026-10-25, release 1.108.398)
+
+The 1.108.395 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.395):** **a text match says which function it is in** (#1222): `tools/_enclosing.attach_enclosing_symbols` adds `in: {id, line, end_line}` to search_text and check_references matches (innermost span; on a tie the later, deeper symbol; kinds from `STATE_KINDS`); search_text body carries `truncated`, `timed_out` and an empty-scope `note`; encoding `st3`. Full text: `CHANGELOG.md`.
+
+The `Tests:` line's 1.108.395 count, verbatim:
+
+- ⚠ Prior (1.108.395): 18593 passed, 25 skipped, **0 failed** (18618 total).

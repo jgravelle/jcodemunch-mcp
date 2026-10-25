@@ -1,6 +1,12 @@
 {
-  "current": "1.108.397",
+  "current": "1.108.398",
   "entries": [
+    {
+      "version": "1.108.398",
+      "date": "2026-10-25",
+      "title": "the semantic and all extras install a fixed filelock on every Python",
+      "summary": "pip install \"jcodemunch-mcp[semantic]\" on Python 3.10 took filelock 4.1.0, which has published advisories. The semantic and all extras now pin filelock 3.20.3 on Python 3.10 and require 4.2.1 or later on 3.11 and up."
+    },
     {
       "version": "1.108.397",
       "date": "2026-10-24",

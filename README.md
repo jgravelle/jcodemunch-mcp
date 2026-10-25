@@ -162,10 +162,10 @@ That's the highlight reel. The complete tour of 90+ tools, the MUNCH compact wir
 <!-- WHATSNEW:START -->
 #### What's new
 
+- **[v1.108.398](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.398)** (2026-10-25) — the semantic and all extras install a fixed filelock on every Python
 - **[v1.108.397](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.397)** (2026-10-24) — a cut search names the files it left off, and file_pattern takes braces
 - **[v1.108.396](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.396)** (2026-10-23) — the first search on a large repository resolves each import once
 - **[v1.108.395](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.395)** (2026-10-22) — a text match says which function it is in
-- **[v1.108.394](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.394)** (2026-10-22) — index_dependency validates package paths
 <!-- WHATSNEW:END -->
 
 ---

@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.398] - 2026-10-25 - the semantic and all extras install a fixed filelock on every Python
+
 ### Security - the semantic and all extras install a fixed filelock on every Python
 
 `filelock` reaches an install only through `sentence-transformers` (torch and
