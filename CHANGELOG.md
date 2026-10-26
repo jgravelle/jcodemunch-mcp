@@ -2,6 +2,25 @@
 
 ## [Unreleased]
 
+### Changed - the counter instructions say what the index adds when an issue names the code
+
+The `instructions` string is the one piece of prose a host sends even when it
+defers every tool schema. On the `counter` surface, which a fresh `init` serves,
+it said that a known name is often as cheap to find with Grep, and nothing
+about what comes after finding it. A bug report usually names its code. The
+string now adds one line:
+
+> When an issue names the code, Grep finds it. Before you edit,
+> route("who calls <name>") or route("what breaks if I change <name>") names
+> the action that lists its callers or what the edit reaches.
+
+`tests/test_instructions_named_code.py` checks that `route` maps each quoted
+phrasing to the action the line promises (`get_call_hierarchy`,
+`get_blast_radius`), and fails if the text quotes a phrasing it doesn't check.
+The earlier sentence about known names is kept. The `full` surface's text is
+unchanged; it is at its 1,000-character budget. Whether the line changes how
+often an agent uses the index on a bug fix has not been measured.
+
 ## [1.108.398] - 2026-10-25 - the semantic and all extras install a fixed filelock on every Python
 
 ### Security - the semantic and all extras install a fixed filelock on every Python
