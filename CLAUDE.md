@@ -297,8 +297,8 @@ touch a tool description:
   words** ("find where a function is defined", "who calls this function"). A host
   that defers schemas finds tools by searching names and descriptions only.
   `tests/test_question_queries_find_core_tools.py` pins eight questions. ⚠ The
-  Counter's ranker boosts name words, so a `find ...` question ranks the six
-  `find_*` tools first whatever a description says.
+  Counter's ranker boosts name words, so a `find ...` question ranks six of the
+  seven `find_*` tools ahead of any description match.
 
 ⚠ The audit reports two frames. The paper's scanner never sees `inputSchema`, so
 schema-documented parameters score 1/5 by its rubric. Quote both frames or neither.

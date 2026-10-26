@@ -17,10 +17,10 @@ Two checks, over the live catalog:
   only match a word that is there.
 - **Rank.** The Counter's own catalog search (`counter.search_catalog`, IDF over
   name and description) puts the tool in the top three. It is a proxy: a
-  host's search is its own. One question is held to vocabulary only: in
-  "find where this function is defined", the word "find" names six `find_*`
-  tools, and the ranker's name boost puts all six ahead of any description
-  match. That is the ranker's rule, not missing vocabulary.
+  host's search is its own. One question is held to a weaker rank: in
+  "find where this function is defined", the ranker's name boost on "find"
+  puts six of the seven `find_*` tools ahead of any description match. There
+  the target must be the first tool whose name does not start with `find_`.
 """
 
 from __future__ import annotations
@@ -68,6 +68,13 @@ def test_the_description_carries_every_word_of_the_question(rows, question, tool
 def test_the_question_ranks_its_tool_near_the_top(rows, question, tool):
     ranked = [r["action"] for r in counter.search_catalog(rows, question, TOP)]
     assert tool in ranked, (question, tool, ranked)
+
+
+@pytest.mark.parametrize("question,tool", [q for q in QUESTIONS if q[0] in VOCABULARY_ONLY])
+def test_the_find_question_ranks_its_tool_first_after_the_find_tools(rows, question, tool):
+    ranked = [r["action"] for r in counter.search_catalog(rows, question, 20)]
+    after_find = [a for a in ranked if not a.startswith("find_")]
+    assert after_find[:1] == [tool], (question, tool, ranked)
 
 
 def test_every_target_is_a_published_tool(rows):

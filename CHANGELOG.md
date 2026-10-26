@@ -23,17 +23,23 @@ Four descriptions now open with the question each tool answers:
   call".
 - `check_references`: "Where is a function, class or other identifier used".
 
-The rest of each description is unchanged. With the Counter's own catalog
+Two more words moved: `search_symbols`' first sentence now reads "search the
+symbols of the entire indexed repository by name, signature or summary", and
+`check_references` names "a function, class or other identifier" where it said
+"an identifier". The rest of each description is unchanged. With the Counter's own catalog
 search, seven of eight pinned questions now rank their tool in the top three,
-where two did before. The eighth, "find where this function is defined", stays
-outside it: six tools have `find` in their name, and a name match outranks any
-description. Its words are now in `search_symbols`' description, which is what
+where two did before. The eighth, "find where this function is defined",
+ranks `search_symbols` seventh: six of the seven `find_*` tools rank ahead of it
+on the name word `find`, and it is the first tool after them. Its words are now in `search_symbols`' description, which is what
 a host's keyword search reads.
 
 The route-recall benchmark (`benchmarks/route_recall/`, written by
 `run_route_recall.py`) moves the same way. On the main corpus, menu recall
 rises from 47.5% to 49.2% at 1 and from 74.6% to 76.3% at 5. On the holdout
 corpus, it rises from 36.4% to 40.9% at 5, with recall at 1 unchanged at 13.6%.
+The benchmark's own leakage measure rises with it, because the new words are
+the words its queries use: mean description overlap goes from 0.368 to 0.388 on
+the main corpus and from 0.295 to 0.313 on the holdout.
 
 **Tradeoffs.**
 - A changed description is a one-time cache write of the tool list for every
