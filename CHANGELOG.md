@@ -2,6 +2,53 @@
 
 ## [Unreleased]
 
+### Changed - the core tool descriptions use the words an agent's question uses
+
+Hosts that defer tool schemas show the model bare tool names and let it search
+names and descriptions for the rest. Asked "find where this function is
+defined", "who calls this function" or "show me the code of this function",
+that search found none of the tools that answer them. `search_symbols` said
+"symbols matching a query", `get_call_hierarchy` said "incoming callers and
+outgoing callees", and `get_symbol_source` said "full source of one symbol".
+None of them shared a word with the question, and a host search ranked other
+tools first.
+
+Four descriptions now open with the question each tool answers:
+
+- `search_symbols`: "Find where a function, class or method is defined
+  (locate its definition)".
+- `get_symbol_source`: "Read or show the source code of a function, class or
+  method".
+- `get_call_hierarchy`: "Who calls this function or method, and what does it
+  call".
+- `check_references`: "Where is a function, class or other identifier used".
+
+Two more words moved: `search_symbols`' first sentence now reads "search the
+symbols of the entire indexed repository by name, signature or summary", and
+`check_references` names "a function, class or other identifier" where it said
+"an identifier". The rest of each description is unchanged. With the Counter's own catalog
+search, seven of eight pinned questions now rank their tool in the top three,
+where two did before. The eighth, "find where this function is defined",
+ranks `search_symbols` seventh: six of the seven `find_*` tools rank ahead of it
+on the name word `find`, and it is the first tool after them. Its words are now in `search_symbols`' description, which is what
+a host's keyword search reads.
+
+The route-recall benchmark (`benchmarks/route_recall/`, written by
+`run_route_recall.py`) moves the same way. On the main corpus, menu recall
+rises from 47.5% to 49.2% at 1 and from 74.6% to 76.3% at 5. On the holdout
+corpus, it rises from 36.4% to 40.9% at 5, with recall at 1 unchanged at 13.6%.
+The benchmark's own leakage measure rises with it, because the new words are
+the words its queries use: mean description overlap goes from 0.368 to 0.388 on
+the main corpus and from 0.295 to 0.313 on the holdout.
+
+**Tradeoffs.**
+- A changed description is a one-time cache write of the tool list for every
+  client that publishes these tools. The `counter` surface is byte-identical,
+  so it is unaffected.
+- The published schema grows: `core_compact` from 3948 to 3980 tokens (its
+  ceiling is 4000), `full_compact` from 21463 to 21512
+  (`benchmarks/schema_baseline.json`).
+
 ### Changed - the counter instructions say what the index adds when an issue names the code
 
 The `instructions` string is the one piece of prose a host sends even when it
