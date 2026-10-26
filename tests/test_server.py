@@ -585,8 +585,8 @@ async def test_no_descriptions_config_keeps_original(monkeypatch):
         search_symbols = next((t for t in tools if t.name == "search_symbols"), None)
         assert search_symbols is not None
 
-        # Should keep original description (starts with "Search for")
-        assert search_symbols.description.startswith("Search for")
+        # Should keep the shipped description (its opening words, not an override)
+        assert search_symbols.description.startswith("Find where a function, class or method is defined")
     finally:
         config_module._GLOBAL_CONFIG.clear()
         config_module._GLOBAL_CONFIG.update(orig_config)

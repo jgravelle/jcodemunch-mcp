@@ -3,10 +3,10 @@
     "queries": 59,
     "catalog_actions": 91,
     "menu_recall": {
-      "@1": 47.5,
-      "@3": 67.8,
-      "@5": 74.6,
-      "@10": 79.7
+      "@1": 49.2,
+      "@3": 69.5,
+      "@5": 76.3,
+      "@10": 81.4
     },
     "route_recall": {
       "@1": 72.9,
@@ -50,7 +50,6 @@
       "where is the function that validates auth tokens",
       "which file contains the message connection refused",
       "find every place we swallow an exception without logging",
-      "show me the body of this function",
       "I need this function plus everything it imports",
       "what is the import chain from this file outward",
       "what are the natural modules in this system",
@@ -62,7 +61,7 @@
     ],
     "leakage": {
       "mean_name_overlap": 0.133,
-      "mean_desc_overlap": 0.368,
+      "mean_desc_overlap": 0.388,
       "queries_containing_target_name_token": 19,
       "high_leak_queries": [
         "what columns does the orders model have",
@@ -95,7 +94,7 @@
         "search_text"
       ],
       "leak_name": 0.0,
-      "leak_desc": 0.125
+      "leak_desc": 0.5
     },
     {
       "query": "which file contains the message connection refused",
@@ -306,19 +305,19 @@
       "targets": [
         "get_symbol_source"
       ],
-      "menu_rank": null,
+      "menu_rank": 3,
       "route_rank": 1,
       "route_path": "rule",
       "menu_top3": [
+        "get_call_hierarchy",
         "get_parity_map",
-        "finalize_handoff",
-        "get_call_hierarchy"
+        "get_symbol_source"
       ],
       "route_proposed": [
         "get_symbol_source"
       ],
       "leak_name": 0.0,
-      "leak_desc": 0.143
+      "leak_desc": 0.571
     },
     {
       "query": "give me lines 40 through 90 of that file",
@@ -354,12 +353,12 @@
       "menu_top3": [
         "get_parity_map",
         "search_ast",
-        "get_file_risk"
+        "check_references"
       ],
       "route_proposed": [
         "get_parity_map",
         "search_ast",
-        "get_file_risk"
+        "check_references"
       ],
       "leak_name": 0.0,
       "leak_desc": 0.125
@@ -400,7 +399,7 @@
       "menu_top3": [
         "check_edit_safe",
         "get_endpoint_impact",
-        "get_changed_symbols"
+        "get_call_hierarchy"
       ],
       "route_proposed": [
         "get_blast_radius"
@@ -415,19 +414,19 @@
         "find_references",
         "get_call_hierarchy"
       ],
-      "menu_rank": 2,
+      "menu_rank": 1,
       "route_rank": 1,
       "route_path": "rule",
       "menu_top3": [
+        "get_call_hierarchy",
         "check_edit_safe",
-        "find_references",
-        "get_symbol_provenance"
+        "find_references"
       ],
       "route_proposed": [
         "get_call_hierarchy"
       ],
       "leak_name": 0.0,
-      "leak_desc": 0.667
+      "leak_desc": 1.0
     },
     {
       "query": "which files import this module",
@@ -483,8 +482,8 @@
       "route_path": "rule",
       "menu_top3": [
         "get_class_hierarchy",
-        "find_implementations",
-        "get_endpoint_impact"
+        "check_references",
+        "find_implementations"
       ],
       "route_proposed": [
         "get_class_hierarchy"
@@ -980,9 +979,9 @@
       "route_rank": 1,
       "route_path": "rule",
       "menu_top3": [
+        "check_references",
         "get_file_risk",
-        "get_parity_map",
-        "get_untested_symbols"
+        "get_parity_map"
       ],
       "route_proposed": [
         "get_symbol_complexity"

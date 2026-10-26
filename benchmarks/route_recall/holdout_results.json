@@ -4,9 +4,9 @@
     "catalog_actions": 91,
     "menu_recall": {
       "@1": 13.6,
-      "@3": 27.3,
-      "@5": 36.4,
-      "@10": 45.5
+      "@3": 29.5,
+      "@5": 40.9,
+      "@10": 50.0
     },
     "route_recall": {
       "@1": 65.9,
@@ -57,7 +57,6 @@
       "make similarity lookups work here",
       "give me the running total of context I did not have to send",
       "print out what this function actually does line by line",
-      "let me read the implementation of that method",
       "what are the real subsystems here as opposed to the folder layout",
       "group this codebase into the parts that actually belong together",
       "how many layers deep do the dependencies go",
@@ -66,7 +65,6 @@
       "how many branches does this function have",
       "which parts of this never get exercised when the app is live",
       "find the code that parses the config file",
-      "what calls into this helper",
       "which modules pull in this file",
       "are there import loops in here",
       "sketch that as a picture",
@@ -78,7 +76,7 @@
     ],
     "leakage": {
       "mean_name_overlap": 0.057,
-      "mean_desc_overlap": 0.295,
+      "mean_desc_overlap": 0.313,
       "queries_containing_target_name_token": 7,
       "high_leak_queries": [
         "clone and analyse a repo from github"
@@ -342,17 +340,17 @@
       "route_rank": null,
       "route_path": "fallback",
       "menu_top3": [
-        "import_runtime_signal",
         "get_file_outline",
-        "get_repo_outline"
+        "get_repo_outline",
+        "import_runtime_signal"
       ],
       "route_proposed": [
-        "import_runtime_signal",
         "get_file_outline",
-        "get_repo_outline"
+        "get_repo_outline",
+        "import_runtime_signal"
       ],
       "leak_name": 0.0,
-      "leak_desc": 0.0
+      "leak_desc": 0.111
     },
     {
       "query": "let me read the implementation of that method",
@@ -360,7 +358,7 @@
       "targets": [
         "get_symbol_source"
       ],
-      "menu_rank": null,
+      "menu_rank": 4,
       "route_rank": 1,
       "route_path": "rule",
       "menu_top3": [
@@ -372,7 +370,7 @@
         "get_symbol_source"
       ],
       "leak_name": 0.0,
-      "leak_desc": 0.25
+      "leak_desc": 0.625
     },
     {
       "query": "nothing seems to call this, can it go",
@@ -530,8 +528,8 @@
       "route_path": "rule",
       "menu_top3": [
         "find_implementations",
-        "get_endpoint_impact",
-        "get_file_risk"
+        "get_call_hierarchy",
+        "get_endpoint_impact"
       ],
       "route_proposed": [
         "get_symbol_complexity"
@@ -549,9 +547,9 @@
       "route_rank": 1,
       "route_path": "rule",
       "menu_top3": [
+        "get_symbol_source",
         "get_decorator_census",
-        "get_delivery_metrics",
-        "get_symbol_source"
+        "get_delivery_metrics"
       ],
       "route_proposed": [
         "get_symbol_complexity"
@@ -599,7 +597,7 @@
         "search_text"
       ],
       "leak_name": 0.0,
-      "leak_desc": 0.143
+      "leak_desc": 0.286
     },
     {
       "query": "grep for the string timeout exceeded",
@@ -628,19 +626,19 @@
         "find_references",
         "get_call_hierarchy"
       ],
-      "menu_rank": null,
+      "menu_rank": 3,
       "route_rank": 1,
       "route_path": "rule",
       "menu_top3": [
         "check_embedding_drift",
         "digest",
-        "get_dead_code_v2"
+        "get_call_hierarchy"
       ],
       "route_proposed": [
         "get_call_hierarchy"
       ],
       "leak_name": 0.0,
-      "leak_desc": 0.6
+      "leak_desc": 0.8
     },
     {
       "query": "which modules pull in this file",
@@ -743,12 +741,12 @@
       "menu_top3": [
         "get_class_hierarchy",
         "assemble_task_context",
-        "find_implementations"
+        "check_references"
       ],
       "route_proposed": [
         "get_class_hierarchy",
         "assemble_task_context",
-        "find_implementations"
+        "check_references"
       ],
       "leak_name": 0.333,
       "leak_desc": 0.2
