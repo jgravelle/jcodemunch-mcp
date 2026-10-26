@@ -2241,7 +2241,7 @@ def _build_tools_list(
         ),
         Tool(
             name="get_symbol_source",
-            description="Get full source of one symbol (symbol_id → flat object) or many (symbol_ids[] → {symbols, errors}). Supports verify, context_lines, fqn (PHP FQN via PSR-4), and an optional bounded mode that caps returned source for large symbols/batches.",
+            description="Read or show the source code of a function, class or method: the full source of one symbol (symbol_id → flat object) or many (symbol_ids[] → {symbols, errors}). Supports verify, context_lines, fqn (PHP FQN via PSR-4), and an optional bounded mode that caps returned source for large symbols/batches.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -2335,7 +2335,7 @@ def _build_tools_list(
         ),
         Tool(
             name="search_symbols",
-            description="Search for symbols matching a query across the entire indexed repository. Returns matches with signatures and summaries. Searches the index, not the working tree.",
+            description="Find where a function, class or method is defined (locate its definition): search the symbols of the entire indexed repository by name, signature or summary. Returns matches with signatures and summaries. Searches the index, not the working tree.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -2551,7 +2551,7 @@ def _build_tools_list(
         ),
         Tool(
             name="check_references",
-            description="Where is an identifier used: import sites plus every file whose content mentions it, in one call (find_references + search_text). Answers 'where is X used / referenced' and returns is_referenced (bool) for quick dead-code detection. Accepts multiple identifiers in one call via identifiers param. Content matches are capped at max_content_results (default 20), and a match inside a comment or string still counts as referenced.",
+            description="Where is a function, class or other identifier used: import sites plus every file whose content mentions it, in one call (find_references + search_text). Answers 'where is X used / referenced' and returns is_referenced (bool) for quick dead-code detection. Accepts multiple identifiers in one call via identifiers param. Content matches are capped at max_content_results (default 20), and a match inside a comment or string still counts as referenced.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -3277,7 +3277,7 @@ def _build_tools_list(
         Tool(
             name="get_call_hierarchy",
             description=(
-                "Return incoming callers and outgoing callees for a symbol, N levels deep. "
+                "Who calls this function or method, and what does it call: incoming callers and outgoing callees for a symbol, N levels deep. "
                 "Uses AST-derived call detection: callers = symbols in importing files that "
                 "mention this name; callees = imported symbols mentioned in this symbol's body. "
                 "Useful for understanding how a symbol fits into the call graph before refactoring. "
