@@ -447,9 +447,18 @@ def _mcp_instructions(
         "repo or an open question. On a small repository, a known name or a file "
         "you are editing, built-in Grep and Read are often as cheap."
     )
-    lines = [
-        opening,
-        routes,
+    lines = [opening, routes]
+    if surface == "counter":
+        # A bug report usually names its code, and the line above already says
+        # Grep finds a known name. This one says what the index adds after that.
+        # Each route() phrasing is checked against the intent rules by
+        # tests/test_instructions_named_code.py. `full`'s text is at its budget.
+        lines.append(
+            'When an issue names the code, Grep finds it. Before you edit, '
+            'route("who calls <name>") or route("what breaks if I change <name>") '
+            "names the action that lists its callers or what the edit reaches."
+        )
+    lines += [
         "",
         "**Tools deferred? Load all in ONE lookup:** ToolSearch "
         '"%s". One round trip for the session.' % _tool_search_query(surface, prefix),
