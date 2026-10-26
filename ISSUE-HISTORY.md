@@ -2948,3 +2948,13 @@ The 1.108.395 entry, verbatim as it stood in `CLAUDE.md`:
 The `Tests:` line's 1.108.395 count, verbatim:
 
 - ⚠ Prior (1.108.395): 18593 passed, 25 skipped, **0 failed** (18618 total).
+
+## Current State rotation (2026-10-26, release 1.108.399)
+
+The 1.108.396 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.396):** **the first search on a large repository resolves each import once** (#1224): `parser/imports.resolve_specifier` hands its importer-independent tail to `_resolve_tail`, memoized per (specifier, frozenset of files, alias map) for every importer that is not `.gleam` (the one tail step that reads the importer); `_get_sql_stems` keys by the caller's frozenset; `clear_resolution_caches()` (called by `invalidate_cache`) clears both. Full text: `CHANGELOG.md`.
+
+The `Tests:` line's 1.108.396 count, verbatim:
+
+- ⚠ Prior (1.108.396): 18625 passed, 24 skipped, **0 failed** (18649 total).

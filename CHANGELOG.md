@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.399] - 2026-10-26 - four core tool descriptions open with the question each tool answers
+
 ### Changed - the core tool descriptions use the words an agent's question uses
 
 Hosts that defer tool schemas show the model bare tool names and let it search
@@ -65,8 +67,8 @@ string now adds one line:
 phrasing to the action the line promises (`get_call_hierarchy`,
 `get_blast_radius`), and fails if the text quotes a phrasing it doesn't check.
 The earlier sentence about known names is kept. The `full` surface's text is
-unchanged; it is at its 1,000-character budget. Whether the line changes how
-often an agent uses the index on a bug fix has not been measured.
+unchanged; it is at its 1,000-character budget. This entry makes no claim that
+the line changes how often an agent uses the index on a bug fix.
 
 ## [1.108.398] - 2026-10-25 - the semantic and all extras install a fixed filelock on every Python
 
