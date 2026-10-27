@@ -102,6 +102,25 @@ def forbidden_reason(action: str) -> Optional[str]:
     return None
 
 
+# Tool names that were retired, mapped to (the tool that replaced them, the
+# argument it takes). Agent instructions written before a rename keep naming
+# the old tool, so both dispatch routes (a direct call and `order`) say what
+# to call instead. It stays an error: nothing dispatches a name it does not list.
+RETIRED_TOOL_NAMES: dict[str, tuple[str, str]] = {
+    "get_symbol": ("get_symbol_source", "symbol_id"),
+    "get_symbols": ("get_symbol_source", "symbol_ids"),
+}
+
+
+def retired_hint(name: str) -> Optional[str]:
+    """"It was replaced by X; call X with arg." for a retired name, else None."""
+    retired = RETIRED_TOOL_NAMES.get(name)
+    if retired is None:
+        return None
+    new, arg = retired
+    return f"It was replaced by {new}; call {new} with {arg}."
+
+
 def order_gate(
     action: str,
     catalog_names: Iterable[str],
@@ -119,6 +138,9 @@ def order_gate(
         return f"'{action}' is a front-door tool and cannot be dispatched through order."
     names = set(catalog_names)
     if action not in names:
+        hint = retired_hint(action)
+        if hint is not None:
+            return f"Unknown action '{action}'. {hint}"
         return (
             f"Unknown action '{action}'. Call 'menu' (optionally with a query) "
             f"to discover valid actions."

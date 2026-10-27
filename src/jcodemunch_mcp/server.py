@@ -5972,6 +5972,16 @@ def _enforce_response_cap(
         return result
 
 
+def _unknown_tool_error(name: str) -> dict:
+    """The error body for a tool name the server does not dispatch."""
+    from .counter import RETIRED_TOOL_NAMES, retired_hint
+
+    hint = retired_hint(name)
+    if hint is None:
+        return {"error": f"Unknown tool: {name}"}
+    return {"error": f"Unknown tool: {name}. {hint}", "replaced_by": RETIRED_TOOL_NAMES[name][0]}
+
+
 @server.call_tool(validate_input=False)
 async def call_tool(name: str, arguments: dict) -> list[TextContent] | CallToolResult:
     """Dispatch a tool call, then bound the reply it produced.
@@ -7349,7 +7359,7 @@ async def _call_tool_impl(name: str, arguments: dict) -> list[TextContent] | Cal
                 "provenance": _measured_provenance(),
             }
         else:
-            result = {"error": f"Unknown tool: {name}"}
+            result = _unknown_tool_error(name)
 
         # Feature 2: Session journal recording
         if config_module.get("session_journal", True):
