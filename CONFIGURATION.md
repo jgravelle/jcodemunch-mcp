@@ -205,6 +205,7 @@ The legacy `suppress_meta` per-call parameter still works for backward compatibi
 | `watch_log` | str or null | `null` | Log watcher output to file. `"auto"` = temp file. `null` = quiet. |
 | `watch_paths` | list | `[]` | Folder(s) to watch. Empty = current working directory. |
 | `freshness_mode` | str | `"relaxed"` | `"relaxed"` = serve immediately. `"strict"` = wait for fresh results (500ms timeout). |
+| `refresh_on_read` | bool | `true` | `true` = before a read tool answers on a git repository, re-index the files that changed since the index was built (a rebase, a branch switch, an edit outside the agent) when there are at most 50, within 2 s. Otherwise the answer carries `index_refresh` with the reason (`too_many_files`, `locked`, `budget`, `failed`) and the `index_folder` call that fixes it. Checks git at most once per repo every 30 s; writes only the local index. `false` answers from the index as it is and only flags a stale row. |
 | `claude_poll_interval` | float | `5.0` | Poll interval (seconds) for Claude Code worktree discovery. |
 
 ### Logging
@@ -391,6 +392,7 @@ Every `JCODEMUNCH_*` env var maps to a config key:
 | `JCODEMUNCH_WATCH` | `watch` |
 | `JCODEMUNCH_WATCH_DEBOUNCE_MS` | `watch_debounce_ms` |
 | `JCODEMUNCH_FRESHNESS_MODE` | `freshness_mode` |
+| `JCODEMUNCH_REFRESH_ON_READ` | `refresh_on_read` |
 | `JCODEMUNCH_CLAUDE_POLL_INTERVAL` | `claude_poll_interval` |
 | `JCODEMUNCH_LOG_LEVEL` | `log_level` |
 | `JCODEMUNCH_LOG_FILE` | `log_file` |

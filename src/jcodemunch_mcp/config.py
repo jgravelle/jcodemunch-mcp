@@ -89,6 +89,7 @@ ENV_VAR_MAPPING = {
     "JCODEMUNCH_WATCH_LOG": "watch_log",
     "JCODEMUNCH_WATCH_PATHS": "watch_paths",
     "JCODEMUNCH_FRESHNESS_MODE": "freshness_mode",
+    "JCODEMUNCH_REFRESH_ON_READ": "refresh_on_read",
     "JCODEMUNCH_SUMMARIZER_PROVIDER": "summarizer_provider",
     "JCODEMUNCH_SUMMARIZER_MODEL": "summarizer_model",
     "JCODEMUNCH_EMBED_MODEL": "embed_model",
@@ -496,6 +497,9 @@ DEFAULTS = {
     "watch_paths": [],
     "freshness_mode": "relaxed",
     "strict_timeout_ms": 500,
+    # On by default (owner ruling, 2026-10-27): a read may re-index changed
+    # files (a local write) and runs read-only git commands (refresh_on_read.py).
+    "refresh_on_read": True,
     "summarizer_provider": "",
     "summarizer_model": "",
     "embed_model": "",
@@ -603,6 +607,7 @@ CONFIG_TYPES = {
     "watch_paths": list,
     "freshness_mode": str,
     "strict_timeout_ms": int,
+    "refresh_on_read": bool,
     "summarizer_provider": str,
     "summarizer_model": str,
     "embed_model": str,
@@ -2662,6 +2667,15 @@ def generate_template() -> str:
   //   Maximum milliseconds to block queries waiting for a reindex in strict mode.
   //   After this timeout the query proceeds with the stale index.
   //   Only applies when freshness_mode is "strict". Default: 500.
+  // "refresh_on_read": true,
+  //   true - Default. Before a read tool answers on a git repository, re-index the
+  //          files that changed since the index was built (a rebase, a
+  //          branch switch, an edit outside the agent), when there are few,
+  //          within a 2 s budget. Otherwise the answer says the index is
+  //          stale and names the index_folder call that fixes it. Runs
+  //          read-only git commands at most once per repo every 30 s and
+  //          writes only the local index. Nothing leaves the machine.
+  //   false - Answer from the index as it is; a stale row is only flagged.
   // "claude_poll_interval": 5.0,
   //   Seconds between polling Claude Code worktrees for changes.
   // "worktree_base_path": "",

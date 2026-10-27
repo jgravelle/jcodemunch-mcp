@@ -6164,6 +6164,21 @@ async def _call_tool_impl(name: str, arguments: dict) -> list[TextContent] | Cal
             strict_ms = config_module.get("strict_timeout_ms", 500)
             await asyncio.to_thread(await_freshness_if_strict, repo_arg, timeout_ms=strict_ms)
 
+        # refresh_on_read (off by default): before a read answers on a git
+        # repository, re-index what changed since the index was built, or say
+        # why not. Runs before the tool loads the index, so the tool reads one
+        # generation. The block rides the body (`index_refresh`), not `_meta`.
+        _index_refresh = None
+        if repo_arg and config_module.get("refresh_on_read", False, repo=repo_arg):
+            try:
+                from . import refresh_on_read as _ror
+                if name in _ror.READ_TOOLS:
+                    _index_refresh = await asyncio.to_thread(
+                        _ror.refresh_before_read, repo_arg, storage_path
+                    )
+            except Exception:
+                logger.debug("refresh_on_read failed", exc_info=True)
+
         # Project-level tool disabling: check if tool is disabled for this project
         # Global disabled tools are filtered out in list_tools() schema; project-level
         # rejection happens here since schema is global (can't be changed per-project).
@@ -7783,6 +7798,9 @@ async def _call_tool_impl(name: str, arguments: dict) -> list[TextContent] | Cal
                 _requested_format = "json"
         except Exception:
             logger.debug("policy notice attach failed", exc_info=True)
+
+        if _index_refresh and isinstance(result, dict) and "error" not in result:
+            result = {**result, "index_refresh": _index_refresh}
 
         # Response-level secret redaction — scrub leaked credentials
         # before they reach the LLM context window. Skipped for tools that
