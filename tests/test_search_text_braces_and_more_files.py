@@ -292,4 +292,5 @@ def test_the_compact_encoding_keeps_the_list(tmp_path):
     assert decoded["more_files_total"] == res["more_files_total"]
     assert decoded["more_files_truncated"] is res["more_files_truncated"]
     assert decoded["more_files_complete"] is res["more_files_complete"]
-    assert st_schema.ENCODING_ID == "st4" and "st3" in st_schema.LEGACY_ENCODING_IDS
+    # st4 added the more_files table; a later id keeps st4 and st3 decodable.
+    assert st_schema.ENCODING_ID != "st3" and {"st3", "st4"} <= set(st_schema.LEGACY_ENCODING_IDS) | {st_schema.ENCODING_ID}

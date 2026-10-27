@@ -65,6 +65,16 @@ MAX_BRACE_ALTERNATIVES = 32
 # and whether the list was cut ride beside it.
 MORE_FILES_CAP = 20
 
+# When a page's matches sit inside a few small symbols, the body carries each
+# symbol's source once (`sources`), so the agent can edit from the answer
+# instead of opening the file. Bounded three ways; `sources_total`,
+# `sources_omitted` and `sources_omitted_reason` say what was left out.
+# Seeded values, not calibrated: a short fix's code usually sits in one or two
+# functions of a few dozen lines.
+SOURCE_MAX_SYMBOLS = 3
+SOURCE_MAX_LINES = 60
+SOURCE_MAX_BYTES = 8000
+
 
 def _file_patterns(file_pattern: str) -> list[str]:
     """The pattern as written, then its brace expansions (bounded, no nesting)."""
@@ -157,6 +167,48 @@ def _count_matches(store, content_dir, files, pattern, query_lower, deadline):
     return counts, True, unreadable
 
 
+def _attach_sources(body: dict, results: list, file_lines: dict) -> None:
+    """Add the source of the symbols a page's matches sit in, when they are few and small.
+
+    The lines come from the scan's own read of each file (the index's stored
+    copy, the same text the spans were taken from), so nothing is read twice.
+    """
+    order: dict[str, tuple] = {}
+    for group in results:
+        for match in group["matches"]:
+            enclosing = match.get("in")
+            if enclosing and enclosing.get("id") not in order:
+                order[enclosing["id"]] = (group["file"], enclosing["line"], enclosing["end_line"])
+    if not order:
+        return
+    sources: list[dict] = []
+    reasons: list[str] = []
+    if len(order) > SOURCE_MAX_SYMBOLS:
+        reasons.append("too_many_symbols")
+    else:
+        used = 0
+        for sym_id, (file_path, start, end) in order.items():
+            if end - start + 1 > SOURCE_MAX_LINES:
+                reason = "too_long"
+            else:
+                lines = file_lines.get(file_path) or []
+                source = "\n".join(v.rstrip("\r\n") for v in lines[start - 1:end])
+                size = len(source.encode("utf-8"))
+                if used + size <= SOURCE_MAX_BYTES:
+                    used += size
+                    sources.append({"id": sym_id, "source": source})
+                    continue
+                reason = "byte_cap"
+            if reason not in reasons:
+                reasons.append(reason)
+    if sources:
+        body["sources"] = sources
+    body["sources_total"] = len(order)
+    body["sources_omitted"] = len(order) - len(sources)
+    if reasons:
+        body["sources_omitted_reason"] = ",".join(reasons)
+
+
 def search_text(
     repo: str,
     query: str,
@@ -240,6 +292,7 @@ def search_text(
     # is linear and not a ReDoS vector.
     _budget_deadline = (start + _REGEX_BUDGET_SEC) if pattern is not None else None
 
+    file_lines: dict[str, list[str]] = {}
     cut_index = -1
     cut_rest: list[str] = []
     for file_index, file_path in enumerate(files):
@@ -297,6 +350,7 @@ def search_text(
 
         if file_matches:
             results.append({"file": file_path, "matches": file_matches})
+            file_lines[file_path] = lines
 
         if truncated or timed_out:
             break
@@ -416,6 +470,7 @@ def search_text(
     }
     if more_files is not None:
         body.update(more_files)
+    _attach_sources(body, results, file_lines)
     if files_eligible == 0 and file_pattern:
         # An empty result over a scope that matched no file is not an absence.
         note = f"file_pattern {file_pattern!r} matched no indexed file, so nothing was searched."
