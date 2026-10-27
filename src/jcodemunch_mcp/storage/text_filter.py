@@ -115,7 +115,9 @@ def load(content_dir: Path) -> dict:
     if not side.exists():
         return {}
     try:
-        conn = sqlite3.connect(f"file:{side.as_posix()}?mode=ro", uri=True, timeout=5)
+        from .generation import connect_readonly
+
+        conn = connect_readonly(side, timeout=5)
         try:
             rows = conn.execute(
                 "SELECT path, size, mtime_ns, nbits, bits FROM text_filters"
