@@ -12,16 +12,17 @@ search saved a Grep and the Read that followed cost the saving back.
 When a page's matches sit in at most 3 distinct symbols, each at most 60 lines,
 the body now carries each symbol's source once, as `sources: [{id, source}]`,
 in first-match order. `sources_total` and `sources_omitted` say how many
-qualified and how many were left out, and `sources_omitted_reason` names why
-(`too_long`, or `byte_cap` past 8,000 bytes of source in all). The three limits
+qualified and how many were left out, and `sources_omitted_reason` names why:
+`too_long`, `byte_cap` past 8,000 bytes of source in all, or `unreadable` when
+the index's stored copy cannot be read or is shorter than the span (a partial
+body would read as the whole source). Several reasons are joined in the order
+met, as `too_long,byte_cap`. The three limits
 are seeded, not calibrated: a short fix's code usually sits in one or two
 functions of a few dozen lines.
 
 A page whose matches spread over more than 3 symbols is a survey, not a fix.
-It carries none of these keys; measured on this repository, the disclosure
-alone would have added 133 bytes to every such page. The compact encoding's
-header still names the new table, which adds 21 bytes to every `search_text`
-page in that encoding. The source is read from the index's stored copy, the
+It carries none of these keys. The compact encoding's header still names the
+new table, which adds 21 bytes to each page sent in that encoding. The source is read from the index's stored copy, the
 text the spans came from, and only for the symbols that qualify: an earlier
 draft that kept every matched file's lines through the scan was measurably
 slower on a large index, and this one times the same as before.
@@ -30,7 +31,7 @@ The compact wire encoding carries the new table and scalars as `st5`; `st4`
 stays decodable. Tool names, arguments and descriptions do not change.
 
 **Tradeoff.** A page that qualifies grows by the source it carries: on this
-repository, between about 1.4 KB and 4.2 KB on the queries that qualified. That
+repository, 6 of 15 sample queries qualified and grew by 551 to 4,192 bytes. That
 is meant to replace a Read of the whole file; whether it does in a session has
 not been measured.
 
