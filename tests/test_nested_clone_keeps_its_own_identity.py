@@ -4,7 +4,7 @@ A benchmark kept its datasets in a gitignored folder of its own checkout.
 Each dataset was a full clone with its own ``.git`` and origin, yet
 ``index_folder`` on one filed it under the outer checkout's index, because
 the existing-index lookup matched by path containment. It skipped only a
-nested linked worktree (#372), so all six datasets became one index and
+nested linked worktree (#372), so every dataset became part of one index and
 every lookup by the clone's own id found nothing.
 
 The lookup now asks ``checkout_boundary.separate_checkout_between``, the
