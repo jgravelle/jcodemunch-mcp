@@ -92,7 +92,7 @@ def test_ci_fails_with_no_runs_at_all():
 
 def test_live_pin_sites_all_agree():
     pins = pf.read_pins(REPO)
-    assert len(pins) == 7, sorted(pins)
+    assert len(pins) == 8, sorted(pins)  # the plugin's uvx pin is the 8th
     ok, msg = pf.pins_verdict(pins, None)
     assert ok, msg
 
@@ -105,9 +105,16 @@ def test_pins_fail_when_one_site_lags(tmp_path):
         json.dumps({"version": "9.9.9", "packages": [{"version": "9.9.8"}]}),
         encoding="utf-8",
     )
-    (tmp_path / ".claude-plugin").mkdir()
-    (tmp_path / ".claude-plugin" / "plugin.json").write_text(
-        json.dumps({"version": "9.9.9"}), encoding="utf-8"
+    manifest_dir = tmp_path / "plugin" / "jcodemunch" / ".claude-plugin"
+    manifest_dir.mkdir(parents=True)
+    (manifest_dir / "plugin.json").write_text(
+        json.dumps(
+            {
+                "version": "9.9.9",
+                "mcpServers": {"jcodemunch": {"command": "uvx", "args": ["jcodemunch-mcp==9.9.9"]}},
+            }
+        ),
+        encoding="utf-8",
     )
     (tmp_path / "whatsnew.json").write_text(
         json.dumps({"current": "9.9.9", "entries": [{"version": "9.9.9"}]}),

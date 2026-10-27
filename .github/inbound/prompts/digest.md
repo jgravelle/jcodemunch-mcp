@@ -48,6 +48,6 @@ that JSON itself. You write ONE opening paragraph and nothing else.
 docs/standard/STANDARD.md   docs/inbound/POLICY.md      docs/inbound/DESIGN.md
 harness/thresholds.json     harness/retired.json        docs/harness/ARCHAEOLOGY.md
 SECURITY.md                 LICENSE                     CONTRIBUTING.md
-pyproject.toml [project].version   server.json   .claude-plugin/plugin.json   whatsnew.json
+pyproject.toml [project].version   server.json   plugin/jcodemunch/.claude-plugin/plugin.json   whatsnew.json
 .github/inbound/**          .github/ISSUE_TEMPLATE/**
 <!-- END policy:never-touch -->

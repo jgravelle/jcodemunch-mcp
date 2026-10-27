@@ -20,7 +20,7 @@ to whoever owns that login.
    (`docs/workflows/DESIGN.md` §2.3). Steps 2-4 stay yours; the session's
    deny list refuses them.
 1. Open the release PR: bump the seven pin sites (`pyproject.toml`,
-   `server.json` x2, `.claude-plugin/plugin.json`, `uv.lock` name-scoped
+   `server.json` x2, `plugin/jcodemunch/.claude-plugin/plugin.json`, `uv.lock` name-scoped
    line, `whatsnew.json` current + entry), write the `## [X.Y.Z]` block in
    `CHANGELOG.md`, rotate CLAUDE.md Current State, label the PR `release`.
    The gate's `done: version pins` check refuses a `release` label without a
