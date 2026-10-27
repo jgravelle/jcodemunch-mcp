@@ -2,6 +2,7 @@
 
 import fnmatch as _fnmatch
 import itertools
+import logging
 import re
 import time
 from ._enclosing import attach_enclosing_symbols
@@ -9,6 +10,8 @@ from typing import Optional
 
 from ..storage import IndexStore, record_savings, cost_avoided
 from ._utils import index_status_to_tool_error, resolve_repo
+
+logger = logging.getLogger(__name__)
 
 # Detect nested quantifiers that cause catastrophic backtracking in Python's re engine.
 # Matches patterns like (a+)+, (a*)+, (a+)*, (?:a+){2,}, etc.
@@ -167,11 +170,25 @@ def _count_matches(store, content_dir, files, pattern, query_lower, deadline):
     return counts, True, unreadable
 
 
-def _attach_sources(body: dict, results: list, file_lines: dict) -> None:
+def _read_stored_lines(store, content_dir, file_path: str) -> list[str]:
+    """The index's stored copy of one file, as lines; [] if it cannot be read."""
+    full_path = store._safe_content_path(content_dir, file_path)
+    if not full_path:
+        return []
+    try:
+        with open(full_path, "r", encoding="utf-8", errors="replace") as f:
+            return f.readlines()
+    except OSError:
+        logger.debug("search_text: could not re-read %s for its source", file_path, exc_info=True)
+        return []
+
+
+def _attach_sources(body: dict, results: list, read_lines) -> None:
     """Add the source of the symbols a page's matches sit in, when they are few and small.
 
-    The lines come from the scan's own read of each file (the index's stored
-    copy, the same text the spans were taken from), so nothing is read twice.
+    The lines are read from the index's stored copy of each file, the same text
+    the spans were taken from, and only for the at most SOURCE_MAX_SYMBOLS
+    symbols that qualify: the scan keeps no file's lines alive.
     """
     order: dict[str, tuple] = {}
     for group in results:
@@ -190,7 +207,7 @@ def _attach_sources(body: dict, results: list, file_lines: dict) -> None:
         if end - start + 1 > SOURCE_MAX_LINES:
             reason = "too_long"
         else:
-            lines = file_lines.get(file_path) or []
+            lines = read_lines(file_path)
             source = "\n".join(v.rstrip("\r\n") for v in lines[start - 1:end])
             size = len(source.encode("utf-8"))
             if used + size <= SOURCE_MAX_BYTES:
@@ -291,7 +308,6 @@ def search_text(
     # is linear and not a ReDoS vector.
     _budget_deadline = (start + _REGEX_BUDGET_SEC) if pattern is not None else None
 
-    file_lines: dict[str, list[str]] = {}
     cut_index = -1
     cut_rest: list[str] = []
     for file_index, file_path in enumerate(files):
@@ -349,7 +365,6 @@ def search_text(
 
         if file_matches:
             results.append({"file": file_path, "matches": file_matches})
-            file_lines[file_path] = lines
 
         if truncated or timed_out:
             break
@@ -469,7 +484,7 @@ def search_text(
     }
     if more_files is not None:
         body.update(more_files)
-    _attach_sources(body, results, file_lines)
+    _attach_sources(body, results, lambda f: _read_stored_lines(store, content_dir, f))
     if files_eligible == 0 and file_pattern:
         # An empty result over a scope that matched no file is not an absence.
         note = f"file_pattern {file_pattern!r} matched no indexed file, so nothing was searched."
