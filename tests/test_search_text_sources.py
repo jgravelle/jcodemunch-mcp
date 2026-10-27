@@ -83,17 +83,17 @@ def test_sources_follow_first_match_order_and_are_not_repeated(tmp_path):
     assert res["sources_total"] == 2
 
 
-def test_too_many_symbols_returns_no_source_and_says_why(tmp_path):
+def test_a_page_over_many_symbols_carries_none_of_the_keys(tmp_path):
+    # A broad search is a survey, not a fix: no list is shown, so there is
+    # nothing to read as complete, and the common page pays no bytes for it.
     repo, store = _index(tmp_path, {"engine.py": ENGINE})
     res = search_text(repo, "beacon in", storage_path=store)
     distinct = {
         m["in"]["id"] for g in res["results"] for m in g["matches"] if "in" in m
     }
     assert len(distinct) > st_mod.SOURCE_MAX_SYMBOLS
-    assert "sources" not in res
-    assert res["sources_total"] == len(distinct)
-    assert res["sources_omitted"] == len(distinct)
-    assert res["sources_omitted_reason"] == "too_many_symbols"
+    for key in KEYS:
+        assert key not in res
 
 
 def test_a_long_symbol_is_left_out_as_too_long(tmp_path):
@@ -133,7 +133,7 @@ def test_no_match_carries_none_of_the_keys(tmp_path):
 
 def test_the_wire_encoding_round_trips_the_sources(tmp_path):
     repo, store = _index(tmp_path, {"engine.py": ENGINE})
-    for query in ("beacon in helper", "beacon in"):
+    for query in ("beacon in helper", "beacon in h", "beacon in"):
         res = search_text(repo, query, storage_path=store)
         payload, _encoding = st_schema.encode("search_text", res)
         decoded = st_schema.decode(payload)

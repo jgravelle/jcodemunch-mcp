@@ -179,28 +179,27 @@ def _attach_sources(body: dict, results: list, file_lines: dict) -> None:
             enclosing = match.get("in")
             if enclosing and enclosing.get("id") not in order:
                 order[enclosing["id"]] = (group["file"], enclosing["line"], enclosing["end_line"])
-    if not order:
+    # A page spread over many symbols is a survey, not a fix; it gets no source
+    # and no keys, so the common broad search pays nothing for this.
+    if not order or len(order) > SOURCE_MAX_SYMBOLS:
         return
     sources: list[dict] = []
     reasons: list[str] = []
-    if len(order) > SOURCE_MAX_SYMBOLS:
-        reasons.append("too_many_symbols")
-    else:
-        used = 0
-        for sym_id, (file_path, start, end) in order.items():
-            if end - start + 1 > SOURCE_MAX_LINES:
-                reason = "too_long"
-            else:
-                lines = file_lines.get(file_path) or []
-                source = "\n".join(v.rstrip("\r\n") for v in lines[start - 1:end])
-                size = len(source.encode("utf-8"))
-                if used + size <= SOURCE_MAX_BYTES:
-                    used += size
-                    sources.append({"id": sym_id, "source": source})
-                    continue
-                reason = "byte_cap"
-            if reason not in reasons:
-                reasons.append(reason)
+    used = 0
+    for sym_id, (file_path, start, end) in order.items():
+        if end - start + 1 > SOURCE_MAX_LINES:
+            reason = "too_long"
+        else:
+            lines = file_lines.get(file_path) or []
+            source = "\n".join(v.rstrip("\r\n") for v in lines[start - 1:end])
+            size = len(source.encode("utf-8"))
+            if used + size <= SOURCE_MAX_BYTES:
+                used += size
+                sources.append({"id": sym_id, "source": source})
+                continue
+            reason = "byte_cap"
+        if reason not in reasons:
+            reasons.append(reason)
     if sources:
         body["sources"] = sources
     body["sources_total"] = len(order)
