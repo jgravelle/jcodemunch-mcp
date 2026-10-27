@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.400] - 2026-10-27 - a text search returns the code it found, and a retired tool name says what replaced it
+
 ### Added - search_text returns the source of the few small symbols its matches sit in
 
 After a text search, an agent fixing a small bug still opened the file to see

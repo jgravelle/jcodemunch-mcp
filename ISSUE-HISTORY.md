@@ -2958,3 +2958,13 @@ The 1.108.396 entry, verbatim as it stood in `CLAUDE.md`:
 The `Tests:` line's 1.108.396 count, verbatim:
 
 - ⚠ Prior (1.108.396): 18625 passed, 24 skipped, **0 failed** (18649 total).
+
+## Current State rotation (2026-10-27, release 1.108.400)
+
+The 1.108.397 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.397):** **a cut search names the files it left off, and file_pattern takes braces** (#1226): `tools/search_text._file_patterns` expands brace groups (as-written pattern always kept; nesting, an unclosed brace or > `MAX_BRACE_ALTERNATIVES` (32) match as written); a truncated page adds `more_files` (cap `MORE_FILES_CAP` 20) + `more_files_total`/`_truncated`/`_complete`, counted by `_count_matches` with the page's own line test (bytes prefilter only on ASCII files); encoding `st4`. Full text: `CHANGELOG.md`.
+
+The `Tests:` line's 1.108.397 count, verbatim:
+
+- ⚠ Prior (1.108.397): 18648 passed, 24 skipped, **0 failed** (18672 total).
