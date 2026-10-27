@@ -2,6 +2,21 @@
 
 ## [Unreleased]
 
+### Fixed - a git clone inside an indexed checkout gets its own index
+
+A benchmark kept its datasets in a gitignored folder of its own checkout. Each
+dataset was a full clone, with its own `.git` and its own origin. Even so,
+`index_folder` on one of them filed it under the outer checkout's index. The
+lookup for an existing index matched by path containment and made one
+exception, a nested linked worktree (#372). So all six datasets became one
+index, and every lookup by a clone's own id found nothing.
+
+The lookup now asks `checkout_boundary.separate_checkout_between`, the rule
+`resolve_repo` and the session hooks already use (#1202). A separate checkout
+between a path and an indexed root is not part of that root, so a nested clone
+gets an index of its own. A plain subdirectory of the checkout still resolves
+to the checkout's index.
+
 ## [1.108.400] - 2026-10-27 - a text search returns the code it found, and a retired tool name says what replaced it
 
 ### Added - search_text returns the source of the few small symbols its matches sit in
