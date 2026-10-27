@@ -2,6 +2,20 @@
 
 ## [Unreleased]
 
+### Fixed - a retired tool name says which tool replaced it
+
+`get_symbol` and `get_symbols` were merged into `get_symbol_source` in March
+2026. Agent instructions written before then still name them, including public
+projects that tell their agents to call `get_symbol`. A call to either returned
+a bare `Unknown tool: get_symbol`, which leaves the agent nothing to try next.
+
+The error now names the replacement and its argument:
+`Unknown tool: get_symbol. It was replaced by get_symbol_source; call
+get_symbol_source with symbol_id.` It also carries `replaced_by`. It stays an
+error: the server dispatches only the tools it lists, so a retired name is not
+a hidden alias. `tests/test_retired_tool_names.py` fails if a replacement is
+not a published tool, or if a retired name is published again.
+
 ## [1.108.399] - 2026-10-26 - four core tool descriptions open with the question each tool answers
 
 ### Changed - the core tool descriptions use the words an agent's question uses
