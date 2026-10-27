@@ -88,3 +88,16 @@ def test_a_plain_subdirectory_still_belongs_to_the_parent(parent_indexed):
         str(sub), mode="config", store=IndexStore(base_path=str(store))
     )
     assert (decision.owner, decision.name) == ("acme", "bench")
+
+
+def test_local_mode_on_a_nested_clone_is_not_a_conflict_with_the_parent(
+    parent_indexed,
+):
+    """`local` mode refuses a path that an existing git identity already owns.
+    The parent's identity used to claim the nested clone, so `local` raised
+    IdentityModeConflict naming acme/bench. The clone is not the parent's."""
+    _, nested, store = parent_indexed
+    decision = resolve_index_identity(
+        str(nested), mode="local", store=IndexStore(base_path=str(store))
+    )
+    assert (decision.owner, decision.name) != ("acme", "bench")

@@ -31,7 +31,6 @@ class GitRootIdentity(NamedTuple):
         owner: Repo owner ("local" if no remote is configured).
         name: Repo name (from `origin` URL or git-root basename).
     """
-
     git_root: str
     owner: str
     name: str
@@ -96,9 +95,7 @@ def _existing_git_identity(path: Path, store) -> Optional[IdentityDecision]:
             git_root = getattr(index, "git_root", "") if index is not None else ""
         if _contains_path(git_root, path):
             if (
-                separate_checkout_between(
-                    path, Path(git_root).expanduser().resolve(), worktrees=True
-                )
+                separate_checkout_between(path, Path(git_root).expanduser().resolve(), worktrees=True)
                 is not None
             ):
                 continue
@@ -115,7 +112,6 @@ def _existing_git_identity(path: Path, store) -> Optional[IdentityDecision]:
 def _configured_identity_mode(folder_path: Path) -> str:
     try:
         from .. import config as _config
-
         configured = _config.get("identity_mode", None, repo=str(folder_path))
         if isinstance(configured, str) and configured in {"local", "git"}:
             return configured
@@ -133,9 +129,7 @@ def _identity_conflict_message(existing: IdentityDecision, requested: str) -> st
     )
 
 
-def _local_identity_if_present(
-    path: Path, local_name: str, store
-) -> Optional[IdentityDecision]:
+def _local_identity_if_present(path: Path, local_name: str, store) -> Optional[IdentityDecision]:
     if store is None:
         return None
     try:
@@ -171,19 +165,13 @@ def resolve_index_identity(
         raise ValueError("identity_mode must be one of: config, local, git")
 
     local_name = _local_repo_name(folder_path)
-    configured = (
-        _configured_identity_mode(folder_path) if requested == "config" else requested
-    )
+    configured = _configured_identity_mode(folder_path) if requested == "config" else requested
     local_existing = _local_identity_if_present(folder_path, local_name, store)
 
     should_probe_git_identity = store is not None and (
         requested == "local" or _path_has_git_root(folder_path)
     )
-    existing_git = (
-        _existing_git_identity(folder_path, store)
-        if should_probe_git_identity
-        else None
-    )
+    existing_git = _existing_git_identity(folder_path, store) if should_probe_git_identity else None
 
     # A linked worktree's git-mode index is keyed `local/<name>-<hash>` (#372),
     # the same key the local probe looks up, so both probes can name ONE index.
@@ -191,8 +179,7 @@ def resolve_index_identity(
     if (
         local_existing is not None
         and existing_git is not None
-        and (local_existing.owner, local_existing.name)
-        == (existing_git.owner, existing_git.name)
+        and (local_existing.owner, local_existing.name) == (existing_git.owner, existing_git.name)
     ):
         local_existing = None
 
@@ -213,9 +200,7 @@ def resolve_index_identity(
         requested = configured
     elif requested == "local":
         if existing_git is not None:
-            raise IdentityModeConflict(
-                _identity_conflict_message(existing_git, "local")
-            )
+            raise IdentityModeConflict(_identity_conflict_message(existing_git, "local"))
         if local_existing is not None:
             return local_existing
 
@@ -266,7 +251,7 @@ def is_linked_worktree(path: Path) -> bool:
         return False
     if not text.startswith("gitdir:"):
         return False
-    target = Path(text[len("gitdir:") :].strip())
+    target = Path(text[len("gitdir:"):].strip())
     if not target.is_absolute():
         target = path / target
     return target.parent.name == "worktrees"
@@ -308,7 +293,6 @@ def _read_origin_url(git_root: Path) -> Optional[str]:
     provisional-id computation (reported by @rknighton).
     """
     import os as _os
-
     env = _os.environ.copy()
     env["GIT_CONFIG_NOSYSTEM"] = "1"
     env["GIT_CONFIG_GLOBAL"] = _os.devnull
@@ -319,9 +303,7 @@ def _read_origin_url(git_root: Path) -> Optional[str]:
             cwd=str(git_root),
             check=False,
             capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
+            text=True, encoding="utf-8", errors="replace",
             timeout=5,
             stdin=subprocess.DEVNULL,
             env=env,

@@ -8,7 +8,7 @@ A benchmark kept its datasets in a gitignored folder of its own checkout. Each
 dataset was a full clone, with its own `.git` and its own origin. Even so,
 `index_folder` on one of them filed it under the outer checkout's index. The
 lookup for an existing index matched by path containment and made one
-exception, a nested linked worktree (#372). So all six datasets became one
+exception, a nested linked worktree (#372). So every dataset became part of one
 index, and every lookup by a clone's own id found nothing.
 
 The lookup now asks `checkout_boundary.separate_checkout_between`, the rule
