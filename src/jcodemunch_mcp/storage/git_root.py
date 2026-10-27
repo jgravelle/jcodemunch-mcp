@@ -18,6 +18,8 @@ import subprocess
 from pathlib import Path
 from typing import NamedTuple, Optional
 
+from ..checkout_boundary import separate_checkout_between
+
 logger = logging.getLogger(__name__)
 
 
@@ -29,6 +31,7 @@ class GitRootIdentity(NamedTuple):
         owner: Repo owner ("local" if no remote is configured).
         name: Repo name (from `origin` URL or git-root basename).
     """
+
     git_root: str
     owner: str
     name: str
@@ -74,11 +77,10 @@ def _existing_git_identity(path: Path, store) -> Optional[IdentityDecision]:
         entries = store.list_repos()
     except Exception:
         return None
-    # Nearest enclosing working tree of the queried path. Used to refuse
-    # containment matches that cross a worktree boundary (#372): a path
-    # inside `<repo>/.claude/worktrees/<name>` is path-contained in the
-    # parent's git_root but belongs to the worktree's own index.
-    nearest_root = _find_git_root(path)
+    # Containment is a filesystem fact; the index wants a repository one. A
+    # linked worktree (#372) or an independent clone nested inside an indexed
+    # checkout is path-contained in the parent's git_root but has its own index.
+    # One rule for both, shared with resolve_repo and the hooks (#1202).
     for entry in entries:
         repo_id = entry.get("repo", "")
         if "/" not in repo_id:
@@ -94,9 +96,10 @@ def _existing_git_identity(path: Path, store) -> Optional[IdentityDecision]:
             git_root = getattr(index, "git_root", "") if index is not None else ""
         if _contains_path(git_root, path):
             if (
-                nearest_root is not None
-                and nearest_root != Path(git_root).expanduser().resolve()
-                and is_linked_worktree(nearest_root)
+                separate_checkout_between(
+                    path, Path(git_root).expanduser().resolve(), worktrees=True
+                )
+                is not None
             ):
                 continue
             return IdentityDecision(
@@ -112,6 +115,7 @@ def _existing_git_identity(path: Path, store) -> Optional[IdentityDecision]:
 def _configured_identity_mode(folder_path: Path) -> str:
     try:
         from .. import config as _config
+
         configured = _config.get("identity_mode", None, repo=str(folder_path))
         if isinstance(configured, str) and configured in {"local", "git"}:
             return configured
@@ -129,7 +133,9 @@ def _identity_conflict_message(existing: IdentityDecision, requested: str) -> st
     )
 
 
-def _local_identity_if_present(path: Path, local_name: str, store) -> Optional[IdentityDecision]:
+def _local_identity_if_present(
+    path: Path, local_name: str, store
+) -> Optional[IdentityDecision]:
     if store is None:
         return None
     try:
@@ -165,13 +171,19 @@ def resolve_index_identity(
         raise ValueError("identity_mode must be one of: config, local, git")
 
     local_name = _local_repo_name(folder_path)
-    configured = _configured_identity_mode(folder_path) if requested == "config" else requested
+    configured = (
+        _configured_identity_mode(folder_path) if requested == "config" else requested
+    )
     local_existing = _local_identity_if_present(folder_path, local_name, store)
 
     should_probe_git_identity = store is not None and (
         requested == "local" or _path_has_git_root(folder_path)
     )
-    existing_git = _existing_git_identity(folder_path, store) if should_probe_git_identity else None
+    existing_git = (
+        _existing_git_identity(folder_path, store)
+        if should_probe_git_identity
+        else None
+    )
 
     # A linked worktree's git-mode index is keyed `local/<name>-<hash>` (#372),
     # the same key the local probe looks up, so both probes can name ONE index.
@@ -179,7 +191,8 @@ def resolve_index_identity(
     if (
         local_existing is not None
         and existing_git is not None
-        and (local_existing.owner, local_existing.name) == (existing_git.owner, existing_git.name)
+        and (local_existing.owner, local_existing.name)
+        == (existing_git.owner, existing_git.name)
     ):
         local_existing = None
 
@@ -200,7 +213,9 @@ def resolve_index_identity(
         requested = configured
     elif requested == "local":
         if existing_git is not None:
-            raise IdentityModeConflict(_identity_conflict_message(existing_git, "local"))
+            raise IdentityModeConflict(
+                _identity_conflict_message(existing_git, "local")
+            )
         if local_existing is not None:
             return local_existing
 
@@ -251,7 +266,7 @@ def is_linked_worktree(path: Path) -> bool:
         return False
     if not text.startswith("gitdir:"):
         return False
-    target = Path(text[len("gitdir:"):].strip())
+    target = Path(text[len("gitdir:") :].strip())
     if not target.is_absolute():
         target = path / target
     return target.parent.name == "worktrees"
@@ -293,6 +308,7 @@ def _read_origin_url(git_root: Path) -> Optional[str]:
     provisional-id computation (reported by @rknighton).
     """
     import os as _os
+
     env = _os.environ.copy()
     env["GIT_CONFIG_NOSYSTEM"] = "1"
     env["GIT_CONFIG_GLOBAL"] = _os.devnull
@@ -303,7 +319,9 @@ def _read_origin_url(git_root: Path) -> Optional[str]:
             cwd=str(git_root),
             check=False,
             capture_output=True,
-            text=True, encoding="utf-8", errors="replace",
+            text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=5,
             stdin=subprocess.DEVNULL,
             env=env,
