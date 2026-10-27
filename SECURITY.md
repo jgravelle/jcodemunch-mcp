@@ -307,6 +307,13 @@ piece of developer configuration that steers an AI agent.
   worktree hooks need `--hooks`
   (`install <agent>` passes it). The hook commands run every relevant
   tool call in the host agent.
+  With `--guidance`, the PreToolUse hook answers a Grep inside an indexed
+  repo from the index: it runs `search_text` locally (a 2-second budget),
+  refuses the Grep with that page as the reason, and lets the same Grep
+  through when it is sent again. It records which Greps it answered, as
+  hashes of the session id and the Grep's arguments, in
+  `~/.code-index/_grep_answered.json` (the last 200). Nothing leaves the
+  machine. `JCODEMUNCH_HOOK_GREP_ANSWER=0` turns it off.
 * `.github/hooks/hooks.json` — analogous hook surface for GitHub Copilot
   CLI / cloud agent flows.
 * Generated MCP client config files (paths depend on which clients are
