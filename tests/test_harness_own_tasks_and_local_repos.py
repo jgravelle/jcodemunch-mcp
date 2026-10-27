@@ -90,3 +90,14 @@ def test_an_unindexed_folder_is_named_in_the_error(rb, tmp_path, monkeypatch):
     assert rb.resolve_repo_arg(str(folder)) == str(folder)
     out = rb.benchmark_repo(str(folder))
     assert "jcodemunch-mcp index" in out["error"]
+
+
+def test_a_named_repo_that_cannot_be_measured_fails_the_run(rb, tmp_path, monkeypatch):
+    monkeypatch.setenv("CODE_INDEX_PATH", str(tmp_path / "store"))
+    folder = tmp_path / "plain"
+    folder.mkdir()
+    monkeypatch.setattr(
+        sys, "argv", ["run_benchmark.py", str(folder), "--out", str(tmp_path / "r.md")]
+    )
+    assert rb.main() == 3
+    assert (tmp_path / "r.md").exists()  # the report is still written

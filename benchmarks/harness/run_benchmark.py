@@ -1193,6 +1193,14 @@ def main():
                 "(benchmarks/results.md, benchmarks/METHODOLOGY.md, README.md) "
                 "or tests/test_provenance.py will fail."
             )
+    # A repo the caller named that could not be measured fails the run, after
+    # the report is written. The default corpus keeps exit 0 on a missing repo,
+    # as it always has, so nothing that runs the canonical set changes.
+    failed = [r.get("error") for r in results if args.repos and "error" in r]
+    if failed:
+        for err in failed:
+            print(f"not measured: {err}", file=sys.stderr)
+        return 3
     return 0
 
 
