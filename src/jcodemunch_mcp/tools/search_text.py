@@ -208,6 +208,14 @@ def _attach_sources(body: dict, results: list, read_lines) -> None:
             reason = "too_long"
         else:
             lines = read_lines(file_path)
+            if len(lines) < end:
+                # The stored copy could not be read, or is shorter than the
+                # span (rewritten since the scan): a partial or empty body
+                # would read as the symbol's whole source, so it is left out.
+                reason = "unreadable"
+                if reason not in reasons:
+                    reasons.append(reason)
+                continue
             source = "\n".join(v.rstrip("\r\n") for v in lines[start - 1:end])
             size = len(source.encode("utf-8"))
             if used + size <= SOURCE_MAX_BYTES:

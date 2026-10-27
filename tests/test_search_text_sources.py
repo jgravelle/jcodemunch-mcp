@@ -141,3 +141,94 @@ def test_the_wire_encoding_round_trips_the_sources(tmp_path):
             assert decoded.get(key) == res.get(key), key
     assert st_schema.ENCODING_ID == "st5"
     assert "st4" in st_schema.LEGACY_ENCODING_IDS
+
+
+def _write_bytes_repo(tmp_path, name, data: bytes):
+    src = tmp_path / "src"
+    src.mkdir()
+    (src / name).write_bytes(data)
+    store = tmp_path / "store"
+    res = index_folder(str(src), use_ai_summaries=False, storage_path=str(store))
+    assert res["success"] is True
+    return res["repo"], str(store)
+
+
+@pytest.mark.parametrize(
+    "stored", [[], ["def helper():\n"]], ids=["unreadable", "short"]
+)
+def test_an_unreadable_or_short_stored_copy_is_left_out_not_served_empty(stored):
+    # An empty or partial body would read as the symbol's whole source.
+    body: dict = {}
+    results = [
+        {
+            "file": "a.py",
+            "matches": [
+                {
+                    "line": 2,
+                    "in": {"id": "a.py::helper#function", "line": 1, "end_line": 2},
+                }
+            ],
+        }
+    ]
+    st_mod._attach_sources(body, results, lambda _f: stored)
+    assert "sources" not in body
+    assert body["sources_total"] == 1
+    assert body["sources_omitted"] == 1
+    assert body["sources_omitted_reason"] == "unreadable"
+
+
+def test_several_reasons_are_joined_in_the_order_met(tmp_path):
+    body_lines = "".join(
+        f"    x{i} = {i}\n" for i in range(st_mod.SOURCE_MAX_LINES + 5)
+    )
+    text = f'def big():\n{body_lines}    return "beacon"\n\n\ndef small():\n    return "beacon"\n'
+    lines = text.splitlines(keepends=True)
+    results = [
+        {
+            "file": "f.py",
+            "matches": [
+                {
+                    "line": 2,
+                    "in": {
+                        "id": "f.py::big#function",
+                        "line": 1,
+                        "end_line": st_mod.SOURCE_MAX_LINES + 7,
+                    },
+                },
+                {
+                    "line": len(lines),
+                    "in": {
+                        "id": "f.py::small#function",
+                        "line": len(lines) - 1,
+                        "end_line": len(lines),
+                    },
+                },
+            ],
+        }
+    ]
+    body: dict = {}
+    import unittest.mock as _mock
+
+    with _mock.patch.object(st_mod, "SOURCE_MAX_BYTES", 5):
+        st_mod._attach_sources(body, results, lambda _f: lines)
+    assert body["sources_omitted"] == 2
+    assert body["sources_omitted_reason"] == "too_long,byte_cap"
+
+
+def test_the_wire_encoding_round_trips_awkward_source(tmp_path):
+    # A blank line (the encoding's block separator), CRLF line ends, quotes,
+    # commas and non-ASCII text inside one symbol's source.
+    text = (
+        "def odd():\r\n"
+        '    a = "beacon, \\"quoted\\", café — 漢字"\r\n'
+        "\r\n"
+        "    return a\r\n"
+    )
+    repo, store = _write_bytes_repo(tmp_path, "odd.py", text.encode("utf-8"))
+    res = search_text(repo, "beacon", storage_path=store)
+    (src,) = res["sources"]
+    assert src["source"] == "\n".join(text.split("\r\n")[:4])
+    payload, _encoding = st_schema.encode("search_text", res)
+    decoded = st_schema.decode(payload)
+    for key in KEYS:
+        assert decoded.get(key) == res.get(key), key
