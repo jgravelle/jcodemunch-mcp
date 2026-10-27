@@ -60,7 +60,14 @@ def _meta_fields(monkeypatch, value):
 
 @pytest.fixture
 def checkout(tmp_path, monkeypatch):
-    """A git repo indexed at c0; the caller commits past it when it wants staleness."""
+    """A git repo indexed at c0; the caller commits past it when it wants staleness.
+
+    Refresh-on-read is off here: with it on, the dispatcher re-indexes the
+    commit before the search and the index is no longer stale. This file is
+    about how a stale index is reported, which is what a user with
+    ``refresh_on_read: false`` gets, or anyone whose repair could not run.
+    """
+    from jcodemunch_mcp import config as _config
     from jcodemunch_mcp.tools.index_folder import index_folder
     from jcodemunch_mcp.tools.search_symbols import _result_cache
 
@@ -75,6 +82,7 @@ def checkout(tmp_path, monkeypatch):
     _git(["commit", "-qm", "c0"], root)
     store = tmp_path / "store"
     monkeypatch.setenv("CODE_INDEX_PATH", str(store))
+    monkeypatch.setitem(_config._GLOBAL_CONFIG, "refresh_on_read", False)
     res = index_folder(str(root), use_ai_summaries=False, storage_path=str(store), identity_mode="local")
     _result_cache.clear()
 

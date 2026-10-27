@@ -6164,12 +6164,12 @@ async def _call_tool_impl(name: str, arguments: dict) -> list[TextContent] | Cal
             strict_ms = config_module.get("strict_timeout_ms", 500)
             await asyncio.to_thread(await_freshness_if_strict, repo_arg, timeout_ms=strict_ms)
 
-        # refresh_on_read (off by default): before a read answers on a git
+        # refresh_on_read (on by default): before a read answers on a git
         # repository, re-index what changed since the index was built, or say
         # why not. Runs before the tool loads the index, so the tool reads one
         # generation. The block rides the body (`index_refresh`), not `_meta`.
         _index_refresh = None
-        if repo_arg and config_module.get("refresh_on_read", False, repo=repo_arg):
+        if repo_arg and config_module.get("refresh_on_read", True, repo=repo_arg):
             try:
                 from . import refresh_on_read as _ror
                 if name in _ror.READ_TOOLS:
