@@ -1,5 +1,7 @@
 """get_call_hierarchy: callers and callees for any indexed symbol, N levels deep."""
 
+import logging
+import re
 import time
 from typing import Optional
 
@@ -14,6 +16,8 @@ from ..retrieval.verdict import (
     index_changed_since_load as _index_changed_since_load,
     symbol_not_found,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def _attach_scip_to_hierarchy(response: dict, store, owner: str, name: str) -> dict:
@@ -181,6 +185,11 @@ def get_call_hierarchy(
     Returns:
         Dict with symbol info, callers list, callees list, depth_reached, and _meta.
         Each caller/callee entry includes {id, name, kind, file, line, depth}.
+        A caller entry also carries ``call_lines``: the lines in its body that
+        call the target (capped at CALL_LINES_CAP). The response carries
+        ``call_sites``: ``file:line`` of each call by a direct caller (capped at
+        CALL_SITES_CAP). With direction='callers', a name with several
+        definitions answers for all of them and lists them in ``definitions``.
     """
     depth = max(1, min(depth, 5))
     if direction not in ("callers", "callees", "both"):
@@ -208,7 +217,16 @@ def get_call_hierarchy(
     matches = _find_symbol(index, symbol_id)
     if not matches:
         return symbol_not_found(symbol_id, index.symbols)
-    if len(matches) > 1:
+    # A bare name with several definitions: callers-only answers for all of
+    # them (a call-site question names a function, not one of its homes);
+    # callees still refuse, because each definition calls different things.
+    definitions: list[dict] = []
+    if len(matches) > 1 and direction == "callers":
+        definitions = [
+            {"id": s["id"], "name": s["name"], "file": s["file"], "line": s.get("line", 0)}
+            for s in matches
+        ]
+    elif len(matches) > 1:
         ambiguous = [{"name": s["name"], "file": s["file"], "id": s["id"]} for s in matches]
         return {
             "error": (
@@ -232,10 +250,16 @@ def get_call_hierarchy(
     depth_reached = 0
 
     if direction in ("callers", "both"):
-        callers, dr = bfs_callers(
-            index, store, owner, name, sym, reverse_adj, symbols_by_file, depth
-        )
-        depth_reached = max(depth_reached, dr)
+        seen_ids: set[str] = set()
+        for target in matches if definitions else [sym]:
+            found, dr = bfs_callers(
+                index, store, owner, name, target, reverse_adj, symbols_by_file, depth
+            )
+            for row in found:
+                if row["id"] not in seen_ids:
+                    seen_ids.add(row["id"])
+                    callers.append(row)
+            depth_reached = max(depth_reached, dr)
 
     if direction in ("callees", "both"):
         callees, dr = bfs_callees(
@@ -371,7 +395,79 @@ def get_call_hierarchy(
     # and must be allowed to reduce what we report as excluded.
     if direction in ("callers", "both"):
         _attach_caller_gate_disclosure(response, index, sym, reverse_adj)
+        _attach_call_lines(response, index, store, owner, name)
+    if definitions:
+        response["definitions"] = definitions
     return response
+
+
+# A caller row carried only its DEFINITION line, so "where is f called" still
+# sent the agent into each caller to find the call. These bound the lines added
+# per row and the flat file:line list (1.x list-field rule: bounded on arrival).
+CALL_LINES_CAP = 10
+CALL_SITES_CAP = 50
+CALL_LINES_BASIS = "name_in_caller_body"
+# Text before a match that makes it a definition, not a call.
+_DEF_PREFIX = re.compile(r"\b(?:def|function|func|fn|fun|sub|proc)\s+$")
+
+
+def _call_lines_in(lines: list[str], start: int, end: int, target: str) -> list[int]:
+    """1-based lines in [start, end] where ``target(`` is called, as a word.
+
+    ``obj.target(`` counts; ``def target(`` does not. Comments and strings are
+    not told apart (the response's ``call_lines_basis`` says so).
+    """
+    if not target or start <= 0:
+        return []
+    pat = re.compile(r"(?<![\w$])" + re.escape(target) + r"\s*\(")
+    found: list[int] = []
+    for n in range(start, min(max(end, start), len(lines)) + 1):
+        text = lines[n - 1]
+        for m in pat.finditer(text):
+            if not _DEF_PREFIX.search(text[: m.start()]):
+                found.append(n)
+                break
+    return found
+
+
+def _attach_call_lines(response: dict, index, store, owner: str, name: str) -> None:
+    """Add ``call_lines`` to each caller row and a flat ``call_sites`` list."""
+    callers = response.get("callers") or []
+    symbol_index: dict = getattr(index, "_symbol_index", {}) or {}
+    target_name = str((response.get("symbol") or {}).get("name", "")).split(".")[-1]
+    file_lines: dict[str, list[str]] = {}
+
+    def lines_of(path: str) -> list[str]:
+        if path not in file_lines:
+            try:
+                content = store.get_file_content(owner, name, path)
+            except Exception:
+                logger.debug("call_lines: could not read %s", path, exc_info=True)
+                content = None
+            file_lines[path] = content.splitlines() if content else []
+        return file_lines[path]
+
+    sites: list[str] = []
+    for row in callers:
+        full = symbol_index.get(row.get("id", "")) or {}
+        path = row.get("file") or full.get("file") or ""
+        start = int(row.get("line") or full.get("line") or 0)
+        end = int(full.get("end_line") or start)
+        via = symbol_index.get(row.get("via", "")) if row.get("via") else None
+        target = str(via.get("name", "")).split(".")[-1] if via else target_name
+        found = _call_lines_in(lines_of(path), start, end, target) if path else []
+        row["call_lines"] = found[:CALL_LINES_CAP]
+        if len(found) > CALL_LINES_CAP:
+            row["call_lines_total"] = len(found)
+            row["call_lines_truncated"] = True
+        if row.get("depth", 1) == 1:
+            sites.extend(f"{path}:{n}" for n in found)
+    if not callers:
+        return
+    response["call_sites"] = sites[:CALL_SITES_CAP]
+    response["call_sites_total"] = len(sites)
+    response["call_sites_truncated"] = len(sites) > CALL_SITES_CAP
+    response["call_lines_basis"] = CALL_LINES_BASIS
 
 
 def _attach_caller_gate_disclosure(

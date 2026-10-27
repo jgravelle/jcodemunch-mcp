@@ -2,6 +2,27 @@
 
 ## [Unreleased]
 
+### Added - a caller says on which lines it calls the target
+
+`get_call_hierarchy` gave each caller's definition line, so "where is `f`
+called" still sent an agent into every caller to find the call. On a public
+call-site benchmark that grades `file:line`, that scored near zero.
+
+Each caller row now carries `call_lines`: the lines in that caller's body
+that call the target, as a word followed by `(` (`obj.f(` counts, `def f(`
+does not; comments are not told apart, and `call_lines_basis` says so). The
+response carries `call_sites`, a flat `file:line` list for the direct
+callers. Both are capped (10 lines a row, 50 sites) and say when they were
+cut (`call_lines_total`/`call_lines_truncated`, `call_sites_total`/
+`call_sites_truncated`). With `direction="callers"`, a name with several
+definitions answers for all of them and lists them in `definitions`, instead
+of refusing as ambiguous; `callees` and `both` still refuse. The compact
+encoding is `ch3` (`ch1` and `ch2` stay decodable).
+
+Measured over this repository's own `src/`: +170 to +334 bytes on answers with
+one to eight callers, and +4,657 bytes (+23%) for `resolve_repo`'s 80 callers,
+most of it the `call_sites` list.
+
 ### Added - search_text returns the source of the few small symbols its matches sit in
 
 After a text search, an agent fixing a small bug still opened the file to see
