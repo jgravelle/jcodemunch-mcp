@@ -5,14 +5,15 @@
 ### Fixed - a retired tool name says which tool replaced it
 
 `get_symbol` and `get_symbols` were merged into `get_symbol_source` in March
-2026. Agent instructions written before then still name them, including public
-projects that tell their agents to call `get_symbol`. A call to either returned
+2026. Agent instructions written before then still name them; at least one
+public project tells its agents to call `get_symbol`. A call to either returned
 a bare `Unknown tool: get_symbol`, which leaves the agent nothing to try next.
 
 The error now names the replacement and its argument:
 `Unknown tool: get_symbol. It was replaced by get_symbol_source; call
-get_symbol_source with symbol_id.` It also carries `replaced_by`. It stays an
-error: the server dispatches only the tools it lists, so a retired name is not
+get_symbol_source with symbol_id.` It also carries `replaced_by`. Through
+`order`, the same name gets the same pointer after `Unknown action`, because both
+routes read one table (`counter.RETIRED_TOOL_NAMES`). It stays an error: the server dispatches only the tools it lists, so a retired name is not
 a hidden alias. `tests/test_retired_tool_names.py` fails if a replacement is
 not a published tool, or if a retired name is published again.
 

@@ -5972,26 +5972,14 @@ def _enforce_response_cap(
         return result
 
 
-# Tool names that were retired, mapped to (the tool that replaced them, the
-# argument it takes). Agent instructions written before a rename keep naming
-# the old tool, so the error says what to call instead. It stays an error:
-# the server never dispatches a name it does not list.
-RETIRED_TOOL_NAMES: dict[str, tuple[str, str]] = {
-    "get_symbol": ("get_symbol_source", "symbol_id"),
-    "get_symbols": ("get_symbol_source", "symbol_ids"),
-}
-
-
 def _unknown_tool_error(name: str) -> dict:
     """The error body for a tool name the server does not dispatch."""
-    retired = RETIRED_TOOL_NAMES.get(name)
-    if retired is None:
+    from .counter import RETIRED_TOOL_NAMES, retired_hint
+
+    hint = retired_hint(name)
+    if hint is None:
         return {"error": f"Unknown tool: {name}"}
-    new, arg = retired
-    return {
-        "error": f"Unknown tool: {name}. It was replaced by {new}; call {new} with {arg}.",
-        "replaced_by": new,
-    }
+    return {"error": f"Unknown tool: {name}. {hint}", "replaced_by": RETIRED_TOOL_NAMES[name][0]}
 
 
 @server.call_tool(validate_input=False)
