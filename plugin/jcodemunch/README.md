@@ -46,6 +46,10 @@ Then ask Claude to index the project, or call `index_folder` with its path.
 
 Full list: [SECURITY.md](https://github.com/jgravelle/jcodemunch-mcp/blob/main/SECURITY.md#background-behavior-fully-disclosed).
 
+## Privacy Policy
+
+Your code, file paths and queries stay on your machine, in `~/.code-index/`. This plugin turns off the anonymous savings counter (`JCODEMUNCH_SHARE_SAVINGS=0`), so the server sends nothing in normal use; the commands under [What it runs, sends and fetches](#what-it-runs-sends-and-fetches) that reach the network run only when you start them. Full policy: https://jcodemunch.com/privacy.php
+
 ## Settings
 
 Settings live in `~/.code-index/config.jsonc`; `uvx jcodemunch-mcp config` prints each one and where it came from. For example, `max_folder_files: 20000` raises the 2,000-file limit for indexing one large folder.
