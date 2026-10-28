@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.401] - 2026-10-28 - a redirected Grep can carry the index's answer, and a substring search opens only the files that can match
+
 ### Added - a redirected Grep can carry the index's answer (opt-in)
 
 With the PreToolUse hook installed (`init --guidance` or `--strict`), it steered a Grep inside an indexed
