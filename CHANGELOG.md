@@ -2,11 +2,11 @@
 
 ## [Unreleased]
 
-### Changed - a redirected Grep carries the index's answer
+### Added - a redirected Grep can carry the index's answer (opt-in)
 
 With `init --guidance`, the PreToolUse hook steered a Grep inside an indexed
 repo toward `search_text`, and the agent then spent a second turn making that
-search. The hook now runs the search itself and refuses the Grep with the
+search. With `JCODEMUNCH_HOOK_GREP_ANSWER=1`, the hook runs the search itself and refuses the Grep with the
 result as the reason, so the next turn reads the answer instead of asking for
 it. It answers once per session and Grep arguments: the same Grep sent again
 runs normally, which keeps raw output one call away.
@@ -26,7 +26,9 @@ file), the Grep uses an argument the answer cannot reproduce (`type`,
 with `**`, or a sub-path with a `glob`), the page is over 8,000 characters, or
 the search runs past `JCODEMUNCH_HOOK_ANSWER_BUDGET_SECONDS` (default 4). It records which Greps it
 answered, as hashes, in `~/.code-index/_grep_answered.json`.
-`JCODEMUNCH_HOOK_GREP_ANSWER=0` turns it off. Disclosed in SECURITY.md.
+It is off by default. Measured on short bug-fix tasks, it made sessions cost
+more and solved the same tasks, so it stays opt-in until a test on larger
+repositories shows it pays. Disclosed in SECURITY.md.
 
 ### Changed - a substring search opens only the files that can match
 

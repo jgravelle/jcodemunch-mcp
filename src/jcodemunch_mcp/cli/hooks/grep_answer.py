@@ -48,9 +48,13 @@ _REGEX_CHARS = re.compile(r"[\\^$.|?*+()\[\]{}]")
 
 
 def answer_enabled() -> bool:
-    """JCODEMUNCH_HOOK_GREP_ANSWER=0 (or false/no/off) turns answering off."""
-    val = os.environ.get("JCODEMUNCH_HOOK_GREP_ANSWER", "1").strip().lower()
-    return val not in _OFF
+    """Off unless JCODEMUNCH_HOOK_GREP_ANSWER is set to 1 (or true/yes/on).
+
+    Off by default: on short bug-fix tasks the answered Grep raised session
+    cost without solving more of them.
+    """
+    val = os.environ.get("JCODEMUNCH_HOOK_GREP_ANSWER", "0").strip().lower()
+    return bool(val) and val not in _OFF
 
 
 def _budget_seconds() -> float:

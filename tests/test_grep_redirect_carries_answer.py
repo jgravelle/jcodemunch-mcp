@@ -63,7 +63,7 @@ def indexed(tmp_path, monkeypatch):
     monkeypatch.setenv("CODE_INDEX_PATH", str(tmp_path / "store"))
     monkeypatch.setenv("JCODEMUNCH_TRUSTED_FOLDERS", str(tmp_path))
     monkeypatch.delenv("JCODEMUNCH_ENFORCE", raising=False)
-    monkeypatch.delenv("JCODEMUNCH_HOOK_GREP_ANSWER", raising=False)
+    monkeypatch.setenv("JCODEMUNCH_HOOK_GREP_ANSWER", "1")
     from jcodemunch_mcp.tools.index_folder import index_folder
 
     assert index_folder(str(proj), use_ai_summaries=False)["success"]
@@ -108,6 +108,12 @@ def test_an_argument_with_no_translation_lets_the_grep_run(indexed):
 
 def test_the_switch_turns_it_off(indexed, monkeypatch):
     monkeypatch.setenv("JCODEMUNCH_HOOK_GREP_ANSWER", "0")
+    decision, _ = _decision(_run(_grep(indexed, pattern="compute_total")))
+    assert decision != "deny"
+
+
+def test_it_is_off_when_the_switch_is_unset(indexed, monkeypatch):
+    monkeypatch.delenv("JCODEMUNCH_HOOK_GREP_ANSWER", raising=False)
     decision, _ = _decision(_run(_grep(indexed, pattern="compute_total")))
     assert decision != "deny"
 
@@ -214,7 +220,7 @@ def test_a_secret_on_a_matched_line_is_redacted(tmp_path, monkeypatch):
     monkeypatch.setenv("CODE_INDEX_PATH", str(tmp_path / "store"))
     monkeypatch.setenv("JCODEMUNCH_TRUSTED_FOLDERS", str(tmp_path))
     monkeypatch.delenv("JCODEMUNCH_ENFORCE", raising=False)
-    monkeypatch.delenv("JCODEMUNCH_HOOK_GREP_ANSWER", raising=False)
+    monkeypatch.setenv("JCODEMUNCH_HOOK_GREP_ANSWER", "1")
     from jcodemunch_mcp.tools.index_folder import index_folder
 
     assert index_folder(str(proj), use_ai_summaries=False)["success"]
