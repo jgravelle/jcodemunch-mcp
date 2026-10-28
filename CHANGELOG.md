@@ -2,6 +2,22 @@
 
 ## [Unreleased]
 
+### Changed - the first 512 characters of the server instructions serve every client
+
+The `instructions` string a client receives at startup opened with what the
+server is for, then the Claude Code-only line on loading deferred tools
+through ToolSearch, then the tool list. Codex advises that a server's
+instructions make sense from their first 512 characters, and in the default
+(`full`) text that window ended inside the ToolSearch line, before any tool
+was named.
+
+The ToolSearch line now follows the tool list, so the window names the
+indexing tool and the first tools to call. The `counter` surface's opening
+now names its three verbs (route, menu and order), because its window ended
+just before the list. Claude Code still receives the ToolSearch line. The
+total stays under the 1,000-character budget, and no tool or description
+changed.
+
 ## [1.108.400] - 2026-10-27 - a text search returns the code it found, and a retired tool name says what replaced it
 
 ### Added - search_text returns the source of the few small symbols its matches sit in
