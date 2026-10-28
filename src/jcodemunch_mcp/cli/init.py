@@ -1755,6 +1755,11 @@ def run_init(
         print("Dry run complete -- no changes were made.")
     else:
         print("Done. Restart your MCP client(s) to connect.")
+        # A machine that ran init was shown init's own license line (or is
+        # licensed), so the server's one-time license notice is not due.
+        from ..license_notice import mark_shown
+
+        mark_shown("init")
         if os.environ.get(UPGRADE_REFRESH_ENV) != "1":
             print(ASK_BY_NAME_LINE)
         if os.environ.get(UPGRADE_REFRESH_ENV) != "1" and not _licence_key_configured():
