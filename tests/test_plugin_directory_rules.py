@@ -45,6 +45,23 @@ def _server() -> dict:
     return next(iter(servers.values()))
 
 
+LISTING_URLS = ("documentationUrl", "supportUrl", "privacyPolicyUrl", "termsOfServiceUrl")
+
+
+def test_the_directory_listing_links_are_set():
+    """Anthropic's directory reads these four links from plugin.json for the listing.
+
+    There is no terms-of-service page, so the terms link is the LICENSE the
+    plugin ships, which is the terms of use.
+    """
+    manifest = _manifest()
+    for key in LISTING_URLS:
+        assert str(manifest.get(key, "")).startswith("https://"), f"{key} is not an https URL"
+    assert manifest["privacyPolicyUrl"] == "https://jcodemunch.com/privacy.php"
+    assert manifest["supportUrl"] == "https://github.com/jgravelle/jcodemunch-mcp/issues"
+    assert manifest["termsOfServiceUrl"].endswith("/LICENSE")
+
+
 def test_the_name_is_lowercase_letters_digits_and_hyphens():
     assert re.fullmatch(r"[a-z0-9-]+", _manifest()["name"])
 
