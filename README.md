@@ -357,7 +357,20 @@ In Claude Code, add `"allowManagedMcpServersOnly": true` to make the managed lis
 
 For GitHub's private-registry route, the server ID is `io.github.jgravelle/jcodemunch-mcp`. GitHub describes that route as weaker than the managed-settings allowlist.
 
-Keep the server name `jcodemunch` in every config. Copilot's usage metrics report each MCP server under the name it was configured with, so one name keeps jCodeMunch on one line.
+Keep the server name `jcodemunch` in every config. Copilot's usage metrics count connections to each MCP server, per user, under the name it was configured with, so one name keeps jCodeMunch on one line. They count connections, not tool calls.
+
+**Claude Code: install it on every machine.** Put this in managed settings (the claude.ai admin console, an MDM policy, or `managed-settings.json`). Each machine registers the marketplace and installs the plugin at the start of its next session, and users can't turn it off:
+
+```json
+{
+  "extraKnownMarketplaces": {
+    "jmunch": { "source": { "source": "github", "repo": "jgravelle/jcodemunch-mcp" } }
+  },
+  "enabledPlugins": { "jcodemunch@jmunch": true }
+}
+```
+
+If you limit plugin sources with `strictKnownMarketplaces`, add `{ "source": "github", "repo": "jgravelle/jcodemunch-mcp" }` to it, or the marketplace is refused.
 
 **Cursor teams.** A Cursor admin can install jCodeMunch on every seat through a team marketplace (Dashboard, then Plugins & MCPs, then Team Marketplaces, then Add Marketplace). In the marketplace repo, add a `jcodemunch/` plugin folder with two files:
 
