@@ -2978,3 +2978,9 @@ The 1.108.398 entry, verbatim as it stood in `CLAUDE.md`:
 The `Tests:` line's 1.108.398 count, verbatim:
 
 - ⚠ Prior (1.108.398): 18674 passed, 24 skipped, **0 failed** (18698 total).
+
+## Current State rotation (2026-10-28, release 1.108.402)
+
+The 1.108.399 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.399):** **four core tool descriptions open with the question each tool answers** (#1233, #1234): search_symbols/get_symbol_source/get_call_hierarchy/check_references, pinned by `tests/test_question_queries_find_core_tools.py`; the counter `instructions` add a named-code line whose route() phrasings `tests/test_instructions_named_code.py` checks against `classify_intent`. No effect on use is claimed. Full text: `CHANGELOG.md`.
