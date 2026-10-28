@@ -11484,6 +11484,11 @@ def main(argv: Optional[list[str]] = None):
     elif args.command == "watch-install":
         import json as _json
         from .service_installer import install_service, InstallerError
+        from .watcher import exit_unless_watchfiles
+
+        # The service runs watch-all with this interpreter and restarts it on
+        # failure, so without watchfiles it would exit 1 and restart forever.
+        exit_unless_watchfiles("watch-install")
         try:
             print(_json.dumps(install_service(), indent=2))
         except InstallerError as exc:

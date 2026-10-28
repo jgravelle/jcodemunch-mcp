@@ -14,7 +14,9 @@ Both commands now check once, before starting anything. With `watchfiles`
 missing they print one line with the install command for the way jCodeMunch
 was installed (pip, pipx, uv or uvx) and exit 1. The server's `--watcher`
 flag already exited 1 but always printed the pip line; it now prints the same
-install line. `watch --once` does not need `watchfiles` and is unchanged.
+install line. `watch-install` refuses the same way before registering a service:
+the service runs `watch-all` and restarts it on failure, so it would
+otherwise exit and restart forever. `watch --once` does not need `watchfiles` and is unchanged.
 The server's own config-enabled watcher still only warns, because the server
 must keep answering without it.
 
