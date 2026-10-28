@@ -122,3 +122,38 @@ def test_the_hosted_marketplace_installs_this_folder():
 def test_no_plugin_manifest_is_left_at_the_repository_root():
     """One plugin, one manifest: a second copy would drift from the first."""
     assert not (REPO_ROOT / ".claude-plugin" / "plugin.json").exists()
+
+
+SKILL = PLUGIN_DIR / "skills" / "jcodemunch" / "SKILL.md"
+
+
+def test_the_plugin_ships_the_skill_init_writes():
+    """The plugin carries the same skill `init` installs on a clean config, so
+    a plugin user gets the routing guidance without running `init`. Generated,
+    never hand-edited: if this fails, regenerate it from
+    `cli.skills._build_skill_content()`."""
+    from jcodemunch_mcp.cli.skills import _build_skill_content
+
+    assert SKILL.exists(), "plugin/jcodemunch/skills/jcodemunch/SKILL.md is missing"
+    shipped = SKILL.read_text(encoding="utf-8").replace("\r\n", "\n")
+    assert shipped == _build_skill_content().replace("\r\n", "\n")
+
+
+def test_the_plugin_ships_the_skill_and_no_agent():
+    """Owner ruling 2026-10-28 ("hold the agent"): the plugin ships the server
+    and the skill only."""
+    assert not (PLUGIN_DIR / "agents").exists()
+    assert "agents" not in _manifest()
+    assert "skill" in README.read_text(encoding="utf-8").lower()
+
+
+def test_the_readme_names_only_settings_the_pinned_version_has():
+    """A setting named in the listing must exist in the version the plugin
+    pins, or the listing promises behavior the user does not get."""
+    from jcodemunch_mcp.config import DEFAULTS
+
+    text = README.read_text(encoding="utf-8")
+    named = set(re.findall(r"`([a-z][a-z0-9_]+)\s*:", text))
+    assert named, "the README's Settings section names no setting"
+    missing = sorted(n for n in named if n not in DEFAULTS)
+    assert not missing, f"README names settings the pinned version lacks: {missing}"

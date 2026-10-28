@@ -33,8 +33,9 @@ Then ask Claude to index the project, or call `index_folder` with its path.
 
 - **What runs:** `uvx` starts `jcodemunch-mcp` at the exact version pinned in this plugin. It runs as a local MCP server over stdio. There is no remote endpoint and no hosted service.
 - **One download, on first start:** `uvx` downloads that pinned package and its dependencies from PyPI (pypi.org) into uv's cache. After that, starting the server needs no network.
-- **What it reads:** the folders you ask it to index. It never runs the code it indexes. On a git repository, before a read it runs read-only git commands (`git diff`, `git ls-files`) to find files changed since the index was built, and re-indexes them.
+- **What it reads:** the folders you ask it to index. It never runs the code it indexes. On a git repository it runs read-only git commands (such as `git rev-parse` and `git diff`) to tell whether the index is behind the code.
 - **What it writes:** the index and a few small state files in `~/.code-index/` on your machine. Delete that folder to remove everything.
+- **A skill:** the plugin includes the jcodemunch skill, which Claude loads when a task calls for code navigation. It holds guidance text only and runs nothing.
 - **No hooks:** the plugin adds no hooks to Claude Code, so it never checks, allows or blocks another tool call. The hooks that steer Grep and Read toward the index are opt-in, from `uvx jcodemunch-mcp init --guidance`.
 - **What it sends:** nothing, in normal use. This plugin turns the anonymous savings counter off (`JCODEMUNCH_SHARE_SAVINGS=0`), so the server makes no network calls of its own.
 - **Commands you run yourself that do reach the network:**
@@ -47,7 +48,7 @@ Full list: [SECURITY.md](https://github.com/jgravelle/jcodemunch-mcp/blob/main/S
 
 ## Settings
 
-Settings live in `~/.code-index/config.jsonc`; `uvx jcodemunch-mcp config` prints each one and where it came from. For example, `refresh_on_read: false` stops the re-index before a read.
+Settings live in `~/.code-index/config.jsonc`; `uvx jcodemunch-mcp config` prints each one and where it came from. For example, `max_folder_files: 20000` raises the 2,000-file limit for indexing one large folder.
 
 ## License
 
