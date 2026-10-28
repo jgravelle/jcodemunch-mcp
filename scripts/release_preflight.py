@@ -23,7 +23,7 @@ Checks
                 The PR gate
                 itself is guaranteed by branch protection (enforce_admins on)
   pins          every version pin site agrees (pyproject, server.json x2,
-                .claude-plugin/plugin.json, whatsnew.json current + entries[0],
+                plugin/jcodemunch/.claude-plugin/plugin.json (version + uvx pin), whatsnew.json current + entries[0],
                 uv.lock name-scoped line) and equals --version when given
   changelog     CHANGELOG.md has a heading for that version
   tag           `v<version>` exists neither locally nor on origin
@@ -57,7 +57,7 @@ OWNER = "jgravelle"
 PIN_SITES = (
     "pyproject.toml",
     "server.json",
-    ".claude-plugin/plugin.json",
+    "plugin/jcodemunch/.claude-plugin/plugin.json",
     "whatsnew.json",
     "uv.lock",
 )
@@ -112,11 +112,22 @@ def read_pins(root: Path = REPO) -> dict[str, str | None]:
     except Exception:
         pins["server.json:version"] = pins["server.json:packages[0].version"] = None
     try:
-        pins[".claude-plugin/plugin.json"] = json.loads(
-            (root / ".claude-plugin/plugin.json").read_text(encoding="utf-8")
-        ).get("version")
+        manifest = json.loads(
+            (root / "plugin/jcodemunch/.claude-plugin/plugin.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        pins["plugin.json:version"] = manifest.get("version")
+        # The uvx launcher is pinned to an exact version (the plugin
+        # directory refuses a range), so the pin is a second site.
+        args = (
+            next(iter((manifest.get("mcpServers") or {}).values()), {}).get("args")
+            or []
+        )
+        launch = next((a for a in args if a.startswith("jcodemunch-mcp==")), None)
+        pins["plugin.json:uvx pin"] = launch.split("==", 1)[1] if launch else None
     except Exception:
-        pins[".claude-plugin/plugin.json"] = None
+        pins["plugin.json:version"] = pins["plugin.json:uvx pin"] = None
     try:
         wn = json.loads((root / "whatsnew.json").read_text(encoding="utf-8"))
         pins["whatsnew.json:current"] = wn.get("current")
