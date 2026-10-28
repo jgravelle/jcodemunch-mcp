@@ -42,8 +42,27 @@ refusal is deliberate; the paragraph below is why.
 **Recommended (pre-installed binary, no `uvx`).** Codex's rmcp transport
 is strict about the first JSON-RPC frame on stdout. `uvx`'s install
 chatter on first run can poison the handshake, which historically
-manifests as a silent multi-hour hang. Install the package into a
-project venv and point Codex at the resolved binary directly:
+manifests as a silent multi-hour hang. Install it once with uv, which
+also means there's no download when Codex first starts the server:
+
+```bash
+uv tool install jcodemunch-mcp
+jcodemunch-mcp init
+```
+
+When `jcodemunch-mcp` on your `PATH` is the install `init` is configuring,
+`init` writes the bare name, so the entry keeps working after a reinstall
+moves the binary. When `PATH` finds a different install, or none, it writes
+the absolute path instead. (Codex starts a bare command name through
+`PATH`; tested on Codex 0.154.0 on Windows only.)
+
+```toml
+# ~/.codex/config.toml
+[mcp_servers.jcodemunch]
+command = "jcodemunch-mcp"
+```
+
+Or install into a project venv and point Codex at the binary directly:
 
 ```bash
 python3 -m venv .venv
@@ -79,7 +98,15 @@ not recommended for Codex):
 [mcp_servers.jcodemunch]
 command = "uvx"
 args = ["jcodemunch-mcp"]
+# The first run downloads about 250 MB before the server answers.
+startup_timeout_sec = 30
 ```
+
+Codex waits 10 seconds for a server to start unless `startup_timeout_sec`
+says otherwise ([Codex MCP docs](https://learn.chatgpt.com/docs/extend/mcp?surface=cli)).
+Measured on 2026-10-28 (Windows, home broadband, `uvx` alone rather than
+inside Codex): about 7 s to the first reply with an empty uv cache, 2.5 s
+once cached. A slower link can pass 10 s on the first run.
 </details>
 
 <details>

@@ -380,6 +380,19 @@ def _codex_command() -> Optional[str]:
     return executable_for_commands()
 
 
+def _codex_command_name(exe: str) -> str:
+    """The bare name when PATH finds ``exe`` itself, else ``exe``.
+
+    Codex starts a server named by its bare command through PATH (seen on
+    Codex 0.154.0, Windows). The bare name keeps working when the install
+    moves, but only if PATH finds this same install: otherwise it would start
+    a different version, or nothing, so the absolute path is kept.
+    """
+    from ..install_layout import bare_name_if_path_finds
+
+    return bare_name_if_path_finds(exe)
+
+
 def _has_codex_entry(text: str) -> bool:
     """True when config.toml already declares the jcodemunch server."""
     return re.search(r"^\s*\[mcp_servers\.jcodemunch\]", text, re.MULTILINE) is not None
@@ -414,14 +427,17 @@ def _patch_codex_config(
         )
 
     if dry_run:
-        return f"  would add [mcp_servers.jcodemunch] to {path} (command = {exe})"
+        return (
+            f"  would add [mcp_servers.jcodemunch] to {path} "
+            f"(command = {_codex_command_name(exe)})"
+        )
 
     if backup and path.exists():
         shutil.copy2(path, _backup_path(path))
 
     block = (
         "\n[mcp_servers.jcodemunch]\n"
-        f"command = {_toml_string(exe)}\n"
+        f"command = {_toml_string(_codex_command_name(exe))}\n"
     )
     # Keep exactly one blank line between our block and whatever precedes it.
     prefix = "" if (not existing or existing.endswith("\n")) else "\n"

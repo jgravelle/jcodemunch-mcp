@@ -236,6 +236,24 @@ def substitution_note() -> Optional[str]:
     )
 
 
+def bare_name_if_path_finds(exe: str) -> str:
+    """`jcodemunch-mcp` when PATH's first match is ``exe`` itself, else ``exe``.
+
+    For a server entry the client starts through PATH: the bare name survives
+    the install moving, and is written only when it would start this same
+    install. It is judged against THIS process's PATH; a client launched with
+    a different PATH sees what its own PATH holds.
+    """
+    on_path = shutil.which(_EXECUTABLE_NAME)
+    if not on_path:
+        return exe
+
+    def norm(p: str) -> str:
+        return os.path.normcase(os.path.realpath(p))
+
+    return _EXECUTABLE_NAME if norm(on_path) == norm(exe) else exe
+
+
 def executable_for_commands() -> Optional[str]:
     """What a written hook or server entry should run: this install, else PATH's.
 

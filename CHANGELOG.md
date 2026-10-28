@@ -2,6 +2,25 @@
 
 ## [Unreleased]
 
+### Changed - `init` writes Codex's entry as the bare command name when PATH finds the same install
+
+`init` wrote Codex's `[mcp_servers.jcodemunch]` entry as an absolute path to
+the binary. That path breaks when a reinstall moves the binary. Codex starts a
+server named by its bare command through PATH, so `init` now writes
+`command = 'jcodemunch-mcp'` when, and only when, PATH's first
+`jcodemunch-mcp` is the executable it would otherwise have written. When PATH
+finds a different install, or none, the absolute path is written as before: a
+bare name there would start another version, or nothing. The comparison uses
+`init`'s own PATH, so a Codex launched with a different PATH can still find
+something else. Bare-name launch was tested on Codex 0.154.0 on Windows only.
+
+CLIENTS.md now recommends `uv tool install jcodemunch-mcp` for Codex, which
+also removes the first-run download. Its `uvx` example sets
+`startup_timeout_sec = 30`: Codex waits 10 seconds for a server to start by
+default, and a cold `uvx` run downloads about 250 MB first. Measured on
+2026-10-28 (Windows, home broadband, `uvx` alone rather than inside Codex):
+about 7 s to the first reply with an empty cache, 2.5 s once cached.
+
 ### Fixed - writing a file into a watched folder no longer re-walks the whole repo
 
 Windows reports a folder as modified whenever a file inside it is written, next
