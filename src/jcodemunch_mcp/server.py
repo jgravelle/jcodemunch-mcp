@@ -1682,10 +1682,13 @@ async def list_tools() -> list[Tool]:
 
 
 # --- MCP read-only annotations --------------------------------------------- #
-# Claude Code's plan mode prompts for approval on every tool it cannot prove is
-# read-only. jcm is read-only by charter, so annotate each tool with
-# ToolAnnotations(readOnlyHint=...) and plan mode runs the query tools silently
-# while still gating the handful that mutate index/session/config state.
+# readOnlyHint tells a client which tools only read. jcm is read-only by
+# charter, so each query tool is marked readOnlyHint=True and the handful that
+# change index, session or config state are marked False. What a client does
+# with the hint is its own: Codex's `writes` approval mode documents skipping
+# the prompt for read-only tools, and Claude Code documents running them in
+# parallel. Claude Code's docs do not say plan mode skips its prompt for an
+# annotated MCP tool, and that is not tested here.
 #
 # The write-set is derived from the authoritative counter.STATE_CHANGING_ACTIONS
 # so it can't drift from source. Two things are added on top:
@@ -1734,9 +1737,9 @@ _OPEN_WORLD_TOOLS: frozenset[str] = frozenset({
 def _apply_readonly_annotations(tools: list[Tool]) -> list[Tool]:
     """Attach ToolAnnotations(readOnlyHint=...) to any tool lacking annotations.
 
-    Read tools (readOnlyHint=True) run silently in Claude Code plan mode; the
-    write-set (_NON_READONLY_TOOLS) is marked readOnlyHint=False so those still
-    prompt. Tools that already carry annotations are left untouched. Returns a
+    Read tools get readOnlyHint=True and the write-set (_NON_READONLY_TOOLS)
+    readOnlyHint=False, for clients that act on the hint (see the comment
+    above). Tools that already carry annotations are left untouched. Returns a
     new list; input Tool objects are copied (model_copy) rather than mutated.
     """
     annotated: list[Tool] = []
