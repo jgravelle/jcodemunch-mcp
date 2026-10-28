@@ -398,6 +398,8 @@ Then add an entry for it to the repo's `.cursor-plugin/marketplace.json`, follow
 
 **JetBrains teams.** In JetBrains Central Console, an admin with the Manage AI settings permission opens AI governance, then MCP, then Add MCP server, and adds a **Command** server: name `jcodemunch`, command `uvx`, arguments `jcodemunch-mcp`. Then add it to an AI policy: the default policy reaches everyone with AI access, a custom one reaches its group. It reaches AI Assistant and JetBrains Air. This pushes the server to users; it doesn't stop them adding others.
 
+**Tool names are stable across 1.x.** An allowlist or a policy file that names jCodeMunch tools keeps working: a renamed or merged tool keeps its old name working as an alias for at least 30 days, listed in the CHANGELOG. After that, a call to the old name returns an error that names the replacement.
+
 ---
 
 ## FAQ

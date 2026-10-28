@@ -16,7 +16,16 @@ import pytest
 
 from mcp.types import CallToolResult
 
-from jcodemunch_mcp.counter import RETIRED_TOOL_NAMES, order_gate
+from datetime import date
+from pathlib import Path
+
+from jcodemunch_mcp.counter import (
+    ALIAS_MIN_DAYS,
+    ALIAS_PERIODS,
+    RETIRED_BEFORE_STABLE_NAMES,
+    RETIRED_TOOL_NAMES,
+    order_gate,
+)
 from jcodemunch_mcp.server import _build_tools_list, call_tool
 
 
@@ -75,3 +84,21 @@ def test_order_gate_keeps_the_menu_hint_for_an_unrelated_name():
     err = order_gate("no_such_action_xyz", ["search_symbols"], False)
     assert "Call 'menu'" in err
     assert "replaced by" not in err
+
+
+def test_every_retired_name_was_an_alias_first():
+    """Tool names are stable across 1.x (maintainer ruling, 2026-10-28).
+
+    A renamed tool keeps its old name working as an alias for ALIAS_MIN_DAYS,
+    listed in the CHANGELOG, before it may be retired. The two names retired
+    before that promise are pinned so the exemption cannot grow.
+    """
+    assert RETIRED_BEFORE_STABLE_NAMES == {"get_symbol", "get_symbols"}
+    changelog = (Path(__file__).resolve().parent.parent / "CHANGELOG.md").read_text(encoding="utf-8")
+    for old in RETIRED_TOOL_NAMES:
+        if old in RETIRED_BEFORE_STABLE_NAMES:
+            continue
+        assert old in ALIAS_PERIODS, f"{old} was retired with no alias period"
+        aliased, retired = (date.fromisoformat(d) for d in ALIAS_PERIODS[old])
+        assert (retired - aliased).days >= ALIAS_MIN_DAYS, f"{old} was an alias for under {ALIAS_MIN_DAYS} days"
+        assert f"`{old}`" in changelog, f"{old}'s alias is not listed in the CHANGELOG"

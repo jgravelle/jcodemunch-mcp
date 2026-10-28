@@ -2,6 +2,18 @@
 
 ## [Unreleased]
 
+### Changed - tool names are a stable contract across 1.x
+
+An admin's allowlist or a team's policy file names jCodeMunch tools, and a
+rename broke it with no warning: `get_symbol` and `get_symbols` were removed
+outright when they merged into `get_symbol_source` in March. From now on a
+renamed or merged tool keeps its old name working as an alias for at least 30
+days, listed here, and only then answers with an error naming the replacement.
+`counter.RETIRED_BEFORE_STABLE_NAMES` pins those two as the only names retired
+without an alias period, and `tests/test_retired_tool_names.py` fails if any
+other retired name lacks a 30-day alias period in `ALIAS_PERIODS` or a
+CHANGELOG mention. The README's "For admins" section states the promise.
+
 ### Changed - the first 512 characters of the server instructions serve every client
 
 The `instructions` string a client receives at startup opened with what the
