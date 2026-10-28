@@ -3,7 +3,7 @@
   "name": "jcodemunch",
   "displayName": "jCodeMunch",
   "version": "1.108.399",
-  "description": "Gives Claude and its sub-agents the one function they ask for, not the whole file, and shows who calls it and what a change would break. Runs locally over stdio.",
+  "description": "Local code index for Claude and its sub-agents: the one function asked for, its callers and what a change would break. Free for personal and non-commercial use; work use needs a paid license.",
   "author": {
     "name": "jMunch, LLC",
     "url": "https://jcodemunch.com"

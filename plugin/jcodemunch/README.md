@@ -1,6 +1,10 @@
 # jCodeMunch
 
-jCodeMunch indexes your codebase with tree-sitter, so Claude and every sub-agent it starts can ask for the one function or class it needs instead of opening whole files. The same index answers who calls a function, what a change would break, and which repos depend on which.
+jCodeMunch gives Claude, and every sub-agent it starts, the one function or class it asks for instead of the whole file, and shows who calls it and what a change would break. It runs locally over stdio and starts no language servers.
+
+**License:** free for personal and other non-commercial use. Work use needs a commercial license, paid once, that includes every 1.x update: https://jcodemunch.com/buying.php
+
+The index is built with tree-sitter, and the same index answers which repos depend on which.
 
 ## What teams use it for
 
