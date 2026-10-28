@@ -11448,8 +11448,9 @@ def main(argv: Optional[list[str]] = None):
                 )
             )
         else:
-            from .watcher import watch_folders
+            from .watcher import exit_unless_watchfiles, watch_folders
 
+            exit_unless_watchfiles("watch")
             asyncio.run(
                 watch_folders(
                     paths=args.paths,
@@ -11468,6 +11469,9 @@ def main(argv: Optional[list[str]] = None):
         handle_hook_event(event_type=args.event_type)
     elif args.command == "watch-all":
         from .watch_all import watch_all, DEFAULT_REDISCOVER_INTERVAL_S
+        from .watcher import exit_unless_watchfiles
+
+        exit_unless_watchfiles("watch-all")
         use_ai = not args.no_ai_summaries and _default_use_ai_summaries()
         asyncio.run(
             watch_all(

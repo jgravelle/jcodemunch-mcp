@@ -315,6 +315,23 @@ def _require_watchfiles() -> None:
         raise WatcherDependencyError(_watchfiles_missing_msg()) from exc
 
 
+def exit_unless_watchfiles(command: str) -> None:
+    """For the standalone `watch` and `watch-all` commands: exit 1 before
+    starting anything when watchfiles is missing.
+
+    Without this, each folder's task failed on its own after the manager had
+    started, printed FATAL, and the process kept running with nothing watched,
+    so a user who did not read the console believed the index stayed fresh.
+    The server's embedded watcher does not call this: there the server must
+    keep answering, and it only warns.
+    """
+    try:
+        _require_watchfiles()
+    except WatcherDependencyError as exc:
+        print(f"jcodemunch-mcp {command}: not started. {exc}", file=sys.stderr)
+        sys.exit(1)
+
+
 # Platform-specific: fcntl for Unix (advisory locking)
 try:
     import fcntl
