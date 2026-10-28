@@ -28,11 +28,11 @@ def main():
     env = {**os.environ, **OFF, "CODE_INDEX_PATH": str(store)}
     jcm = shutil.which("jcodemunch-mcp")
     idx = [jcm, "index", str(repo), "--no-ai-summaries"] if jcm else [sys.executable, "-m", "jcodemunch_mcp", "index", str(repo), "--no-ai-summaries"]
-    p = subprocess.run(idx, env=env, capture_output=True, text=True)
+    p = subprocess.run(idx, env=env, capture_output=True, text=True, encoding="utf-8", errors="replace")
     (out / "index.log").write_text(p.stdout + p.stderr, encoding="utf-8")
     if p.returncode: raise SystemExit("indexing failed; see " + str(out / "index.log"))
     p = subprocess.run([sys.executable, str(HARNESS), "--tasks", str(out / "tasks.json"), "--json", str(out / "retrieval.json"),
-                        "--out", str(out / "retrieval.md"), str(repo)], env=env, capture_output=True, text=True, cwd=HARNESS.parent.parent.parent)
+                        "--out", str(out / "retrieval.md"), str(repo)], env=env, capture_output=True, text=True, encoding="utf-8", errors="replace", cwd=HARNESS.parent.parent.parent)
     (out / "harness.log").write_text(p.stdout + p.stderr, encoding="utf-8")
     md = (out / "retrieval.md").read_text(encoding="utf-8") if (out / "retrieval.md").exists() else ""
     # the harness reports a per-repo failure inside the report and still exits 0, so check the report itself

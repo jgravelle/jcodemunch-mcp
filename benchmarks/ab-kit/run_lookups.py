@@ -126,15 +126,15 @@ def main():
         m = json.loads(mpath.read_text(encoding="utf-8"))
         if m["lookups_sha256"] != hashlib.sha256(raw).hexdigest(): raise SystemExit("lookups.json changed since this run started")
     else:
-        head = subprocess.run(["git", "-C", str(repo), "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip() or None
-        ver = subprocess.run([jcm, "--version"], capture_output=True, text=True).stdout.strip()
+        head = subprocess.run(["git", "-C", str(repo), "rev-parse", "HEAD"], capture_output=True, text=True, encoding="utf-8", errors="replace").stdout.strip() or None
+        ver = subprocess.run([jcm, "--version"], capture_output=True, text=True, encoding="utf-8", errors="replace").stdout.strip()
         m = {"repo_commit": head, "jcm_version": ver, "lookups_sha256": hashlib.sha256(raw).hexdigest(), "explore_model": a.explore_model,
              "parent_model": a.parent_model, "seeds": a.seeds, "cap_usd": a.cap, "started_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
         for arm in ("G", "J"):
             ws = out / f"ws-{arm}"; shutil.copytree(repo, ws, ignore=SKIP); (ws / ".claude" / "agents").mkdir(parents=True, exist_ok=True)
             (ws / ".claude" / "agents" / "Explore.md").write_text(override(arm, a.explore_model), encoding="utf-8")
         st = out / "store"; st.mkdir()
-        p = subprocess.run([jcm, "index", str(out / "ws-J"), "--no-ai-summaries"], env={**os.environ, **OFF, "CODE_INDEX_PATH": str(st)}, capture_output=True, text=True)
+        p = subprocess.run([jcm, "index", str(out / "ws-J"), "--no-ai-summaries"], env={**os.environ, **OFF, "CODE_INDEX_PATH": str(st)}, capture_output=True, text=True, encoding="utf-8", errors="replace")
         if p.returncode: raise SystemExit("indexing failed:\n" + p.stderr[-2000:])
         mpath.write_text(json.dumps(m, indent=1), encoding="utf-8")
     print(f"This run starts up to {2 * a.seeds * len(lookups)} real Claude Code sessions, billed to the account your `claude` CLI uses, "
