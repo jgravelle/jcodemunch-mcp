@@ -162,6 +162,17 @@ def test_a_key_in_the_config_file_suppresses_it(install, monkeypatch):
     assert license_notice.notice_for("resolve_repo", {"ok": True}) is None
 
 
+def test_an_init_from_before_this_version_counts_as_having_been_told(install):
+    """Such an `init` left `last_init_version.txt` and no marker; its user saw `init`'s own line."""
+    store, work = install
+    from jcodemunch_mcp.cli.init import _install_version_path
+
+    assert _install_version_path().parent == store
+    _install_version_path().write_text("1.108.300", encoding="utf-8")
+    assert license_notice.skip_reason() == "init_ran"
+    assert "license_notice" not in _call("resolve_repo", {"path": str(work)})
+
+
 def test_a_local_claude_code_session_is_not_a_ci_runner(install, monkeypatch):
     """Every local Claude Code session sets CLAUDECODE=1; reading it as CI would hide the notice from everyone."""
     monkeypatch.setenv("CLAUDECODE", "1")

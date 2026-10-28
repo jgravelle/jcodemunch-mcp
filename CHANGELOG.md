@@ -22,8 +22,12 @@ shows a server's stderr to the person by default.
 It is said once per machine. A marker, `license_notice_state.json`, under
 `CODE_INDEX_PATH` (default `~/.code-index`) records it, so a persistent volume
 keeps it, and a real `init` run writes the same marker because it prints its
-own line. It is never said with a license key configured (read locally, never
-sent), after `init`, with `JCODEMUNCH_LICENSE_NOTICE=0`, or on a CI or remote
+own line. An `init` from an earlier version counts too when it installed the
+hooks, because that step leaves `last_init_version.txt`; one that skipped them
+left nothing, so that install sees the line once. It can be said a second time
+if the marker cannot be written, or if two servers answer their first call at
+the same moment. It is never said with a license key configured (read locally,
+never sent), after `init`, with `JCODEMUNCH_LICENSE_NOTICE=0`, or on a CI or remote
 runner (`CI=true` or `CLAUDE_CODE_REMOTE=true`), where every run is a fresh
 machine. `CLAUDECODE=1` does not count as CI: every local Claude Code session
 sets it, and a test fails if it is ever read as one. Disclosed in SECURITY.md

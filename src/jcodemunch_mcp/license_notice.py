@@ -74,6 +74,11 @@ def skip_reason(env: Optional[Mapping[str, str]] = None) -> Optional[str]:
 
     if licence_key_configured():
         return "licensed"
+    from .cli.init import _install_version_path
+
+    # An `init` from before this marker existed left only its version stamp.
+    if _install_version_path().is_file():
+        return "init_ran"
     if marker_path().is_file():
         return "already_shown"
     return None

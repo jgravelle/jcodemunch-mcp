@@ -229,7 +229,7 @@ Deferred definitions are excluded from the system-prompt prefix and appended inl
 
 ## Security, privacy, and background behavior
 
-An install that never runs `init` (a `uvx` or plugin install) gets one `license_notice` line in its first tool answer, once per machine; it is skipped with a license key configured, after `init`, on CI or remote runners (`CI=true`, `CLAUDE_CODE_REMOTE=true`), or with `JCODEMUNCH_LICENSE_NOTICE=0`.
+An install that never runs `init` (a `uvx` or plugin install) gets one `license_notice` line in its first tool answer, once per machine; it is skipped with a license key configured, after `init` (an earlier `init` counts when it installed the hooks), on CI or remote runners (`CI=true`, `CLAUDE_CODE_REMOTE=true`), or with `JCODEMUNCH_LICENSE_NOTICE=0`.
 
 Local-first by design: indexes live at `~/.code-index/`, and the base package's only default network behavior is an anonymous savings counter (random ID plus aggregate token counts, no code, no paths, no PII; opt out with `share_savings: false`). Everything the server does beyond answering a tool call (file watching, the opt-in login service, license validation, model downloads, org reporting) is opt-in or opt-out, visible, and reversible, and every item is enumerated in **[SECURITY.md](SECURITY.md#background-behavior-fully-disclosed)** alongside the path-traversal, symlink, and secret-redaction controls. A default `init` writes no policy file and installs no hook whose output the model reads; those are `init --policy` and `init --guidance`, and `init --remove-guidance` takes them back out of an older install.
 
