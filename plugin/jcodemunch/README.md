@@ -35,6 +35,7 @@ Then ask Claude to index the project, or call `index_folder` with its path.
 - **One download, on first start:** `uvx` downloads that pinned package and its dependencies from PyPI (pypi.org) into uv's cache. After that, starting the server needs no network.
 - **What it reads:** the folders you ask it to index. It never runs the code it indexes. On a git repository, before a read it runs read-only git commands (`git diff`, `git ls-files`) to find files changed since the index was built, and re-indexes them.
 - **What it writes:** the index and a few small state files in `~/.code-index/` on your machine. Delete that folder to remove everything.
+- **No hooks:** the plugin adds no hooks to Claude Code, so it never checks, allows or blocks another tool call. The hooks that steer Grep and Read toward the index are opt-in, from `uvx jcodemunch-mcp init --guidance`.
 - **What it sends:** nothing, in normal use. This plugin turns the anonymous savings counter off (`JCODEMUNCH_SHARE_SAVINGS=0`), so the server makes no network calls of its own.
 - **Commands you run yourself that do reach the network:**
   - `license` and `org-rollup` check a license key with j.gravelle.us.

@@ -88,6 +88,18 @@ def test_the_readme_names_everything_the_plugin_runs_sends_and_fetches():
         assert must in text, f"plugin README does not mention {must!r}"
 
 
+def test_the_plugin_ships_no_hooks():
+    """A published plugin was refused review for a hook that ran on permission
+    checks (R&D note, 2026-10-28). Ours adds none; the steering hooks stay
+    opt-in through `init --guidance`, and the README says so."""
+    manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
+    assert "hooks" not in manifest
+    assert not (PLUGIN_DIR / "hooks").exists()
+    assert not any(p.name == "hooks.json" for p in PLUGIN_DIR.rglob("*"))
+    text = README.read_text(encoding="utf-8")
+    assert "No hooks" in text and "init --guidance" in text
+
+
 def test_every_file_is_small_readable_and_inside_the_folder():
     files = [p for p in PLUGIN_DIR.rglob("*") if p.is_file()]
     assert 0 < len(files) <= 512
