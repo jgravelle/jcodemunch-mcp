@@ -336,6 +336,27 @@ jcodemunch-mcp license
 
 A working key prints `License: licensed` and its tier. It also says when no key is set, when the license server does not recognize the key, and when the server could not be reached to verify it. `jcodemunch-mcp license --key YOUR-KEY` checks a key without saving it. If you run the server through `uvx`, use `uvx jcodemunch-mcp license`.
 
+### For admins
+
+Claude Code and GitHub Copilot (the Copilot app, Copilot CLI and VS Code) both let an admin allow MCP servers with `allowedMcpServers` in managed settings. A local server matches a `serverCommand` entry only when the command and every argument are identical, so list each launch form your teams use:
+
+```json
+{
+  "allowedMcpServers": [
+    { "serverCommand": ["uvx", "jcodemunch-mcp"] },
+    { "serverCommand": ["jcodemunch-mcp"] }
+  ]
+}
+```
+
+- `["uvx", "jcodemunch-mcp"]` is what `jcodemunch-mcp init` writes for Claude Code, Claude Desktop and the other JSON-configured clients, and what `claude mcp add jcodemunch -- uvx jcodemunch-mcp` registers.
+- `["jcodemunch-mcp"]` covers an install made with `pip`, `pipx` or `uv tool install` and started by name.
+- The Claude Code plugin pins the release it ships, for example `["uvx", "jcodemunch-mcp==1.108.401"]`, so that entry changes with each plugin update.
+
+In Claude Code, add `"allowManagedMcpServersOnly": true` to make the managed list the only one that applies. Codex reads its own config and isn't covered by these settings.
+
+For GitHub's private-registry route, the server ID is `io.github.jgravelle/jcodemunch-mcp`. GitHub describes that route as weaker than the managed-settings allowlist.
+
 ---
 
 ## FAQ
