@@ -11,7 +11,7 @@ hold the rules we can check from the repository:
 - the README is long enough to be the listing's description and names
   everything the plugin runs, sends and fetches;
 - the plugin turns the savings counter off, so it makes no network call of
-  its own (owner ruling, 2026-10-27);
+  its own;
 - every file stays small, readable and inside the folder;
 - the marketplace this repository hosts installs that same folder.
 """
@@ -90,8 +90,8 @@ def test_the_readme_names_everything_the_plugin_runs_sends_and_fetches():
 
 def test_the_plugin_ships_no_hooks():
     """A published plugin was refused review for a hook that ran on permission
-    checks (R&D note, 2026-10-28). Ours adds none; the steering hooks stay
-    opt-in through `init --guidance`, and the README says so."""
+    checks. Ours adds none; the steering hooks stay opt-in through
+    `init --guidance`, and the README says so."""
     manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
     assert "hooks" not in manifest
     assert not (PLUGIN_DIR / "hooks").exists()
@@ -131,7 +131,8 @@ def test_the_plugin_ships_the_skill_init_writes():
     """The plugin carries the same skill `init` installs on a clean config, so
     a plugin user gets the routing guidance without running `init`. Generated,
     never hand-edited: if this fails, regenerate it from
-    `cli.skills._build_skill_content()`."""
+    `cli.skills._build_skill_content()`. The tree under test is the pinned
+    version for the reason given in the settings test below."""
     from jcodemunch_mcp.cli.skills import _build_skill_content
 
     assert SKILL.exists(), "plugin/jcodemunch/skills/jcodemunch/SKILL.md is missing"
@@ -140,8 +141,7 @@ def test_the_plugin_ships_the_skill_init_writes():
 
 
 def test_the_plugin_ships_the_skill_and_no_agent():
-    """Owner ruling 2026-10-28 ("hold the agent"): the plugin ships the server
-    and the skill only."""
+    """The plugin ships the server and the skill only, with no agent."""
     assert not (PLUGIN_DIR / "agents").exists()
     assert "agents" not in _manifest()
     assert "skill" in README.read_text(encoding="utf-8").lower()
@@ -149,7 +149,13 @@ def test_the_plugin_ships_the_skill_and_no_agent():
 
 def test_the_readme_names_only_settings_the_pinned_version_has():
     """A setting named in the listing must exist in the version the plugin
-    pins, or the listing promises behavior the user does not get."""
+    pins, or the listing promises behavior the user does not get.
+
+    This reads the settings of the tree under test, which is the pinned
+    version: `test_plugin_version_matches_pyproject` requires the pin to equal
+    pyproject's version, and on main that is the last release. A setting added
+    on main after a release reaches the plugin only when the release pre-flight
+    moves the pin, and this test runs again then."""
     from jcodemunch_mcp.config import DEFAULTS
 
     text = README.read_text(encoding="utf-8")

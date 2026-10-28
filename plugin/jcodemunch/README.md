@@ -14,7 +14,7 @@ The index is built with tree-sitter, and the same index answers which repos depe
 - **Safe renames and cleanups:** collision checks, refactor plans and dead code, all read-only (`check_rename_safe`, `plan_refactoring`, `find_dead_code`).
 - **Sweeps:** one structural pattern across 70+ languages (`search_ast`).
 
-On our benchmark, a lookup returns 96.2% fewer tokens than grep-and-read. That figure covers 15 lookups on express, fastapi and gin at pinned commits, counted with the cl100k tokenizer. It is per lookup, not per session.
+The token figures, and how they were measured, are in the repository's [benchmarks](https://github.com/jgravelle/jcodemunch-mcp/tree/main/benchmarks).
 
 ## Install
 

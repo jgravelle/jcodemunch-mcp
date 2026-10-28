@@ -165,8 +165,8 @@ exclude = [
     # client that describes it so a test can hold the two together; it runs
     # on the meter's web host, never in an installed package.
     "server/",
-    # The Claude Code plugin folder: a manifest, its README and a LICENSE copy
-    # for the plugin directory. Nothing a pip install reads.
+    # The Claude Code plugin folder: a manifest, its README, a LICENSE copy and
+    # the skill, for the plugin directory. Nothing a pip install reads.
     "plugin/",
 ]
 
