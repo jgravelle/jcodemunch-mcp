@@ -16,8 +16,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 
-# History files quote old text verbatim and are not published guidance.
-HISTORY_FILES = {"CHANGELOG.md", "ISSUE-HISTORY.md", "tests/test_no_assistant_leftovers.py"}
+# History files quote old text verbatim and are not published guidance. A
+# permanent decision, registered in scripts/gap_ledgers.py NOT_LEDGERS.
+SKIPPED_HISTORY_FILES = {"CHANGELOG.md", "ISSUE-HISTORY.md"}
 
 LEFTOVERS = re.compile(
     r"if you document this"
@@ -32,24 +33,33 @@ LEFTOVERS = re.compile(
 )
 
 
-def _published_files() -> list[Path]:
+def _published_files() -> list[str]:
     out = subprocess.run(
-        ["git", "ls-files", "*.md", "src/**/*.py", "plugin/**"],
-        cwd=ROOT, capture_output=True, text=True, check=True,
-    ).stdout.split()
-    return [ROOT / f for f in out if f not in HISTORY_FILES]
+        ["git", "-c", "core.quotepath=off", "ls-files", "-z", "*.md", "src/**/*.py", "plugin/**"],
+        cwd=ROOT, capture_output=True, check=True,
+    ).stdout.decode("utf-8")
+    return [f for f in out.split("\0") if f and f not in SKIPPED_HISTORY_FILES]
+
+
+def test_the_scan_reaches_the_files_it_claims():
+    files = set(_published_files())
+    assert "USER_GUIDE.md" in files
+    assert "src/jcodemunch_mcp/server.py" in files
+    assert any(f.startswith("plugin/") for f in files)
 
 
 def test_no_writer_facing_leftovers_in_published_text():
-    hits = []
-    for path in _published_files():
+    hits, unreadable = [], []
+    for rel in _published_files():
         try:
-            text = path.read_text(encoding="utf-8")
-        except (OSError, UnicodeDecodeError):
+            text = (ROOT / rel).read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError) as exc:
+            unreadable.append(f"{rel}: {exc}")
             continue
         for n, line in enumerate(text.splitlines(), 1):
             if LEFTOVERS.search(line):
-                hits.append(f"{path.relative_to(ROOT).as_posix()}:{n}: {line.strip()[:120]}")
+                hits.append(f"{rel}:{n}: {line.strip()[:120]}")
+    assert not unreadable, "files the scan could not read:\n" + "\n".join(unreadable)
     assert not hits, "assistant-to-author leftovers:\n" + "\n".join(hits)
 
 
