@@ -107,3 +107,4 @@ split and is not resolved by it.
 | `JCODEMUNCH_ORG_ID` | — | Org identifier for the team-SKU rollup (`org-report` / `org-rollup`) |
 | `JCODEMUNCH_ORG_ENDPOINT` | — | Org host URL that `org-report` POSTs seat savings to (`/org/report`); unset = record locally |
 | `JCODEMUNCH_ORG_INGEST_ENABLED` | 0 | Set 1 on the org host to accept `POST /org/report` (two-key turn with `JCODEMUNCH_HTTP_TOKEN`) |
+| `JCODEMUNCH_LICENSE_NOTICE` | 1 | Set `0`/`false`/`no`/`off` to skip the one-time license line on the first tool answer of an install that never ran `init`. Also skipped under `CI` or `CLAUDE_CODE_REMOTE`, with a license key configured, or once the marker `license_notice_state.json` under `CODE_INDEX_PATH` exists |
