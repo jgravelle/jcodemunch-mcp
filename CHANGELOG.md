@@ -19,10 +19,11 @@ stays with `resolve_repo` and nothing applies a second path rule:
   is unchanged there. On both, the server logs one WARNING naming the folder
   the index was built from, because a path has no length limit.
 - The PreToolUse hook (installed by `init --guidance`) says the same, naming
-  the folder, once per session and folder. A small marker file under
-  `~/.code-index/hook_state/separate_copy/` records that it was said, so later
-  tool calls skip the lookup. Markers older than a week are deleted when a new
-  one is written.
+  the folder, once per session and folder. To check each folder only once,
+  the hook writes an empty marker file under
+  `~/.code-index/hook_state/separate_copy/` on its first call in every session
+  and folder, indexed or not, and later tool calls skip the check. Markers
+  older than a week are deleted when a new one is written.
 
 One `resolve_repo` call at startup now feeds both the file count and this
 check. A copy whose repo identity does not match the index, such as a copy

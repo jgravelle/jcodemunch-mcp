@@ -407,13 +407,17 @@ def _separate_copy_here(looked) -> bool:
     `separate_copy`). Logs the folder the index reads at WARNING, because the
     instructions line it unlocks names no path (a path has no length bound and
     the instructions do)."""
-    from .tools.resolve_repo import separate_copy, separate_copy_sentence
+    try:
+        from .tools.resolve_repo import separate_copy, separate_copy_sentence
 
-    found = separate_copy(looked[1]) if looked else None
-    if found is None:
+        found = separate_copy(looked[1]) if looked else None
+        if found is None:
+            return False
+        logger.warning("%s", separate_copy_sentence(*found))
+        return True
+    except Exception:  # startup must never fail on a note
+        logger.debug("separate-copy startup check failed", exc_info=True)
         return False
-    logger.warning("%s", separate_copy_sentence(*found))
-    return True
 
 
 def _startup_lookup(timeout: float = 1.5):

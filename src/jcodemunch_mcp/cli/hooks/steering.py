@@ -448,7 +448,11 @@ def run_pretooluse() -> int:
         return 0
 
     # Once per session and folder: a separate copy of an indexed repo would
-    # otherwise get silence below, with no reason given (backlog 27).
+    # otherwise get silence below, with no reason given (backlog 27). This
+    # returns before the steering below, so that one call gets the note instead
+    # of advice; under strict mode a Grep or Read aimed into an indexed root
+    # from such a folder passes un-denied once. The note is allow-only and
+    # said once, so that is accepted.
     note = _separate_copy_note_once(data)
     if note:
         return _emit_additional_context("PreToolUse", note)

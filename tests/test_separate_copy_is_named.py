@@ -164,6 +164,8 @@ def test_the_hook_skips_the_lookup_inside_an_indexed_folder(hook_env):
     assert "separate copy" not in out
     _hook(_grep(indexed))
     assert calls == []
+    # SECURITY.md says a marker is written in every folder, indexed or not: hold it to that.
+    assert steering._separate_copy_marker("s1", str(indexed)).exists()
 
 
 def test_the_hook_without_a_session_id_does_nothing(hook_env):
@@ -193,3 +195,49 @@ def test_old_markers_are_pruned(hook_env, tmp_path):
     os.utime(stale, (old, old))
     _hook(_grep(copy))
     assert not stale.exists()
+
+
+# --- end to end: two real git checkouts, the real resolve_repo ------------------
+
+
+def _real_copy(tmp_path, monkeypatch):
+    """An indexed git checkout and a second copy of it elsewhere, nothing mocked."""
+    import shutil
+    import subprocess
+
+    from jcodemunch_mcp.tools.index_folder import index_folder
+
+    store = tmp_path / "store"
+    monkeypatch.setenv("CODE_INDEX_PATH", str(store))
+    monkeypatch.setenv("JCODEMUNCH_TRUSTED_FOLDERS", str(tmp_path))
+    first = tmp_path / "proj"
+    first.mkdir()
+    (first / "mod.py").write_text("def f():\n    return 1\n", encoding="utf-8")
+    ident = ["-c", "user.email=t@example.invalid", "-c", "user.name=t"]
+    for args in (["init", "-q"], ident + ["add", "."], ident + ["commit", "-qm", "x"],
+                 ["remote", "add", "origin", "https://github.com/example/proj.git"]):
+        subprocess.run(["git", *args], cwd=first, check=True, capture_output=True)
+    out = index_folder(str(first), use_ai_summaries=False, storage_path=str(store))
+    assert out.get("success"), out
+    second = tmp_path / "elsewhere" / "proj"
+    shutil.copytree(first, second)
+    return first, second
+
+
+def test_a_real_second_checkout_is_named_at_startup(tmp_path, monkeypatch, caplog):
+    first, second = _real_copy(tmp_path, monkeypatch)
+    monkeypatch.chdir(second)
+    looked = server._startup_lookup(timeout=30)
+    with caplog.at_level("WARNING"):
+        assert server._indexed_here(looked=looked) is None
+        assert server._separate_copy_here(looked) is True
+    assert str(first.resolve()) in caplog.text or str(first) in caplog.text
+
+
+def test_a_real_second_checkout_is_named_by_the_hook(tmp_path, monkeypatch):
+    first, second = _real_copy(tmp_path, monkeypatch)
+    monkeypatch.setenv("JCODEMUNCH_ENFORCE", "advisory")
+    monkeypatch.setattr(steering, "_SEPARATE_COPY_TIMEOUT", 30)
+    note = json.loads(_hook(_grep(second)))["hookSpecificOutput"]["additionalContext"]
+    assert "separate copy of example/proj" in note
+    assert _hook(_grep(second)) == ""
