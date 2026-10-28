@@ -2968,3 +2968,13 @@ The 1.108.397 entry, verbatim as it stood in `CLAUDE.md`:
 The `Tests:` line's 1.108.397 count, verbatim:
 
 - ⚠ Prior (1.108.397): 18648 passed, 24 skipped, **0 failed** (18672 total).
+
+## Current State rotation (2026-10-28, release 1.108.401)
+
+The 1.108.398 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.398):** **the semantic and all extras install a fixed filelock on every Python** (#1229, #1228): the extras carry `filelock==3.20.3; python_version < '3.11'` and `filelock>=4.2.1; python_version >= '3.11'` (4.2.1+ needs 3.11, 3.20.3 is the only clean release 3.10 installs, so a floor alone admits 4.1.0 there); `[tool.uv] constraint-dependencies` keeps only setuptools; `tests/test_filelock_extra_floor.py` applies markers per Python and the 3.10 install cap. Full text: `CHANGELOG.md`.
+
+The `Tests:` line's 1.108.398 count, verbatim:
+
+- ⚠ Prior (1.108.398): 18674 passed, 24 skipped, **0 failed** (18698 total).

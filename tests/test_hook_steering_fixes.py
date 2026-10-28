@@ -562,11 +562,17 @@ class TestStoreBackedGates:
         assert len(loaded) == 1  # the indexed file is repo-relative
 
     def test_steering_end_to_end_through_symlink_alias(
-        self, real_store, tmp_path
+        self, real_store, tmp_path, monkeypatch
     ):
         """The full chain, nothing mocked: index_folder stores the resolved
         root, the gate reads it via list_source_roots, and a Grep addressed
-        through a symlink alias of the repo still gets the nudge."""
+        through a symlink alias of the repo still gets the nudge.
+
+        The answer-in-the-redirect step is switched off here: with it on, a
+        Grep that matches is refused with the index's answer instead, which
+        test_grep_redirect_carries_answer.py covers. This test is about the
+        gate reaching the nudge."""
+        monkeypatch.setenv("JCODEMUNCH_HOOK_GREP_ANSWER", "0")
         alias = tmp_path / "alias"
         os.symlink(tmp_path / "proj", alias)
         rc, out, _ = _run(run_pretooluse, _pretool(

@@ -81,6 +81,110 @@ def test_ci_reports_a_running_witness_as_pending_not_pass():
     )
 
 
+NIGHTLY_RUNNING = {
+    "name": "nightly: full tier (windows-latest, 3.12)",
+    "conclusion": None,
+    "status": "in_progress",
+}
+
+
+def test_at_the_deadline_a_running_nightly_is_named_not_a_failure():
+    """1.108.400 (2026-10-28, C-28): Nightly started its matrix on the release
+    commit and a windows leg was still running when the pre-flight job's own
+    time limit cancelled the release with no verdict."""
+    runs = _runs(**WITNESSES_OK) + [NIGHTLY_RUNNING]
+    ok, pending, msg = pf.main_witness_verdict(runs)
+    assert not ok and pending == NIGHTLY_RUNNING["name"]  # still waited for
+    ok, pending, msg = pf.main_witness_verdict(runs, final=True)
+    assert ok and pending is None, msg
+    assert NIGHTLY_RUNNING["name"] in msg and "not waited for" in msg
+
+
+def test_at_the_deadline_a_running_witness_still_fails():
+    runs = _runs(**{k: v for k, v in WITNESSES_OK.items() if "bench" not in k}) + [
+        {
+            "name": "main: harness bench (online)",
+            "conclusion": None,
+            "status": "in_progress",
+        },
+        NIGHTLY_RUNNING,
+    ]
+    ok, pending, msg = pf.main_witness_verdict(runs, final=True)
+    assert not ok and "main: harness bench (online)" in msg
+
+
+def test_at_the_deadline_a_running_codeql_still_fails():
+    """Only Nightly files its own issue after the release; CodeQL has no gate."""
+    runs = _runs(**{k: v for k, v in WITNESSES_OK.items() if "codeql" not in k}) + [
+        {"name": "codeql (python)", "conclusion": None, "status": "in_progress"}
+    ]
+    ok, pending, msg = pf.main_witness_verdict(runs, final=True)
+    assert not ok and "codeql (python)" in msg
+
+
+def test_at_the_deadline_a_nightly_in_an_unknown_state_still_fails():
+    runs = _runs(**WITNESSES_OK) + [{"name": NIGHTLY_RUNNING["name"]}]
+    ok, pending, msg = pf.main_witness_verdict(runs, final=True)
+    assert not ok and NIGHTLY_RUNNING["name"] in msg
+
+
+def test_at_the_deadline_a_failed_run_still_fails():
+    runs = _runs(**{**WITNESSES_OK, "codeql (python)": "failure"}) + [
+        NIGHTLY_RUNNING
+    ]
+    ok, pending, msg = pf.main_witness_verdict(runs, final=True)
+    assert not ok and "codeql (python): failure" in msg
+
+
+class _Clock:
+    """A stand-in for the module's `time`: each read advances 30 s."""
+
+    def __init__(self):
+        self.now = 0
+        self.sleeps = 0
+
+    def monotonic(self):
+        self.now += 30
+        return self.now
+
+    def sleep(self, seconds):
+        self.sleeps += 1
+
+
+def test_check_ci_ends_at_the_deadline_and_names_what_it_left(monkeypatch):
+    runs = _runs(**WITNESSES_OK) + [NIGHTLY_RUNNING]
+    monkeypatch.setattr(pf, "_head_runs", lambda: runs)
+    clock = _Clock()
+    monkeypatch.setattr(pf, "time", clock)
+    ok, msg = pf.check_ci(90)
+    assert ok and NIGHTLY_RUNNING["name"] in msg
+    assert clock.sleeps <= 90 // 30  # one poll per 30 s, never past the deadline
+
+
+def test_a_local_pre_flight_reads_once_and_never_sleeps(monkeypatch):
+    """Locally there is no wait (check_ci(0)): the first read is final."""
+    runs = _runs(**WITNESSES_OK) + [NIGHTLY_RUNNING]
+    monkeypatch.setattr(pf, "_head_runs", lambda: runs)
+    clock = _Clock()
+    monkeypatch.setattr(pf, "time", clock)
+    ok, msg = pf.check_ci(0)
+    assert ok and clock.sleeps == 0 and "not waited for" in msg
+
+
+def test_the_ci_wait_fits_inside_the_pre_flight_job_limit():
+    """A wait longer than the job may run ends in a cancel, never a verdict.
+    The steps around the wait took 15 s on the last green release (C-28); three
+    minutes are left for them."""
+    import yaml
+
+    wf = yaml.safe_load(
+        (REPO / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
+    )
+    limit = wf["jobs"]["preflight"].get("timeout-minutes")
+    assert isinstance(limit, int), "the pre-flight job must set its own timeout-minutes"
+    assert pf.CI_WAIT_SECONDS + 180 <= limit * 60, (pf.CI_WAIT_SECONDS, limit)
+
+
 def test_ci_fails_with_no_runs_at_all():
     ok, pending, msg = pf.main_witness_verdict([])
     assert not ok and pending is None and "no check-runs" in msg
