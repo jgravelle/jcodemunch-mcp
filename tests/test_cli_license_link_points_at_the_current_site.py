@@ -11,7 +11,7 @@ savings counter. They stay; only a page link may not point there.
 What the scan sees: every spelling of the host in the package's Python source,
 in any case, with or without a scheme or `www.`, and string literals Python
 joins (`"https://j.gravelle" ".us/x"`). A bare host name with no scheme and no
-path is prose (a comment saying the old copy is stale) and passes. What it
+path reads as prose and passes, in a comment or in a printed string alike. What it
 cannot see: a URL built at run time from a variable host, such as
 `f"https://{HOST}/x"`, and files outside `src/jcodemunch_mcp/**/*.py`.
 """
