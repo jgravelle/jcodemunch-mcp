@@ -318,6 +318,24 @@ Not sure it's worth it? Run your own numbers through the [ROI calculator](https:
 
 Conditions on all uses: retain the copyright notice, clearly mark modifications and keep the original author's name intact (he's kinda full of himself), and include a prominent modification notice in source redistributions. The Software may not be renamed, rebranded, or published to any public package registry, and is provided "AS IS" without warranty. [LICENSE](LICENSE) controls.
 
+### Activate your license
+
+After you buy, put the key in your global config, `~/.code-index/config.jsonc` (or `config.jsonc` under `CODE_INDEX_PATH` if you set it):
+
+```jsonc
+"license_key": "YOUR-KEY"
+```
+
+Every client that launches the server reads that file, so you set it once. In CI or a container, set the `JCODEMUNCH_LICENSE_KEY` environment variable instead; it takes precedence over the config file.
+
+Then confirm it:
+
+```bash
+jcodemunch-mcp license
+```
+
+A working key prints `License: licensed` and its tier. It also says when no key is set, when the license server does not recognize the key, and when the server could not be reached to verify it. `jcodemunch-mcp license --key YOUR-KEY` checks a key without saving it. If you run the server through `uvx`, use `uvx jcodemunch-mcp license`.
+
 ---
 
 ## FAQ
