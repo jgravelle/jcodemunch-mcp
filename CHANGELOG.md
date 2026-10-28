@@ -12,8 +12,9 @@ while every change went unindexed until a manual re-index.
 
 Both commands now check once, before starting anything. With `watchfiles`
 missing they print one line with the install command for the way jCodeMunch
-was installed (pip, pipx, uv or uvx) and exit 1, as the server's `--watcher`
-flag already did. `watch --once` does not need `watchfiles` and is unchanged.
+was installed (pip, pipx, uv or uvx) and exit 1. The server's `--watcher`
+flag already exited 1 but always printed the pip line; it now prints the same
+install line. `watch --once` does not need `watchfiles` and is unchanged.
 The server's own config-enabled watcher still only warns, because the server
 must keep answering without it.
 

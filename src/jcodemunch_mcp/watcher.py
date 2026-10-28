@@ -285,6 +285,21 @@ class WatcherDependencyError(WatcherError):
     pass
 
 
+def watchfiles_install_command() -> str:
+    """The command that adds watchfiles for the way jcm was installed.
+
+    The one place every "watchfiles is missing" message gets its install line;
+    falls back to the pip form when detection is unavailable.
+    """
+    try:
+        from .cli.upgrade import watch_extra_install_command
+
+        return watch_extra_install_command()
+    except Exception:
+        logger.debug("install-mechanism detection failed", exc_info=True)
+        return "pip install 'jcodemunch-mcp[watch]'"
+
+
 def _watchfiles_missing_msg() -> str:
     """Install hint for the optional ``watch`` extra, aware of how jcm was installed.
 
@@ -293,13 +308,10 @@ def _watchfiles_missing_msg() -> str:
     import keeps the core watcher free of a hard dependency on the CLI package,
     and falls back to the canonical pip form if detection is unavailable.
     """
-    try:
-        from .cli.upgrade import watch_extra_install_command
-
-        cmd = watch_extra_install_command()
-    except Exception:
-        cmd = "pip install 'jcodemunch-mcp[watch]'"
-    return f"watchfiles is required for the watch subcommand. Install it with: {cmd}"
+    return (
+        "watchfiles is required to watch files. "
+        f"Install it with: {watchfiles_install_command()}"
+    )
 
 
 def _require_watchfiles() -> None:

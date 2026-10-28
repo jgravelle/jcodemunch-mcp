@@ -18,6 +18,7 @@ import builtins
 import pytest
 
 from jcodemunch_mcp import server, watcher
+from jcodemunch_mcp.cli import upgrade
 
 
 @pytest.fixture
@@ -47,18 +48,41 @@ def nothing_starts(monkeypatch):
 @pytest.mark.parametrize("argv", [["watch", "{tmp}"], ["watch-all"]])
 def test_watch_without_watchfiles_exits_1_with_the_install_line(argv, tmp_path, monkeypatch, capsys,
                                                                  no_watchfiles, nothing_starts):
+    monkeypatch.setattr(upgrade, "detect_install_mechanism", lambda: ("pipx", "x"))
     monkeypatch.setenv("CODE_INDEX_PATH", str(tmp_path / "store"))
     with pytest.raises(SystemExit) as exc:
         server.main([a.replace("{tmp}", str(tmp_path)) for a in argv])
     assert exc.value.code == 1
     err = capsys.readouterr().err
-    assert "watchfiles" in err
-    assert "jcodemunch-mcp[watch]" in err or "watchfiles" in err.split("Install it with:")[-1]
+    assert f"jcodemunch-mcp {argv[0]}: not started" in err
+    assert "Install it with: pipx inject jcodemunch-mcp watchfiles" in err
 
 
 def test_the_message_names_the_install_command_for_this_install(no_watchfiles):
     msg = watcher._watchfiles_missing_msg()
     assert "Install it with:" in msg
+
+
+def test_serve_watcher_flag_gives_the_same_install_line(monkeypatch, capsys, no_watchfiles):
+    """--watcher used to hardcode the pip line; it asks the same helper now."""
+    monkeypatch.setattr(upgrade, "detect_install_mechanism", lambda: ("pipx", "x"))
+    with pytest.raises(SystemExit) as exc:
+        server.main(["serve", "--watcher"])
+    assert exc.value.code == 1
+    assert "Install it with: pipx inject jcodemunch-mcp watchfiles" in capsys.readouterr().err
+
+
+def test_only_the_helper_spells_the_pip_fallback():
+    """One helper owns the install line; no other module hardcodes the pip form."""
+    import pathlib
+
+    src = pathlib.Path(server.__file__).parent
+    hits = [
+        p.relative_to(src).as_posix()
+        for p in src.rglob("*.py")
+        if "install 'jcodemunch-mcp[watch]'\"" in p.read_text(encoding="utf-8")
+    ]
+    assert sorted(hits) == ["cli/upgrade.py", "watcher.py"], hits
 
 
 def test_the_check_passes_when_watchfiles_is_present():

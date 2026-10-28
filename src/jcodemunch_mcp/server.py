@@ -7912,14 +7912,11 @@ async def _run_server_with_watcher(
     global _watcher_manager
 
     if watch_folders is None or WatcherManager is None:
-        try:
-            from .cli.upgrade import watch_extra_install_command
+        from .watcher import watchfiles_install_command
 
-            cmd = watch_extra_install_command()
-        except Exception:
-            cmd = "pip install 'jcodemunch-mcp[watch]'"
         raise ImportError(
-            f"watchfiles is required for --watcher. Install with: {cmd}"
+            "watchfiles is required for --watcher. "
+            f"Install it with: {watchfiles_install_command()}"
         )
 
     import tempfile
@@ -11709,18 +11706,21 @@ def main(argv: Optional[list[str]] = None):
             try:
                 import watchfiles  # noqa: F401
             except ImportError:
+                from .watcher import watchfiles_install_command
+
+                install = watchfiles_install_command()
                 if watcher_from_cli:
                     print(
                         "ERROR: --watcher requires watchfiles. "
-                        "Install with: pip install 'jcodemunch-mcp[watch]'",
+                        f"Install it with: {install}",
                         file=sys.stderr,
                     )
                     sys.exit(1)
                 logger.warning(
                     "watch is enabled in config but the 'watchfiles' "
                     "package is not installed; continuing without the "
-                    "file watcher. Install with: pip install "
-                    "'jcodemunch-mcp[watch]'"
+                    "file watcher. Install it with: %s",
+                    install,
                 )
                 watcher_enabled = False
 
