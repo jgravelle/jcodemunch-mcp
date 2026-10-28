@@ -17,7 +17,9 @@ Checks
   ci            main.yml's witnesses on HEAD (`main: harness full`, `main: harness
                 bench (online)`) concluded success and no run of any other name
                 failed; the release workflow's own jobs are ignored; under --ci
-                it waits up to 20 min for a witness still running. The PR gate
+                it waits up to CI_WAIT_SECONDS for runs still going; at the
+                deadline a running witness fails and any other running run
+                (Nightly on the same commit) is named, not waited for. The PR gate
                 itself is guaranteed by branch protection (enforce_admins on)
   pins          every version pin site agrees (pyproject, server.json x2,
                 .claude-plugin/plugin.json, whatsnew.json current + entries[0],
@@ -221,9 +223,16 @@ IGNORED_PREFIXES = (
     "release: ",
 )  # the release workflow's own jobs, in progress by definition
 PENDING = ("queued", "in_progress", "waiting", "pending", "requested")
+# How long the pre-flight waits for runs still going on HEAD. It must end inside
+# release.yml's pre-flight `timeout-minutes` with room for the other checks:
+# 1.108.400's first dispatch (2026-10-28) waited 20 min inside a 15-min job
+# and was cancelled with no verdict. tests/test_release_preflight.py binds it.
+CI_WAIT_SECONDS = 600
 
 
-def main_witness_verdict(check_runs: list[dict]) -> tuple[bool, str | None, str]:
+def main_witness_verdict(
+    check_runs: list[dict], final: bool = False
+) -> tuple[bool, str | None, str]:
     """(ok, still_pending_or_None, message) for HEAD on main (docs/cicd/FINDINGS.md C-13, C-14).
 
     Nothing reaches `main` without the PR gate (branch protection with
@@ -232,6 +241,11 @@ def main_witness_verdict(check_runs: list[dict]) -> tuple[bool, str | None, str]
     online-bench jobs, plus no failed run of any other name. The release
     workflow's own jobs are ignored (they are running). An in-progress
     witness is reported as pending so the caller can wait; UNKNOWN blocks.
+
+    With ``final`` (the wait is over), a witness still running fails, and any
+    other run still running is named in the message and does not hold the
+    release: Nightly runs its matrix on the same commit and a windows leg can
+    outlast the whole pre-flight job. A run whose state is unknown still blocks.
     """
     runs = [
         r for r in check_runs if not str(r.get("name", "")).startswith(IGNORED_PREFIXES)
@@ -253,6 +267,17 @@ def main_witness_verdict(check_runs: list[dict]) -> tuple[bool, str | None, str]
         return False, None, "; ".join(failed)
     if absent:
         return False, None, f"witness absent on HEAD: {absent}"
+    if pending and final:
+        held = [n for n in pending if n in MAIN_WITNESSES or names[n] not in PENDING]
+        if held:
+            return False, None, f"still running at the deadline: {', '.join(held)}"
+        done = len(runs) - len(pending)
+        return (
+            True,
+            None,
+            f"{done} check-runs on HEAD concluded success, including "
+            f"{list(MAIN_WITNESSES)}; not waited for: {', '.join(pending)}",
+        )
     if pending:
         return False, ", ".join(pending), f"still running: {', '.join(pending)}"
     return (
@@ -277,7 +302,7 @@ def _head_runs() -> list[dict]:
 
 
 def check_ci(wait_seconds: int = 0) -> tuple[bool, str]:
-    """Wait up to `wait_seconds` for main.yml's witnesses on HEAD (the release runs right after a merge)."""
+    """Wait up to `wait_seconds` for the runs on HEAD (the release runs right after a merge)."""
     import time
 
     deadline = time.monotonic() + wait_seconds
@@ -286,8 +311,9 @@ def check_ci(wait_seconds: int = 0) -> tuple[bool, str]:
             flat = _head_runs()
         except Exception as e:  # could not ask -> FAIL, never pass
             return False, f"could not read CI: {e}"
-        ok, pending, msg = main_witness_verdict(flat)
-        if ok or pending is None or time.monotonic() >= deadline:
+        final = time.monotonic() >= deadline
+        ok, pending, msg = main_witness_verdict(flat, final=final)
+        if ok or pending is None or final:
             return ok, msg
         print(f"ci         waiting for {pending} ...")
         time.sleep(30)
@@ -514,7 +540,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"::error title=pre-flight {name}::{msg}")
 
     report("branch", check_branch(a.ci))
-    report("ci", check_ci(1200 if a.ci else 0))
+    report("ci", check_ci(CI_WAIT_SECONDS if a.ci else 0))
     pins = read_pins()
     pv = pins_verdict(pins, a.version)
     report("pins", pv)

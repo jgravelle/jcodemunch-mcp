@@ -81,6 +81,68 @@ def test_ci_reports_a_running_witness_as_pending_not_pass():
     )
 
 
+NIGHTLY_RUNNING = {
+    "name": "nightly: full tier (windows-latest, 3.12)",
+    "conclusion": None,
+    "status": "in_progress",
+}
+
+
+def test_at_the_deadline_a_running_non_witness_is_named_not_a_failure():
+    """1.108.400 (2026-10-28): Nightly started its matrix on the release commit
+    at 04:12 and a windows leg was still running at 04:30, so the pre-flight
+    waited until the job's own time limit cancelled the release."""
+    runs = _runs(**WITNESSES_OK) + [NIGHTLY_RUNNING]
+    ok, pending, msg = pf.main_witness_verdict(runs)
+    assert not ok and pending == NIGHTLY_RUNNING["name"]  # still waited for
+    ok, pending, msg = pf.main_witness_verdict(runs, final=True)
+    assert ok and pending is None, msg
+    assert NIGHTLY_RUNNING["name"] in msg and "not waited for" in msg
+
+
+def test_at_the_deadline_a_running_witness_still_fails():
+    runs = _runs(**{k: v for k, v in WITNESSES_OK.items() if "bench" not in k}) + [
+        {
+            "name": "main: harness bench (online)",
+            "conclusion": None,
+            "status": "in_progress",
+        },
+        NIGHTLY_RUNNING,
+    ]
+    ok, pending, msg = pf.main_witness_verdict(runs, final=True)
+    assert not ok and "main: harness bench (online)" in msg
+
+
+def test_at_the_deadline_a_failed_run_still_fails():
+    runs = _runs(**{**WITNESSES_OK, "codeql (python)": "failure"}) + [NIGHTLY_RUNNING]
+    ok, pending, msg = pf.main_witness_verdict(runs, final=True)
+    assert not ok and "codeql (python): failure" in msg
+
+
+def test_check_ci_ends_inside_the_budget_and_names_what_it_left(monkeypatch):
+    runs = _runs(**WITNESSES_OK) + [NIGHTLY_RUNNING]
+    monkeypatch.setattr(pf, "_head_runs", lambda: runs)
+    clock = iter(range(0, 10_000, 30))
+    import time
+
+    monkeypatch.setattr(time, "monotonic", lambda: next(clock))
+    monkeypatch.setattr(time, "sleep", lambda s: None)
+    ok, msg = pf.check_ci(90)
+    assert ok and NIGHTLY_RUNNING["name"] in msg
+
+
+def test_the_ci_wait_fits_inside_the_pre_flight_job_limit():
+    """A wait longer than the job may run ends in a cancel, never a verdict.
+    Three minutes are left for the steps before and after the wait."""
+    import re
+
+    text = (REPO / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
+    job = text[text.index("  preflight:") :]
+    job = job[: job.index("\n  ", job.index("timeout-minutes"))]
+    limit = int(re.search(r"timeout-minutes:\s*(\d+)", job).group(1))
+    assert pf.CI_WAIT_SECONDS + 180 <= limit * 60, (pf.CI_WAIT_SECONDS, limit)
+
+
 def test_ci_fails_with_no_runs_at_all():
     ok, pending, msg = pf.main_witness_verdict([])
     assert not ok and pending is None and "no check-runs" in msg
@@ -181,7 +243,12 @@ HEAD = "a" * 40
 
 
 def _review(state, commit=HEAD, login=None, at="2026-10-14T20:00:00Z"):
-    return {"user": {"login": login or pf.OWNER}, "state": state, "commit_id": commit, "submitted_at": at}
+    return {
+        "user": {"login": login or pf.OWNER},
+        "state": state,
+        "commit_id": commit,
+        "submitted_at": at,
+    }
 
 
 def _lines(reviews):
@@ -197,22 +264,38 @@ def test_changes_requested_on_the_head_releases_the_hold():
 
 
 def test_a_push_after_the_review_puts_the_pr_back_in_line():
-    assert pf.changes_requested_on_head([_review("CHANGES_REQUESTED", commit="b" * 40)], HEAD) is False
+    assert (
+        pf.changes_requested_on_head(
+            [_review("CHANGES_REQUESTED", commit="b" * 40)], HEAD
+        )
+        is False
+    )
 
 
 def test_a_later_approval_or_dismissal_ends_the_request():
     for later in ("APPROVED", "DISMISSED"):
-        reviews = [_review("CHANGES_REQUESTED", at="2026-10-14T20:00:00Z"), _review(later, at="2026-10-14T21:00:00Z")]
+        reviews = [
+            _review("CHANGES_REQUESTED", at="2026-10-14T20:00:00Z"),
+            _review(later, at="2026-10-14T21:00:00Z"),
+        ]
         assert pf.changes_requested_on_head(reviews, HEAD) is False, later
 
 
 def test_a_later_comment_does_not_end_the_request():
-    reviews = [_review("CHANGES_REQUESTED", at="2026-10-14T20:00:00Z"), _review("COMMENTED", at="2026-10-14T21:00:00Z")]
+    reviews = [
+        _review("CHANGES_REQUESTED", at="2026-10-14T20:00:00Z"),
+        _review("COMMENTED", at="2026-10-14T21:00:00Z"),
+    ]
     assert pf.changes_requested_on_head(reviews, HEAD) is True
 
 
 def test_only_the_maintainer_can_lift_the_hold():
-    assert pf.changes_requested_on_head([_review("CHANGES_REQUESTED", login="someone-else")], HEAD) is False
+    assert (
+        pf.changes_requested_on_head(
+            [_review("CHANGES_REQUESTED", login="someone-else")], HEAD
+        )
+        is False
+    )
 
 
 def test_no_reviews_holds_as_before():
@@ -220,8 +303,15 @@ def test_no_reviews_holds_as_before():
 
 
 def test_check_prs_names_a_held_pr_and_passes(monkeypatch):
-    prs = [{"number": 1080, "author": {"login": "someone"}, "mergeable": "MERGEABLE",
-            "mergeStateStatus": "CLEAN", "headRefOid": HEAD}]
+    prs = [
+        {
+            "number": 1080,
+            "author": {"login": "someone"},
+            "mergeable": "MERGEABLE",
+            "mergeStateStatus": "CLEAN",
+            "headRefOid": HEAD,
+        }
+    ]
     calls = []
 
     def fake_run(cmd, gh=False):
@@ -234,14 +324,25 @@ def test_check_prs_names_a_held_pr_and_passes(monkeypatch):
     ok, msg = pf.check_prs()
     assert ok is True, msg
     assert "#1080" in msg and "changes requested" in msg
-    review_call = next(c for c in calls if any("pulls/1080/reviews" in part for part in c))
+    review_call = next(
+        c for c in calls if any("pulls/1080/reviews" in part for part in c)
+    )
     assert f"repos/{pf.SLUG}/pulls/1080/reviews" in review_call[2]
-    assert "--paginate" in review_call, "a PR with over 100 reviews would lose its newest decision"
+    assert "--paginate" in review_call, (
+        "a PR with over 100 reviews would lose its newest decision"
+    )
 
 
 def test_check_prs_still_refuses_a_ready_pr(monkeypatch):
-    prs = [{"number": 1081, "author": {"login": "someone"}, "mergeable": "MERGEABLE",
-            "mergeStateStatus": "CLEAN", "headRefOid": HEAD}]
+    prs = [
+        {
+            "number": 1081,
+            "author": {"login": "someone"},
+            "mergeable": "MERGEABLE",
+            "mergeStateStatus": "CLEAN",
+            "headRefOid": HEAD,
+        }
+    ]
 
     def fake_run(cmd, gh=False):
         if cmd[:3] == ["gh", "pr", "list"]:
@@ -255,8 +356,15 @@ def test_check_prs_still_refuses_a_ready_pr(monkeypatch):
 
 def test_unreadable_reviews_hold_the_release(monkeypatch):
     """Could not ask is not 'changes requested': the PR keeps holding."""
-    prs = [{"number": 1082, "author": {"login": "someone"}, "mergeable": "MERGEABLE",
-            "mergeStateStatus": "CLEAN", "headRefOid": HEAD}]
+    prs = [
+        {
+            "number": 1082,
+            "author": {"login": "someone"},
+            "mergeable": "MERGEABLE",
+            "mergeStateStatus": "CLEAN",
+            "headRefOid": HEAD,
+        }
+    ]
 
     def fake_run(cmd, gh=False):
         if cmd[:3] == ["gh", "pr", "list"]:
@@ -275,9 +383,18 @@ def test_a_dismissal_rewrites_the_review_in_place():
 
 def test_the_newest_decision_on_a_later_page_wins(monkeypatch):
     """Reviews arrive oldest first across pages; an approval on page two ends the request."""
-    prs = [{"number": 1083, "author": {"login": "someone"}, "mergeable": "MERGEABLE",
-            "mergeStateStatus": "CLEAN", "headRefOid": HEAD}]
-    page_one = [_review("COMMENTED", at=f"2026-10-14T10:{i:02d}:00Z") for i in range(59)]
+    prs = [
+        {
+            "number": 1083,
+            "author": {"login": "someone"},
+            "mergeable": "MERGEABLE",
+            "mergeStateStatus": "CLEAN",
+            "headRefOid": HEAD,
+        }
+    ]
+    page_one = [
+        _review("COMMENTED", at=f"2026-10-14T10:{i:02d}:00Z") for i in range(59)
+    ]
     page_one.append(_review("CHANGES_REQUESTED", at="2026-10-14T11:00:00Z"))
     page_two = [_review("APPROVED", at="2026-10-14T12:00:00Z")]
 
@@ -292,8 +409,15 @@ def test_the_newest_decision_on_a_later_page_wins(monkeypatch):
 
 
 def test_a_malformed_reviews_body_holds_the_release(monkeypatch):
-    prs = [{"number": 1084, "author": {"login": "someone"}, "mergeable": "MERGEABLE",
-            "mergeStateStatus": "CLEAN", "headRefOid": HEAD}]
+    prs = [
+        {
+            "number": 1084,
+            "author": {"login": "someone"},
+            "mergeable": "MERGEABLE",
+            "mergeStateStatus": "CLEAN",
+            "headRefOid": HEAD,
+        }
+    ]
 
     def fake_run(cmd, gh=False):
         if cmd[:3] == ["gh", "pr", "list"]:
