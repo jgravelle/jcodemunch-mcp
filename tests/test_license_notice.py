@@ -355,3 +355,11 @@ def test_the_notice_and_its_marker_are_disclosed():
         assert word in para, word
     readme = (root / "README.md").read_text(encoding="utf-8")
     assert "license_notice" in readme
+
+
+def test_the_notice_says_what_the_plugin_readme_says():
+    """The plugin listing and the notice state the terms in the same words (maintainer ruling)."""
+    root = Path(__file__).resolve().parent.parent
+    readme = (root / "plugin" / "jcodemunch" / "README.md").read_text(encoding="utf-8")
+    line = next(ln for ln in readme.splitlines() if ln.startswith("**License:**"))
+    assert line.replace("**License:**", "License:", 1) == license_notice.NOTICE_TEXT
