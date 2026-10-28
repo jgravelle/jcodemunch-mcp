@@ -132,3 +132,21 @@ def test_unrecorded_spend_is_never_shown_as_zero():
     assert "not recorded" in R.spend_text({"spent_usd": None})
     assert R.spend_text({"spent_usd": 1.5, "finished_utc": "x"}) == "spend $1.50"
     assert "did not finish" in R.spend_text({"spent_usd": 1.5})
+
+
+def test_a_run_with_no_pairs_reports_nothing_as_measured(tmp_path, monkeypatch, capsys):
+    import hashlib
+    lookups = tmp_path / "lookups.json"
+    raw = json.dumps({"lookups": [{"id": "q1", "question": "where?", "symbols": [ENTRY["symbols"][0]]}]}).encode()
+    lookups.write_bytes(raw)
+    res = tmp_path / "res"; (res / "runs" / "q1-G-s1").mkdir(parents=True)
+    (res / "manifest.json").write_text(json.dumps({"lookups_sha256": hashlib.sha256(raw).hexdigest()}), encoding="utf-8")
+    (res / "runs" / "q1-G-s1" / "run.json").write_text(json.dumps(
+        {"lookup": "q1", "seed": 1, "arm": "G", "answer": "", "wiring_problems": ["no init event"],
+         "explore_tokens": {"total": 0}, "jcm_calls": 0}), encoding="utf-8")
+    monkeypatch.setattr(sys, "argv", ["report.py", "--results", str(res), "--lookups", str(lookups)])
+    assert R.main() == 1
+    out = capsys.readouterr().out
+    assert "No paired sessions" in out and "G 1, J 0" in out
+    for claim in ("Hodges-Lehmann", "Wilcoxon", "McNemar", "never called jCodeMunch"):
+        assert claim not in out

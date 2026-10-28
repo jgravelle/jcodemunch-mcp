@@ -72,6 +72,11 @@ def main():
     print(f"# A/B kit report\n\nRepo commit `{manifest.get('repo_commit')}`, jCodeMunch {manifest.get('jcm_version')}, Explore model {manifest.get('explore_model')}, "
           f"{len(pairs)} paired lookup-seeds, {spend_text(manifest)}.\n")
     print(f"Sessions left out as miswired (retries included): {base} {dropped[base]}, {test} {dropped[test]}.\n")
+    if not pairs:
+        # Nothing was measured: no ratio, no p-value and no "never called" finding is printed for it.
+        print(f"**No paired sessions:** no lookup-seed has a usable session in both {base} and {test}, "
+              "so this run measured nothing. Fix the wiring problems listed in runs/*/run.json and run it again.")
+        return 1
     print(f"| Lookup | {base} tokens (median) | {test} tokens (median) | {test}/{base} | {base} correct | {test} correct | {test} jCodeMunch calls |\n|---|---|---|---|---|---|---|")
     logr = []
     for lk in key:

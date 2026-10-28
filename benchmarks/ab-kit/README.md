@@ -41,7 +41,7 @@ Tier 1 (`run_benchmark.py`) makes no model calls and costs nothing.
    python run_lookups.py --repo /path/to/your/repo --lookups lookups.json --cap 20
    ```
 
-   - **`--cap`** is required. It's a dollar limit on the billed totals Claude Code reports, and the run stops when it's reached.
+   - **`--cap`** is required. It's a dollar limit on what the run has spent or may have spent: each session's budget is charged before it starts, and only a cost Claude Code reports replaces that charge. The run stops before the charges reach it.
    - **`--seeds`** sets how many times each lookup runs per arm (default 3).
    - **`--explore-model`** chooses the Explore agent's model: `haiku` (the default) or `sonnet`.
    - **`--out`** sets where results go. It must be outside your repo. The default is `~/jcodemunch-ab-results/<timestamp>`.
@@ -71,7 +71,7 @@ Each arm runs on its own copy of your repo, without `.git`. Each copy gets a pro
 ## Privacy and credentials
 
 - **Nothing is uploaded.** jCodeMunch's savings sharing is turned off, and its telemetry URL points at a dead local address, for every process the kit starts.
-- **The kit never reads, prints or stores an API key.** Sessions use your existing Claude Code credentials. After each session, the kit checks its own output files for the value of `ANTHROPIC_API_KEY`, if it's set, and deletes any file that contains it.
+- **The kit never prints or stores an API key, and never passes one to anything.** Sessions use your existing Claude Code credentials. It reads `ANTHROPIC_API_KEY`, if it's set, for one purpose: after each session it checks its own output files for that value and deletes any file that contains it.
 - **Results stay in `--out`.** Don't commit them.
 
 ## Limits

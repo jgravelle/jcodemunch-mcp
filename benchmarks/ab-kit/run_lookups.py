@@ -19,9 +19,9 @@ session's budget itself and can go over it by up to one model turn, so the run's
 
 BILLED: every session is a real Claude Code session billed to the account your `claude` CLI uses (not to jCodeMunch),
 and it sends your code to the Anthropic API. --cap is required, and the run asks you to type yes before the first
-session (--yes skips the question). Sessions use whatever credentials your `claude` CLI already uses. This script never reads, prints or stores
-a key; after each session it checks its own output files for the value of ANTHROPIC_API_KEY, if set, and deletes any
-file that contains it. jCodeMunch savings sharing is off and its telemetry URL points at a dead local address.
+session (--yes skips the question). Sessions use whatever credentials your `claude` CLI already uses. This script never prints or stores a key.
+It reads ANTHROPIC_API_KEY, if set, only to check its own output files after each session and delete any file that
+contains it. jCodeMunch savings sharing is off and its telemetry URL points at a dead local address.
 """
 import argparse, hashlib, json, os, pathlib, random, re, shutil, subprocess, sys, time, uuid
 
