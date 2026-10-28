@@ -25,6 +25,8 @@ Works with **Claude Code**, **Cursor**, **VS Code**, **Codex CLI**, **Windsurf**
 **Free for personal use.** Use it to make money, and Uncle J. gets a taste. Fair enough? [Commercial licenses below.](#licensing-and-commercial-use)
 Our guarantee: if jCodeMunch doesn't pay for itself, you don't pay for jCodeMunch.
 
+**Small by default.** A new install starts on a six-tool front door: menu, order and route do the work, and jcodemunch_guide, announce_model and set_tool_tier help. The full tool set sits behind it, and `jcodemunch-mcp surface` shows exactly what your install advertises.
+
 ---
 
 ## Why jCodeMunch?
@@ -157,7 +159,7 @@ Want to skip initial indexing for popular frameworks? Pre-built **starter packs*
 - **Trust the answers.** Calibrated confidence scores, freshness flags, coverage contracts on absence claims, compiler-verified references via SCIP import, and automatic secret redaction before anything reaches the LLM.
 - **Keep the index fresh automatically.** Watch modes, agent hooks, and a VS Code extension close the staleness gap.
 
-That's the highlight reel. The complete tour of 90+ tools, the MUNCH compact wire format, evidence receipts, offloadable-work annotation, and the session-economics instrumentation is in **[CAPABILITIES.md](CAPABILITIES.md)**, with internals in [UNDER_THE_HOOD.md](UNDER_THE_HOOD.md).
+That's the highlight reel. The complete tour of the full tool set (90+ tools behind the six-tool front door), the MUNCH compact wire format, evidence receipts, offloadable-work annotation, and the session-economics instrumentation is in **[CAPABILITIES.md](CAPABILITIES.md)**, with internals in [UNDER_THE_HOOD.md](UNDER_THE_HOOD.md).
 
 <!-- WHATSNEW:START -->
 #### What's new
@@ -227,9 +229,17 @@ Deferred definitions are excluded from the system-prompt prefix and appended inl
 
 ---
 
+## Privacy Policy
+
+jCodeMunch runs on your machine. Your code, file paths and queries stay there: the index lives in `~/.code-index/`, and deleting that folder removes it.
+
+The one thing the server sends by default is an anonymous savings counter: a random ID, the tokens saved since the last send, and a lifetime total. It sends no code, no paths and no queries. Turn it off with `"share_savings": false` in `~/.code-index/config.jsonc` or `JCODEMUNCH_SHARE_SAVINGS=0`. The Claude Code plugin turns it off for you.
+
+Anything else that reaches the network is something you run or turn on yourself, and each is listed in [Security, privacy, and background behavior](#security-privacy-and-background-behavior). Full policy: https://jcodemunch.com/privacy.php
+
 ## Security, privacy, and background behavior
 
-Local-first by design: indexes live at `~/.code-index/`, and the base package's only default network behavior is an anonymous savings counter (random ID plus aggregate token counts, no code, no paths, no PII; opt out with `share_savings: false`). Everything the server does beyond answering a tool call (file watching, the opt-in login service, license validation, model downloads, org reporting) is opt-in or opt-out, visible, and reversible, and every item is enumerated in **[SECURITY.md](SECURITY.md#background-behavior-fully-disclosed)** alongside the path-traversal, symlink, and secret-redaction controls. A default `init` writes no policy file and installs no hook whose output the model reads; those are `init --policy` and `init --guidance`, and `init --remove-guidance` takes them back out of an older install.
+The short version is the [Privacy Policy](#privacy-policy) above. Local-first by design: indexes live at `~/.code-index/`, and the base package's only default network behavior is an anonymous savings counter (random ID plus aggregate token counts, no code, no paths, no PII; opt out with `share_savings: false`). Everything the server does beyond answering a tool call (file watching, the opt-in login service, license validation, model downloads, org reporting) is opt-in or opt-out, visible, and reversible, and every item is enumerated in **[SECURITY.md](SECURITY.md#background-behavior-fully-disclosed)** alongside the path-traversal, symlink, and secret-redaction controls. A default `init` writes no policy file and installs no hook whose output the model reads; those are `init --policy` and `init --guidance`, and `init --remove-guidance` takes them back out of an older install.
 
 **Grammar pack override (#608).** The dependency `tree-sitter-language-pack` is pinned `<1.0.0` because the 0.x wheels bundle every grammar and parsing stays local. F# is the one exception: it is parsed by the pinned `tree-sitter-fsharp` wheel, which also compiles its grammar in, so F# parsing stays local on either pack (#848). You can override it with `pip install -U tree-sitter-language-pack` after installing; nothing in the code refuses it. What you accept, measured against 1.17.0 on 2026-09-11: the 1.x pack ships no grammars and fetches each one over the network into its cache directory (measured on Windows: `%LOCALAPPDATA%\tree-sitter-language-pack\v<version>\libs`; `jcodemunch-mcp install-status` prints the path on any platform) the first time a language is parsed, so an airgapped install parses nothing, and the `nim` grammar changed upstream, so nim files yield no symbols (the manifest also lacks `autohotkey`, `ejs` and `verse`, which costs nothing here: those three are parsed by jCodeMunch's own extractors, not by tree-sitter). An install on a 1.x pack says so: every `index_folder` result carries a `grammar_pack` block and a warning naming the version, the cache directory and each language whose grammar failed, and `jcodemunch-mcp install-status` prints the same. Dropping the pin is a separate decision that needs the offline story first.
 

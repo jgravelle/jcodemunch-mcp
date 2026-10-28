@@ -190,6 +190,13 @@
       "replacement": "tests/test_non_code_and_data_ranking.py::test_search_symbols_ranks_functions_above_settings_and_fields",
       "commit": "421c6af5",
       "date": "2026-10-22"
+    },
+    {
+      "path": "tests/test_plugin_manifest_sync.py::test_plugin_description_matches_pyproject",
+      "lesson": "It required the plugin manifest's description to equal pyproject's. That held while the plugin was the package's own manifest at the repo root. In plugin/jcodemunch/ the description is the plugin directory's listing summary, written for a person choosing a plugin, and pyproject's is PyPI's package summary; they may differ by design. What still matters is that the listing is never empty, and that the manifest's version and uvx pin track pyproject, which test_plugin_version_matches_pyproject and test_mcp_config_launches_this_package keep asserting.",
+      "replacement": "tests/test_plugin_manifest_sync.py::test_plugin_description_is_set",
+      "commit": "#1244",
+      "date": "2026-10-28"
     }
   ]
 }
