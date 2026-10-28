@@ -15,8 +15,8 @@ stays with `resolve_repo` and nothing applies a second path rule:
 
 - On the default `counter` surface, the startup text says this folder copies a
   repo indexed elsewhere and gives the `order("index_folder", ...)` call that
-  indexes it. The `full` surface's text is at its 1,000-character limit, so it
-  is unchanged there. On both, the server logs one WARNING naming the folder
+  indexes it. The `full` surface's text is 982 of its 1,000 characters, too
+  close to the limit for the sentence, so it is unchanged there. On both, the server logs one WARNING naming the folder
   the index was built from, because a path has no length limit.
 - The PreToolUse hook (installed by `init --guidance`) says the same, naming
   the folder, once per session and folder. To check each folder only once,
