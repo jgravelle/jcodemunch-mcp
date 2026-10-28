@@ -1,6 +1,12 @@
 {
-  "current": "1.108.399",
+  "current": "1.108.400",
   "entries": [
+    {
+      "version": "1.108.400",
+      "date": "2026-10-27",
+      "title": "a text search returns the code it found, and a retired tool name says what replaced it",
+      "summary": "When search_text's matches fall inside a few small functions or classes, the page carries each one's source once, so an agent can edit without opening the file. Calling get_symbol or get_symbols, retired in March, now returns an error naming get_symbol_source and its argument."
+    },
     {
       "version": "1.108.399",
       "date": "2026-10-26",
