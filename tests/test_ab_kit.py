@@ -134,19 +134,40 @@ def test_unrecorded_spend_is_never_shown_as_zero():
     assert "did not finish" in R.spend_text({"spent_usd": 1.5})
 
 
-def test_a_run_with_no_pairs_reports_nothing_as_measured(tmp_path, monkeypatch, capsys):
+def _results(tmp_path, runs):
+    """A results folder and lookups file as run_lookups.py writes them, with these run.json rows."""
     import hashlib
     lookups = tmp_path / "lookups.json"
     raw = json.dumps({"lookups": [{"id": "q1", "question": "where?", "symbols": [ENTRY["symbols"][0]]}]}).encode()
     lookups.write_bytes(raw)
-    res = tmp_path / "res"; (res / "runs" / "q1-G-s1").mkdir(parents=True)
+    res = tmp_path / "res"
+    for i, run in enumerate(runs):
+        d = res / "runs" / f"r{i}"; d.mkdir(parents=True)
+        (d / "run.json").write_text(json.dumps({"lookup": "q1", "seed": 1, "answer": "", "jcm_calls": 0, **run}), encoding="utf-8")
     (res / "manifest.json").write_text(json.dumps({"lookups_sha256": hashlib.sha256(raw).hexdigest()}), encoding="utf-8")
-    (res / "runs" / "q1-G-s1" / "run.json").write_text(json.dumps(
-        {"lookup": "q1", "seed": 1, "arm": "G", "answer": "", "wiring_problems": ["no init event"],
-         "explore_tokens": {"total": 0}, "jcm_calls": 0}), encoding="utf-8")
-    monkeypatch.setattr(sys, "argv", ["report.py", "--results", str(res), "--lookups", str(lookups)])
-    assert R.main() == 1
-    out = capsys.readouterr().out
-    assert "No paired sessions" in out and "G 1, J 0" in out
+    return res, lookups
+
+
+def _report(res, lookups):
+    """Run report.py the way a user or a script does: as its own process. The exit status is the contract."""
+    import subprocess
+    return subprocess.run([sys.executable, "-I", str(KIT / "report.py"), "--results", str(res), "--lookups", str(lookups)],
+                          capture_output=True, text=True, encoding="utf-8", errors="replace")
+
+
+def test_a_run_with_no_pairs_reports_nothing_as_measured(tmp_path):
+    res, lookups = _results(tmp_path, [{"arm": "G", "wiring_problems": ["no init event"], "explore_tokens": {"total": 0}}])
+    p = _report(res, lookups)
+    assert p.returncode == 1, p.stdout + p.stderr
+    assert "No paired sessions" in p.stdout and "G 1, J 0" in p.stdout
     for claim in ("Hodges-Lehmann", "Wilcoxon", "McNemar", "never called jCodeMunch"):
-        assert claim not in out
+        assert claim not in p.stdout
+
+
+def test_pairs_with_no_tokens_print_no_ratio_or_p_value(tmp_path):
+    res, lookups = _results(tmp_path, [{"arm": "G", "explore_tokens": {"total": 0}},
+                                       {"arm": "J", "explore_tokens": {"total": 0}}])
+    p = _report(res, lookups)
+    assert p.returncode == 0, p.stdout + p.stderr
+    assert "not measured" in p.stdout
+    assert "Hodges-Lehmann" not in p.stdout and "Wilcoxon" not in p.stdout and "nan" not in p.stdout

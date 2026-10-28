@@ -84,19 +84,22 @@ def main():
         if not ps: continue
         mb = statistics.median(tok(p[base]) for p in ps); mt = statistics.median(tok(p[test]) for p in ps)
         if mb > 0 and mt > 0: logr.append(math.log(mt / mb))
-        print(f"| {lk} | {mb:,.0f} | {mt:,.0f} | {mt / mb if mb else float('nan'):.2f} | {sum(p[base]['correct'] for p in ps)}/{len(ps)} | "
+        print(f"| {lk} | {mb:,.0f} | {mt:,.0f} | {f'{mt / mb:.2f}' if mb > 0 and mt > 0 else 'not measured'} | {sum(p[base]['correct'] for p in ps)}/{len(ps)} | "
               f"{sum(p[test]['correct'] for p in ps)}/{len(ps)} | {sum(p[test]['jcm_calls'] for p in ps)} |")
     cb = sum(p[base]["correct"] for p in pairs.values()); ct = sum(p[test]["correct"] for p in pairs.values())
     b = sum(p[base]["correct"] and not p[test]["correct"] for p in pairs.values()); c = sum(p[test]["correct"] and not p[base]["correct"] for p in pairs.values())
     guard = a.guard if a.guard is not None else max(1, len(pairs) // 10); used = sum(p[test]["jcm_calls"] > 0 for p in pairs.values())
-    hl = math.exp(hodges_lehmann(logr)) if logr else float("nan")
-    print(f"\n**Tokens per lookup, {test}/{base}:** Hodges-Lehmann ratio {hl:.3f}, exact Wilcoxon p = {wilcoxon_exact(logr):.4f} over {len(logr)} lookups.")
+    if logr:
+        hl = math.exp(hodges_lehmann(logr))
+        print(f"\n**Tokens per lookup, {test}/{base}:** Hodges-Lehmann ratio {hl:.3f}, exact Wilcoxon p = {wilcoxon_exact(logr):.4f} over {len(logr)} lookups.")
+    else:  # every paired lookup had zero Explore tokens in an arm: there is no ratio to report
+        print(f"\n**Tokens per lookup, {test}/{base}:** not measured. No lookup has Explore tokens in both arms, so there is no ratio and no p-value.")
     print(f"**Correct:** {base} {cb}/{len(pairs)}, {test} {ct}/{len(pairs)}; exact McNemar p = {mcnemar_exact(b, c):.4f}.")
     print(f"**jCodeMunch was called** in {used} of {len(pairs)} {test} sessions.")
     if cb - ct > guard: print(f"\n**Quality guard tripped:** {test} has {cb - ct} fewer correct answers (limit {guard}). No token saving is claimed from this run.")
-    if len(logr) < 10: print("\n**Fewer than 10 lookups:** treat the ratio as descriptive only.")
+    if 0 < len(logr) < 10: print("\n**Fewer than 10 lookups:** treat the ratio as descriptive only.")
     if used == 0: print(f"\n**The agent never called jCodeMunch** in arm {test}, so this run cannot show a difference from it. That is a real result for this setup.")
     print("\nUnit: the Explore agent's tokens per lookup, as Claude Code reports them. The parent session's tokens are not counted, "
           "so this is not the whole session's bill.")
 
-if __name__ == "__main__": main()
+if __name__ == "__main__": raise SystemExit(main())
