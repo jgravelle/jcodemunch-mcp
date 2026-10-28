@@ -10,6 +10,10 @@
   },
   "homepage": "https://jcodemunch.com",
   "repository": "https://github.com/jgravelle/jcodemunch-mcp",
+  "documentationUrl": "https://github.com/jgravelle/jcodemunch-mcp#readme",
+  "supportUrl": "https://github.com/jgravelle/jcodemunch-mcp/issues",
+  "privacyPolicyUrl": "https://jcodemunch.com/privacy.php",
+  "termsOfServiceUrl": "https://github.com/jgravelle/jcodemunch-mcp/blob/main/LICENSE",
   "license": "LicenseRef-jCodeMunch-Dual-Use-1",
   "keywords": [
     "code-search",
