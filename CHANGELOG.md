@@ -10,10 +10,11 @@ the retired site that is no longer kept up. Every other sales link the CLI
 prints already went to jcodemunch.com and was tagged as coming from the CLI,
 so this one sent a buyer to an outdated page and was not counted.
 
-It now points at `https://jcodemunch.com/#pricing`, tagged
+It now points at the pricing section of jcodemunch.com, tagged
 `utm_source=cli`. The license check and the savings counter stay on
-j.gravelle.us, where they are served; a test fails if any other link in the
-package points at that host.
+j.gravelle.us, where they are served. A test fails if any other link in the
+package's Python source points at that host, in any case, with or without a
+scheme or `www.`. It cannot see a URL built at run time from a variable host.
 
 ### Fixed - a git clone inside an indexed checkout gets its own index
 
