@@ -143,40 +143,103 @@ print(json.dumps({"defaults": sorted(DEFAULTS), "skill": _build_skill_content()}
 """
 
 
-@pytest.fixture(scope="module")
-def pinned(tmp_path_factory):
-    """The pinned release's own settings and skill, read from its git tag.
+class NoPinnedSource(Exception):
+    """Neither the pinned tag nor the tree under test is the pinned version."""
 
-    The plugin serves the version its `uvx` pin names, and `src/` on main moves
-    ahead of that between releases. So the comparison runs against the tagged
-    source, never the tree under test. CI checks out with full history and
-    tags (`fetch-depth: 0`); a checkout without the tag fails here rather than
-    comparing against the wrong tree.
+
+def _pyproject_version(repo: Path) -> str:
+    text = (repo / "pyproject.toml").read_text(encoding="utf-8")
+    m = re.search(r'^version\s*=\s*"([^"]+)"', text, re.MULTILINE)
+    assert m, "pyproject.toml has no version line"
+    return m.group(1)
+
+
+def _pinned_source(repo: Path, pin: str, dest: Path) -> Path:
+    """The `src/` directory of the version the plugin pins.
+
+    Between releases `src/` on main moves ahead of the pin, so the tagged
+    source `v<pin>` is read when it exists. On a release PR the pin has just
+    moved to a version whose tag does not exist yet (`release.yml` creates it
+    after the merge, and the pre-flight requires it absent); there the pin
+    equals pyproject's version and the tree under test IS that version.
+    Anything else has no source to compare against.
     """
-    version = _manifest()["version"]
-    tag = f"v{version}"
+    tag = f"v{pin}"
     if subprocess.run(
         ["git", "rev-parse", "--verify", "--quiet", f"refs/tags/{tag}"],
-        cwd=REPO_ROOT, capture_output=True,
-    ).returncode != 0:
-        pytest.fail(f"tag {tag} is not in this checkout; fetch tags to check the pinned version")
+        cwd=repo, capture_output=True,
+    ).returncode == 0:
+        archive = subprocess.run(
+            ["git", "archive", "--format=tar", tag, "src"],
+            cwd=repo, capture_output=True, check=True,
+        ).stdout
+        with tarfile.open(fileobj=io.BytesIO(archive)) as tar:
+            if hasattr(tarfile, "data_filter"):
+                tar.extractall(dest, filter="data")
+            else:
+                tar.extractall(dest)
+        return dest / "src"
+    if pin == _pyproject_version(repo):
+        return repo / "src"
+    raise NoPinnedSource(
+        f"tag {tag} is not in this checkout and the pin is not pyproject's version; "
+        "fetch tags to check the pinned version"
+    )
+
+
+@pytest.fixture(scope="module")
+def pinned(tmp_path_factory):
+    """The pinned version's own settings and skill (see `_pinned_source`)."""
     root = tmp_path_factory.mktemp("pinned")
-    archive = subprocess.run(
-        ["git", "archive", "--format=tar", tag, "src"],
-        cwd=REPO_ROOT, capture_output=True, check=True,
-    ).stdout
-    with tarfile.open(fileobj=io.BytesIO(archive)) as tar:
-        tar.extractall(root, filter="data") if hasattr(tarfile, "data_filter") else tar.extractall(root)
+    try:
+        src = _pinned_source(REPO_ROOT, _manifest()["version"], root)
+    except NoPinnedSource as exc:
+        pytest.fail(str(exc))
     home = root / "index-home"
     home.mkdir()
     env = {k: v for k, v in os.environ.items() if not k.startswith("JCODEMUNCH_")}
     env.pop("PYTHONPATH", None)
     env["CODE_INDEX_PATH"] = str(home)
     out = subprocess.run(
-        [sys.executable, "-I", "-c", _PINNED_PROBE, str(root / "src")],
+        [sys.executable, "-I", "-c", _PINNED_PROBE, str(src)],
         capture_output=True, text=True, encoding="utf-8", env=env, check=True,
     ).stdout
     return json.loads(out)
+
+
+def _scratch_repo(tmp_path: Path, version: str, tag: str | None) -> Path:
+    repo = tmp_path / "repo"
+    (repo / "src").mkdir(parents=True)
+    (repo / "src" / "marker.txt").write_text("tagged", encoding="utf-8")
+    (repo / "pyproject.toml").write_text(f'[project]\nversion = "{version}"\n', encoding="utf-8")
+    git = ["git", "-c", "user.name=t", "-c", "user.email=t@example.invalid", "-c", "commit.gpgsign=false"]
+    subprocess.run(git + ["init", "-q"], cwd=repo, check=True)
+    subprocess.run(git + ["add", "-A"], cwd=repo, check=True)
+    subprocess.run(git + ["commit", "-q", "-m", "x"], cwd=repo, check=True)
+    if tag:
+        subprocess.run(git + ["tag", tag], cwd=repo, check=True)
+    (repo / "src" / "marker.txt").write_text("working tree", encoding="utf-8")
+    return repo
+
+
+def test_a_tagged_pin_reads_the_tagged_source(tmp_path):
+    repo = _scratch_repo(tmp_path, "2.0.1", tag="v2.0.0")
+    src = _pinned_source(repo, "2.0.0", tmp_path / "out")
+    assert (src / "marker.txt").read_text(encoding="utf-8") == "tagged"
+
+
+def test_a_release_pr_reads_the_tree_it_is(tmp_path):
+    """A release PR moves the pin to a version with no tag yet; the tree under
+    test is that version, so it is what the plugin's text is checked against."""
+    repo = _scratch_repo(tmp_path, "2.0.1", tag="v2.0.0")
+    src = _pinned_source(repo, "2.0.1", tmp_path / "out")
+    assert src == repo / "src"
+
+
+def test_an_untagged_pin_behind_pyproject_has_no_source(tmp_path):
+    repo = _scratch_repo(tmp_path, "2.0.1", tag=None)
+    with pytest.raises(NoPinnedSource):
+        _pinned_source(repo, "2.0.0", tmp_path / "out")
 
 
 def test_the_plugin_ships_the_skill_init_writes(pinned):
