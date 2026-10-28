@@ -2,9 +2,9 @@
 
 `search_text` reads every cached file in scope, so a cold search costs one open
 and one read per file: seconds on a few thousand files. Each cached file gets a
-bitmap of the hashed trigrams of its lowered text. A substring query can occur
-in a file only if every trigram of the lowered query is set in that file's
-bitmap, so a file whose bitmap lacks one is skipped without being opened.
+bitmap of the hashed byte trigrams of its lowered text, UTF-8 encoded. A substring query can occur
+in a file only if every byte trigram of the lowered query is set in that
+file's bitmap (a substring's UTF-8 bytes are a substring of the text's), so a file whose bitmap lacks one is skipped without being opened.
 
 ⚠ The bitmap can say "maybe" for a file that has no match (a hash collision),
 never "no" for one that has. It answers for the text it was built from, and
@@ -22,7 +22,8 @@ from __future__ import annotations
 import logging
 import os
 import sqlite3
-import zlib
+import sys
+from array import array
 from pathlib import Path
 from typing import Iterable, Optional
 
@@ -34,8 +35,12 @@ MIN_QUERY_CHARS = 3
 BITS_PER_GRAM = 4
 MIN_BITS = 1024
 
+# The table name carries the bitmap format: rows hashed another way must never
+# be read with this hash, so a format change renames the table and drops the old.
+_TABLE = "text_filters_v2"
+_OLD_TABLES = ("text_filters",)
 _DDL = (
-    "CREATE TABLE IF NOT EXISTS text_filters ("
+    f"CREATE TABLE IF NOT EXISTS {_TABLE} ("
     "path TEXT PRIMARY KEY, size INTEGER NOT NULL, mtime_ns INTEGER NOT NULL, "
     "nbits INTEGER NOT NULL, bits BLOB NOT NULL)"
 )
@@ -46,11 +51,39 @@ def sidecar_path(content_dir: Path) -> Path:
 
 
 def _grams(text_lower: str) -> set:
-    return {text_lower[i : i + 3] for i in range(len(text_lower) - 2)}
+    """The distinct byte trigrams of ``text_lower``'s UTF-8 encoding, each as a
+    24-bit int in native byte order.
+
+    Built in C: for each of the four alignments, the bytes are read as 4-byte
+    words with the fourth byte zeroed, so each word is one trigram. The pad
+    byte makes the last full trigram start a word; no word holds a partial
+    trigram. A per-position Python loop cost about twice as much on a cold
+    index, where every file is built once.
+    """
+    b = text_lower.encode("utf-8", "surrogatepass") + b"\0"
+    out: set = set()
+    for off in range(4):
+        n = (len(b) - off) // 4 * 4
+        if n <= 0:
+            continue
+        words = bytearray(b[off : off + n])
+        words[3::4] = bytes(n // 4)
+        out.update(
+            array("I", bytes(words)) if array("I").itemsize == 4 else _slow_words(words)
+        )
+    return out
 
 
-def _bit(gram: str, mask: int) -> int:
-    return zlib.crc32(gram.encode("utf-8", "surrogatepass")) & mask
+def _slow_words(words: bytearray) -> list:
+    """The same words where a C unsigned int is not 4 bytes."""
+    return [
+        int.from_bytes(words[i : i + 4], sys.byteorder) for i in range(0, len(words), 4)
+    ]
+
+
+def _bit(gram: int, mask: int) -> int:
+    h = (gram * 0x9E3779B1) & 0xFFFFFFFF
+    return (h ^ (h >> 16)) & mask
 
 
 def build(text: str) -> tuple[int, bytes]:
@@ -105,6 +138,8 @@ def content_stat(content_dir: Path, rel_path: str) -> Optional[tuple[int, int]]:
 
 def _connect(content_dir: Path) -> sqlite3.Connection:
     conn = sqlite3.connect(str(sidecar_path(content_dir)), timeout=5)
+    for old in _OLD_TABLES:
+        conn.execute(f"DROP TABLE IF EXISTS {old}")
     conn.execute(_DDL)
     return conn
 
@@ -120,7 +155,7 @@ def load(content_dir: Path) -> dict:
         conn = connect_readonly(side, timeout=5)
         try:
             rows = conn.execute(
-                "SELECT path, size, mtime_ns, nbits, bits FROM text_filters"
+                f"SELECT path, size, mtime_ns, nbits, bits FROM {_TABLE}"
             ).fetchall()
         finally:
             conn.close()
@@ -173,7 +208,7 @@ def store_rows(content_dir: Path, rows: list) -> None:
         conn = _connect(content_dir)
         try:
             conn.executemany(
-                "INSERT OR REPLACE INTO text_filters (path, size, mtime_ns, nbits, bits) "
+                f"INSERT OR REPLACE INTO {_TABLE} (path, size, mtime_ns, nbits, bits) "
                 "VALUES (?, ?, ?, ?, ?)",
                 rows,
             )
@@ -191,7 +226,7 @@ def forget(content_dir: Path, rel_paths: Iterable[str]) -> None:
     try:
         conn = _connect(content_dir)
         try:
-            conn.executemany("DELETE FROM text_filters WHERE path = ?", paths)
+            conn.executemany(f"DELETE FROM {_TABLE} WHERE path = ?", paths)
             conn.commit()
         finally:
             conn.close()

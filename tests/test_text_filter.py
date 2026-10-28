@@ -41,6 +41,55 @@ def test_a_bitmap_never_rules_out_text_it_holds():
             assert tf.may_contain(nbits, bits, grams), (text, lowered[i:j])
 
 
+def test_the_word_trick_finds_exactly_the_byte_trigrams_at_every_alignment():
+    """`_grams` reads 4-byte words with the fourth byte zeroed. Every length
+    0..12 puts the last trigram at each alignment; the reference is one
+    trigram per position, the plain definition."""
+    import sys
+
+    rng = random.Random(11)
+    alphabet = "abé\U0001f600\x00Z"
+    for length in range(13):
+        for _ in range(20):
+            text = "".join(rng.choice(alphabet) for _ in range(length))
+            data = text.encode("utf-8", "surrogatepass")
+            want = {
+                int.from_bytes(data[i : i + 3] + b"\x00", sys.byteorder)
+                for i in range(len(data) - 2)
+            }
+            assert tf._grams(text) == want, text
+
+
+def test_a_sidecar_in_the_old_format_is_dropped_not_read(tmp_path):
+    """Rows hashed the old way would answer wrongly under the new hash."""
+    import sqlite3
+
+    content_dir = tmp_path / "repo"
+    content_dir.mkdir()
+    (content_dir / "a.py").write_text("hello world", encoding="utf-8")
+    conn = sqlite3.connect(str(tf.sidecar_path(content_dir)))
+    conn.execute(
+        "CREATE TABLE text_filters (path TEXT PRIMARY KEY, size INTEGER, "
+        "mtime_ns INTEGER, nbits INTEGER, bits BLOB)"
+    )
+    st = os.stat(content_dir / "a.py")
+    conn.execute(
+        "INSERT INTO text_filters VALUES (?, ?, ?, ?, ?)",
+        ("a.py", st.st_size, st.st_mtime_ns, 1024, bytes(128)),
+    )
+    conn.commit()
+    conn.close()
+    assert tf.load(content_dir) == {}
+    tf.record(content_dir, [("a.py", "hello world")])
+    conn = sqlite3.connect(str(tf.sidecar_path(content_dir)))
+    names = {
+        r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
+    }
+    conn.close()
+    assert "text_filters" not in names
+    assert tf.may_contain(*tf.load(content_dir)["a.py"][2:], tf.query_grams("world"))
+
+
 def test_a_short_or_multiline_query_has_no_filter():
     assert tf.query_grams("ab") is None
     assert tf.query_grams(None) is None
@@ -52,7 +101,9 @@ def repo(tmp_path):
     src = tmp_path / "proj"
     src.mkdir()
     for i in range(30):
-        (src / f"m{i}.py").write_text(f"def f{i}():\n    return {i}\n", encoding="utf-8")
+        (src / f"m{i}.py").write_text(
+            f"def f{i}():\n    return {i}\n", encoding="utf-8"
+        )
     (src / "target.py").write_text(
         "def needle_function():\n    return 'Needle'\n", encoding="utf-8"
     )
@@ -166,7 +217,10 @@ def test_metadata_only_writes_no_row_for_text_it_did_not_cache(tmp_path, monkeyp
     old.write_text("needle_old = 1\n", encoding="utf-8")
     real_get = config.get
     monkeypatch.setattr(
-        config, "get",
-        lambda key, *a, **kw: "metadata_only" if key == "cache_mode" else real_get(key, *a, **kw),
+        config,
+        "get",
+        lambda key, *a, **kw: (
+            "metadata_only" if key == "cache_mode" else real_get(key, *a, **kw)
+        ),
     )
     assert text_filter.row_for(tmp_path, "a.py", "something_else = 2\n") is None
