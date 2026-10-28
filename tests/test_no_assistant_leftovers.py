@@ -17,7 +17,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 
 # History files quote old text verbatim and are not published guidance.
-SKIP = {"CHANGELOG.md", "ISSUE-HISTORY.md", "tests/test_no_assistant_leftovers.py"}
+HISTORY_FILES = {"CHANGELOG.md", "ISSUE-HISTORY.md", "tests/test_no_assistant_leftovers.py"}
 
 LEFTOVERS = re.compile(
     r"if you document this"
@@ -37,7 +37,7 @@ def _published_files() -> list[Path]:
         ["git", "ls-files", "*.md", "src/**/*.py", "plugin/**"],
         cwd=ROOT, capture_output=True, text=True, check=True,
     ).stdout.split()
-    return [ROOT / f for f in out if f not in SKIP]
+    return [ROOT / f for f in out if f not in HISTORY_FILES]
 
 
 def test_no_writer_facing_leftovers_in_published_text():
