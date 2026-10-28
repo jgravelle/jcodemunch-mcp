@@ -1761,6 +1761,12 @@ def run_init(
             print()
             for line in _LICENCE_LINES:
                 print(line)
+            # This machine was just shown the license line, so the server's
+            # one-time notice is not due. `upgrade` re-runs init silently and
+            # prints nothing, so it writes no marker.
+            from ..license_notice import mark_shown
+
+            mark_shown("init")
     print()
     return 0
 
