@@ -112,11 +112,18 @@ def read_pins(root: Path = REPO) -> dict[str, str | None]:
     except Exception:
         pins["server.json:version"] = pins["server.json:packages[0].version"] = None
     try:
-        manifest = json.loads((root / "plugin/jcodemunch/.claude-plugin/plugin.json").read_text(encoding="utf-8"))
+        manifest = json.loads(
+            (root / "plugin/jcodemunch/.claude-plugin/plugin.json").read_text(
+                encoding="utf-8"
+            )
+        )
         pins["plugin.json:version"] = manifest.get("version")
         # The uvx launcher is pinned to an exact version (the plugin
         # directory refuses a range), so the pin is a second site.
-        args = next(iter((manifest.get("mcpServers") or {}).values()), {}).get("args") or []
+        args = (
+            next(iter((manifest.get("mcpServers") or {}).values()), {}).get("args")
+            or []
+        )
         launch = next((a for a in args if a.startswith("jcodemunch-mcp==")), None)
         pins["plugin.json:uvx pin"] = launch.split("==", 1)[1] if launch else None
     except Exception:
