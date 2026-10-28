@@ -32,6 +32,14 @@ def rb():
     return module
 
 
+@pytest.fixture(autouse=True)
+def _main_leaves_the_environment_as_found(monkeypatch):
+    """`main()` sets JCODEMUNCH_SHARE_SAVINGS in os.environ for the run. Called in-process, that
+    outlives the test and reaches later tests on the same worker; a value set through monkeypatch
+    first is put back when the test ends."""
+    monkeypatch.setenv("JCODEMUNCH_SHARE_SAVINGS", "0")
+
+
 def test_a_task_file_takes_the_tasks_json_shape(rb, tmp_path):
     f = tmp_path / "t.json"
     f.write_text(
