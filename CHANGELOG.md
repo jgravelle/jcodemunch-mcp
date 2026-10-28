@@ -34,6 +34,26 @@ just before the list. Claude Code still receives the ToolSearch line. The
 total stays under the 1,000-character budget, and no tool or description
 changed.
 
+### Fixed - writing a file into a watched folder no longer re-walks the whole repo
+
+Windows reports a folder as modified whenever a file inside it is written, next
+to the file's own event. The watcher treated any changed path that is a folder
+as a change to the tree's shape and re-discovered the whole repo: every file
+stat-ed, checked against gitignore and the secret rules, and opened for the
+binary test. A repo where tools write notes or status files all day was
+re-walked on every write. Profiling `watch-all` over one idle hour on a
+maintainer's machine with 23 watched repos found 40 of 109 change batches
+carrying such a folder, and the per-file filter running about 90,000 times in
+fifteen quiet minutes. That idle cost is what showed up as a large CPU total
+for the background watcher.
+
+A folder reported as modified is now skipped: the file inside it carries its
+own event. An added folder (a tree moved in, which arrives with no events for
+its files) and the watcher's own rescan of the root still re-walk, and a
+deleted folder is handled as before. With real file events on Windows, five
+notes written into a subfolder now cost five targeted re-indexes and no
+re-walk, where they cost five re-walks before.
+
 ### Added - an install that never runs `init` is told the license terms once
 
 `init` ends with a license line. An install that starts the server through
