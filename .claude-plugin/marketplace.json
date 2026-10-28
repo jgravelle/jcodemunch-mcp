@@ -9,10 +9,10 @@
   "plugins": [
     {
       "name": "jcodemunch",
-      "source": "./",
+      "source": "./plugin/jcodemunch",
       "displayName": "jCodeMunch",
       "description": "Symbol-level code exploration via tree-sitter AST parsing. 70+ languages.",
-      "category": "code-intelligence",
+      "category": "development",
       "tags": [
         "code",
         "search",

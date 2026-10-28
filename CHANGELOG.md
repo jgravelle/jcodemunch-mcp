@@ -22,6 +22,39 @@ deleted folder is handled as before. With real file events on Windows, five
 notes written into a subfolder now cost five targeted re-indexes and no
 re-walk, where they cost five re-walks before.
 
+### Added - an install that never runs `init` is told the license terms once
+
+`init` ends with a license line. An install that starts the server through
+`uvx` or the Claude Code plugin never runs `init`, so the person using it was
+never told that work use needs a license. Nothing in the product said so
+anywhere they would look.
+
+The first successful tool answer on such a machine now carries one plain
+`license_notice` field: "License: free for personal and other non-commercial
+use. Work use needs a commercial license, paid once, that includes every 1.x
+update: https://jcodemunch.com/buying.php". It is the plugin README's line,
+word for word, and a statement rather than a request to the agent. It sits in
+the answer body (the default `meta_fields: []` strips `_meta`) and forces JSON
+for that one answer, because a compact encoding drops a key it does not
+declare. The same line goes to stderr once, as a debug courtesy; no client
+shows a server's stderr to the person by default.
+
+It is said once per machine. A marker, `license_notice_state.json`, under
+`CODE_INDEX_PATH` (default `~/.code-index`) records it, so a persistent volume
+keeps it, and an `init` that prints its own license line writes the same
+marker (`upgrade` re-runs `init` silently, prints nothing and writes nothing).
+An `init` from before this release left no marker, and nothing it left can
+prove the line was printed: `init` printed it only from 1.108.376 (#1131), and
+`upgrade` writes the same `last_init_version.txt` stamp without printing it. So
+a machine that ran `init` before this release sees the line once. It can be said a second time
+if the marker cannot be written, or if two servers answer their first call at
+the same moment. It is never said with a license key configured (read locally,
+never sent), after `init`, with `JCODEMUNCH_LICENSE_NOTICE=0`, or on a CI or remote
+runner (`CI=true` or `CLAUDE_CODE_REMOTE=true`), where every run is a fresh
+machine. `CLAUDECODE=1` does not count as CI: every local Claude Code session
+sets it, and a test fails if it is ever read as one. Disclosed in SECURITY.md
+"Background behavior, fully disclosed" and the README.
+
 ## [1.108.401] - 2026-10-28 - a redirected Grep can carry the index's answer, and a substring search opens only the files that can match
 
 ### Added - a redirected Grep can carry the index's answer (opt-in)

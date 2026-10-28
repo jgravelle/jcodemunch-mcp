@@ -7784,6 +7784,20 @@ async def _call_tool_impl(name: str, arguments: dict) -> list[TextContent] | Cal
         except Exception:
             logger.debug("policy notice attach failed", exc_info=True)
 
+        # (2026-10-28, jjg option B) The license notice, once per machine, on
+        # the first successful answer of any tool: an install that never ran
+        # `init` never saw its license line. A plain statement, in the body and
+        # as JSON for the reasons above. See `license_notice`.
+        try:
+            from .license_notice import notice_for as _license_notice_for
+
+            _license_notice = _license_notice_for(name, result, version=__version__)
+            if _license_notice:
+                result = {**result, "license_notice": _license_notice}
+                _requested_format = "json"
+        except Exception:
+            logger.debug("license notice attach failed", exc_info=True)
+
         # Response-level secret redaction — scrub leaked credentials
         # before they reach the LLM context window. Skipped for tools that
         # return raw cached source (any "secret" found is the user's own
