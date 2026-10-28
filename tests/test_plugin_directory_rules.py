@@ -18,9 +18,16 @@ hold the rules we can check from the repository:
 
 from __future__ import annotations
 
+import io
 import json
+import os
 import re
+import subprocess
+import sys
+import tarfile
 from pathlib import Path
+
+import pytest
 
 REPO_ROOT = Path(__file__).parent.parent
 PLUGIN_DIR = REPO_ROOT / "plugin" / "jcodemunch"
@@ -127,17 +134,59 @@ def test_no_plugin_manifest_is_left_at_the_repository_root():
 SKILL = PLUGIN_DIR / "skills" / "jcodemunch" / "SKILL.md"
 
 
-def test_the_plugin_ships_the_skill_init_writes():
-    """The plugin carries the same skill `init` installs on a clean config, so
-    a plugin user gets the routing guidance without running `init`. Generated,
-    never hand-edited: if this fails, regenerate it from
-    `cli.skills._build_skill_content()`. The tree under test is the pinned
-    version for the reason given in the settings test below."""
-    from jcodemunch_mcp.cli.skills import _build_skill_content
+_PINNED_PROBE = """
+import json, os, sys
+sys.path.insert(0, sys.argv[1])
+from jcodemunch_mcp.config import DEFAULTS
+from jcodemunch_mcp.cli.skills import _build_skill_content
+print(json.dumps({"defaults": sorted(DEFAULTS), "skill": _build_skill_content()}))
+"""
 
+
+@pytest.fixture(scope="module")
+def pinned(tmp_path_factory):
+    """The pinned release's own settings and skill, read from its git tag.
+
+    The plugin serves the version its `uvx` pin names, and `src/` on main moves
+    ahead of that between releases. So the comparison runs against the tagged
+    source, never the tree under test. CI checks out with full history and
+    tags (`fetch-depth: 0`); a checkout without the tag fails here rather than
+    comparing against the wrong tree.
+    """
+    version = _manifest()["version"]
+    tag = f"v{version}"
+    if subprocess.run(
+        ["git", "rev-parse", "--verify", "--quiet", f"refs/tags/{tag}"],
+        cwd=REPO_ROOT, capture_output=True,
+    ).returncode != 0:
+        pytest.fail(f"tag {tag} is not in this checkout; fetch tags to check the pinned version")
+    root = tmp_path_factory.mktemp("pinned")
+    archive = subprocess.run(
+        ["git", "archive", "--format=tar", tag, "src"],
+        cwd=REPO_ROOT, capture_output=True, check=True,
+    ).stdout
+    with tarfile.open(fileobj=io.BytesIO(archive)) as tar:
+        tar.extractall(root, filter="data") if hasattr(tarfile, "data_filter") else tar.extractall(root)
+    home = root / "index-home"
+    home.mkdir()
+    env = {k: v for k, v in os.environ.items() if not k.startswith("JCODEMUNCH_")}
+    env.pop("PYTHONPATH", None)
+    env["CODE_INDEX_PATH"] = str(home)
+    out = subprocess.run(
+        [sys.executable, "-I", "-c", _PINNED_PROBE, str(root / "src")],
+        capture_output=True, text=True, encoding="utf-8", env=env, check=True,
+    ).stdout
+    return json.loads(out)
+
+
+def test_the_plugin_ships_the_skill_init_writes(pinned):
+    """The plugin carries the skill `init` installs in the pinned version, so a
+    plugin user gets the routing guidance that matches the server they run.
+    Generated, never hand-edited: if this fails, regenerate it from that
+    version's `cli.skills._build_skill_content()`."""
     assert SKILL.exists(), "plugin/jcodemunch/skills/jcodemunch/SKILL.md is missing"
     shipped = SKILL.read_text(encoding="utf-8").replace("\r\n", "\n")
-    assert shipped == _build_skill_content().replace("\r\n", "\n")
+    assert shipped == pinned["skill"].replace("\r\n", "\n")
 
 
 def test_the_plugin_ships_the_skill_and_no_agent():
@@ -147,19 +196,11 @@ def test_the_plugin_ships_the_skill_and_no_agent():
     assert "skill" in README.read_text(encoding="utf-8").lower()
 
 
-def test_the_readme_names_only_settings_the_pinned_version_has():
+def test_the_readme_names_only_settings_the_pinned_version_has(pinned):
     """A setting named in the listing must exist in the version the plugin
-    pins, or the listing promises behavior the user does not get.
-
-    This reads the settings of the tree under test, which is the pinned
-    version: `test_plugin_version_matches_pyproject` requires the pin to equal
-    pyproject's version, and on main that is the last release. A setting added
-    on main after a release reaches the plugin only when the release pre-flight
-    moves the pin, and this test runs again then."""
-    from jcodemunch_mcp.config import DEFAULTS
-
+    pins, or the listing promises behavior the user does not get."""
     text = README.read_text(encoding="utf-8")
     named = set(re.findall(r"`([a-z][a-z0-9_]+)\s*:", text))
     assert named, "the README's Settings section names no setting"
-    missing = sorted(n for n in named if n not in DEFAULTS)
+    missing = sorted(n for n in named if n not in set(pinned["defaults"]))
     assert not missing, f"README names settings the pinned version lacks: {missing}"
