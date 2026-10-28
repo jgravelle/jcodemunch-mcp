@@ -48,6 +48,10 @@ would invalidate it. An index built before this release has no sidecar and
 searches as before until it is re-indexed or searched once. Under
 `cache_mode: metadata_only` the indexer writes no body and no row.
 
+The tradeoff is index time. Building the bitmaps made a cold index of this
+repository take 5.84 s against 5.30 s without them (about 10% longer),
+measured back to back on one machine with the harness's `index.cold_self_seconds`.
+
 ## [1.108.400] - 2026-10-27 - a text search returns the code it found, and a retired tool name says what replaced it
 
 ### Added - search_text returns the source of the few small symbols its matches sit in
