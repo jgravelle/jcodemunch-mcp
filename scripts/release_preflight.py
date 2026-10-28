@@ -18,8 +18,9 @@ Checks
                 bench (online)`) concluded success and no run of any other name
                 failed; the release workflow's own jobs are ignored; under --ci
                 it waits up to CI_WAIT_SECONDS for runs still going; at the
-                deadline a running witness fails and any other running run
-                (Nightly on the same commit) is named, not waited for. The PR gate
+                deadline only a Nightly run may still be going (it is named,
+                and files its own drift issue); anything else running fails.
+                The PR gate
                 itself is guaranteed by branch protection (enforce_admins on)
   pins          every version pin site agrees (pyproject, server.json x2,
                 .claude-plugin/plugin.json, whatsnew.json current + entries[0],
@@ -45,6 +46,7 @@ import os
 import re
 import subprocess
 import sys
+import time
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -228,6 +230,11 @@ PENDING = ("queued", "in_progress", "waiting", "pending", "requested")
 # 1.108.400's first dispatch (2026-10-28) waited 20 min inside a 15-min job
 # and was cancelled with no verdict. tests/test_release_preflight.py binds it.
 CI_WAIT_SECONDS = 600
+# Runs that may still be going when the wait ends. Nightly runs its matrix on
+# main's HEAD at 04:00 UTC, a windows leg can outlast the whole pre-flight, and
+# a Nightly failure opens its own `drift` issue (nightly.yml). Nothing else is
+# excused: CodeQL (security.yml) has no other gate after the release.
+EXCUSED_AT_DEADLINE = ("nightly: ",)
 
 
 def main_witness_verdict(
@@ -242,10 +249,11 @@ def main_witness_verdict(
     workflow's own jobs are ignored (they are running). An in-progress
     witness is reported as pending so the caller can wait; UNKNOWN blocks.
 
-    With ``final`` (the wait is over), a witness still running fails, and any
-    other run still running is named in the message and does not hold the
-    release: Nightly runs its matrix on the same commit and a windows leg can
-    outlast the whole pre-flight job. A run whose state is unknown still blocks.
+    With ``final`` (the wait is over), a Nightly run still going is named in
+    the message and does not hold the release (EXCUSED_AT_DEADLINE). Any other
+    run still going fails, a witness included, and so does a run whose state is
+    unknown. Locally (no wait) ``final`` holds on the first read, so a local
+    pre-flight passes over a running Nightly the same way.
     """
     runs = [
         r for r in check_runs if not str(r.get("name", "")).startswith(IGNORED_PREFIXES)
@@ -268,7 +276,11 @@ def main_witness_verdict(
     if absent:
         return False, None, f"witness absent on HEAD: {absent}"
     if pending and final:
-        held = [n for n in pending if n in MAIN_WITNESSES or names[n] not in PENDING]
+        held = [
+            n
+            for n in pending
+            if names[n] not in PENDING or not n.startswith(EXCUSED_AT_DEADLINE)
+        ]
         if held:
             return False, None, f"still running at the deadline: {', '.join(held)}"
         done = len(runs) - len(pending)
@@ -303,8 +315,6 @@ def _head_runs() -> list[dict]:
 
 def check_ci(wait_seconds: int = 0) -> tuple[bool, str]:
     """Wait up to `wait_seconds` for the runs on HEAD (the release runs right after a merge)."""
-    import time
-
     deadline = time.monotonic() + wait_seconds
     while True:
         try:
