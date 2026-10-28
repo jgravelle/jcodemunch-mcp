@@ -171,7 +171,7 @@ The SVG badge text is generated server-side and isn't user-configurable beyond t
 
 ### How do I report my own per-team savings to procurement?
 
-Two options. First, every LLM provider's API returns `usage.input_tokens` per call. Log it with and without jCodeMunch-MCP in your toolchain and compute the per-task reduction directly. Second, the full SCI for AI methodology is at `https://j.gravelle.us/jCodeMunch/case-study`, which procurement teams can audit against the published numbers.
+Two options. First, every LLM provider's API returns `usage.input_tokens` per call. Log it with and without jCodeMunch-MCP in your toolchain and compute the per-task reduction directly. Second, the full SCI for AI methodology is at `https://github.com/jgravelle/jcodemunch-mcp/wiki/Token-Reduction-as-an-Energy%E2%80%90Efficiency-Action:-A-225%E2%80%90Billion%E2%80%90Token-Case-Study-Against-SCI-for-AI`, which procurement teams can audit against the published numbers.
 
 ### Is this greenwashing?
 
@@ -199,4 +199,4 @@ No obligation. The badge is a gift, not a transaction.
 
 ---
 
-*jCodeMunch-MCP is maintained by J. Gravelle, GSF-credentialed Green Software Practitioner. The community impact counter, the SCI for AI case study, and the full methodology are at `https://j.gravelle.us/jCodeMunch/case-study`.*
+*jCodeMunch-MCP is maintained by J. Gravelle, GSF-credentialed Green Software Practitioner. The community impact counter, the SCI for AI case study, and the full methodology are at `https://github.com/jgravelle/jcodemunch-mcp/wiki/Token-Reduction-as-an-Energy%E2%80%90Efficiency-Action:-A-225%E2%80%90Billion%E2%80%90Token-Case-Study-Against-SCI-for-AI`.*
