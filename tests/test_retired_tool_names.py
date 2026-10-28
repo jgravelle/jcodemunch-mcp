@@ -16,6 +16,7 @@ import pytest
 
 from mcp.types import CallToolResult
 
+import re
 from datetime import date
 from pathlib import Path
 
@@ -26,7 +27,7 @@ from jcodemunch_mcp.counter import (
     RETIRED_TOOL_NAMES,
     order_gate,
 )
-from jcodemunch_mcp.server import _build_tools_list, call_tool
+from jcodemunch_mcp.server import _build_tools_list, _raw_catalog_tools, call_tool
 
 
 @pytest.mark.asyncio
@@ -101,4 +102,60 @@ def test_every_retired_name_was_an_alias_first():
         assert old in ALIAS_PERIODS, f"{old} was retired with no alias period"
         aliased, retired = (date.fromisoformat(d) for d in ALIAS_PERIODS[old])
         assert (retired - aliased).days >= ALIAS_MIN_DAYS, f"{old} was an alias for under {ALIAS_MIN_DAYS} days"
-        assert f"`{old}`" in changelog, f"{old}'s alias is not listed in the CHANGELOG"
+        assert f"`{old}`" in _changelog_since(changelog, aliased), (
+            f"{old}'s alias is not listed in a CHANGELOG release from {aliased} on"
+        )
+
+
+def _changelog_since(changelog: str, since: date) -> str:
+    """The [Unreleased] block plus every release block dated on or after `since`.
+
+    A bare search of the whole file would match any old mention of a long-lived
+    tool name, so it could never fail.
+    """
+    keep = []
+    for block in re.split(r"(?m)^(?=## \[)", changelog):
+        m = re.match(r"## \[[^\]]+\] - (\d{4}-\d{2}-\d{2})", block)
+        if block.startswith("## [Unreleased]") or (m and date.fromisoformat(m.group(1)) >= since):
+            keep.append(block)
+    return "".join(keep)
+
+
+def test_changelog_window_starts_at_the_alias_date():
+    changelog = "\n".join([
+        "## [Unreleased]",
+        "`new_tool`",
+        "## [1.2.0] - 2026-11-05 - x",
+        "`renamed_tool` is an alias",
+        "## [1.1.0] - 2026-01-01 - y",
+        "`ancient_tool`",
+        "",
+    ])
+    window = _changelog_since(changelog, date(2026, 11, 1))
+    assert "`renamed_tool`" in window and "`new_tool`" in window
+    assert "`ancient_tool`" not in window
+
+
+_NAMES_1X = Path(__file__).resolve().parent / "fixtures" / "tool_names_1x.json"
+
+
+def test_no_tool_name_served_on_1x_disappears():
+    """A served name leaves the catalog only as a retired name with an alias period.
+
+    Removing a tool outright (what happened to `get_symbol` on 2026-03-24) fails
+    here, and so does a new tool that is not added to the frozen list, so the
+    promise covers every name we ship.
+    """
+    frozen = set(json.loads(_NAMES_1X.read_text(encoding="utf-8"))["names"])
+    served = {t.name for t in _raw_catalog_tools()}
+    added = served - frozen
+    assert not added, f"new tool(s) {sorted(added)}: add them to {_NAMES_1X.name}"
+    for name in sorted(frozen - served):
+        assert name in RETIRED_TOOL_NAMES and name in ALIAS_PERIODS, (
+            f"{name} was served on 1.x and is gone without an alias period"
+        )
+
+
+def test_the_readme_states_the_alias_period_the_code_enforces():
+    readme = (Path(__file__).resolve().parent.parent / "README.md").read_text(encoding="utf-8")
+    assert f"as an alias for at least {ALIAS_MIN_DAYS} days" in readme

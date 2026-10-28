@@ -348,7 +348,7 @@ A working key prints `License: licensed` and its tier. It also says when no key 
 
 ### For admins
 
-Claude Code and GitHub Copilot (the Copilot app, Copilot CLI and VS Code) both let an admin allow MCP servers with `allowedMcpServers` in managed settings. A local server matches a `serverCommand` entry only when the command and every argument are identical, so list each launch form your teams use:
+Claude Code and GitHub Copilot (the Copilot app, Copilot CLI, VS Code and JetBrains IDEs) both let an admin allow MCP servers with `allowedMcpServers` in managed settings. A local server matches a `serverCommand` entry only when the command and every argument are identical ([Claude Code](https://code.claude.com/docs/en/managed-mcp#how-servercommand-entries-match), [Copilot](https://docs.github.com/en/copilot/reference/enterprise-administrators/enterprise-managed-settings#allowedmcpservers)), so list each launch form your teams use:
 
 ```json
 {
@@ -361,15 +361,15 @@ Claude Code and GitHub Copilot (the Copilot app, Copilot CLI and VS Code) both l
 
 - `["uvx", "jcodemunch-mcp"]` is what `jcodemunch-mcp init` writes for Claude Code, Claude Desktop and the other JSON-configured clients, and what `claude mcp add jcodemunch -- uvx jcodemunch-mcp` registers.
 - `["jcodemunch-mcp"]` covers an install made with `pip`, `pipx` or `uv tool install` and started by name.
-- The Claude Code plugin pins the release it ships, for example `["uvx", "jcodemunch-mcp==1.108.401"]`, so that entry changes with each plugin update.
+- The Claude Code plugin pins the release it ships, as `["uvx", "jcodemunch-mcp==X.Y.Z"]` with the version in `plugin/jcodemunch/.claude-plugin/plugin.json`, so that entry changes with each plugin update.
 
-In Claude Code, add `"allowManagedMcpServersOnly": true` to make the managed list the only one that applies. Codex reads its own config and isn't covered by these settings.
+In Claude Code, add `"allowManagedMcpServersOnly": true` to make the managed list the only allowlist that applies ([docs](https://code.claude.com/docs/en/managed-mcp#restrict-the-allowlist-to-managed-settings-only)). Codex reads its own config and isn't covered by these settings.
 
-For GitHub's private-registry route, the server ID is `io.github.jgravelle/jcodemunch-mcp`. GitHub describes that route as weaker than the managed-settings allowlist.
+For GitHub's registry route, the server ID is `io.github.jgravelle/jcodemunch-mcp`. That route is in public preview, and GitHub calls the managed-settings allowlist the more secure, generally available method ([docs](https://docs.github.com/en/copilot/how-tos/administer-copilot/manage-mcp-usage/restrict-based-on-registry)).
 
-Keep the server name `jcodemunch` in every config. Copilot's usage metrics count connections to each MCP server, per user, under the name it was configured with, so one name keeps jCodeMunch on one line. They count connections, not tool calls.
+Keep the server name `jcodemunch` in every config, so jCodeMunch shows up under one name. Copilot's usage metrics API counts MCP connection and reconnection attempts per user, not tool calls ([docs](https://docs.github.com/en/copilot/reference/copilot-usage-metrics/copilot-usage-metrics#customization-fields-api-only)).
 
-**Claude Code: install it on every machine.** Put this in managed settings (the claude.ai admin console, an MDM policy, or `managed-settings.json`). Each machine registers the marketplace and installs the plugin at the start of its next session, and users can't turn it off:
+**Claude Code: install it on every machine.** Put this in managed settings (the claude.ai admin console, an MDM policy, or `managed-settings.json`). Each machine registers the marketplace and installs the plugin at the start of its next session, and a user who disables it at their own scope doesn't stop it loading ([docs](https://code.claude.com/docs/en/plugins/org#require-a-marketplace-and-its-plugins)):
 
 ```json
 {
@@ -380,9 +380,9 @@ Keep the server name `jcodemunch` in every config. Copilot's usage metrics count
 }
 ```
 
-If you limit plugin sources with `strictKnownMarketplaces`, add `{ "source": "github", "repo": "jgravelle/jcodemunch-mcp" }` to it, or the marketplace is refused.
+If you limit marketplace sources with `strictKnownMarketplaces`, add `{ "source": "github", "repo": "jgravelle/jcodemunch-mcp" }` to it, or the marketplace is refused ([docs](https://code.claude.com/docs/en/plugins/org#restrict-what-users-can-install)).
 
-**Cursor teams.** A Cursor admin can install jCodeMunch on every seat through a team marketplace (Dashboard, then Plugins & MCPs, then Team Marketplaces, then Add Marketplace). In the marketplace repo, add a `jcodemunch/` plugin folder with two files:
+**Cursor teams.** A Cursor admin can install jCodeMunch on every seat through a team marketplace (Dashboard, then Plugins & MCPs, then Add Marketplace; [docs](https://cursor.com/docs/plugins)). In the marketplace repo, add a `jcodemunch/` plugin folder with two files:
 
 `jcodemunch/.cursor-plugin/plugin.json`
 
@@ -404,9 +404,9 @@ If you limit plugin sources with `strictKnownMarketplaces`, add `{ "source": "gi
 }
 ```
 
-Then add an entry for it to the repo's `.cursor-plugin/marketplace.json`, following the template Cursor's plugin docs link to. Set Plugin Installation to **Required** to install it on every seat with no opt-out, or **Default On** to install it and let members remove it. Plugins respect Cursor's MCP allowlist, so allow `uvx jcodemunch-mcp` there too.
+Then add an entry for it to the repo's `.cursor-plugin/marketplace.json`, following the template Cursor's plugin docs link to. Set Plugin Installation to **Required** to install it on every seat with no opt-out, or **Default On** to install it and let members remove it. Plugins respect Cursor's MCP allowlist ([docs](https://cursor.com/help/security-and-privacy/marketplace-security)), so allow `uvx jcodemunch-mcp` there too.
 
-**JetBrains teams.** In JetBrains Central Console, an admin with the Manage AI settings permission opens AI governance, then MCP, then Add MCP server, and adds a **Command** server: name `jcodemunch`, command `uvx`, arguments `jcodemunch-mcp`. Then add it to an AI policy: the default policy reaches everyone with AI access, a custom one reaches its group. It reaches AI Assistant and JetBrains Air. This pushes the server to users; it doesn't stop them adding others.
+**JetBrains teams.** On a Business or Enterprise plan, an admin with the Manage AI settings permission opens JetBrains Console, then AI governance, then MCP, then Add MCP server, and adds a **Command** server: name `jcodemunch`, command `uvx`, arguments `jcodemunch-mcp` ([docs](https://www.jetbrains.com/help/air/air-gov-mcp-servers.html)). Then add it to an AI policy: the default policy reaches everyone with AI access, a custom one reaches its users and groups ([docs](https://www.jetbrains.com/help/air/ai-policies-configure.html#mcp-tab)). This pushes the server to users; it doesn't stop them adding others.
 
 **Tool names are stable across 1.x.** An allowlist or a policy file that names jCodeMunch tools keeps working: a renamed or merged tool keeps its old name working as an alias for at least 30 days, listed in the CHANGELOG. After that, a call to the old name returns an error that names the replacement.
 
