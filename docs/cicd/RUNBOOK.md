@@ -35,7 +35,8 @@ to whoever owns that login.
    ```
 
    The workflow: pre-flight on `main`'s HEAD (every check on HEAD green,
-   waiting up to 10 min for one still running; a Nightly run still going at
+   waiting up to `CI_WAIT_SECONDS` in `scripts/release_preflight.py` for one
+   still running; a Nightly run still going at
    the end is named as "not waited for" and does not hold the release, C-28;
    pins,
    changelog, tag absent, PyPI absent, no MERGEABLE CLEAN contributor PR
@@ -47,8 +48,9 @@ to whoever owns that login.
    row names a Nightly run as "not waited for", read that run to its end too:
    a failure there opens a `drift` issue after the release, not before. Then
    Practice 11: reinstall and restart the local server.
-   Dispatching outside 04:00-04:35 UTC, when Nightly runs on `main`'s HEAD,
-   avoids the case.
+   Nightly is scheduled for 04:00 UTC on `main`'s HEAD and usually runs
+   04:10-04:35 (GitHub delays scheduled runs by an unbounded amount), so a
+   dispatch outside that window usually avoids the case.
 
 `dry_run=true` (the default until the first real publish) stops before any
 upload, tag, release or registry write and smokes the built wheel instead.
