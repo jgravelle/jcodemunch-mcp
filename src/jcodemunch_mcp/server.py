@@ -439,7 +439,7 @@ def _mcp_instructions(
     else:
         subject = "This repo can be indexed by jcodemunch"
     if surface == "counter":
-        opening = f"{subject}. Its whole tool catalog sits behind a 3-verb front door."
+        opening = f"{subject}. Its whole tool catalog sits behind a 3-verb front door: route, menu and order."
     else:
         opening = f"{subject}: every symbol, its file:line span and who references what."
     routes = (
@@ -458,13 +458,17 @@ def _mcp_instructions(
             'route("who calls <name>") or route("what breaks if I change <name>") '
             "names the action that lists its callers or what the edit reaches."
         )
+    # The ToolSearch line is for Claude Code alone, so it follows the tool
+    # bullets: a client may keep only the first 512 characters, and those
+    # should say what the server is for and which tools to start with
+    # (tests/test_instructions_first_512.py).
+    lines.append("")
+    lines += ["- %s: %s" % (name, why) for name, why in rows]
     lines += [
         "",
         "**Tools deferred? Load all in ONE lookup:** ToolSearch "
         '"%s". One round trip for the session.' % _tool_search_query(surface, prefix),
-        "",
     ]
-    lines += ["- %s: %s" % (name, why) for name, why in rows]
     return "\n".join(lines)
 
 
