@@ -1663,10 +1663,12 @@ def run_init(
                 "your client to load it; revert with `init` (no --strict)."
             )
         # touch the install-version stamp so `serve` startup can detect drift
-        try:
-            _stamp_install_version()
-        except Exception:
-            pass
+        # (never on a dry run: the license notice reads it as "init ran")
+        if not dry_run:
+            try:
+                _stamp_install_version()
+            except Exception:
+                pass
         if demo and "would" in msg:
             _demo_actions.append((
                 "Install the silent hooks in ~/.claude/settings.json"
@@ -1755,17 +1757,18 @@ def run_init(
         print("Dry run complete -- no changes were made.")
     else:
         print("Done. Restart your MCP client(s) to connect.")
-        # A machine that ran init was shown init's own license line (or is
-        # licensed), so the server's one-time license notice is not due.
-        from ..license_notice import mark_shown
-
-        mark_shown("init")
         if os.environ.get(UPGRADE_REFRESH_ENV) != "1":
             print(ASK_BY_NAME_LINE)
         if os.environ.get(UPGRADE_REFRESH_ENV) != "1" and not _licence_key_configured():
             print()
             for line in _LICENCE_LINES:
                 print(line)
+            # This machine was just shown the license line, so the server's
+            # one-time notice is not due. `upgrade` re-runs init silently and
+            # prints nothing, so it writes no marker.
+            from ..license_notice import mark_shown
+
+            mark_shown("init")
     print()
     return 0
 
