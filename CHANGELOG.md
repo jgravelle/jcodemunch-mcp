@@ -23,11 +23,10 @@ It is said once per machine. A marker, `license_notice_state.json`, under
 `CODE_INDEX_PATH` (default `~/.code-index`) records it, so a persistent volume
 keeps it, and an `init` that prints its own license line writes the same
 marker (`upgrade` re-runs `init` silently, prints nothing and writes nothing).
-An `init` from before this marker counts only if it could have printed the
-line: its hook step leaves `last_init_version.txt`, and a stamp of 1.108.376 or
-later (the first release whose `init` printed it, #1131) counts. An older stamp,
-or none, means that user was never told, so they see the line once. A dry-run
-`init` no longer writes that stamp. It can be said a second time
+An `init` from before this release left no marker, and nothing it left can
+prove the line was printed: `init` printed it only from 1.108.376 (#1131), and
+`upgrade` writes the same `last_init_version.txt` stamp without printing it. So
+a machine that ran `init` before this release sees the line once. It can be said a second time
 if the marker cannot be written, or if two servers answer their first call at
 the same moment. It is never said with a license key configured (read locally,
 never sent), after `init`, with `JCODEMUNCH_LICENSE_NOTICE=0`, or on a CI or remote

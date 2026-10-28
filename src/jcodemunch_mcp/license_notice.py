@@ -52,10 +52,6 @@ CI_MARKERS = ("CI", "CLAUDE_CODE_REMOTE")
 #: A process decides once; conftest turns it off for every test.
 NOTICE_STATE = {"checked": False}
 
-# The first release whose `init` printed the license line (#1131). An `init`
-# stamp from an earlier release proves nothing was shown.
-FIRST_INIT_WITH_LICENSE_LINE = (1, 108, 376)
-
 _OFF = frozenset({"0", "false", "no", "off"})
 _ON = frozenset({"1", "true", "yes", "on"})
 
@@ -78,30 +74,9 @@ def skip_reason(env: Optional[Mapping[str, str]] = None) -> Optional[str]:
 
     if licence_key_configured():
         return "licensed"
-    if _init_showed_the_line():
-        return "init_ran"
     if marker_path().is_file():
         return "already_shown"
     return None
-
-
-def _init_showed_the_line() -> bool:
-    """Did an `init` from before this marker existed print the license line?
-
-    Such an `init` left only its version stamp. The stamp counts only from the
-    first release whose `init` printed the line; an unreadable version counts
-    as not shown.
-    """
-    from .cli.init import read_install_version
-
-    stamped = read_install_version()
-    if not stamped:
-        return False
-    try:
-        parts = tuple(int(x) for x in stamped.split(".")[:3])
-    except ValueError:
-        return False
-    return parts >= FIRST_INIT_WITH_LICENSE_LINE
 
 
 def mark_shown(source: str, version: str = "") -> None:

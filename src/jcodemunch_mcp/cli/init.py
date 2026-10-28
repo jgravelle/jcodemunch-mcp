@@ -1663,12 +1663,10 @@ def run_init(
                 "your client to load it; revert with `init` (no --strict)."
             )
         # touch the install-version stamp so `serve` startup can detect drift
-        # (never on a dry run: the license notice reads it as "init ran")
-        if not dry_run:
-            try:
-                _stamp_install_version()
-            except Exception:
-                pass
+        try:
+            _stamp_install_version()
+        except Exception:
+            pass
         if demo and "would" in msg:
             _demo_actions.append((
                 "Install the silent hooks in ~/.claude/settings.json"

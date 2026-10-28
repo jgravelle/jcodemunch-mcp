@@ -162,30 +162,20 @@ def test_a_key_in_the_config_file_suppresses_it(install, monkeypatch):
     assert license_notice.notice_for("resolve_repo", {"ok": True}) is None
 
 
-@pytest.mark.parametrize(
-    "stamped, told",
-    [
-        ("1.108.376", True),
-        ("1.109.0", True),
-        ("1.108.375", False),
-        ("1.81.0", False),
-        ("unknown", False),
-        ("", False),
-    ],
-)
-def test_an_earlier_init_counts_only_if_it_printed_the_line(install, stamped, told):
-    """An earlier `init` left `last_init_version.txt` and no marker.
+def test_an_init_from_before_the_marker_is_not_taken_as_proof(install):
+    """An `init` from before this marker left only `last_init_version.txt`.
 
-    `init` printed the license line from 1.108.376 (#1131). A stamp from an
-    earlier `init` means that user was never told, so they still are.
+    That stamp cannot say the line was printed: `init` printed it only from
+    1.108.376 (#1131), and `upgrade` re-runs `init` silently and writes a
+    current-version stamp too. So such an install is told once.
     """
     store, work = install
     from jcodemunch_mcp.cli.init import _install_version_path
 
     assert _install_version_path().parent == store
-    _install_version_path().write_text(stamped, encoding="utf-8")
-    assert (license_notice.skip_reason() == "init_ran") is told
-    assert ("license_notice" in _call("resolve_repo", {"path": str(work)})) is not told
+    _install_version_path().write_text("1.108.401", encoding="utf-8")
+    assert license_notice.skip_reason() is None
+    assert "license_notice" in _call("resolve_repo", {"path": str(work)})
 
 
 def test_a_local_claude_code_session_is_not_a_ci_runner(install, monkeypatch):
@@ -328,28 +318,23 @@ def _spy_init(monkeypatch):
     return init_module
 
 
-def test_a_dry_run_init_with_hooks_writes_no_version_stamp(install, monkeypatch):
-    """The notice reads the stamp as "init ran", so a dry run must not write it."""
-    store, _work = install
-    init_module = _spy_init(monkeypatch)
-    init_module.run_init(
-        clients=None, hooks=False, index=False, audit=False, yes=True, dry_run=True
-    )
-    init_module.install_enforcement_hooks.assert_called_once()
-    assert not init_module._install_version_path().exists()
-    assert license_notice.skip_reason() is None
-
-
 def test_an_upgrade_refresh_prints_no_line_and_writes_no_marker(install, monkeypatch, capsys):
-    """`upgrade` re-runs init silently; nothing was shown, so nothing is marked."""
+    """`upgrade` re-runs `init --hooks` silently; nothing was shown, so nothing is marked.
+
+    It also writes a current-version `last_init_version.txt`, which is why that
+    stamp is never read as proof the line was printed.
+    """
     store, _work = install
     init_module = _spy_init(monkeypatch)
     monkeypatch.setenv(init_module.UPGRADE_REFRESH_ENV, "1")
     init_module.run_init(
-        clients=None, hooks=False, index=False, audit=False, yes=True, minimal=True
+        clients=None, hooks=True, hooks_explicit=True, index=False, audit=False,
+        yes=True, minimal=True,
     )
+    init_module.install_enforcement_hooks.assert_called_once()
     assert init_module._LICENCE_LINES[0] not in capsys.readouterr().out
     assert not (store / MARKER).exists()
+    assert license_notice.skip_reason() is None
 
 
 def test_the_notice_and_its_marker_are_disclosed():
