@@ -145,3 +145,30 @@ class TestRateLimitBucketLogic:
         results = self._run_bucket(limit=1, n_requests=2)
         assert results[0] is True
         assert results[1] is False
+
+
+# ---------------------------------------------------------------------------
+# The `rate_limit` config key (L-257)
+# ---------------------------------------------------------------------------
+
+class TestRateLimitConfigKey:
+    """`rate_limit` in config.jsonc was documented and displayed but never read."""
+
+    def test_config_key_alone_turns_the_limit_on(self, monkeypatch):
+        pytest.importorskip("starlette", reason="starlette not installed")
+        from jcodemunch_mcp import config as config_module
+        monkeypatch.delenv("JCODEMUNCH_RATE_LIMIT", raising=False)
+        monkeypatch.setitem(config_module._GLOBAL_CONFIG, "rate_limit", 30)
+        assert _make_rate_limit_middleware() is not None
+
+    def test_config_key_zero_leaves_it_off(self, monkeypatch):
+        from jcodemunch_mcp import config as config_module
+        monkeypatch.delenv("JCODEMUNCH_RATE_LIMIT", raising=False)
+        monkeypatch.setitem(config_module._GLOBAL_CONFIG, "rate_limit", 0)
+        assert _make_rate_limit_middleware() is None
+
+    def test_env_var_wins_over_the_config_key(self, monkeypatch):
+        from jcodemunch_mcp import config as config_module
+        monkeypatch.setenv("JCODEMUNCH_RATE_LIMIT", "0")
+        monkeypatch.setitem(config_module._GLOBAL_CONFIG, "rate_limit", 30)
+        assert _make_rate_limit_middleware() is None

@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+### Fixed - the `rate_limit` config key now turns on the HTTP rate limit
+
+CONFIGURATION.md documents `rate_limit` (requests per minute per client IP in
+HTTP mode), and `jcodemunch-mcp config` shows the value set in config.jsonc.
+The limiter read only the `JCODEMUNCH_RATE_LIMIT` env var, so a server
+configured with the key alone ran with no limit while its config output said
+otherwise. The limiter now reads the env var and falls back to the config key,
+the same order `host` and `port` use. The env var still wins when both are set.
+
 ### Changed - tool names are a stable contract across 1.x
 
 An admin's allowlist or a team's policy file names jCodeMunch tools, and a

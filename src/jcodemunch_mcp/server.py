@@ -8154,14 +8154,21 @@ def _make_auth_middleware():
 def _make_rate_limit_middleware():
     """Return a Starlette middleware that rate-limits by IP (optional, opt-in).
 
-    Reads JCODEMUNCH_RATE_LIMIT env var.  Value is max requests per minute per
+    Reads the JCODEMUNCH_RATE_LIMIT env var, else the `rate_limit` config key
+    (the same order as `host` and `port`). Value is max requests per minute per
     client IP.  0 or unset disables rate limiting (default — no behaviour change
     for existing deployments).
 
+    The config key was documented and shown by `jcodemunch-mcp config` while
+    only the env var was read, so a limit set in config.jsonc never applied.
+
     Returns a Middleware instance, or None when rate limiting is disabled.
     """
+    raw = os.environ.get("JCODEMUNCH_RATE_LIMIT")
+    if raw is None:
+        raw = config_module.get("rate_limit", 0)
     try:
-        limit = int(os.environ.get("JCODEMUNCH_RATE_LIMIT", "0"))
+        limit = int(raw)
     except (ValueError, TypeError):
         limit = 0
     if limit <= 0:
