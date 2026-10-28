@@ -154,6 +154,22 @@ def _pyproject_version(repo: Path) -> str:
     return m.group(1)
 
 
+def _extract_files(archive: bytes, dest: Path) -> None:
+    """Write the archive's regular files under `dest`, refusing any path outside it."""
+    root = dest.resolve()
+    with tarfile.open(fileobj=io.BytesIO(archive)) as tar:
+        for member in tar.getmembers():
+            if not member.isfile():
+                continue
+            target = (root / member.name).resolve()
+            if not target.is_relative_to(root):
+                raise ValueError(f"archive member outside {root}: {member.name}")
+            source = tar.extractfile(member)
+            assert source is not None
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(source.read())
+
+
 def _pinned_source(repo: Path, pin: str, dest: Path) -> Path:
     """The `src/` directory of the version the plugin pins.
 
@@ -173,11 +189,7 @@ def _pinned_source(repo: Path, pin: str, dest: Path) -> Path:
             ["git", "archive", "--format=tar", tag, "src"],
             cwd=repo, capture_output=True, check=True,
         ).stdout
-        with tarfile.open(fileobj=io.BytesIO(archive)) as tar:
-            if hasattr(tarfile, "data_filter"):
-                tar.extractall(dest, filter="data")
-            else:
-                tar.extractall(dest)
+        _extract_files(archive, dest)
         return dest / "src"
     if pin == _pyproject_version(repo):
         return repo / "src"
