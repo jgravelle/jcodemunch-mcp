@@ -388,6 +388,16 @@ def run_pretooluse() -> int:
                 _grep_search_root(tool_input, cwd), _indexed_source_roots()
             ):
                 return 0  # Nothing indexed / outside every repo → allow.
+            if tool_name == "Grep":
+                # The redirect carries the index's answer, once per session
+                # and arguments; None means let this Grep run as it would.
+                from .grep_answer import answer_grep
+
+                answer = answer_grep(
+                    tool_input, cwd, str(data.get("session_id") or "")
+                )
+                if answer is not None:
+                    return _emit_pretooluse_deny(answer)
             pattern = (tool_input.get("pattern") or "").strip()
             what = f"this {tool_name}" + (f" for `{pattern}`" if pattern else "")
             return _emit_search_steering(tool_name, what, deny=deny)

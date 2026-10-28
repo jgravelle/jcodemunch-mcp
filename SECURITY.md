@@ -307,6 +307,21 @@ piece of developer configuration that steers an AI agent.
   worktree hooks need `--hooks`
   (`install <agent>` passes it). The hook commands run every relevant
   tool call in the host agent.
+  With the PreToolUse hook (`--guidance` or `--strict`) and
+  `JCODEMUNCH_HOOK_GREP_ANSWER=1` (off by default),
+  the PreToolUse hook answers a Grep inside an indexed
+  repo from the index: it runs `search_text` locally (a 4-second budget),
+  refuses the Grep with that page as the reason, and lets the same Grep
+  through when it is sent again. It records which Greps it answered, as
+  hashes of the session id and the Grep's arguments, in
+  `~/.code-index/_grep_answered.json` (the last 200). Nothing leaves the
+  machine.
+* `~/.code-index/<repo>.textfilter` — a SQLite file beside each index
+  holding a small trigram bitmap per cached file, with that file's size and
+  mtime. Indexing writes it, and `search_text` repairs rows for files it
+  reads without one. It holds hashes of trigrams, not text, and lets a
+  substring search skip files that cannot match. Deleting the index deletes
+  it; deleting the file only makes searches read every file again.
 * `.github/hooks/hooks.json` — analogous hook surface for GitHub Copilot
   CLI / cloud agent flows.
 * Generated MCP client config files (paths depend on which clients are
@@ -463,6 +478,8 @@ Everything jCodeMunch does beyond answering a tool call is listed here. All of i
 - **Startup import of the local embedding backend.** When a native embedding provider is configured (the bundled ONNX encoder, or a sentence-transformers model), the server imports that library at startup, on the main thread, before it begins serving. That adds a few seconds to launch and is not optional polish: importing it later, on the worker thread a tool call runs in, deadlocks on the Windows loader lock and hangs the call forever. Nothing is downloaded and no model is loaded — the import alone is what matters, and no network is touched. Opt out with `JCODEMUNCH_EAGER_EMBED_IMPORT=0`.
 - **In-process embedding cache.** After a semantic search reads a repository's stored vectors out of `~/.code-index/`, the decoded matrix stays in that server process's memory so the next query doesn't re-read and re-decode the whole thing (roughly 46 MB for a 30,000-symbol index). At most 2 repositories are held at a time, it is dropped when the index is written, and it dies with the process — nothing is written anywhere and no network is touched. Turn retention off with `JCODEMUNCH_EMBED_MATRIX_CACHE=0`.
 - **Agent hooks.** `init` / `install` can write hook entries (auto-reindex on edit, read-interception nudges) into your MCP client's settings. They're offered during the interactive flow, shown before writing, and fully removed by `uninstall`.
+- **A Grep answered from the index (with `init --guidance` or `--strict`, and `JCODEMUNCH_HOOK_GREP_ANSWER=1`; off by default).** When the PreToolUse hook sees a Grep inside an indexed repo, it runs `search_text` in the hook's own short-lived process, within a 4-second budget (`JCODEMUNCH_HOOK_ANSWER_BUDGET_SECONDS`), and refuses the Grep with that answer as the reason; the same Grep sent again goes through. It keeps `~/.code-index/_grep_answered.json`: hashes of the session id and the Grep's arguments, the last 200, nothing else. The hook process exits when its budget ends; a `git` command the search started can run on until its own timeout (at most 10 seconds). Nothing touches the network. Secret redaction applies to the answer.
+- **Text-search filter file.** Beside each index, `~/.code-index/<repo>.textfilter` holds one trigram bitmap per cached file with that file's size and mtime: hashes, not text. Indexing writes it; `search_text` repairs the rows of files it reads without a current one, during the call that reads them. It lets a substring search skip files that cannot match. It is deleted with the index; deleting it by hand only makes searches read every file again.
 - **Symbol source sent to the AI summarizer — off by default.** With `summarizer_body_chars` above `0` in `config.jsonc` or a project `.jcodemunch.jsonc`, indexing and `summarize_repo` send each symbol's decorators and its own source (cut to that many characters, after secret redaction by `redact.redact_text`) to the configured summarizer provider, where the default sends signatures only. The text is read from the index's own copy of the file, not from disk. A remote provider (the default Anthropic endpoint, Gemini, a remote OpenAI-compatible base) receives it only when `allow_remote_summarizer` is also true; a local endpoint needs no second setting. Redaction is pattern-based and can miss a credential it does not recognise.
 - **Local index storage.** Indexes live at `~/.code-index/` (override with `CODE_INDEX_PATH`). Delete the directory and every trace of indexing is gone. `list_repos` shows a session only the indexes of its own workspace by default and says how many others it hid; `"repo_visibility": "all"` lists them all again. It is a listing scope, not an access control.
 - **Live session journal.** While the server runs, it periodically writes a small `_session_live.json` in `~/.code-index/` recording the files and searches the agent touched this session (paths and query strings only, no file contents). It exists so the out-of-process PreCompact hook can restore session orientation after context compaction. Throttled, atomically written, overwritten in place; disable with `JCODEMUNCH_LIVE_JOURNAL=0`.
