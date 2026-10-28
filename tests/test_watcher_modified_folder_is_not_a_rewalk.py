@@ -22,11 +22,14 @@ from pathlib import Path
 
 import pytest
 
-watchfiles = pytest.importorskip("watchfiles")
-from watchfiles import Change  # noqa: E402
+from jcodemunch_mcp import watcher
+from jcodemunch_mcp.tools.index_folder import index_folder
 
-from jcodemunch_mcp import watcher  # noqa: E402
-from jcodemunch_mcp.tools.index_folder import index_folder  # noqa: E402
+
+@pytest.fixture()
+def change():
+    """watchfiles' Change enum; skips each test, visibly, when the extra is absent."""
+    return pytest.importorskip("watchfiles").Change
 
 
 def _indexed(tmp_path) -> tuple[Path, str]:
@@ -76,43 +79,43 @@ def _rewalks(calls: list[dict]) -> int:
     return sum(1 for c in calls if c.get("changed_paths") is None)
 
 
-def test_a_new_file_beside_its_modified_folder_is_a_targeted_reindex(tmp_path, monkeypatch):
+def test_a_new_file_beside_its_modified_folder_is_a_targeted_reindex(tmp_path, monkeypatch, change):
     """The reported shape: a note written into an existing folder."""
     root, storage = _indexed(tmp_path)
     new = root / "notes" / "b.py"
     new.write_text("def b():\n    return 2\n", encoding="utf-8")
-    calls = _run(monkeypatch, root, storage, [{(Change.modified, str(root / "notes")), (Change.added, str(new))}])
+    calls = _run(monkeypatch, root, storage, [{(change.modified, str(root / "notes")), (change.added, str(new))}])
     assert calls, "the new file was not indexed"
     assert _rewalks(calls) == 0, calls
     paths = {Path(c.path) for c in calls[0]["changed_paths"]}
     assert paths == {new}, paths
 
 
-def test_a_modified_folder_alone_triggers_no_rewalk(tmp_path, monkeypatch):
+def test_a_modified_folder_alone_triggers_no_rewalk(tmp_path, monkeypatch, change):
     root, storage = _indexed(tmp_path)
-    calls = _run(monkeypatch, root, storage, [{(Change.modified, str(root / "notes"))}])
+    calls = _run(monkeypatch, root, storage, [{(change.modified, str(root / "notes"))}])
     assert _rewalks(calls) == 0, calls
 
 
-def test_an_added_folder_still_triggers_discovery(tmp_path, monkeypatch):
+def test_an_added_folder_still_triggers_discovery(tmp_path, monkeypatch, change):
     """A tree moved in arrives as one added folder, with no events for its files."""
     root, storage = _indexed(tmp_path)
     moved = root / "moved_in"
     moved.mkdir()
     (moved / "c.py").write_text("def c():\n    return 3\n", encoding="utf-8")
-    calls = _run(monkeypatch, root, storage, [{(Change.added, str(moved))}])
+    calls = _run(monkeypatch, root, storage, [{(change.added, str(moved))}])
     assert _rewalks(calls) == 1, calls
 
 
-def test_the_watchers_own_root_rescan_still_triggers_discovery(tmp_path, monkeypatch):
+def test_the_watchers_own_root_rescan_still_triggers_discovery(tmp_path, monkeypatch, change):
     """`_safe_awatch` yields `(modified, root)` after registering, to cover the arm gap."""
     root, storage = _indexed(tmp_path)
-    calls = _run(monkeypatch, root, storage, [{(Change.modified, str(root))}])
+    calls = _run(monkeypatch, root, storage, [{(change.modified, str(root))}])
     assert _rewalks(calls) == 1, calls
 
 
-def test_a_modified_file_is_still_a_targeted_reindex(tmp_path, monkeypatch):
+def test_a_modified_file_is_still_a_targeted_reindex(tmp_path, monkeypatch, change):
     root, storage = _indexed(tmp_path)
     (root / "code.py").write_text("def second():\n    return 2\n", encoding="utf-8")
-    calls = _run(monkeypatch, root, storage, [{(Change.modified, str(root / "code.py"))}])
+    calls = _run(monkeypatch, root, storage, [{(change.modified, str(root / "code.py"))}])
     assert calls and _rewalks(calls) == 0, calls
