@@ -2,6 +2,35 @@
 
 ## [Unreleased]
 
+### Fixed - a separate copy of an indexed repo says why the index is silent
+
+When an agent's working folder was a second checkout of a repo indexed from
+another folder, `resolve_repo` already flagged it (`working_tree_mismatch`).
+The server's startup text and the PreToolUse hook both read that answer as
+"not indexed here", which is right, and then said nothing. The agent saw no
+index and no reason, and searched with Grep for the whole session.
+
+Both now read the flag through `resolve_repo.separate_copy`, so the decision
+stays with `resolve_repo` and nothing applies a second path rule:
+
+- On the default `counter` surface, the startup text says this folder copies a
+  repo indexed elsewhere and gives the `order("index_folder", ...)` call that
+  indexes it. The `full` surface's text is at its 1,000-character limit, so it
+  is unchanged there. On both, the server logs one WARNING naming the folder
+  the index was built from, because a path has no length limit.
+- The PreToolUse hook (installed by `init --guidance`) says the same, naming
+  the folder, once per session and folder. A small marker file under
+  `~/.code-index/hook_state/separate_copy/` records that it was said, so later
+  tool calls skip the lookup. Markers older than a week are deleted when a new
+  one is written.
+
+One `resolve_repo` call at startup now feeds both the file count and this
+check. A copy whose repo identity does not match the index, such as a copy
+with no `.git` under another folder name, is not flagged by `resolve_repo`,
+so it still gets no note.
+
+### Fixed - a git clone inside an indexed checkout gets its own index
+
 ## [1.108.447] - 2026-11-14 - on macOS, a process is identified by its creation time
 
 ### Fixed - on macOS, a process is identified by its creation time, not by its PID alone
