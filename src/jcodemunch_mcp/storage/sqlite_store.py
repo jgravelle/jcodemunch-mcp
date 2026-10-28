@@ -1811,6 +1811,9 @@ class SQLiteIndexStore:
                 raise ValueError(f"Unsafe file path in raw_files: {file_path}")
             file_dest.parent.mkdir(parents=True, exist_ok=True)
             self._write_cached_text(file_dest, content)
+        from . import text_filter as _text_filter
+
+        _text_filter.record(content_dir, raw_files.items())
 
         # Pre-warm cache so the next load_index() is instant
         # Use safe_name to match the key used by load_index's _cache_get
@@ -2652,6 +2655,10 @@ class SQLiteIndexStore:
                 raise ValueError(f"Unsafe file path: {fp}")
             dest.parent.mkdir(parents=True, exist_ok=True)
             self._write_cached_text(dest, content)
+        from . import text_filter as _text_filter
+
+        _text_filter.forget(content_dir, deleted_files)
+        _text_filter.record(content_dir, raw_files.items())
 
         if old_index is not None:
             # Fast path: patch in-memory — O(delta), no full table read.
@@ -3154,6 +3161,9 @@ class SQLiteIndexStore:
         if content_dir.exists():
             shutil.rmtree(content_dir)
             deleted = True
+        from . import text_filter as _text_filter
+
+        _text_filter.remove(content_dir)
 
         return deleted
 
