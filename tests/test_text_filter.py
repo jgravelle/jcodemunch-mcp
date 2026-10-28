@@ -153,3 +153,20 @@ def test_deleting_the_index_deletes_the_sidecar(repo):
     assert side.exists()
     st.delete_index(owner, name)
     assert not side.exists()
+
+
+def test_metadata_only_writes_no_row_for_text_it_did_not_cache(tmp_path, monkeypatch):
+    """Under cache_mode metadata_only the body is not written, so an older
+    cached file may remain. A row built from the new text and stamped with the
+    old file's stat would let a search skip a match the old file holds."""
+    from jcodemunch_mcp import config
+    from jcodemunch_mcp.storage import text_filter
+
+    old = tmp_path / "a.py"
+    old.write_text("needle_old = 1\n", encoding="utf-8")
+    real_get = config.get
+    monkeypatch.setattr(
+        config, "get",
+        lambda key, *a, **kw: "metadata_only" if key == "cache_mode" else real_get(key, *a, **kw),
+    )
+    assert text_filter.row_for(tmp_path, "a.py", "something_else = 2\n") is None

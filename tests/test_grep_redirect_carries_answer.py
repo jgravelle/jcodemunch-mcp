@@ -13,6 +13,7 @@ from __future__ import annotations
 import io
 import json
 import sys
+import threading
 import time
 from unittest import mock
 
@@ -115,14 +116,19 @@ def test_a_search_over_budget_lets_the_grep_run(indexed, monkeypatch):
     monkeypatch.setenv("JCODEMUNCH_HOOK_ANSWER_BUDGET_SECONDS", "0.05")
     import jcodemunch_mcp.tools.search_text as st
 
-    real = st.search_text
+    release = threading.Event()
 
     def slow(*a, **kw):
-        time.sleep(0.5)
-        return real(*a, **kw)
+        # Never calls the real search: the worker outlives the hook's wait, and
+        # by the time it wakes the monkeypatched store may be gone (Practice 8).
+        release.wait(5)
+        return {"error": "slow"}
 
     monkeypatch.setattr(st, "search_text", slow)
-    decision, _ = _decision(_run(_grep(indexed, pattern="compute_total")))
+    try:
+        decision, _ = _decision(_run(_grep(indexed, pattern="compute_total")))
+    finally:
+        release.set()
     assert decision != "deny"
 
 
@@ -136,3 +142,82 @@ def test_a_page_over_the_cap_is_not_put_in_the_refusal(indexed, monkeypatch):
     monkeypatch.setattr(grep_answer, "MAX_ANSWER_CHARS", 10)
     decision, _ = _decision(_run(_grep(indexed, pattern="compute_total")))
     assert decision != "deny"
+
+
+def test_the_answer_says_what_was_searched_and_carries_no_meta(indexed):
+    decision, text = _decision(_run(_grep(indexed, pattern="compute_total")))
+    assert decision == "deny"
+    assert "not searched" in text and "Send the same Grep again" in text
+    assert "result of the Grep" not in text
+    assert "total_tokens_saved" not in text and "timing_ms" not in text
+
+
+def test_a_file_edited_since_indexing_lets_the_grep_run(indexed):
+    import os
+
+    mod = indexed / "pkg" / "mod.py"
+    mod.write_text("def compute_total(xs):\n    return 0\n", encoding="utf-8")
+    later = time.time() + 30
+    os.utime(mod, (later, later))
+    decision, _ = _decision(_run(_grep(indexed, pattern="compute_total")))
+    assert decision != "deny"
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        {"-C": 3},
+        {"-A": 1},
+        {"head_limit": 1},
+        {"offset": 2},
+        {"output_mode": "count"},
+        {"multiline": True},
+        {"glob": "**/*.py"},
+    ],
+)
+def test_arguments_the_answer_cannot_reproduce_let_the_grep_run(indexed, extra):
+    decision, _ = _decision(_run(_grep(indexed, pattern="compute_total", **extra)))
+    assert decision != "deny"
+
+
+@pytest.mark.parametrize(
+    "page",
+    [
+        {"timed_out": True},
+        {"truncated": True},
+        {"note": "file_pattern matched no indexed file"},
+        {"_meta": {"verdict": {"incomplete": {"reason": "unreadable_inputs"}}}},
+        {"_meta": {"verdict": {"coverage": {"complete": False}}}},
+    ],
+)
+def test_a_page_cut_short_is_not_an_answer(indexed, monkeypatch, page):
+    import jcodemunch_mcp.tools.search_text as st
+
+    real = st.search_text
+
+    def partial(*a, **kw):
+        res = real(*a, **kw)
+        assert res.get("result_count")
+        res.update(page)
+        return res
+
+    monkeypatch.setattr(st, "search_text", partial)
+    decision, _ = _decision(_run(_grep(indexed, pattern="compute_total")))
+    assert decision != "deny"
+
+
+def test_a_secret_on_a_matched_line_is_redacted(tmp_path, monkeypatch):
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    key = "AKIA" + "IOSFODNN7EXAMPLE"
+    (proj / "conf.py").write_text(f'aws_key_id = "{key}"\n', encoding="utf-8")
+    monkeypatch.setenv("CODE_INDEX_PATH", str(tmp_path / "store"))
+    monkeypatch.setenv("JCODEMUNCH_TRUSTED_FOLDERS", str(tmp_path))
+    monkeypatch.delenv("JCODEMUNCH_ENFORCE", raising=False)
+    monkeypatch.delenv("JCODEMUNCH_HOOK_GREP_ANSWER", raising=False)
+    from jcodemunch_mcp.tools.index_folder import index_folder
+
+    assert index_folder(str(proj), use_ai_summaries=False)["success"]
+    decision, text = _decision(_run(_grep(proj, pattern="aws_key_id")))
+    assert decision == "deny"
+    assert key not in text

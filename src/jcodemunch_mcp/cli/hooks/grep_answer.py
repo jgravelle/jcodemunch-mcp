@@ -8,8 +8,14 @@ and the agent's next turn reads it instead of asking for it.
 It answers at most once per (session, Grep arguments): the same Grep sent again
 runs normally, which is the escape hatch to raw output. It answers nothing, and
 the Grep runs untouched, when the switch is off, the search root is not an
-indexed repo, the arguments have no index translation, the search errors,
-finds nothing, runs past its time budget, or returns a page over the size cap.
+indexed repo, the arguments have no index translation (file type, multiline,
+context lines, paging, a count, a `**` glob), an indexed file changed on disk
+since it was indexed, or the search errors, finds nothing, is cut short (time
+budget, result cap, unreadable files) or returns a page over the size cap.
+
+The answer says what it is: a case-insensitive search of the files the index
+holds, as they were indexed. Files the index does not cover (most docs, config
+and data) are not in it, so it is never presented as the Grep's own output.
 """
 
 from __future__ import annotations
@@ -26,8 +32,7 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 ANSWER_MARKER = "Answered from the jCodeMunch index"
-# Seeded: past this the hook gives up and the Grep runs. A cold search on
-# a repo of about 1,400 files took about 1.5 s with the trigram filter.
+# Seeded, not calibrated: past this the hook gives up and the Grep runs.
 DEFAULT_BUDGET_SECONDS = 4.0
 # A page bigger than this is not put into a refusal: the Grep runs instead.
 MAX_ANSWER_CHARS = 8000
@@ -35,6 +40,10 @@ MAX_ANSWER_CHARS = 8000
 MAX_REMEMBERED = 200
 _STATE_FILE = "_grep_answered.json"
 _OFF = {"0", "false", "no", "off"}
+# Grep arguments whose output the index answer cannot reproduce.
+_UNTRANSLATABLE = (
+    "type", "multiline", "-A", "-B", "-C", "context", "head_limit", "offset",
+)
 _REGEX_CHARS = re.compile(r"[\\^$.|?*+()\[\]{}]")
 
 
@@ -59,11 +68,7 @@ def _state_path() -> Path:
 
 
 def _key(session_id: str, tool_input: dict) -> str:
-    parts = {
-        k: tool_input.get(k)
-        for k in ("pattern", "path", "glob", "type", "-i", "output_mode")
-    }
-    raw = json.dumps([session_id, parts], sort_keys=True, default=str)
+    raw = json.dumps([session_id, tool_input], sort_keys=True, default=str)
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
@@ -71,7 +76,10 @@ def _load_state() -> list:
     try:
         data = json.loads(_state_path().read_text(encoding="utf-8"))
         return data if isinstance(data, list) else []
+    except FileNotFoundError:
+        return []
     except Exception:
+        logger.debug("grep-answer state read failed", exc_info=True)
         return []
 
 
@@ -92,8 +100,10 @@ def _translate(tool_input: dict, cwd: str):
     pattern = tool_input.get("pattern")
     if not isinstance(pattern, str) or not pattern.strip():
         return None
-    if tool_input.get("type") or tool_input.get("multiline"):
+    if any(tool_input.get(k) not in (None, False, "", 0) for k in _UNTRANSLATABLE):
         return None  # No index equivalent; let the Grep run.
+    if tool_input.get("output_mode") == "count":
+        return None
     is_regex = bool(_REGEX_CHARS.search(pattern))
     if len(pattern) > (200 if is_regex else 500):
         return None
@@ -103,6 +113,10 @@ def _translate(tool_input: dict, cwd: str):
     root = os.path.realpath(root)
     glob = tool_input.get("glob")
     glob = glob.strip() if isinstance(glob, str) and glob.strip() else None
+    if glob and "**" in glob:
+        # Grep's `**/` also matches zero directories; the index's fnmatch
+        # needs one, so `src/**/*.ts` would drop `src/a.ts`.
+        return None
     return root, pattern, is_regex, glob
 
 
@@ -119,6 +133,46 @@ def _scope(repo_root: str, search_root: str, glob):
     if os.path.isfile(search_root):
         return False if glob else rel
     return False if glob else f"{rel}/*"
+
+
+def _complete(res) -> bool:
+    """True only for a page that is the whole answer over what was searched."""
+    if not isinstance(res, dict) or res.get("error") or not res.get("result_count"):
+        return False
+    if res.get("timed_out") or res.get("truncated") or res.get("note"):
+        return False
+    verdict = (res.get("_meta") or {}).get("verdict") or {}
+    if verdict.get("incomplete"):
+        return False
+    if (verdict.get("coverage") or {}).get("complete") is False:
+        return False
+    return True
+
+
+def _index_matches_disk(repo: str) -> bool:
+    """True when every indexed file's mtime still matches what was indexed.
+
+    A changed file would be answered from its indexed copy, which is a wrong
+    answer, so any file that is not provably unchanged refuses the answer.
+    """
+    try:
+        from ...retrieval.freshness import FreshnessProbe
+        from ...storage import IndexStore
+
+        owner, _, name = repo.partition("/")
+        index = IndexStore().load_index(owner, name)
+        if index is None:
+            return False
+        probe = FreshnessProbe(
+            source_root=getattr(index, "source_root", "") or None,
+            indexed_at=getattr(index, "indexed_at", ""),
+            index_sha=getattr(index, "git_head", None),
+            file_mtimes=getattr(index, "file_mtimes", None),
+        )
+        return all(probe.classify(f) == "fresh" for f in index.source_files)
+    except Exception:
+        logger.debug("grep-answer freshness check failed", exc_info=True)
+        return False
 
 
 def _run_with_budget(fn, budget: float):
@@ -167,6 +221,8 @@ def answer_grep(tool_input: dict, cwd: str, session_id: str) -> "str | None":
         file_pattern = _scope(repo_root, search_root, glob) if repo_root else glob
         if file_pattern is False:
             return None
+        if not _index_matches_disk(resolved["repo"]):
+            return None
         res = search_text(
             resolved["repo"], query, file_pattern=file_pattern, is_regex=is_regex
         )
@@ -176,7 +232,16 @@ def answer_grep(tool_input: dict, cwd: str, session_id: str) -> "str | None":
     if out is None:
         return None
     repo, res = out
-    if not isinstance(res, dict) or res.get("error") or not res.get("result_count"):
+    if not _complete(res):
+        return None
+    res = {k: v for k, v in res.items() if k != "_meta"}
+    try:
+        from ...redact import is_redaction_enabled, redact_dict
+
+        if is_redaction_enabled():
+            res, _ = redact_dict(res)
+    except Exception:
+        logger.debug("grep-answer redaction failed", exc_info=True)
         return None
     try:
         from ...encoding import encode_response
@@ -193,7 +258,9 @@ def answer_grep(tool_input: dict, cwd: str, session_id: str) -> "str | None":
     elapsed = time.monotonic() - started
     logger.debug("grep-answer answered in %.3fs", elapsed)
     return (
-        f"{ANSWER_MARKER} (search_text, case-insensitive). This is the result "
-        "of the Grep you asked for; call the same Grep again if you need raw "
-        f"output.\n{payload}"
+        f"{ANSWER_MARKER}: search_text, case-insensitive, over the source files "
+        "the index holds, none changed since indexing. Files the index does not "
+        "hold (most docs, config and data) and files added since were not "
+        "searched. Send the same Grep again to run it as written.\n"
+        f"{payload}"
     )

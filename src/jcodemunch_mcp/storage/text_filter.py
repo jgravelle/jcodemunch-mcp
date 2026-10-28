@@ -140,9 +140,25 @@ def record(content_dir: Path, items: Iterable[tuple[str, str]]) -> None:
     store_rows(content_dir, [r for r in rows if r is not None])
 
 
+def _bodies_written() -> bool:
+    """False under ``cache_mode: metadata_only``, where the indexer writes no
+    body. An older cached file can still be on disk then, and a row built from
+    the NEW text but stamped with that OLD file's stat would let a search skip
+    a match the old file holds. Its existing row, if any, still describes it."""
+    try:
+        from .. import config as _cfg
+
+        return _cfg.get("cache_mode", "full") != "metadata_only"
+    except Exception:
+        logger.debug("cache_mode read failed", exc_info=True)
+        return True
+
+
 def row_for(content_dir: Path, rel_path: str, text: str) -> Optional[tuple]:
-    """A row for a file just written to the cache, or None if it isn't there
-    (``cache_mode: metadata_only`` writes no bodies)."""
+    """A row for a file just written to the cache, or None when no body was
+    written (``cache_mode: metadata_only``) or the file isn't there."""
+    if not _bodies_written():
+        return None
     stamp = content_stat(content_dir, rel_path)
     if stamp is None:
         return None
