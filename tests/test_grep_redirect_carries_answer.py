@@ -112,6 +112,13 @@ def test_the_switch_turns_it_off(indexed, monkeypatch):
     assert decision != "deny"
 
 
+@pytest.mark.parametrize("value", ["", " ", "disabled", "none", "2", "flase"])
+def test_only_a_listed_on_value_turns_it_on(indexed, monkeypatch, value):
+    monkeypatch.setenv("JCODEMUNCH_HOOK_GREP_ANSWER", value)
+    decision, _ = _decision(_run(_grep(indexed, pattern="compute_total")))
+    assert decision != "deny"
+
+
 def test_it_is_off_when_the_switch_is_unset(indexed, monkeypatch):
     monkeypatch.delenv("JCODEMUNCH_HOOK_GREP_ANSWER", raising=False)
     decision, _ = _decision(_run(_grep(indexed, pattern="compute_total")))

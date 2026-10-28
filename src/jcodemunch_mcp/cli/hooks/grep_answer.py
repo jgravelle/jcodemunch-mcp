@@ -39,7 +39,7 @@ MAX_ANSWER_CHARS = 8000
 # Bounded memory of answered Greps, newest kept.
 MAX_REMEMBERED = 200
 _STATE_FILE = "_grep_answered.json"
-_OFF = {"0", "false", "no", "off"}
+_ON = {"1", "true", "yes", "on"}
 # Grep arguments whose output the index answer cannot reproduce.
 _UNTRANSLATABLE = (
     "type", "multiline", "-A", "-B", "-C", "context", "head_limit", "offset",
@@ -54,7 +54,7 @@ def answer_enabled() -> bool:
     cost without solving more of them.
     """
     val = os.environ.get("JCODEMUNCH_HOOK_GREP_ANSWER", "0").strip().lower()
-    return bool(val) and val not in _OFF
+    return val in _ON
 
 
 def _budget_seconds() -> float:

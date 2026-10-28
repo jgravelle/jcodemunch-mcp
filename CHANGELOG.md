@@ -4,7 +4,7 @@
 
 ### Added - a redirected Grep can carry the index's answer (opt-in)
 
-With `init --guidance`, the PreToolUse hook steered a Grep inside an indexed
+With the PreToolUse hook installed (`init --guidance` or `--strict`), it steered a Grep inside an indexed
 repo toward `search_text`, and the agent then spent a second turn making that
 search. With `JCODEMUNCH_HOOK_GREP_ANSWER=1`, the hook runs the search itself and refuses the Grep with the
 result as the reason, so the next turn reads the answer instead of asking for
