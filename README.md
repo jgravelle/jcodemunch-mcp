@@ -396,6 +396,8 @@ If you limit plugin sources with `strictKnownMarketplaces`, add `{ "source": "gi
 
 Then add an entry for it to the repo's `.cursor-plugin/marketplace.json`, following the template Cursor's plugin docs link to. Set Plugin Installation to **Required** to install it on every seat with no opt-out, or **Default On** to install it and let members remove it. Plugins respect Cursor's MCP allowlist, so allow `uvx jcodemunch-mcp` there too.
 
+**JetBrains teams.** In JetBrains Central Console, an admin with the Manage AI settings permission opens AI governance, then MCP, then Add MCP server, and adds a **Command** server: name `jcodemunch`, command `uvx`, arguments `jcodemunch-mcp`. Then add it to an AI policy: the default policy reaches everyone with AI access, a custom one reaches its group. It reaches AI Assistant and JetBrains Air. This pushes the server to users; it doesn't stop them adding others.
+
 ---
 
 ## FAQ
