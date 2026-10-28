@@ -49,7 +49,7 @@ Cadence: 1.108.305 through 1.108.316 shipped between 2026-08-28 and
 the maintainer on this Windows box; nothing in `.github/` cuts a release.
 
 1. **Bump five pin sites by hand**: `pyproject.toml`, `server.json` (two
-   fields), `.claude-plugin/plugin.json`, `uv.lock` (the name-scoped
+   fields), `plugin/jcodemunch/.claude-plugin/plugin.json`, `uv.lock` (the name-scoped
    `version =` line only, never `uv lock`), `whatsnew.json` (`current` plus a
    new `entries[]` record). `mcpb/manifest.json` is generated and gitignored.
    Guarded by `tests/test_lockfile_version_sync.py`,
