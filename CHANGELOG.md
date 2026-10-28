@@ -2,6 +2,19 @@
 
 ## [Unreleased]
 
+### Fixed - the CLI's license link points at the current site
+
+When a team feature needed a license, the CLI and the `get_license` field of
+its answers pointed at `https://j.gravelle.us/jCodeMunch/#pricing`, a page on
+the retired site that is no longer kept up. Every other sales link the CLI
+prints already went to jcodemunch.com and was tagged as coming from the CLI,
+so this one sent a buyer to an outdated page and was not counted.
+
+It now points at `https://jcodemunch.com/#pricing`, tagged
+`utm_source=cli`. The license check and the savings counter stay on
+j.gravelle.us, where they are served; a test fails if any other link in the
+package points at that host.
+
 ### Fixed - a git clone inside an indexed checkout gets its own index
 
 A benchmark kept its datasets in a gitignored folder of its own checkout. Each
