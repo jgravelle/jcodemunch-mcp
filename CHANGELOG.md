@@ -11,19 +11,28 @@ result as the reason, so the next turn reads the answer instead of asking for
 it. It answers once per session and Grep arguments: the same Grep sent again
 runs normally, which keeps raw output one call away.
 
+The answer says what it is: a case-insensitive `search_text` over the source
+files the index holds. Files the index does not hold (most docs, config and
+data) and files added since indexing are not in it, so it is never presented
+as the Grep's own output. Secret redaction applies to it as to any tool
+answer, and `_meta` is left out.
+
 It answers nothing, and the Grep runs untouched, when the search root is not
-an indexed repo, the search finds nothing, the Grep uses an argument with no
-index translation (`type`, `multiline`, or a sub-path with a `glob`), the page
-is over 8,000 characters, or the search runs past
-`JCODEMUNCH_HOOK_ANSWER_BUDGET_SECONDS` (default 4). It records which Greps it
+an indexed repo, any indexed file changed on disk since it was indexed (the
+answer would come from the old copy), the search finds nothing or is cut
+short (time budget, result cap, unreadable files, a scope that matched no
+file), the Grep uses an argument the answer cannot reproduce (`type`,
+`multiline`, `-A`/`-B`/`-C`/`context`, `head_limit`, `offset`, a count, a glob
+with `**`, or a sub-path with a `glob`), the page is over 8,000 characters, or
+the search runs past `JCODEMUNCH_HOOK_ANSWER_BUDGET_SECONDS` (default 4). It records which Greps it
 answered, as hashes, in `~/.code-index/_grep_answered.json`.
 `JCODEMUNCH_HOOK_GREP_ANSWER=0` turns it off. Disclosed in SECURITY.md.
 
 ### Changed - a substring search opens only the files that can match
 
 A cold `search_text` opened and read every cached file in scope, so its cost
-grew with the repo, not with the answer: seconds on a few thousand files, and
-far past any hook's budget. Indexing now writes a small trigram bitmap per
+grew with the repo, not with the answer, and a hook's budget could not hold
+it on a large one. Indexing now writes a small trigram bitmap per
 cached file to `~/.code-index/<repo>.textfilter`, with that file's size and
 mtime. A file whose current bitmap lacks a trigram of the lowered query holds
 no match and is counted as searched without being opened.
@@ -34,7 +43,8 @@ and the read repairs the row; a regex or a query under three characters gets
 no filter. The sidecar is separate from the index `.db` because the index's
 mtime keys the in-memory index cache, and a search that repaired a row there
 would invalidate it. An index built before this release has no sidecar and
-searches as before until it is re-indexed or searched once.
+searches as before until it is re-indexed or searched once. Under
+`cache_mode: metadata_only` the indexer writes no body and no row.
 
 ## [1.108.400] - 2026-10-27 - a text search returns the code it found, and a retired tool name says what replaced it
 
