@@ -38,7 +38,7 @@ Most AI agents explore repositories the expensive way: open entire files, skim t
 | Find a function | Open and scan large files | Search symbol, fetch exact implementation |
 | Understand a module | Read broad file regions | Pull only relevant symbols and imports |
 | Explore repo structure | Traverse file after file | Query outlines, trees, and targeted bundles |
-| "What breaks if I change X?" | Not possible | `get_blast_radius` |
+| "What breaks if I change X?" | Search for the name, then read each hit | `get_blast_radius`: affected files and symbols, across indexed repos, with no IDE running |
 
 Index once. Query cheaply. Keep moving. **Precision context beats brute-force context.**
 
@@ -178,7 +178,7 @@ That's the highlight reel. The complete tour of 90+ tools, the MUNCH compact wir
 | Understand a file's structure | `Read` → full content | `get_file_outline` → names + signatures | ~80% |
 | Find which file to edit | `Grep` many files | `search_symbols` → exact match | comparable |
 | Edit requires whole-file context | `Read` → full content | `get_file_content` → full content | ~0% |
-| "What breaks if I change X?" | not possible | `get_blast_radius` | unique capability |
+| "What breaks if I change X?" | `Grep` the name, `Read` each hit | `get_blast_radius` → affected files and symbols | not measured |
 
 It helps most on targeted edits (one function, one method, one class), which is the majority of real editing work. Edits that genuinely require the entire file (restructuring file-level state, reordering logic spanning hundreds of lines) see no advantage. Best fits: large repositories, unfamiliar codebases, agent-driven exploration, refactoring and impact analysis, and teams cutting AI token costs without making agents dumber.
 
