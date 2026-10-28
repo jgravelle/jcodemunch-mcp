@@ -1,7 +1,17 @@
-"""Unit tests for the self-run A/B kit's grading and statistics (no network, no model calls)."""
-import importlib.util, pathlib
-spec = importlib.util.spec_from_file_location("ab_report", pathlib.Path(__file__).resolve().parents[1] / "benchmarks" / "ab-kit" / "report.py")
-R = importlib.util.module_from_spec(spec); spec.loader.exec_module(R)
+"""Unit tests for the self-run A/B kit: grading and statistics, and the runner's spending rules
+(no network, no model calls; the `claude` call is replaced by a fake that writes a stream)."""
+import argparse, importlib.util, json, pathlib, sys
+import pytest
+KIT = pathlib.Path(__file__).resolve().parents[1] / "benchmarks" / "ab-kit"
+
+
+def _load(name, file):
+    spec = importlib.util.spec_from_file_location(name, KIT / file)
+    mod = importlib.util.module_from_spec(spec); spec.loader.exec_module(mod); return mod
+
+
+R = _load("ab_report", "report.py")
+L = _load("ab_run_lookups", "run_lookups.py")
 ENTRY = {"symbols": [{"name": "handle", "owner": "Router", "file": "lib/router/index.js"}]}
 
 
@@ -27,3 +37,98 @@ def test_hodges_lehmann_and_mcnemar():
     assert R.hodges_lehmann([1.0, 2.0, 3.0]) == 2.0
     assert R.mcnemar_exact(0, 0) == 1.0
     assert abs(R.mcnemar_exact(0, 6) - 2 / 64) < 1e-12
+
+
+# ---- the runner's spending rules -------------------------------------------------------------
+
+def _args(**kw):
+    base = dict(cap=2.0, session_cap=0.5, parent_model="opus", explore_model="haiku", yes=False)
+    base.update(kw); return argparse.Namespace(**base)
+
+
+class _Proc:
+    returncode = 0
+
+
+def _fake_claude(monkeypatch, lines):
+    """Replace the `claude` call: write `lines` to the session's stream and return."""
+    monkeypatch.setattr(L.shutil, "which", lambda name: None)  # plain `claude`, no cmd.exe
+
+    def run(cmd, **kw):
+        for ev in lines: kw["stdout"].write(json.dumps(ev) + "\n")
+        return _Proc()
+    monkeypatch.setattr(L.subprocess, "run", run)
+
+
+def _session(tmp_path, name="q1-G-s1", **kw):
+    ws = tmp_path / "ws"; ws.mkdir(exist_ok=True)
+    return L.session(tmp_path, name, ws, "G", {"id": "q1", "question": "where?"}, 1, _args(**kw), "jcodemunch-mcp", None)
+
+
+def test_cap_is_required(monkeypatch):
+    monkeypatch.setattr(sys, "argv", ["run_lookups.py", "--repo", ".", "--lookups", "x.json"])
+    with pytest.raises(SystemExit) as e: L.main()
+    assert e.value.code == 2  # argparse refuses before anything runs
+
+
+def test_a_reported_cost_replaces_the_budget_charge(tmp_path, monkeypatch):
+    _fake_claude(monkeypatch, [{"type": "result", "result": "a.py:1 f", "total_cost_usd": 0.12}])
+    _session(tmp_path)
+    assert L.spent(tmp_path) == pytest.approx(0.12)
+
+
+def test_a_session_with_no_reported_cost_stays_charged_at_its_budget(tmp_path, monkeypatch):
+    _fake_claude(monkeypatch, [])  # crashed or killed: no result event
+    _session(tmp_path, session_cap=0.4)
+    assert L.spent(tmp_path) == pytest.approx(0.4)
+
+
+def test_the_budget_is_charged_before_the_session_starts(tmp_path, monkeypatch):
+    seen = []
+    monkeypatch.setattr(L.shutil, "which", lambda name: None)
+
+    def run(cmd, **kw):
+        seen.append(L.spent(tmp_path)); return _Proc()
+    monkeypatch.setattr(L.subprocess, "run", run)
+    _session(tmp_path, session_cap=0.3)
+    assert seen == [pytest.approx(0.3)]
+
+
+def test_the_key_check_deleting_a_stream_does_not_delete_its_cost(tmp_path, monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test-not-a-real-key")
+    _fake_claude(monkeypatch, [{"type": "result", "result": "sk-test-not-a-real-key", "total_cost_usd": 0.2}])
+    rec = _session(tmp_path)
+    assert rec["key_found_in_outputs"]
+    assert not (tmp_path / "runs" / "q1-G-s1" / "stream.jsonl").exists()
+    assert L.spent(tmp_path) == pytest.approx(0.2)
+
+
+def test_an_interrupted_session_keeps_its_charge_and_its_files(tmp_path, monkeypatch):
+    L.charge(tmp_path, "earlier", 0.5, state="reserved")  # the runner stopped mid-session
+    (tmp_path / "runs" / "q1-G-s1").mkdir(parents=True)
+    _fake_claude(monkeypatch, [{"type": "result", "result": "a.py:1 f", "total_cost_usd": 0.1}])
+    _session(tmp_path)
+    assert (tmp_path / "runs" / "q1-G-s1-interrupted-1").is_dir()
+    assert L.spent(tmp_path) == pytest.approx(0.6)
+
+
+def test_billing_starts_only_on_yes():
+    assert L.confirm(_args(yes=True), ask=lambda p: pytest.fail("asked despite --yes"), tty=False)
+    assert L.confirm(_args(), ask=lambda p: "yes", tty=True)
+    assert not L.confirm(_args(), ask=lambda p: "", tty=True)
+    assert not L.confirm(_args(), ask=lambda p: "y", tty=True)
+    with pytest.raises(SystemExit):
+        L.confirm(_args(), ask=lambda p: "yes", tty=False)
+
+
+def test_a_cmd_metacharacter_in_the_command_refuses():
+    L.shell_safe(["claude.cmd", "-p", r"C:\results\run1\mcp-config.json"])
+    for bad in ("a&b", "a|b", "a^b", "a%b%", 'a"b', "a>b"):
+        with pytest.raises(SystemExit): L.shell_safe(["claude.cmd", "--mcp-config", bad])
+
+
+def test_unrecorded_spend_is_never_shown_as_zero():
+    assert "$" not in R.spend_text({})
+    assert "not recorded" in R.spend_text({"spent_usd": None})
+    assert R.spend_text({"spent_usd": 1.5, "finished_utc": "x"}) == "spend $1.50"
+    assert "did not finish" in R.spend_text({"spent_usd": 1.5})

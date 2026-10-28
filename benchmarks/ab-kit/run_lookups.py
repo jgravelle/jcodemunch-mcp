@@ -9,11 +9,17 @@ What it does:
   * writes a project .claude/agents/Explore.md override in each copy (model from --explore-model; tools differ only
     by the jCodeMunch tools and one sentence naming them);
   * runs one headless Claude Code session per lookup x arm x seed: the parent is told to use the Explore agent;
-  * stops at --cap dollars (billed totals as reported by Claude Code), retries a miswired session once, and
-    records everything under DIR. Nothing is sent anywhere except your own model calls.
+  * stops at --cap dollars, retries a miswired session once, and records everything under DIR. Nothing is sent
+    anywhere except your own model calls.
+
+How the cap counts: before a session starts, its whole budget (--session-cap, or what is left under --cap) is
+charged in DIR/spend.jsonl. When the session ends with a cost reported by Claude Code, that cost replaces the charge.
+A session that crashes, is stopped, or reports no cost stays charged at its full budget. Claude Code enforces each
+session's budget itself and can go over it by up to one model turn, so the run's total can pass --cap by that much.
 
 BILLED: every session is a real Claude Code session billed to the account your `claude` CLI uses (not to jCodeMunch),
-and it sends your code to the Anthropic API. --cap is required. Sessions use whatever credentials your `claude` CLI already uses. This script never reads, prints or stores
+and it sends your code to the Anthropic API. --cap is required, and the run asks you to type yes before the first
+session (--yes skips the question). Sessions use whatever credentials your `claude` CLI already uses. This script never reads, prints or stores
 a key; after each session it checks its own output files for the value of ANTHROPIC_API_KEY, if set, and deletes any
 file that contains it. jCodeMunch savings sharing is off and its telemetry URL points at a dead local address.
 """
@@ -38,17 +44,42 @@ def tree_hash(ws):
         if p.is_file() and ".claude" not in p.relative_to(ws).parts: h.update(str(p.relative_to(ws)).encode()); h.update(p.read_bytes())
     return h.hexdigest()
 
+LEDGER = "spend.jsonl"
+SHELL_META = re.compile(r'[&|<>^%"]')
+
+def charge(out, sid, usd, **extra):
+    """Append a row to the spend ledger. It sits outside runs/, so the key check never deletes it."""
+    with open(out / LEDGER, "a", encoding="utf-8") as fh: fh.write(json.dumps({"session": sid, "usd": usd, **extra}) + "\n")
+
 def spent(out):
-    tot = 0.0
-    for p in (out / "runs").glob("*/stream.jsonl"):
+    """Dollars spent or possibly spent: each session's last ledger row. A session never settled stays at its budget."""
+    last = {}
+    p = out / LEDGER
+    if p.exists():
         for line in open(p, encoding="utf-8", errors="replace"):
-            if '"type":"result"' in line.replace(" ", ""):
-                try: tot += json.loads(line).get("total_cost_usd") or 0.0
-                except ValueError: pass
-    return tot
+            try: row = json.loads(line); last[row["session"]] = float(row["usd"])
+            except (ValueError, KeyError, TypeError): continue
+    return sum(last.values())
+
+def confirm(a, ask=input, tty=None):
+    """True only on --yes or a typed yes. With no terminal to ask on, refuse rather than start billing."""
+    if a.yes: return True
+    if not (sys.stdin.isatty() if tty is None else tty):
+        raise SystemExit("not started: there is no terminal to confirm on. Pass --yes to start without the question.")
+    return ask("Type yes to start: ").strip().lower() == "yes"
+
+def shell_safe(cmd):
+    """cmd.exe reads these characters as its own syntax, so a path holding one would change the command line."""
+    bad = [x for x in cmd if SHELL_META.search(x)]
+    if bad: raise SystemExit(f"not started: {bad[0]!r} holds a character cmd.exe would interpret; use an --out path without it")
 
 def session(out, name, ws, arm, lk, seed, a, jcm, store):
-    run = out / "runs" / name; run.mkdir(parents=True)
+    run = out / "runs" / name
+    if run.exists():  # a session stopped mid-run: keep its files and its ledger charge, start a fresh one
+        n = 1
+        while run.with_name(f"{name}-interrupted-{n}").exists(): n += 1
+        run.rename(run.with_name(f"{name}-interrupted-{n}"))
+    run.mkdir(parents=True)
     cfg = {"mcpServers": {}}
     if arm == "J":
         st = run / "store"; shutil.copytree(store, st)
@@ -56,17 +87,20 @@ def session(out, name, ws, arm, lk, seed, a, jcm, store):
     (run / "mcp-config.json").write_text(json.dumps(cfg, indent=1), encoding="utf-8")
     prompt = (f"Use the Explore agent to answer this lookup in the repository in the current directory: {lk['question']}\n"
               "Do not search yourself. When the agent returns, reply with only its answer: the code it found, one item per line as `path:line symbol`.")
-    cap = min(a.session_cap, a.cap - spent(out))
+    cap = min(a.session_cap, a.cap - spent(out)); sid = str(uuid.uuid4())
     cmd = [shutil.which("claude") or "claude", "-p", "--model", a.parent_model, "--output-format", "stream-json", "--verbose",
            "--setting-sources", "project,local", "--strict-mcp-config", "--mcp-config", str(run / "mcp-config.json"),
            "--permission-mode", "dontAsk", "--allowedTools", "Agent Task Read Grep Glob mcp__jcodemunch__*",
            "--disallowedTools", "Bash PowerShell Edit Write MultiEdit NotebookEdit WebFetch WebSearch",
-           "--max-budget-usd", f"{cap:.4f}", "--session-id", str(uuid.uuid4())]
+           "--max-budget-usd", f"{cap:.4f}", "--session-id", sid]
+    shell = cmd[0].lower().endswith((".cmd", ".bat"))
+    if shell: shell_safe(cmd)
     env = {**os.environ, **OFF, "ENABLE_TOOL_SEARCH": "false"}; env.pop("CODE_INDEX_PATH", None)
     before = tree_hash(ws)
+    charge(out, sid, round(cap, 4), name=name, state="reserved")
     with open(run / "stream.jsonl", "w", encoding="utf-8") as fh:
         proc = subprocess.run(cmd, cwd=ws, env=env, input=prompt, stdout=fh, stderr=subprocess.PIPE, text=True, encoding="utf-8",
-                              errors="replace", shell=cmd[0].lower().endswith((".cmd", ".bat")))
+                              errors="replace", shell=shell)
     del env
     init = result = None; parent_tools = []; sub_tools = []; explore = 0
     for line in open(run / "stream.jsonl", encoding="utf-8", errors="replace"):
@@ -81,6 +115,8 @@ def session(out, name, ws, arm, lk, seed, a, jcm, store):
                 parent_tools += [c["name"] for c in calls]
                 explore += sum(c["name"] in ("Agent", "Task") and (c.get("input") or {}).get("subagent_type") == "Explore" for c in calls)
     r = result or {}; i = init or {}; mu = r.get("modelUsage") or {}
+    if isinstance(r.get("total_cost_usd"), (int, float)): charge(out, sid, r["total_cost_usd"], name=name, state="settled")
+    else: charge(out, sid, round(cap, 4), name=name, state="no cost reported; charged at its budget")
     em = {k: v for k, v in mu.items() if a.explore_model.lower() in k.lower()}
     t = {f: sum(v.get(f, 0) for v in em.values()) for f in ("inputTokens", "outputTokens", "cacheReadInputTokens", "cacheCreationInputTokens")}
     t["total"] = sum(t.values())
@@ -113,6 +149,7 @@ def main():
     ap.add_argument("--repo", required=True); ap.add_argument("--lookups", required=True); ap.add_argument("--cap", type=float, required=True)
     ap.add_argument("--seeds", type=int, default=3); ap.add_argument("--explore-model", default="haiku"); ap.add_argument("--parent-model", default="opus")
     ap.add_argument("--session-cap", type=float, default=0.5); ap.add_argument("--out", default=None)
+    ap.add_argument("--yes", action="store_true", help="start without asking you to type yes")
     a = ap.parse_args(); repo = pathlib.Path(a.repo).resolve()
     out = pathlib.Path(a.out).resolve() if a.out else pathlib.Path.home() / "jcodemunch-ab-results" / time.strftime("%Y%m%d-%H%M%S")
     if out == repo or repo in out.parents: raise SystemExit("--out must be outside the repo")
@@ -138,7 +175,9 @@ def main():
         if p.returncode: raise SystemExit("indexing failed:\n" + p.stderr[-2000:])
         mpath.write_text(json.dumps(m, indent=1), encoding="utf-8")
     print(f"This run starts up to {2 * a.seeds * len(lookups)} real Claude Code sessions, billed to the account your `claude` CLI uses, "
-          f"and sends this repository's code to the Anthropic API. It stops at ${a.cap:.2f} (already spent here: ${spent(out):.2f}).", flush=True)
+          f"and sends this repository's code to the Anthropic API. It stops at ${a.cap:.2f} (already spent here: ${spent(out):.2f}); "
+          "the last session can go over by up to one model turn.", flush=True)
+    if not confirm(a): raise SystemExit("not started.")
     plan = []
     for s in range(1, a.seeds + 1):
         ls = list(lookups); random.Random(1000 + s).shuffle(ls)
@@ -150,7 +189,9 @@ def main():
         if a.cap - spent(out) < 0.25: print("cap reached; stopping"); break
         rec = session(out, name, out / f"ws-{arm}", arm, lk, s, a, jcm, out / "store")
         if rec["wiring_problems"] and a.cap - spent(out) >= 0.25: session(out, name + "-retry", out / f"ws-{arm}", arm, lk, s, a, jcm, out / "store")
-    m["spent_usd"] = spent(out); mpath.write_text(json.dumps(m, indent=1), encoding="utf-8")
+        m["spent_usd"] = spent(out); mpath.write_text(json.dumps(m, indent=1), encoding="utf-8")
+    m["spent_usd"] = spent(out); m["finished_utc"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    mpath.write_text(json.dumps(m, indent=1), encoding="utf-8")
     print(f"done: ${m['spent_usd']:.2f} spent. Report: python report.py --results \"{out}\" --lookups \"{a.lookups}\"")
 
 if __name__ == "__main__": main()

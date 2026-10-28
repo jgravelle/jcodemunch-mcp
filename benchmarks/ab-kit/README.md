@@ -6,8 +6,9 @@ This kit lets a team measure jCodeMunch on its own code and its own questions. R
 
 - **`run_lookups.py` starts real Claude Code sessions,** using the `claude` CLI on your PATH. Each session sends your repository's code to the Anthropic API as model input.
 - **It is billed to whatever account your `claude` CLI is signed in to:** your API key or your subscription. It is **not** billed to jCodeMunch or to us.
-- **Cost depends on your repo and your questions.** A default run is 15 lookups × 3 seeds × 2 arms = 90 sessions. Run a pilot first (`--seeds 1` and a small `--cap`): the run prints what it spent, which tells you what a full run will cost.
-- **`--cap` is required.** The run stops once the billed totals Claude Code reports reach it, and each session gets at most `--session-cap` (default $0.50).
+- **Cost depends on your repo and your questions.** A run starts lookups × seeds × 2 sessions, one per arm, and `--seeds` defaults to 3. Run a pilot first (`--seeds 1` and a small `--cap`): the run prints what it spent, which tells you what a full run will cost.
+- **`--cap` is required.** Each session gets at most `--session-cap` (default $0.50). Its whole budget is charged before it starts, and only the cost Claude Code reports replaces that charge, so a session that crashes or reports no cost still counts in full. The run stops before the charges reach `--cap`. Claude Code enforces each session's budget itself, so the last session can go over by up to one model turn.
+- **The run asks you to type `yes` before the first session.** It prints how many sessions it may start and the cap first. `--yes` skips the question. With no terminal to ask on and no `--yes`, it doesn't start.
 - **The only network traffic is those model calls,** made by Claude Code itself. The kit makes no network calls of its own, and it sets jCodeMunch's savings sharing off and its telemetry URL to a dead local address.
 
 Tier 1 (`run_benchmark.py`) makes no model calls and costs nothing.

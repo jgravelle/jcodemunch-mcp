@@ -47,6 +47,12 @@ def mcnemar_exact(b, c):
     if n == 0: return 1.0
     k = min(b, c); return min(1.0, 2 * sum(math.comb(n, i) for i in range(k + 1)) / 2 ** n)
 
+def spend_text(manifest):
+    """The run's spend, or a plain statement that it is not known. Never a zero for a value nobody recorded."""
+    usd = manifest.get("spent_usd")
+    if not isinstance(usd, (int, float)): return "spend not recorded (see spend.jsonl in the results folder)"
+    return f"spend ${usd:.2f}" + ("" if manifest.get("finished_utc") else " so far (the run did not finish)")
+
 def main():
     ap = argparse.ArgumentParser(); ap.add_argument("--results", required=True); ap.add_argument("--lookups", required=True)
     ap.add_argument("--arms", default="G,J"); ap.add_argument("--guard", type=int, default=None,
@@ -56,6 +62,7 @@ def main():
     manifest = json.loads((res / "manifest.json").read_text(encoding="utf-8"))
     if manifest.get("lookups_sha256") != hashlib.sha256(raw).hexdigest(): raise SystemExit("answer key changed since the run started; refusing to grade")
     runs = [json.loads(p.read_text(encoding="utf-8")) for p in sorted(res.glob("runs/*/run.json"))]
+    dropped = collections.Counter(r["arm"] for r in runs if r.get("wiring_problems"))
     runs = [r for r in runs if not r.get("wiring_problems")]
     by = collections.defaultdict(dict)
     for r in runs:
@@ -63,7 +70,8 @@ def main():
     pairs = {k: v for k, v in by.items() if base in v and test in v}
     tok = lambda r: r["explore_tokens"]["total"]
     print(f"# A/B kit report\n\nRepo commit `{manifest.get('repo_commit')}`, jCodeMunch {manifest.get('jcm_version')}, Explore model {manifest.get('explore_model')}, "
-          f"{len(pairs)} paired lookup-seeds, spend ${manifest.get('spent_usd', 0):.2f}.\n")
+          f"{len(pairs)} paired lookup-seeds, {spend_text(manifest)}.\n")
+    print(f"Sessions left out as miswired (retries included): {base} {dropped[base]}, {test} {dropped[test]}.\n")
     print(f"| Lookup | {base} tokens (median) | {test} tokens (median) | {test}/{base} | {base} correct | {test} correct | {test} jCodeMunch calls |\n|---|---|---|---|---|---|---|")
     logr = []
     for lk in key:
@@ -83,6 +91,7 @@ def main():
     if cb - ct > guard: print(f"\n**Quality guard tripped:** {test} has {cb - ct} fewer correct answers (limit {guard}). No token saving is claimed from this run.")
     if len(logr) < 10: print("\n**Fewer than 10 lookups:** treat the ratio as descriptive only.")
     if used == 0: print(f"\n**The agent never called jCodeMunch** in arm {test}, so this run cannot show a difference from it. That is a real result for this setup.")
-    print("\nUnit: tokens of the Explore agent per lookup, billed by the API. Not a session or bill measure.")
+    print("\nUnit: the Explore agent's tokens per lookup, as Claude Code reports them. The parent session's tokens are not counted, "
+          "so this is not the whole session's bill.")
 
 if __name__ == "__main__": main()
