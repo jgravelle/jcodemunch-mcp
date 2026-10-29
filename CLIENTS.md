@@ -275,7 +275,9 @@ starts on the `counter` surface, which serves three front-door tools
 instead: `menu` only reads, while `order` and `route` are marked as writers
 because they can dispatch any tool, indexing included. There the client
 keeps asking before each `order` and `route` call. To allow the read tools
-by name, set `"tool_surface": "full"` in `~/.code-index/config.jsonc`.
+by name, set `"tool_surface": "full"` in your global `config.jsonc`
+(`~/.code-index/` by default, or under `CODE_INDEX_PATH`), or set
+`JCODEMUNCH_TOOL_SURFACE=full`, which wins over the file.
 
 **Claude Code.** In `.claude/settings.json` (the project, committable) or
 `~/.claude/settings.json` (you), list the tools to allow. Tool names are
