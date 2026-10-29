@@ -255,3 +255,70 @@ def test_the_report_warns_when_arm_j_never_called_jcodemunch(tmp_path):
     p = _report(res, lookups)
     assert "WARNING: the agent never called jCodeMunch" in p.stdout
     assert "mcp__jcodemunch__" in p.stdout
+
+
+# ---- the handshake itself, against a stub stdio server ------------------------------------------
+
+STUB = r'''
+import json, sys, time
+mode = sys.argv[1]
+def say(msg): sys.stdout.write(json.dumps(msg) + "\n"); sys.stdout.flush()
+for line in sys.stdin:
+    msg = json.loads(line); mid = msg.get("id")
+    if msg.get("method") == "initialize":
+        if mode == "exit": sys.exit(0)
+        say({"jsonrpc": "2.0", "id": mid, "result": {"protocolVersion": "2025-06-18", "capabilities": {}}})
+    elif msg.get("method") == "tools/list":
+        cur = (msg.get("params") or {}).get("cursor")
+        if mode == "error": say({"jsonrpc": "2.0", "id": mid, "error": {"code": -32603, "message": "boom"}})
+        elif mode == "silent": time.sleep(30)
+        elif mode == "chatty":
+            while True: say({"jsonrpc": "2.0", "method": "notifications/message", "params": {}})
+        elif mode == "loop": say({"jsonrpc": "2.0", "id": mid, "result": {"tools": [{"name": "x"}], "nextCursor": "same"}})
+        elif cur is None: say({"jsonrpc": "2.0", "id": mid, "result": {"tools": [{"name": "a"}, {"name": "b"}], "nextCursor": "p2"}})
+        else: say({"jsonrpc": "2.0", "id": mid, "result": {"tools": [{"name": "c"}]}})
+'''
+
+
+def _stub(tmp_path, mode):
+    f = tmp_path / "stub_server.py"; f.write_text(STUB, encoding="utf-8")
+    return [sys.executable, "-I", str(f), mode]
+
+
+def test_the_handshake_follows_every_page(tmp_path):
+    assert L.listed_tools(_stub(tmp_path, "pages"), dict(L.os.environ), timeout=30) == ["a", "b", "c"]
+
+
+@pytest.mark.parametrize("mode,said", [("exit", "exited before answering"), ("error", "failed"),
+                                       ("silent", "no answer"), ("chatty", "no answer"), ("loop", "did not finish paging")])
+def test_the_handshake_fails_loudly_and_in_bounded_time(tmp_path, mode, said):
+    t0 = L.time.monotonic()
+    with pytest.raises(RuntimeError) as e:
+        L.listed_tools(_stub(tmp_path, mode), dict(L.os.environ), timeout=3, grace=1)
+    assert said in str(e.value)
+    assert L.time.monotonic() - t0 < 30  # the deadline holds even for a server that keeps talking
+
+
+def test_a_failed_handshake_stops_the_run_with_its_reason(tmp_path):
+    with pytest.raises(SystemExit) as e:
+        L.check_j_tools("unused", _store(tmp_path), tmp_path,
+                        lister=lambda cmd, env: L.listed_tools(_stub(tmp_path, "exit"), env, timeout=5))
+    assert "not started: could not list" in str(e.value) and "exited" in str(e.value)
+
+
+def _j_session(tmp_path, monkeypatch, tools):
+    init = {"type": "system", "subtype": "init", "tools": ["Agent", "Read", "Grep", "Glob"] + tools,
+            "mcp_servers": [{"name": "jcodemunch", "status": "connected"}]}
+    _fake_claude(monkeypatch, [init, {"type": "result", "result": "a.py:1 f", "total_cost_usd": 0.1}])
+    ws = tmp_path / "ws"; ws.mkdir(exist_ok=True)
+    return L.session(tmp_path, "q1-J-s1", ws, "J", {"id": "q1", "question": "where?"}, 1, _args(), "jcodemunch-mcp", _store(tmp_path))
+
+
+def test_a_j_session_with_only_the_front_door_tools_is_miswired(tmp_path, monkeypatch):
+    rec = _j_session(tmp_path, monkeypatch, [f"mcp__jcodemunch__{t}" for t in COUNTER])
+    assert any("names are missing" in p and "search_symbols" in p for p in rec["wiring_problems"])
+
+
+def test_a_j_session_with_every_named_tool_passes_the_tool_check(tmp_path, monkeypatch):
+    rec = _j_session(tmp_path, monkeypatch, [f"mcp__jcodemunch__{t}" for t in COUNTER + L.JCM_TOOLS])
+    assert not any("jCodeMunch tool" in p for p in rec["wiring_problems"])

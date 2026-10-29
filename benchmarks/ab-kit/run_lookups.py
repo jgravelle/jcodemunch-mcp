@@ -33,7 +33,7 @@ J_ENV = {**OFF, "JCODEMUNCH_TOOL_SURFACE": "full"}
 SKIP = shutil.ignore_patterns(".git", "node_modules", ".venv", "venv", "__pycache__")
 
 
-def listed_tools(cmd, env, timeout=120.0):
+def listed_tools(cmd, env, timeout=120.0, grace=10.0):
     """Tool names an MCP stdio server publishes: initialize, then tools/list (following nextCursor).
 
     Raises RuntimeError when the server exits, answers with an error, or stays silent past `timeout`.
@@ -54,7 +54,9 @@ def listed_tools(cmd, env, timeout=120.0):
 
     def answer(mid):
         while True:
-            try: line = lines.get(timeout=max(0.1, deadline - time.monotonic()))
+            left = deadline - time.monotonic()  # one deadline for the whole handshake, however chatty the server is
+            if left <= 0: raise RuntimeError(f"no answer to request {mid} within {timeout:.0f} s")
+            try: line = lines.get(timeout=left)
             except queue.Empty: raise RuntimeError(f"no answer to request {mid} within {timeout:.0f} s")
             if line is None: raise RuntimeError(f"the server exited before answering request {mid}")
             try: msg = json.loads(line)
@@ -68,26 +70,39 @@ def listed_tools(cmd, env, timeout=120.0):
             "protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": {"name": "ab-kit", "version": "1"}}})
         answer(1)
         send({"jsonrpc": "2.0", "method": "notifications/initialized"})
-        names, cursor, mid = [], None, 2
+        names, cursor, mid, seen = [], None, 2, set()
         while True:
             send({"jsonrpc": "2.0", "id": mid, "method": "tools/list", "params": {"cursor": cursor} if cursor else {}})
             res = answer(mid); names += [t.get("name") for t in res.get("tools") or []]
             cursor = res.get("nextCursor"); mid += 1
             if not cursor: return names
+            if cursor in seen or len(seen) >= MAX_TOOL_PAGES:
+                raise RuntimeError(f"tools/list did not finish paging (cursor {cursor!r} after {len(seen) + 1} pages)")
+            seen.add(cursor)
     finally:
         try: proc.stdin.close()
         except OSError: pass
-        try: proc.wait(timeout=10)
-        except subprocess.TimeoutExpired: proc.kill()
+        try: proc.wait(timeout=grace)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            try: proc.wait(timeout=grace)
+            except subprocess.TimeoutExpired: pass
+        try: proc.stdout.close()
+        except OSError: pass
+
+
+MAX_TOOL_PAGES = 50
 
 
 def check_j_tools(jcm, store, scratch, lister=None):
     """Stop the run before any billing unless the J server, as the sessions launch it, publishes every JCM_TOOLS name."""
     st = scratch / "handshake-store"
-    shutil.rmtree(st, ignore_errors=True); shutil.copytree(store, st)
     try:
+        shutil.rmtree(st, ignore_errors=True); shutil.copytree(store, st)
         try: names = (lister or listed_tools)([jcm], {**os.environ, **J_ENV, "CODE_INDEX_PATH": str(st)})
         except (OSError, RuntimeError) as exc: raise SystemExit(f"not started: could not list the jCodeMunch tools arm J would get ({exc})")
+    except OSError as exc:
+        raise SystemExit(f"not started: could not copy the index for the tool check ({exc}); remove {st} and run again")
     finally:
         shutil.rmtree(st, ignore_errors=True)
     missing = [t for t in JCM_TOOLS if t not in names]
@@ -198,8 +213,13 @@ def session(out, name, ws, arm, lk, seed, a, jcm, store):
     t["total"] = sum(t.values())
     p = []
     if not i: p.append("no init event")
-    has = any(x.startswith("mcp__jcodemunch__") for x in i.get("tools") or [])
-    if i and (arm == "J") != has: p.append("jCodeMunch tool presence does not match arm")
+    tools = set(i.get("tools") or [])
+    has = any(x.startswith("mcp__jcodemunch__") for x in tools)
+    if i and arm == "G" and has: p.append("jCodeMunch tool presence does not match arm")
+    # Arm J needs every tool the Explore override names: some other jCodeMunch tool (the counter front door's
+    # route/menu/order) is not enough, and it is what a fresh store published before the full surface was set.
+    missing = [t for t in JCM_TOOLS if f"mcp__jcodemunch__{t}" not in tools]
+    if i and arm == "J" and missing: p.append("jCodeMunch tools the Explore agent names are missing: " + ", ".join(missing))
     if arm == "J" and [s.get("status") for s in (i.get("mcp_servers") or []) if s.get("name") == "jcodemunch"] != ["connected"]: p.append("jcodemunch not connected")
     if explore < 1: p.append("parent did not call the Explore agent")
     if [x for x in parent_tools if x not in ("Agent", "Task")]: p.append("parent searched itself")
