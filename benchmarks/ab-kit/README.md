@@ -58,6 +58,8 @@ Each arm runs on its own copy of your repo, without `.git`. Each copy gets a pro
 - **G:** `Read, Grep, Glob`, the tools Claude Code's built-in Explore agent searches with.
 - **J:** the same tools, plus jCodeMunch's search and read tools, and one sentence naming them. Grep stays available, so jCodeMunch has to earn its calls.
 
+**Arm J's server runs on the full tool surface** (`JCODEMUNCH_TOOL_SURFACE=full`). A new install defaults to a small front door that doesn't publish the tools the Explore override names, and on it arm J would have the same tools as arm G. Before asking you to confirm, the kit starts arm J's server once on a copy of the index and lists its tools. If any named tool is missing, the run doesn't start. The full surface also gives the parent session every jCodeMunch tool schema in its first request, so arm J's parent costs more than arm G's. The report doesn't count the parent's tokens.
+
 **Each session works like this:** a headless Claude Code session is told to use the Explore agent for one lookup. The kit records the Explore agent's billed tokens and every tool call. A session that is wired wrong is retried once and then left out of the results: for example, the parent searched by itself, or the Explore agent didn't run on the chosen model.
 
 ## What the report shows
@@ -79,4 +81,4 @@ Each arm runs on its own copy of your repo, without `.git`. Each copy gets a pro
 - **Tier 1 measures retrieval only.** It doesn't measure a session or a bill.
 - **Tier 2 measures lookups, not finished work.** A team whose own gate measures whole tasks should not read tier 2 as an answer to that question.
 - **Small sets are noisy.** Under 10 lookups, read the ratio as descriptive.
-- **If the agent never calls jCodeMunch, the arms come out the same.** That's a real result for that setup, and the report states it.
+- **If the agent never calls jCodeMunch, the arms come out the same.** The run and the report both print a warning. The pre-run check proves the tools are published, so zero calls is usually the agent's choice; check one arm J session's stream to confirm the Explore agent listed them.

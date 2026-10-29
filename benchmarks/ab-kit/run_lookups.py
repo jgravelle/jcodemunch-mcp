@@ -23,11 +23,87 @@ session (--yes skips the question). Sessions use whatever credentials your `clau
 It reads ANTHROPIC_API_KEY, if set, only to check its own output files after each session and delete any file that
 contains it. jCodeMunch savings sharing is off and its telemetry URL points at a dead local address.
 """
-import argparse, hashlib, json, os, pathlib, random, re, shutil, subprocess, sys, time, uuid
+import argparse, hashlib, json, os, pathlib, queue, random, re, shutil, subprocess, sys, threading, time, uuid
 
 JCM_TOOLS = ["resolve_repo", "search_symbols", "get_file_outline", "get_symbol_source", "get_ranked_context", "search_text"]
 OFF = {"JCODEMUNCH_SHARE_SAVINGS": "0", "JCODEMUNCH_TELEMETRY_URL": "http://127.0.0.1:9/disabled"}
+# A fresh store gets the 6-tool `counter` surface, which publishes none of JCM_TOOLS: arm J would then have only
+# Read/Grep/Glob, the same as arm G. The full surface publishes every tool the Explore override names.
+J_ENV = {**OFF, "JCODEMUNCH_TOOL_SURFACE": "full"}
 SKIP = shutil.ignore_patterns(".git", "node_modules", ".venv", "venv", "__pycache__")
+
+
+def listed_tools(cmd, env, timeout=120.0):
+    """Tool names an MCP stdio server publishes: initialize, then tools/list (following nextCursor).
+
+    Raises RuntimeError when the server exits, answers with an error, or stays silent past `timeout`.
+    """
+    proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, env=env,
+                            text=True, encoding="utf-8", errors="replace")
+    lines = queue.Queue()
+
+    def pump():
+        for line in proc.stdout: lines.put(line)
+        lines.put(None)  # EOF: the server exited
+
+    threading.Thread(target=pump, daemon=True).start()
+    deadline = time.monotonic() + timeout
+
+    def send(msg):
+        proc.stdin.write(json.dumps(msg) + "\n"); proc.stdin.flush()
+
+    def answer(mid):
+        while True:
+            try: line = lines.get(timeout=max(0.1, deadline - time.monotonic()))
+            except queue.Empty: raise RuntimeError(f"no answer to request {mid} within {timeout:.0f} s")
+            if line is None: raise RuntimeError(f"the server exited before answering request {mid}")
+            try: msg = json.loads(line)
+            except ValueError: continue
+            if msg.get("id") == mid:
+                if "error" in msg: raise RuntimeError(f"request {mid} failed: {msg['error']}")
+                return msg.get("result") or {}
+
+    try:
+        send({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {
+            "protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": {"name": "ab-kit", "version": "1"}}})
+        answer(1)
+        send({"jsonrpc": "2.0", "method": "notifications/initialized"})
+        names, cursor, mid = [], None, 2
+        while True:
+            send({"jsonrpc": "2.0", "id": mid, "method": "tools/list", "params": {"cursor": cursor} if cursor else {}})
+            res = answer(mid); names += [t.get("name") for t in res.get("tools") or []]
+            cursor = res.get("nextCursor"); mid += 1
+            if not cursor: return names
+    finally:
+        try: proc.stdin.close()
+        except OSError: pass
+        try: proc.wait(timeout=10)
+        except subprocess.TimeoutExpired: proc.kill()
+
+
+def check_j_tools(jcm, store, scratch, lister=None):
+    """Stop the run before any billing unless the J server, as the sessions launch it, publishes every JCM_TOOLS name."""
+    st = scratch / "handshake-store"
+    shutil.rmtree(st, ignore_errors=True); shutil.copytree(store, st)
+    try:
+        try: names = (lister or listed_tools)([jcm], {**os.environ, **J_ENV, "CODE_INDEX_PATH": str(st)})
+        except (OSError, RuntimeError) as exc: raise SystemExit(f"not started: could not list the jCodeMunch tools arm J would get ({exc})")
+    finally:
+        shutil.rmtree(st, ignore_errors=True)
+    missing = [t for t in JCM_TOOLS if t not in names]
+    if missing:
+        raise SystemExit(f"not started: the jCodeMunch server arm J would use publishes {len(names)} tools and not {', '.join(missing)}. "
+                         "The Explore agent in arm J would have no jCodeMunch tools, so both arms would be the same.")
+    return names
+
+
+def zero_call_warning(recs):
+    """A loud line when no usable arm J session called jCodeMunch; None otherwise."""
+    j = [r for r in recs if r.get("arm") == "J" and not r.get("wiring_problems")]
+    if j and not any(r.get("jcm_calls") for r in j):
+        return (f"WARNING: arm J made 0 jCodeMunch calls in all {len(j)} of its usable sessions. Check that the Explore agent "
+                "in arm J can see the jCodeMunch tools before reading this run as a result.")
+    return None
 
 def override(arm, model):
     tools = "Read, Grep, Glob" + ("".join(f", mcp__jcodemunch__{t}" for t in JCM_TOOLS) if arm == "J" else "")
@@ -83,7 +159,7 @@ def session(out, name, ws, arm, lk, seed, a, jcm, store):
     cfg = {"mcpServers": {}}
     if arm == "J":
         st = run / "store"; shutil.copytree(store, st)
-        cfg["mcpServers"]["jcodemunch"] = {"command": jcm, "args": [], "env": {**OFF, "CODE_INDEX_PATH": str(st)}}
+        cfg["mcpServers"]["jcodemunch"] = {"command": jcm, "args": [], "env": {**J_ENV, "CODE_INDEX_PATH": str(st)}}
     (run / "mcp-config.json").write_text(json.dumps(cfg, indent=1), encoding="utf-8")
     prompt = (f"Use the Explore agent to answer this lookup in the repository in the current directory: {lk['question']}\n"
               "Do not search yourself. When the agent returns, reply with only its answer: the code it found, one item per line as `path:line symbol`.")
@@ -177,6 +253,7 @@ def main():
     print(f"This run starts up to {2 * a.seeds * len(lookups)} real Claude Code sessions, billed to the account your `claude` CLI uses, "
           f"and sends this repository's code to the Anthropic API. It stops at ${a.cap:.2f} (already spent here: ${spent(out):.2f}); "
           "the last session can go over by up to one model turn.", flush=True)
+    check_j_tools(jcm, out / "store", out)
     if not confirm(a): raise SystemExit("not started.")
     plan = []
     for s in range(1, a.seeds + 1):
@@ -192,6 +269,9 @@ def main():
         m["spent_usd"] = spent(out); mpath.write_text(json.dumps(m, indent=1), encoding="utf-8")
     m["spent_usd"] = spent(out); m["finished_utc"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     mpath.write_text(json.dumps(m, indent=1), encoding="utf-8")
+    recs = [json.loads(f.read_text(encoding="utf-8")) for f in (out / "runs").glob("*/run.json")] if (out / "runs").exists() else []
+    warn = zero_call_warning(recs)
+    if warn: print(f"\n{warn}\n", flush=True)
     print(f"done: ${m['spent_usd']:.2f} spent. Report: python report.py --results \"{out}\" --lookups \"{a.lookups}\"")
 
 if __name__ == "__main__": main()

@@ -98,7 +98,9 @@ def main():
     print(f"**jCodeMunch was called** in {used} of {len(pairs)} {test} sessions.")
     if cb - ct > guard: print(f"\n**Quality guard tripped:** {test} has {cb - ct} fewer correct answers (limit {guard}). No token saving is claimed from this run.")
     if 0 < len(logr) < 10: print("\n**Fewer than 10 lookups:** treat the ratio as descriptive only.")
-    if used == 0: print(f"\n**The agent never called jCodeMunch** in arm {test}, so this run cannot show a difference from it. That is a real result for this setup.")
+    if used == 0: print(f"\n**WARNING: the agent never called jCodeMunch** in arm {test}, so this run cannot show a difference from it. "
+                        f"Before reading that as the agent's choice, check one {test} session's stream: the Explore agent's tool list "
+                        "must include the mcp__jcodemunch__ tools.")
     print("\nUnit: the Explore agent's tokens per lookup, as Claude Code reports them. The parent session's tokens are not counted, "
           "so this is not the whole session's bill.")
 

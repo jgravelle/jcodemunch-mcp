@@ -171,3 +171,87 @@ def test_pairs_with_no_tokens_print_no_ratio_or_p_value(tmp_path):
     assert p.returncode == 0, p.stdout + p.stderr
     assert "not measured" in p.stdout
     assert "Hodges-Lehmann" not in p.stdout and "Wilcoxon" not in p.stdout and "nan" not in p.stdout
+
+
+# ---- arm J really gets the jCodeMunch tools ---------------------------------------------------
+
+COUNTER = ["set_tool_tier", "announce_model", "jcodemunch_guide", "order", "menu", "route"]
+
+
+def _store(tmp_path):
+    st = tmp_path / "store"; st.mkdir(); (st / "x.db").write_bytes(b"")
+    return st
+
+
+def test_a_server_missing_the_named_tools_stops_the_run_before_billing(tmp_path):
+    # A fresh store's default `counter` surface publishes none of the tools the Explore override names.
+    with pytest.raises(SystemExit) as e:
+        L.check_j_tools("jcodemunch-mcp", _store(tmp_path), tmp_path, lister=lambda cmd, env: COUNTER)
+    msg = str(e.value)
+    assert msg.startswith("not started") and all(t in msg for t in L.JCM_TOOLS)
+    assert L.spent(tmp_path) == 0
+
+
+def test_the_check_lists_tools_the_way_the_sessions_launch_the_server(tmp_path):
+    seen = {}
+
+    def lister(cmd, env):
+        seen.update(cmd=cmd, env=env, store=pathlib.Path(env["CODE_INDEX_PATH"]))
+        return COUNTER + L.JCM_TOOLS
+    L.check_j_tools("jcodemunch-mcp", _store(tmp_path), tmp_path, lister=lister)
+    assert seen["cmd"] == ["jcodemunch-mcp"]
+    assert {k: seen["env"][k] for k in L.J_ENV} == L.J_ENV and L.J_ENV["JCODEMUNCH_TOOL_SURFACE"] == "full"
+    assert seen["store"] != tmp_path / "store"  # a copy: the handshake never touches the store the sessions copy
+    assert not seen["store"].exists()
+
+
+def test_a_server_that_cannot_answer_stops_the_run(tmp_path):
+    def lister(cmd, env):
+        raise RuntimeError("the server exited before answering request 2")
+    with pytest.raises(SystemExit) as e:
+        L.check_j_tools("jcodemunch-mcp", _store(tmp_path), tmp_path, lister=lister)
+    assert "could not list" in str(e.value)
+
+
+def test_arm_j_sessions_start_the_server_on_the_full_surface(tmp_path, monkeypatch):
+    _fake_claude(monkeypatch, [{"type": "result", "result": "a.py:1 f", "total_cost_usd": 0.1}])
+    ws = tmp_path / "ws"; ws.mkdir()
+    L.session(tmp_path, "q1-J-s1", ws, "J", {"id": "q1", "question": "where?"}, 1, _args(), "jcodemunch-mcp", _store(tmp_path))
+    cfg = json.loads((tmp_path / "runs" / "q1-J-s1" / "mcp-config.json").read_text(encoding="utf-8"))
+    assert cfg["mcpServers"]["jcodemunch"]["env"]["JCODEMUNCH_TOOL_SURFACE"] == "full"
+
+
+def test_the_check_runs_before_the_billing_question(tmp_path, monkeypatch):
+    repo = tmp_path / "repo"; repo.mkdir(); (repo / "a.py").write_text("def f():\n    return 1\n", encoding="utf-8")
+    lookups = tmp_path / "lookups.json"
+    lookups.write_text(json.dumps({"lookups": [{"id": "q1", "question": "where?", **ENTRY}]}), encoding="utf-8")
+    order = []
+    monkeypatch.setattr(L.shutil, "which", lambda name: name)
+
+    def run(cmd, **kw):
+        if "index" in cmd: (pathlib.Path(kw["env"]["CODE_INDEX_PATH"]) / "x.db").write_bytes(b"")
+        class P: returncode = 0; stdout = ""; stderr = ""
+        return P()
+    monkeypatch.setattr(L.subprocess, "run", run)
+    monkeypatch.setattr(L, "listed_tools", lambda cmd, env: order.append("check") or COUNTER)
+    monkeypatch.setattr(L, "confirm", lambda a: order.append("confirm") or False)
+    monkeypatch.setattr(sys, "argv", ["run_lookups.py", "--repo", str(repo), "--lookups", str(lookups), "--cap", "1",
+                                      "--out", str(tmp_path / "out")])
+    with pytest.raises(SystemExit) as e: L.main()
+    assert order == ["check"] and "not started" in str(e.value)
+
+
+def test_a_run_where_arm_j_never_calls_jcodemunch_warns():
+    j = {"arm": "J", "wiring_problems": [], "jcm_calls": 0}
+    assert "WARNING" in L.zero_call_warning([j, dict(j), {"arm": "G", "wiring_problems": [], "jcm_calls": 0}])
+    assert L.zero_call_warning([j, dict(j, jcm_calls=3)]) is None
+    assert L.zero_call_warning([dict(j, wiring_problems=["no init event"])]) is None  # nothing usable: no claim
+    assert L.zero_call_warning([]) is None
+
+
+def test_the_report_warns_when_arm_j_never_called_jcodemunch(tmp_path):
+    res, lookups = _results(tmp_path, [{"arm": "G", "explore_tokens": {"total": 100}},
+                                       {"arm": "J", "explore_tokens": {"total": 90}}])
+    p = _report(res, lookups)
+    assert "WARNING: the agent never called jCodeMunch" in p.stdout
+    assert "mcp__jcodemunch__" in p.stdout
