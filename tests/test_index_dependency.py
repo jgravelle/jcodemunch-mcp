@@ -80,8 +80,10 @@ def test_pep503_normalize():
 
 
 def test_safe_snapshot_name():
-    assert _safe_snapshot_name("@acme/util", "2.0.0") == "acme__util@2.0.0"
-    assert _safe_snapshot_name("requests", "") == "requests@unknown"
+    # The readable part; the digest after it is pinned by
+    # test_dependency_snapshot_names_are_distinct.py.
+    assert _safe_snapshot_name("@acme/util", "2.0.0", ecosystem="npm").startswith("acme__util@2.0.0-")
+    assert _safe_snapshot_name("requests", "", ecosystem="pypi").startswith("requests@unknown-")
 
 
 # --- npm ----------------------------------------------------------------------

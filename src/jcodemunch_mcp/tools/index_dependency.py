@@ -16,6 +16,7 @@ Why snapshot-then-index instead of indexing in place:
   (realpath before copy; a new version is a new snapshot dir → new repo id).
 """
 
+import hashlib
 import logging
 import os
 import re
@@ -127,9 +128,25 @@ def _pep503_normalize(name: str) -> str:
     return re.sub(r"[-_.]+", "-", name).lower()
 
 
-def _safe_snapshot_name(name: str, version: str) -> str:
+def _safe_snapshot_name(name: str, version: str, *, ecosystem: str) -> str:
     """One directory name for a snapshot. Both parts come from the installed
-    package's own metadata, so neither may carry a separator or ".."."""
+    package's own metadata, so neither may carry a separator or "..".
+
+    The readable part is a lossy cleanup (`@a/b` and `a__b` both read
+    `a__b`), and a directory name that differs only in case is one directory
+    on Windows and macOS. A second package that mapped to the same directory
+    would delete and rebuild the first one's snapshot, so the name ends in a
+    lowercase digest of the exact (ecosystem, name, version).
+    """
+    safe = name.lstrip("@").replace("/", "__")
+    safe = re.sub(r"[^A-Za-z0-9._@\-]", "_", safe).replace("..", "_")[:80]
+    safe_version = re.sub(r"[^A-Za-z0-9._+\-]", "_", version or "unknown").replace("..", "_")[:40]
+    digest = hashlib.sha256(f"{ecosystem}\0{name}\0{version}".encode("utf-8")).hexdigest()[:16]
+    return f"{safe}@{safe_version}-{digest}"
+
+
+def _legacy_snapshot_name(name: str, version: str) -> str:
+    """The name `_safe_snapshot_name` gave before it carried a digest."""
     safe = name.lstrip("@").replace("/", "__")
     safe = re.sub(r"[^A-Za-z0-9._@\-]", "_", safe).replace("..", "_")
     safe_version = re.sub(r"[^A-Za-z0-9._+\-]", "_", version or "unknown").replace("..", "_")
@@ -590,20 +607,31 @@ def index_dependency(
         return {"error": resolved["error"], "looked_in": looked_in}
 
     snapshot_root = store.base_path / "deps"
-    snapshot_name = _safe_snapshot_name(resolved["name"], resolved["version"])
+    snapshot_name = _safe_snapshot_name(
+        resolved["name"], resolved["version"], ecosystem=resolved["ecosystem"]
+    )
     snapshot = resolve_within(snapshot_root, snapshot_name)
     # The snapshot must be one directory strictly inside deps/: both the
     # rebuild below and the copy write there.
     if snapshot is None or snapshot.parent != snapshot_root.resolve():
         return {"error": f"Cannot place a snapshot named {snapshot_name!r}.", "resolved": resolved}
-    cache_hit = snapshot.is_dir()
-    if cache_hit:
+    # A snapshot written before the name carried a digest sits under the
+    # old name, which nothing writes again. It may hold files today's copy
+    # filters would not copy, so it is cleared like any earlier snapshot.
+    legacy = resolve_within(snapshot_root, _legacy_snapshot_name(resolved["name"], resolved["version"]))
+    earlier = [snapshot]
+    if legacy is not None and legacy.parent == snapshot_root.resolve() and legacy != snapshot:
+        earlier.append(legacy)
+    cache_hit = any(p.is_dir() for p in earlier)
+    for old in earlier:
+        if not old.is_dir():
+            continue
         # Rebuild rather than add to it: a snapshot written by an older
         # version may hold files today's copy filters would not copy.
-        shutil.rmtree(snapshot, ignore_errors=True)
-        if snapshot.exists():
+        shutil.rmtree(old, ignore_errors=True)
+        if old.exists():
             return {"error": (
-                f"Could not clear the earlier snapshot at {snapshot}; remove it "
+                f"Could not clear the earlier snapshot at {old}; remove it "
                 "and run index_dependency again."
             ), "resolved": resolved}
     snapshot.mkdir(parents=True, exist_ok=True)
