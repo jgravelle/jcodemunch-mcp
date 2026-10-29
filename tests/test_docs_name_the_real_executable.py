@@ -37,8 +37,9 @@ def _cli_verbs() -> set[str]:
 
 
 # `jcodemunch <subcommand>` written as a command: at a line start, after a
-# prompt, or opening an inline code span. Prose that starts a line with the
-# product name ("jcodemunch reads ...") is not a command.
+# prompt, or opening an inline code span. A line that starts with the product
+# name followed by a word that is not a verb ("jcodemunch reads ...") is not
+# a hit; one followed by a verb ("jcodemunch index ...") is, even in prose.
 _BARE = re.compile(
     r"(?:^|`|\$ )jcodemunch +(?:"
     + "|".join(sorted((re.escape(v) for v in _cli_verbs()), key=len, reverse=True))
@@ -46,12 +47,21 @@ _BARE = re.compile(
     re.MULTILINE,
 )
 
+# The MCP-tool spellings the CLI accepts only as aliases (`index_repo`, ...).
+# They are never prose, so they are a hit anywhere, in any tracked text file:
+# the benchmark harness printed one in its "not indexed" error.
+_ALIAS = re.compile(r"\bjcodemunch +(?:index_repo|index-repo|index_folder|index-folder|index_file)\b")
+
+
+def _tracked(*patterns: str) -> list[Path]:
+    out = subprocess.run(
+        ["git", "ls-files", "-z", *patterns], cwd=REPO, capture_output=True, text=True, check=True
+    ).stdout.split("\0")
+    return [REPO / p for p in out if p and Path(p).name not in _HISTORY]
+
 
 def _tracked_markdown() -> list[Path]:
-    out = subprocess.run(
-        ["git", "ls-files", "*.md"], cwd=REPO, capture_output=True, text=True, check=True
-    ).stdout.split()
-    return [REPO / p for p in out if Path(p).name not in _HISTORY]
+    return _tracked("*.md")
 
 
 def test_the_console_script_is_jcodemunch_mcp():
@@ -71,6 +81,24 @@ def test_no_doc_runs_a_bare_jcodemunch_command():
             line = text.count("\n", 0, m.start()) + 1
             hits.append(f"{path.relative_to(REPO).as_posix()}:{line}: {m.group(0)}")
     assert hits == [], "docs name an executable that does not exist:\n" + "\n".join(hits)
+
+
+def test_no_tracked_text_suggests_an_mcp_tool_name_as_a_command():
+    hits = []
+    for path in _tracked("*.md", "*.py", "*.txt", "*.yml", "*.toml"):
+        if path.name == Path(__file__).name:
+            continue
+        text = path.read_text(encoding="utf-8", errors="replace")
+        for m in _ALIAS.finditer(text):
+            line = text.count("\n", 0, m.start()) + 1
+            hits.append(f"{path.relative_to(REPO).as_posix()}:{line}: {m.group(0)}")
+    assert hits == [], "tells a reader to run a command that does not exist:\n" + "\n".join(hits)
+
+
+def test_the_alias_scan_finds_a_planted_message():
+    assert _ALIAS.search('return {"error": f"Not indexed: x. Run: jcodemunch index_repo x"}')
+    assert not _ALIAS.search("Cross-references against the jcodemunch index to catch")
+    assert not _ALIAS.search("jcodemunch-mcp index ./express")
 
 
 def test_the_scan_finds_a_planted_bare_command():
