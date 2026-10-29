@@ -78,6 +78,41 @@ def test_an_unknown_core_keeps_the_shared_floor(monkeypatch):
     assert H._full_wall_floor_id() == "suite.full_seconds"
 
 
+def test_a_core_coverage_cannot_build_reads_as_unknown(monkeypatch, capsys):
+    # The producer half: when coverage's own decision raises, the selector says
+    # so on stderr and answers None, which keeps the tighter Floor.
+    import coverage.core
+
+    def boom(*_a, **_k):
+        raise RuntimeError("planted")
+
+    monkeypatch.setattr(coverage.core, "Core", boom)
+    _set(monkeypatch, ci="true", platform="linux", sysmon_usable=False)
+    assert H._coverage_core() is None
+    assert "coverage core: unknown (RuntimeError: planted)" in capsys.readouterr().err
+    assert H._full_wall_floor_id() == "suite.full_seconds"
+
+
+def test_nothing_changes_the_core_behind_the_selectors_back():
+    # `_coverage_core` prices coverage's default config with no branch, context
+    # or concurrency settings, which is what `tier_full` runs today. A coverage
+    # config file or a `--cov-*` flag that changes the core (`--cov-branch`
+    # stops sysmon on 3.12-3.13) would make the selector and pytest disagree,
+    # and the shared Floor would fail those legs with no pointer here.
+    import inspect
+
+    for name in (".coveragerc", "setup.cfg", "tox.ini"):
+        assert not (ROOT / name).exists(), (
+            f"{name} may configure coverage; teach _coverage_core to read it"
+        )
+    assert "[tool.coverage" not in (ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    src = inspect.getsource(H.tier_full)
+    for flag in ("--cov-branch", "--cov-context", "--cov-config"):
+        assert flag not in src, (
+            f"tier_full passes {flag}; _coverage_core must account for it"
+        )
+
+
 def test_the_selector_and_the_tier_ask_for_the_same_core(monkeypatch):
     # The Floor is chosen for the tracer the full tier's pytest will run. If the
     # two read the core from different places, they can disagree.
