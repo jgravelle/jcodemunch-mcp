@@ -3874,7 +3874,7 @@ def _build_tools_list(
         Tool(
             name="get_delivery_metrics",
             description=(
-                "How much AI-written change survived: a cost-per-outcome read on a codebase — how much "
+                "How much change stuck (was not reverted or reworked)? A cost-per-outcome read on a codebase — how much "
                 "AI spend produced durable change over a window, not raw commit or token "
                 "volume. "
                 "Quantify durable-change delivery over a window: of the non-merge commits "
@@ -3978,7 +3978,7 @@ def _build_tools_list(
         Tool(
             name="get_decorator_census",
             description=(
-                "Where is every decorator: a repo-wide census of decorators / annotations / attributes, 'where is every "
+                "Where is every decorator? A repo-wide census of decorators / annotations / attributes: '"
                 "@app.route / @Injectable / @pytest.fixture / [Serializable], and how many?' in one "
                 "read-only call. Cross-language by construction (aggregates the decorators the index "
                 "stored on each symbol). Forms are NORMALIZED (leading @, call-arguments, and [] "

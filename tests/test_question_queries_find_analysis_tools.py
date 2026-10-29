@@ -1,7 +1,8 @@
 """An agent's question finds the analysis tool that answers it, by name and description alone.
 
-`tests/test_question_queries_find_core_tools.py` holds the core tools to this.
-An audit of the other 87 found 22 whose descriptions opened with internal terms
+`tests/test_question_queries_find_core_tools.py` holds eight core questions to
+this. An audit of the whole catalog found 22 more tools whose descriptions
+opened with internal terms
 ("Composite preflight", "Task-aware single-call orchestrator", "Mine the
 ranking telemetry ledger") and carried none of the words an agent types when
 it needs them. A host that defers schemas searches names and descriptions, so
@@ -13,6 +14,12 @@ The same two checks as the core file, over the live catalog:
   tokenizes it, appears in the target tool's description.
 - **Rank.** The Counter's catalog search (`counter.search_catalog`) puts the
   tool in the top three. A host's search is its own; this is a proxy.
+
+Most `QUESTIONS` reuse the opener's own words, so they guard against a later
+rewording dropping them; they are not evidence that an agent's phrasing finds
+the tool. `PARAPHRASES` are worded differently and are held to rank only. The
+held-out route corpus (`benchmarks/route_recall/holdout.json`) is the stronger
+evidence.
 
 `set_tool_tier` and `announce_model` also open with internal terms and are
 left as they are: they sit on the byte-pinned `counter` surface
@@ -35,7 +42,7 @@ QUESTIONS = [
     ("gather the context for a task", "assemble_task_context"),
     ("map of the repository", "get_repo_map"),
     ("brief me on what changed", "digest"),
-    ("how much AI written change survived", "get_delivery_metrics"),
+    ("how much change stuck", "get_delivery_metrics"),
     ("what has already been ported", "get_parity_map"),
     ("where is every decorator", "get_decorator_census"),
     ("how modular is this codebase", "get_architecture_metrics"),
@@ -48,8 +55,15 @@ QUESTIONS = [
     ("how risky is this pull request", "get_pr_risk_profile"),
     ("where is the riskiest code", "get_hotspots"),
     ("how coupled is this module", "get_coupling_metrics"),
-    ("summaries missing after indexing", "summarize_repo"),
+    ("the AI summaries are missing", "summarize_repo"),
     ("read lines of a file", "get_file_content"),
+]
+
+
+# Worded the way an agent asks, not the way the opener reads; rank only.
+PARAPHRASES = [
+    ("did our changes stick or get reverted", "get_delivery_metrics"),
+    ("show me lines 10 to 40 of a file", "get_file_content"),
 ]
 
 
@@ -71,7 +85,7 @@ def test_the_description_carries_every_word_of_the_question(rows, question, tool
     assert [w for w in words if w not in have] == [], (question, tool)
 
 
-@pytest.mark.parametrize("question,tool", QUESTIONS)
+@pytest.mark.parametrize("question,tool", QUESTIONS + PARAPHRASES)
 def test_the_question_ranks_its_tool_near_the_top(rows, question, tool):
     ranked = [r["action"] for r in counter.search_catalog(rows, question, TOP)]
     assert tool in ranked, (question, tool, ranked)
@@ -79,4 +93,4 @@ def test_the_question_ranks_its_tool_near_the_top(rows, question, tool):
 
 def test_every_target_is_a_published_tool(rows):
     actions = {r["action"] for r in rows}
-    assert [t for _, t in QUESTIONS if t not in actions] == []
+    assert [t for _, t in QUESTIONS + PARAPHRASES if t not in actions] == []
