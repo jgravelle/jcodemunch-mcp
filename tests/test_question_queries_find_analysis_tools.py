@@ -35,7 +35,7 @@ QUESTIONS = [
     ("gather the context for a task", "assemble_task_context"),
     ("map of the repository", "get_repo_map"),
     ("brief me on what changed", "digest"),
-    ("how much AI written code survived", "get_delivery_metrics"),
+    ("how much AI written change survived", "get_delivery_metrics"),
     ("what has already been ported", "get_parity_map"),
     ("where is every decorator", "get_decorator_census"),
     ("how modular is this codebase", "get_architecture_metrics"),

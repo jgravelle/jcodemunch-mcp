@@ -2325,7 +2325,7 @@ def _build_tools_list(
         ),
         Tool(
             name="get_file_content",
-            description="Read lines of a file, or a line range, from the cache. Reads the indexed copy, not the working tree.",
+            description="Read lines of a file: its cached source, optionally a line range. Reads the indexed copy, not the working tree.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -3582,7 +3582,7 @@ def _build_tools_list(
         Tool(
             name="check_edit_safe",
             description=(
-                "Is it safe to edit this function, class or symbol? Where check_delete_safe asks "
+                "Is it safe to edit or change this function, class or symbol? Where check_delete_safe asks "
                 "who breaks if it disappears, this asks what your regression risk is if you modify it "
                 "and what you must preserve. Fuses signature impact (external/cross-repo importers), "
                 "cyclomatic complexity, test-coverage presence, and runtime traffic into a single "
@@ -3874,7 +3874,7 @@ def _build_tools_list(
         Tool(
             name="get_delivery_metrics",
             description=(
-                "How much AI-written code survived: a cost-per-outcome read on a codebase — how much "
+                "How much AI-written change survived: a cost-per-outcome read on a codebase — how much "
                 "AI spend produced durable change over a window, not raw commit or token "
                 "volume. "
                 "Quantify durable-change delivery over a window: of the non-merge commits "
@@ -3978,7 +3978,7 @@ def _build_tools_list(
         Tool(
             name="get_decorator_census",
             description=(
-                "Where is every decorator, annotation or attribute: a repo-wide census, 'where is every "
+                "Where is every decorator: a repo-wide census of decorators / annotations / attributes, 'where is every "
                 "@app.route / @Injectable / @pytest.fixture / [Serializable], and how many?' in one "
                 "read-only call. Cross-language by construction (aggregates the decorators the index "
                 "stored on each symbol). Forms are NORMALIZED (leading @, call-arguments, and [] "
