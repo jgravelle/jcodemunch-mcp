@@ -2,6 +2,24 @@
 
 ## [Unreleased]
 
+### Changed - a cold text search reads the matched files' symbols, not every symbol
+
+The Grep redirect hook runs in a new process for every Grep, so it never has a
+warm index to reuse. Its answer path loaded the full index, every symbol row,
+to check that no indexed file had changed. Then `search_text` read the index
+again, although the scan needs only the file list and the enclosing-symbol step
+needs only the symbols of the files that matched. After a reboot that read
+comes from disk, and the first hooked Greps could run past the answer budget
+and fall back to a plain Grep with no answer. Both now open the selective view,
+which reads the index metadata and the files table and no symbol rows.
+`search_text` then reads only the matched files' symbol rows, and uses them
+only when that read saw the same index generation as the first; otherwise it
+loads the full index as before. A warm cached index is used as is, so a running
+server is unaffected. Warm, in a fresh process on a 24,416-symbol index, the
+hook's freshness check and search took 0.30 s against 0.53 s before. The answer
+budget is unchanged. The hook now logs each stage's time at debug level, so the
+next slow answer shows where its time went.
+
 ## [1.108.402] - 2026-10-28 - the server instructions name the tools in the first 512 characters, and tool names hold across 1.x
 
 ### Changed - tool names are a stable contract across 1.x
