@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.402] - 2026-10-28 - the server instructions name the tools in the first 512 characters, and tool names hold across 1.x
+
 ### Changed - tool names are a stable contract across 1.x
 
 An admin's allowlist or a team's policy file names jCodeMunch tools, and a
