@@ -14,7 +14,7 @@ Both are MCP servers that let a coding agent find code by symbol instead of read
 
 | | Serena | jCodeMunch |
 |---|---|---|
-| Read code by symbol | Yes, through the language server | Yes, from the tree-sitter index |
+| Read code by symbol | Yes, through the language server | Yes, from its index |
 | Find references | Type-aware, from the language server; type hierarchy with the JetBrains plugin | `find_references`, `find_importers`, `check_references` from the index and import graph |
 | Edit code | Yes: replace a symbol body, insert before or after a symbol, rename, safe delete; move and inline with the JetBrains plugin | No. Read-only by design. `plan_refactoring` returns edit blocks for the agent to apply with its own Edit tool |
 | Compiler diagnostics | Yes, the language server's errors and warnings as tools | Reads your type checker's output when you import it (`import-trace --diagnostics`); never runs a checker |
