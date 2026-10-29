@@ -1,7 +1,8 @@
 """Codex gets the bare command name only when PATH finds this same install.
 
-Codex 0.154.0 on Windows starts an MCP server named by its bare command
-through PATH. A bare name keeps working after the install moves (a
+Codex on Windows starts an MCP server named by its bare command through
+PATH, and Windows is the only platform where that was tested, so the bare
+name is written there only. A bare name keeps working after the install moves (a
 `uv tool` reinstall, a new venv path), so init writes it when, and only
 when, PATH resolves `jcodemunch-mcp` to the executable init would otherwise
 write. If PATH finds a different install, or none, the absolute path stays:
@@ -26,6 +27,7 @@ ROOT = Path(__file__).resolve().parent.parent
 def _no_own_executable(monkeypatch):
     monkeypatch.setattr(sys, "argv", ["pytest"])
     monkeypatch.setattr(install_layout, "_scripts_dir", lambda: None)
+    monkeypatch.setattr(install_layout, "_bare_name_platform", lambda: True)
 
 
 def _command(text: str) -> str:
@@ -81,6 +83,42 @@ def test_absolute_path_when_path_finds_nothing(tmp_path, monkeypatch):
     assert _command(cfg.read_text(encoding="utf-8")) == f"'{mine}'"
 
 
+def test_absolute_path_off_the_tested_platform(tmp_path, monkeypatch):
+    """A client started from a GUI or a non-login shell can have a narrower
+    PATH than init, so off the tested platform the working absolute entry is
+    kept even when init's PATH finds the same install."""
+    exe = "/home/u/.local/bin/jcodemunch-mcp"
+    monkeypatch.setattr(install_layout, "_bare_name_platform", lambda: False)
+    monkeypatch.setattr(init_mod, "_codex_command", lambda: exe)
+    monkeypatch.setattr(init_mod.shutil, "which", lambda name: exe)
+    cfg = tmp_path / "config.toml"
+
+    init_mod._patch_codex_config(cfg, backup=False)
+
+    assert _command(cfg.read_text(encoding="utf-8")) == f"'{exe}'"
+
+
+def test_a_current_directory_hit_is_not_a_path_entry(tmp_path, monkeypatch):
+    """Windows `which` before Python 3.12 looks in the current directory
+    first. Running init from the scripts directory must not write a bare
+    name that PATH itself cannot resolve."""
+    scripts = tmp_path / "scripts"
+    scripts.mkdir()
+    exe = scripts / "jcodemunch-mcp"
+    exe.write_text("", encoding="utf-8")
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    monkeypatch.chdir(scripts)
+    monkeypatch.setenv("PATH", str(elsewhere))
+    monkeypatch.setattr(init_mod, "_codex_command", lambda: str(exe))
+    monkeypatch.setattr(init_mod.shutil, "which", lambda name: "." + "/" + name)
+    cfg = tmp_path / "config.toml"
+
+    init_mod._patch_codex_config(cfg, backup=False)
+
+    assert _command(cfg.read_text(encoding="utf-8")) == f"'{exe}'"
+
+
 def _codex_details() -> str:
     text = (ROOT / "CLIENTS.md").read_text(encoding="utf-8")
     start = text.index("<summary>Codex CLI config</summary>")
@@ -88,8 +126,8 @@ def _codex_details() -> str:
 
 
 def test_the_uvx_example_raises_codex_startup_timeout():
-    """Codex waits 10 s for a server to start by default; a cold uvx run
-    downloads about 250 MB first. The example that uses uvx sets 30 s and
+    """Codex waits 10 s for a server to start by default (its MCP docs); a
+    cold uvx run filled 251 MB of uv cache before its first reply. The example that uses uvx sets 30 s and
     cites the Codex page that states the default."""
     block = _codex_details()
     uvx = block[block.index('command = "uvx"'):]

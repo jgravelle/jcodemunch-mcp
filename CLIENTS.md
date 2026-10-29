@@ -50,11 +50,13 @@ uv tool install jcodemunch-mcp
 jcodemunch-mcp init
 ```
 
-When `jcodemunch-mcp` on your `PATH` is the install `init` is configuring,
-`init` writes the bare name, so the entry keeps working after a reinstall
-moves the binary. When `PATH` finds a different install, or none, it writes
-the absolute path instead. (Codex starts a bare command name through
-`PATH`; tested on Codex 0.154.0 on Windows only.)
+On Windows, when `jcodemunch-mcp` on your `PATH` is the install `init` is
+configuring, `init` writes the bare name, so the entry keeps working after a
+reinstall moves the binary. When `PATH` finds a different install, or none,
+it writes the absolute path instead. On macOS and Linux it always writes the
+absolute path: Codex started from a GUI or a non-login shell can have a
+narrower `PATH` than the shell you ran `init` in, and bare-name launch was
+tested on Windows only.
 
 ```toml
 # ~/.codex/config.toml
@@ -98,14 +100,14 @@ not recommended for Codex):
 [mcp_servers.jcodemunch]
 command = "uvx"
 args = ["jcodemunch-mcp"]
-# The first run downloads about 250 MB before the server answers.
+# The first run fills about 250 MB of uv cache before the server answers.
 startup_timeout_sec = 30
 ```
 
 Codex waits 10 seconds for a server to start unless `startup_timeout_sec`
 says otherwise ([Codex MCP docs](https://learn.chatgpt.com/docs/extend/mcp?surface=cli)).
 Measured on 2026-10-28 (Windows, home broadband, `uvx` alone rather than
-inside Codex): about 7 s to the first reply with an empty uv cache, 2.5 s
+inside Codex): 7.0 s to the first reply with an empty uv cache, 2.5 s
 once cached. A slower link can pass 10 s on the first run.
 </details>
 
