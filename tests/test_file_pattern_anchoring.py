@@ -46,6 +46,9 @@ from jcodemunch_mcp.tools.winnow_symbols import winnow_symbols
         ("a.py", "**/*.py", True),
         ("src/x/sub/a.py", "src/**/sub/**/*.py", True),
         ("src/sub/a.py", "src/**/sub/**/*.py", True),
+        # Only a whole-segment `**/` may vanish.
+        ("xy", "x**/y", False),
+        ("xa/y", "x**/y", True),
         # A backslash reads as `/`, in the pattern as in the path.
         ("pkg/core.py", r"pkg\*.py", True),
         ("tests/pkg/core.py", r"pkg\*.py", False),

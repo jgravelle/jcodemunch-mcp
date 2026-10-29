@@ -6,7 +6,9 @@ repository root: `homeassistant/**` matches `homeassistant/core.py` and not
 and `route.ts` find the file wherever it sits. As in fnmatch, `*` crosses
 `/`, so a bare `*detached*` also matches a directory name
 (`pkg/detached/x.py`); callers have relied on that, and it is kept. `**/`
-matches zero or more directories, so `src/**/*.py` matches `src/a.py`.
+as a whole segment matches zero or more directories, so `src/**/*.py` matches
+`src/a.py`; for up to three of them per pattern (`_MAX_GLOBSTARS`), past which
+each needs at least one directory.
 
 A backslash in the path or the pattern is read as `/`. Matching is
 case-sensitive on every platform, as repository paths are.
@@ -40,14 +42,19 @@ def is_anchored(pattern: str) -> bool:
     return "/" in _normalise(pattern)
 
 
-#: `**/` expansions tried per pattern: 2**3 spellings at most.
+#: `**/` segments that may match zero directories: 2**3 spellings at most.
+#: Past the cap, each `**/` needs at least one directory, as plain fnmatch does.
 _MAX_GLOBSTARS = 3
+
+#: `**/` as a whole path segment: at the start, or right after a `/`.
+#: `x**/y` is not a globstar and must never become `xy`.
+_GLOBSTAR = re.compile(r"(?:^|(?<=/))\*\*/")
 
 
 def _globstar_variants(pattern: str) -> list[str]:
-    """The pattern with each subset of its `**/` removed, so `**/` also
-    matches zero directories: `src/**/*.py` matches `src/a.py`."""
-    parts = pattern.split("**/")
+    """The pattern with each subset of its `**/` segments removed, so `**/`
+    also matches zero directories: `src/**/*.py` matches `src/a.py`."""
+    parts = _GLOBSTAR.split(pattern)
     if len(parts) == 1 or len(parts) - 1 > _MAX_GLOBSTARS:
         return [pattern]
     out = [parts[0]]
