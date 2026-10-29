@@ -21,19 +21,29 @@ REPO = Path(__file__).resolve().parent.parent
 _HISTORY = {"CHANGELOG.md", "ISSUE-HISTORY.md"}
 
 
-def _cli_verbs() -> set[str]:
-    """Every subcommand and alias the CLI accepts, read from the dispatcher."""
+def _dispatcher_names() -> tuple[set[str], set[str]]:
+    """The CLI's subcommands and its MCP-tool aliases, read from the dispatcher."""
     tree = ast.parse((REPO / "src" / "jcodemunch_mcp" / "server.py").read_text(encoding="utf-8"))
-    verbs: set[str] = set()
+    commands: set[str] = set()
+    aliases: set[str] = set()
     for node in ast.walk(tree):
         if isinstance(node, ast.Assign) and len(node.targets) == 1:
             name = getattr(node.targets[0], "id", None)
             if name == "known_commands" and isinstance(node.value, ast.Set):
-                verbs |= {e.value for e in node.value.elts if isinstance(e, ast.Constant)}
+                commands |= {e.value for e in node.value.elts if isinstance(e, ast.Constant)}
             if name == "_CLI_ALIASES" and isinstance(node.value, ast.Dict):
-                verbs |= {k.value for k in node.value.keys if isinstance(k, ast.Constant)}
-    assert "index" in verbs and "index_repo" in verbs, "dispatcher's verb sets not found"
-    return verbs
+                aliases |= {k.value for k in node.value.keys if isinstance(k, ast.Constant)}
+    assert "index" in commands and "index_repo" in aliases, "dispatcher's verb sets not found"
+    return commands, aliases
+
+
+def _cli_verbs() -> set[str]:
+    commands, aliases = _dispatcher_names()
+    return commands | aliases
+
+
+def _alternation(words: set[str]) -> str:
+    return "|".join(sorted((re.escape(w) for w in words), key=len, reverse=True))
 
 
 # `jcodemunch <subcommand>` written as a command: at a line start, after a
@@ -41,16 +51,15 @@ def _cli_verbs() -> set[str]:
 # name followed by a word that is not a verb ("jcodemunch reads ...") is not
 # a hit; one followed by a verb ("jcodemunch index ...") is, even in prose.
 _BARE = re.compile(
-    r"(?:^|`|\$ )jcodemunch +(?:"
-    + "|".join(sorted((re.escape(v) for v in _cli_verbs()), key=len, reverse=True))
-    + r")(?![\w-])",
+    r"(?:^|`|\$ )jcodemunch +(?:" + _alternation(_cli_verbs()) + r")(?![\w-])",
     re.MULTILINE,
 )
 
-# The MCP-tool spellings the CLI accepts only as aliases (`index_repo`, ...).
-# They are never prose, so they are a hit anywhere, in any tracked text file:
-# the benchmark harness printed one in its "not indexed" error.
-_ALIAS = re.compile(r"\bjcodemunch +(?:index_repo|index-repo|index_folder|index-folder|index_file)\b")
+# The MCP-tool spellings the CLI accepts only as aliases (`index_repo`, ...),
+# read from `_CLI_ALIASES` so a new alias is covered on arrival. They are
+# never prose, so they are a hit anywhere, in any tracked text file: the
+# benchmark harness printed one in its "not indexed" error.
+_ALIAS = re.compile(r"\bjcodemunch +(?:" + _alternation(_dispatcher_names()[1]) + r")(?![\w-])")
 
 
 def _tracked(*patterns: str) -> list[Path]:
