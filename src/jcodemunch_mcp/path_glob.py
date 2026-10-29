@@ -59,7 +59,9 @@ def _globstar_variants(pattern: str) -> list[str]:
 def _regex_source(pattern: str) -> str:
     pattern = _normalise(pattern)
     if is_anchored(pattern):
-        return "|".join(f"(?:{fnmatch.translate(v)})" for v in _globstar_variants(pattern))
+        return "|".join(
+            f"(?:{fnmatch.translate(v)})" for v in _globstar_variants(pattern)
+        )
     return f"(?:{fnmatch.translate(pattern)})|(?:{fnmatch.translate('*/' + pattern)})"
 
 
