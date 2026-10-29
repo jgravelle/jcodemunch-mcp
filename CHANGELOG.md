@@ -2,6 +2,34 @@
 
 ## [Unreleased]
 
+### Changed - 17 tool descriptions open with the question an agent asks
+
+A host that defers tool schemas (Claude Code, Codex) shows the model bare
+names and lets it search names and descriptions for the rest. An audit of the
+non-core tools found 22 whose descriptions opened with internal terms, such as
+"Composite preflight", "Task-aware single-call orchestrator" and "Mine the
+ranking telemetry ledger", and carried none of the words an agent types when
+it needs them. "Is it safe to delete this function" did not find
+`check_delete_safe` by its words, and "how risky is this pull request" ranked
+an unrelated tool first.
+
+Seventeen of them now open with their question: `check_delete_safe`,
+`check_edit_safe`, `assemble_task_context`, `digest`, `get_delivery_metrics`,
+`get_decorator_census`, `get_architecture_metrics`, `check_embedding_drift`,
+`tune_weights`, `suggest_corrections`, `get_tectonic_map`,
+`get_group_contracts`, `get_pr_risk_profile`, `get_hotspots`,
+`get_coupling_metrics`, `summarize_repo` and `get_file_content`. Three others
+(`get_repo_map`, `get_parity_map`, `analyze_perf`) already answered their
+question. `set_tool_tier` and `announce_model` are left as they are: they sit
+on the byte-pinned `counter` surface, where any rewording is a full-rate
+cache write for every user.
+
+`tests/test_question_queries_find_analysis_tools.py` fails if a question loses
+a word from its tool's description, or if the Counter's catalog search stops
+ranking the tool in its top three. The rewording is a one-time cache write
+for clients on the `full` and `standard` surfaces. `benchmarks/schema_baseline.json`
+records the new counts; `core_compact` stays under its ceiling.
+
 ## [1.108.402] - 2026-10-28 - the server instructions name the tools in the first 512 characters, and tool names hold across 1.x
 
 ### Changed - tool names are a stable contract across 1.x
