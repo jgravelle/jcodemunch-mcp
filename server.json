@@ -4,6 +4,15 @@
   "title": "jCodeMunch MCP",
   "description": "Retrieves code by symbol via tree-sitter, so an agent reads the function it needs, not the file.",
   "websiteUrl": "https://jcodemunch.com",
+  "icons": [
+    {
+      "src": "https://raw.githubusercontent.com/jgravelle/jcodemunch-mcp/main/plugin/jcodemunch/icon.svg",
+      "mimeType": "image/svg+xml",
+      "sizes": [
+        "any"
+      ]
+    }
+  ],
   "version": "1.108.402",
   "packages": [
     {

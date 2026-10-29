@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <title>jCodeMunch</title>
+  <rect width="64" height="64" rx="12" fill="#0a0e1a"/>
+  <g fill="none" stroke="#00d4ff" stroke-width="5" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M22 12 C15 12 15 16 15 22 V26 C15 30 13 32 10 32 C13 32 15 34 15 38 V42 C15 48 15 52 22 52"/>
+    <path d="M42 12 C49 12 49 16 49 22 V26 C49 30 51 32 54 32 C51 32 49 34 49 38 V42 C49 48 49 52 42 52"/>
+  </g>
+  <rect x="25" y="28" width="14" height="8" rx="4" fill="#ff7849"/>
+</svg>
