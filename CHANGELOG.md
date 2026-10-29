@@ -21,6 +21,40 @@ default, and a cold `uvx` run downloads about 250 MB first. Measured on
 2026-10-28 (Windows, home broadband, `uvx` alone rather than inside Codex):
 about 7 s to the first reply with an empty cache, 2.5 s once cached.
 
+## [1.108.402] - 2026-10-28 - the server instructions name the tools in the first 512 characters, and tool names hold across 1.x
+
+### Changed - tool names are a stable contract across 1.x
+
+An admin's allowlist or a team's policy file names jCodeMunch tools, and a
+rename broke it with no warning: `get_symbol` and `get_symbols` were removed
+outright when they merged into `get_symbol_source` in March. From now on a
+renamed or merged tool keeps its old name working as an alias for at least 30
+days, listed here, and only then answers with an error naming the replacement.
+`counter.RETIRED_BEFORE_STABLE_NAMES` pins those two as the only names retired
+without an alias period, and `tests/test_retired_tool_names.py` fails if any
+other retired name lacks a 30-day alias period in `ALIAS_PERIODS` or a
+CHANGELOG mention from the alias date on. `tests/fixtures/tool_names_1x.json`
+freezes every tool name served on 1.x, and the same test file fails if one of
+them leaves the catalog without an alias period, which is how `get_symbol` was
+lost, or if a new tool is not added to that list. The README's "For admins"
+section states the promise, and a test binds its 30 days to `ALIAS_MIN_DAYS`.
+
+### Changed - the first 512 characters of the server instructions serve every client
+
+The `instructions` string a client receives at startup opened with what the
+server is for, then the Claude Code-only line on loading deferred tools
+through ToolSearch, then the tool list. Codex advises that a server's
+instructions make sense from their first 512 characters, and in the default
+(`full`) text that window ended inside the ToolSearch line, before any tool
+was named.
+
+The ToolSearch line now follows the tool list, so the window names the
+indexing tool and the first tools to call. The `counter` surface's opening
+now names its three verbs (route, menu and order), because its window ended
+just before the list. Claude Code still receives the ToolSearch line. The
+total stays under the 1,000-character budget, and no tool or description
+changed.
+
 ### Fixed - writing a file into a watched folder no longer re-walks the whole repo
 
 Windows reports a folder as modified whenever a file inside it is written, next
