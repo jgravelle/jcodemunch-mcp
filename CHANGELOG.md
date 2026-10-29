@@ -2,6 +2,28 @@
 
 ## [Unreleased]
 
+### Fixed - a `file_pattern` with `/` is anchored at the repo root, and a bare one matches at any depth, in every tool
+
+On a large repository, `search_text` with `file_pattern="homeassistant/**"`
+also returned files under `tests/homeassistant/`, and the agent spent steps
+filtering them out. `search_text`, the index store's symbol search and the
+working-tree scope check each tried the pattern and then `*/` + pattern, and
+fnmatch's `*` crosses `/`, so the second try matched an anchored pattern at
+every depth. `search_symbols`, `get_dead_code_v2` and `search_ast` used plain
+fnmatch instead, so a bare `route.ts` matched only at the root there, and
+`get_untested_symbols` had a third rule (full path or basename): the same
+argument meant different files depending on the tool.
+
+All of them now ask `path_glob`: a pattern containing `/` names a place in the
+tree and matches from the root (`./` and a leading `/` mean the root too); a
+bare pattern such as `*.py` or `route.ts` matches at any depth. Matching is
+case-sensitive on every platform; the index store and scope check used to
+fold case on Windows. A brace expansion follows the same rule, so
+`{a,c}/mod.py` no longer reaches into `pkg/`; write `pkg/{a,c}/mod.py`.
+`tests/test_file_pattern_anchoring.py` fails if a reader matches
+`file_pattern` by hand again; run against the previous tree it finds the
+twelve copies this change removed.
+
 ## [1.108.402] - 2026-10-28 - the server instructions name the tools in the first 512 characters, and tool names hold across 1.x
 
 ### Changed - tool names are a stable contract across 1.x
