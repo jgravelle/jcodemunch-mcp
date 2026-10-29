@@ -185,6 +185,33 @@ def _read_stored_lines(store, content_dir, file_path: str) -> list[str]:
         return []
 
 
+def _symbols_of_matched_files(store, owner: str, name: str, index, results: list):
+    """The symbols the enclosing-symbol step needs: those of the matched files.
+
+    A warm cached index (or one already promoted) answers from memory. A
+    selective view reads just the matched files' symbol rows in a second
+    selective read, and uses them only if that read saw the same index
+    generation and database file as the first; anything else falls back to
+    ``index.symbols``, which loads the full index and is always correct.
+    """
+    from ..storage.selective import SelectiveIndexView
+
+    if not isinstance(index, SelectiveIndexView) or index.promoted:
+        return index.symbols
+    files = list(dict.fromkeys(group["file"] for group in results))
+    if not files:
+        return []
+    narrow = store.open_selective(owner, name, files=files)
+    if (
+        isinstance(narrow, SelectiveIndexView)
+        and index.generation is not None
+        and narrow.generation == index.generation
+        and narrow._loaded_mtime_ns == index._loaded_mtime_ns
+    ):
+        return narrow.selected_symbols()
+    return index.symbols
+
+
 def _attach_sources(body: dict, results: list, read_lines) -> None:
     """Add the source of the symbols a page's matches sit in, when they are few and small.
 
@@ -285,7 +312,11 @@ def search_text(
         return {"error": str(e)}
 
     store = IndexStore(base_path=storage_path)
-    index = store.load_index(owner, name)
+    # The scan needs the file list and metadata; only the enclosing-symbol
+    # step needs symbols, and only those of the matched files. The selective
+    # view reads the files table and no symbol rows; a warm cached index comes
+    # back as is. None means "take the ordinary path", never an absence.
+    index = store.open_selective(owner, name) or store.load_index(owner, name)
 
     if not index:
         return index_status_to_tool_error(store.inspect_index(owner, name))
@@ -415,7 +446,7 @@ def search_text(
         }
 
     text_filter.flush()
-    attach_enclosing_symbols(results, index.symbols)
+    attach_enclosing_symbols(results, _symbols_of_matched_files(store, owner, name, index, results))
 
     elapsed = (time.perf_counter() - start) * 1000
 

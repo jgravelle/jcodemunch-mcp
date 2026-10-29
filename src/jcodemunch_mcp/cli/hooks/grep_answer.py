@@ -164,7 +164,11 @@ def _index_matches_disk(repo: str) -> bool:
         from ...storage import IndexStore
 
         owner, _, name = repo.partition("/")
-        index = IndexStore().load_index(owner, name)
+        store = IndexStore()
+        # Every field read below is file metadata, which the selective view
+        # holds exactly without reading a symbol row. A hook process is always
+        # cold, so this skips the largest read on its path.
+        index = store.open_selective(owner, name) or store.load_index(owner, name)
         if index is None:
             return False
         probe = FreshnessProbe(
@@ -210,6 +214,15 @@ def answer_grep(tool_input: dict, cwd: str, session_id: str) -> "str | None":
 
     started = time.monotonic()
     budget = _budget_seconds()
+    # Seconds per stage, so a slow answer says where its time went.
+    stages: dict = {}
+
+    def timed(stage, fn, *args, **kwargs):
+        t0 = time.monotonic()
+        try:
+            return fn(*args, **kwargs)
+        finally:
+            stages[stage] = time.monotonic() - t0
 
     def search():
         from ...tools.resolve_repo import resolve_repo
@@ -218,21 +231,33 @@ def answer_grep(tool_input: dict, cwd: str, session_id: str) -> "str | None":
         start = (
             search_root if os.path.isdir(search_root) else os.path.dirname(search_root)
         )
-        resolved = resolve_repo(start)
+        resolved = timed("resolve", resolve_repo, start)
         if not resolved.get("indexed") or not resolved.get("repo"):
             return None
         repo_root = resolved.get("source_root") or ""
         file_pattern = _scope(repo_root, search_root, glob) if repo_root else glob
         if file_pattern is False:
             return None
-        if not _index_matches_disk(resolved["repo"]):
+        if not timed("freshness", _index_matches_disk, resolved["repo"]):
             return None
-        res = search_text(
-            resolved["repo"], query, file_pattern=file_pattern, is_regex=is_regex
+        res = timed(
+            "search",
+            search_text,
+            resolved["repo"],
+            query,
+            file_pattern=file_pattern,
+            is_regex=is_regex,
         )
         return resolved["repo"], res
 
     out = _run_with_budget(search, budget)
+    stages["total"] = time.monotonic() - started
+    logger.debug(
+        "grep-answer stages: %s budget=%.3fs outcome=%s",
+        " ".join(f"{k}={v:.3f}s" for k, v in list(stages.items())),
+        budget,
+        "result" if out is not None else "none",
+    )
     if out is None:
         return None
     repo, res = out
