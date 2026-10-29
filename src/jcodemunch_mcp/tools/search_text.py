@@ -190,9 +190,21 @@ def _symbols_of_matched_files(store, owner: str, name: str, index, results: list
 
     A warm cached index (or one already promoted) answers from memory. A
     selective view reads just the matched files' symbol rows in a second
-    selective read, and uses them only if that read saw the same index
-    generation and database file as the first; anything else falls back to
-    ``index.symbols``, which loads the full index and is always correct.
+    selective read, and uses them only if both reads report the same
+    ``indexed_at`` and the same database mtime.
+
+    ⚠ The ``indexed_at`` half is what catches a write between the two reads:
+    ``open_selective`` samples the mtime before its transaction starts, and
+    every writer that moves symbol spans (full and incremental save) re-stamps
+    ``indexed_at``. The summaries writer does not, and is harmless here only
+    because enclosing names read ``file``/``kind``/``line``/``end_line``/``id``
+    and no summary. A new span writer must stamp ``indexed_at`` or this check
+    can pass across it.
+
+    Anything else falls back to ``index.symbols``, which loads the current
+    index: the scan then ran on the first read's file list and the names come
+    from the newer index. The verdict already reports the index as changed
+    since load in that case.
     """
     from ..storage.selective import SelectiveIndexView
 
@@ -270,8 +282,16 @@ def search_text(
     context_lines: int = 0,
     is_regex: bool = False,
     storage_path: Optional[str] = None,
+    *,
+    selective_load: bool = False,
 ) -> dict:
     """Search for text across all indexed files in a repository.
+
+    ``selective_load`` is for a caller that runs once in a fresh process, such
+    as the Grep redirect hook: it reads the file metadata and only the matched
+    files' symbols instead of the whole index, and caches nothing. A server
+    leaves it off, so its first search loads and caches the full index and the
+    next ones answer from memory. Not an MCP argument.
 
     Useful when symbol search misses — e.g., searching for string literals,
     comments, configuration values, or patterns not captured as symbols.
@@ -313,10 +333,14 @@ def search_text(
 
     store = IndexStore(base_path=storage_path)
     # The scan needs the file list and metadata; only the enclosing-symbol
-    # step needs symbols, and only those of the matched files. The selective
-    # view reads the files table and no symbol rows; a warm cached index comes
-    # back as is. None means "take the ordinary path", never an absence.
-    index = store.open_selective(owner, name) or store.load_index(owner, name)
+    # step needs symbols, and only those of the matched files. A one-shot
+    # caller opens the selective view (files table, no symbol rows; a warm
+    # cached index comes back as is). A server loads and caches the full
+    # index, so later calls are memory reads. None from open_selective means
+    # "take the ordinary path", never an absence.
+    index = (
+        store.open_selective(owner, name) if selective_load else None
+    ) or store.load_index(owner, name)
 
     if not index:
         return index_status_to_tool_error(store.inspect_index(owner, name))

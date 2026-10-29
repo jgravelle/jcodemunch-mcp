@@ -247,6 +247,7 @@ def answer_grep(tool_input: dict, cwd: str, session_id: str) -> "str | None":
             query,
             file_pattern=file_pattern,
             is_regex=is_regex,
+            selective_load=True,
         )
         return resolved["repo"], res
 
