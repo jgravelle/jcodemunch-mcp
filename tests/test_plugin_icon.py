@@ -60,6 +60,20 @@ def test_the_plugin_icon_is_an_svg_named_for_the_product():
     assert "draft" not in path.read_text(encoding="utf-8").lower()
 
 
+def test_the_plugin_icon_carries_no_script_or_external_reference():
+    # Both listings render this file; an SVG can run script and fetch URLs.
+    allowed = {"svg", "title", "rect", "g", "path", "circle", "ellipse", "line", "polyline", "polygon"}
+    root = ET.fromstring(_icon_file().read_text(encoding="utf-8"))
+    for el in root.iter():
+        tag = el.tag.split("}")[-1]
+        assert tag in allowed, f"unexpected element <{tag}>"
+        for name, value in el.attrib.items():
+            local = name.split("}")[-1].lower()
+            assert not local.startswith("on"), f"event handler {name} on <{tag}>"
+            assert local != "href", f"link {name} on <{tag}>"
+            assert "url(" not in value.lower(), f"url() in {name} on <{tag}>"
+
+
 def test_the_registry_icon_points_at_the_same_file_on_main():
     icons = _server().get("icons")
     assert isinstance(icons, list) and len(icons) == 1, icons
