@@ -17,8 +17,8 @@ Tested configurations:
 | **Gemini CLI (Google)** | `jcodemunch-mcp init`, or add a `jcodemunch` entry under `mcpServers` in `~/.gemini/settings.json` (or project `.gemini/settings.json`) — a *different file* from Antigravity's `~/.gemini/config/mcp_config.json` above. *(config per [vendor docs](https://geminicli.com/docs/tools/mcp-server/))* |
 | **Qwen Code** | Add under `mcpServers` in `~/.qwen/settings.json` (or project `.qwen/settings.json`). *(config per [vendor docs](https://qwenlm.github.io/qwen-code-docs/en/users/features/mcp/))* |
 | **Kiro (AWS)** | Add under `mcpServers` in `.kiro/settings/mcp.json` (workspace) or `~/.kiro/settings/mcp.json` (user). *(config per [vendor docs](https://kiro.dev/docs/mcp/configuration/))* |
-| **JetBrains AI Assistant** | Settings, then Tools, then AI Assistant, then Model Context Protocol (MCP), then Add. In the JSON configuration field, set `command` to `uvx` and `args` to `["jcodemunch-mcp"]`. If Claude Desktop already has jCodeMunch, **Import from Claude** adds every server configured there. Each server can be global or for the current project. *(config per [vendor docs](https://www.jetbrains.com/help/ai-assistant/mcp.html), checked 2026-10-28)* |
-| **Junie (JetBrains)** | Add under `mcpServers` in `.junie/mcp/mcp.json` at the project root, or `~/.junie/mcp/mcp.json` for all projects. Junie CLI and Junie in JetBrains IDEs use the same MCP JSON format. *(config per [vendor docs](https://junie.jetbrains.com/docs/junie-cli-mcp-configuration.html), checked 2026-10-28)* |
+| **JetBrains AI Assistant** | Settings, then Tools, then AI Assistant, then Model Context Protocol (MCP), then Add. In the JSON configuration field, set `command` to `uvx` and `args` to `["jcodemunch-mcp"]`. If Claude Desktop already has jCodeMunch, **Import from Claude** adds every server configured there. Each server can be global or for the current project. *(config per [vendor docs](https://www.jetbrains.com/help/ai-assistant/mcp.html), checked 2026-10-28; not tested here)* |
+| **Junie (JetBrains)** | Add under `mcpServers` in `.junie/mcp/mcp.json` at the project root, or `~/.junie/mcp/mcp.json` for all projects. Junie CLI and Junie in JetBrains IDEs use the same MCP JSON format. *(config per [vendor docs](https://junie.jetbrains.com/docs/junie-cli-mcp-configuration.html), checked 2026-10-28; not tested here)* |
 | **OpenAI Codex CLI** | `jcodemunch-mcp init`, or add an `[mcp_servers.jcodemunch]` block to `~/.codex/config.toml` by hand (see below — **do not use `uvx` here**) |
 | **opencode** | `jcodemunch-mcp init`, or add a `jcodemunch` entry under the top-level `mcp` key in `~/.config/opencode/opencode.json`. ⚠ Not the `mcpServers` shape — see below. *(config per [vendor docs](https://opencode.ai/docs/mcp-servers/))* |
 | **Cline / Roo Code** | `jcodemunch-mcp init` writes the Cline **CLI** config (`~/.cline/mcp.json`). For the IDE extension use the MCP marketplace UI, or paste `command: uvx`, `args: ["jcodemunch-mcp"]` — Cline does not document the extension's settings path per-platform, so `init` does not guess at it. |
@@ -74,7 +74,9 @@ unaffected. Codex has a per-server approval key,
 `default_tools_approval_mode`, and its `writes` value "prompts for tools
 that aren't marked read-only". Every jCodeMunch tool that only reads
 carries the MCP `readOnlyHint` annotation, so with `writes` the read
-tools run without a prompt and indexing still asks:
+tools run without a prompt and indexing still asks (on the `full`
+surface; on `counter`, `order` and `route` are writers and still ask, see
+"Fewer approval prompts" below):
 
 ```toml
 [mcp_servers.jcodemunch]
@@ -267,6 +269,13 @@ Most jCodeMunch tools only read the index. Each of those carries the MCP
 (indexing, cache invalidation, weight tuning, handoff records) are marked
 as writers. If your client asks before every tool call, you can allow the
 read tools and keep the prompt for the rest.
+
+These steps name the tools of the `full` surface. A first-ever install
+starts on the `counter` surface, which serves three front-door tools
+instead: `menu` only reads, while `order` and `route` are marked as writers
+because they can dispatch any tool, indexing included. There the client
+keeps asking before each `order` and `route` call. To allow the read tools
+by name, set `"tool_surface": "full"` in `~/.code-index/config.jsonc`.
 
 **Claude Code.** In `.claude/settings.json` (the project, committable) or
 `~/.claude/settings.json` (you), list the tools to allow. Tool names are
