@@ -17,6 +17,7 @@ Why snapshot-then-index instead of indexing in place:
 """
 
 import hashlib
+import json
 import logging
 import os
 import re
@@ -143,6 +144,11 @@ def _safe_snapshot_name(name: str, version: str, *, ecosystem: str) -> str:
     safe_version = re.sub(r"[^A-Za-z0-9._+\-]", "_", version or "unknown").replace("..", "_")[:40]
     digest = hashlib.sha256(f"{ecosystem}\0{name}\0{version}".encode("utf-8")).hexdigest()[:16]
     return f"{safe}@{safe_version}-{digest}"
+
+
+#: Written into every snapshot named by `_safe_snapshot_name`. A folder
+#: without it predates the digest in the name.
+_SNAPSHOT_MARKER = ".jcodemunch-snapshot.json"
 
 
 def _legacy_snapshot_name(name: str, version: str) -> str:
@@ -618,9 +624,17 @@ def index_dependency(
     # A snapshot written before the name carried a digest sits under the
     # old name, which nothing writes again. It may hold files today's copy
     # filters would not copy, so it is cleared like any earlier snapshot.
+    # The version is untrusted metadata, so an old name can be crafted to
+    # equal another package's current name: a folder carrying the marker
+    # was written under the current scheme and is never cleared from here.
     legacy = resolve_within(snapshot_root, _legacy_snapshot_name(resolved["name"], resolved["version"]))
     earlier = [snapshot]
-    if legacy is not None and legacy.parent == snapshot_root.resolve() and legacy != snapshot:
+    if (
+        legacy is not None
+        and legacy.parent == snapshot_root.resolve()
+        and legacy != snapshot
+        and not (legacy / _SNAPSHOT_MARKER).exists()
+    ):
         earlier.append(legacy)
     cache_hit = any(p.is_dir() for p in earlier)
     for old in earlier:
@@ -639,6 +653,12 @@ def index_dependency(
     copied = _copy_snapshot(
         installed, snapshot, max_files, repo=str(source_root),
         gitignore_root=_host_gitignore_root(source_root, installed),
+    )
+    # Written after the copy, so a package shipping a file of this name
+    # cannot stand in for it.
+    (snapshot / _SNAPSHOT_MARKER).write_text(
+        json.dumps({k: resolved.get(k) for k in ("ecosystem", "name", "version")}),
+        encoding="utf-8",
     )
     if not copied["code_rels"]:
         return {

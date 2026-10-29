@@ -102,3 +102,35 @@ def test_indexing_a_second_colliding_package_keeps_the_first(tmp_path):
     assert "fromScoped" in first_js, (
         "the second package overwrote the first one's snapshot"
     )
+
+
+def _host(tmp_path, label, store):
+    src = tmp_path / label
+    src.mkdir()
+    (src / "app.py").write_text("def main():\n    return 0\n")
+    return src
+
+
+def test_a_crafted_version_cannot_clear_another_packages_live_snapshot(tmp_path):
+    # The pre-digest name of `a` at version "1.0.0-<digest>" equals the new
+    # name of `a@1.0.0`, and the version comes from untrusted metadata. The
+    # old-name cleanup must leave a snapshot this version wrote alone.
+    store = tmp_path / "store"
+    store.mkdir()
+    victim_src = _host(tmp_path, "victim", store)
+    _write_npm_pkg(victim_src, "a", "1.0.0", "export function victim() { return 1; }\n")
+    victim_host = index_folder(str(victim_src), use_ai_summaries=False, storage_path=str(store))
+    victim = index_dependency(victim_host["repo"], "a", storage_path=str(store))
+    assert "error" not in victim, victim
+    live = Path(victim["snapshot_path"])
+    crafted_version = live.name.split("@", 1)[1]
+    assert crafted_version.startswith("1.0.0-")
+
+    other_src = _host(tmp_path, "other", store)
+    _write_npm_pkg(other_src, "a", crafted_version, "export function other() { return 2; }\n")
+    other_host = index_folder(str(other_src), use_ai_summaries=False, storage_path=str(store))
+    other = index_dependency(other_host["repo"], "a", storage_path=str(store))
+    assert "error" not in other, other
+    assert Path(other["snapshot_path"]) != live
+    assert (live / "index.js").is_file(), "the other package cleared a live snapshot"
+    assert "victim" in (live / "index.js").read_text()
