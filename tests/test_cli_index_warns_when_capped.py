@@ -3,8 +3,8 @@
 `index` prints its result as JSON on stdout. When `max_folder_files` drops
 files, that JSON carries `truncated: true` and a warning, but the run still
 reports success and exits 0, so a person or a script reading the exit code or
-skimming the output saw a good index. Benchmarking indexed 2,000 of 24,347
-home-assistant files this way under the default cap. The CLI now writes one
+skimming the output saw a good index. A repository many times the default
+cap was indexed as 2,000 files this way. The CLI now writes one
 line to stderr naming the counts and the key to raise. Stdout and the exit
 code are unchanged, because a capped index is a working index.
 """
@@ -18,13 +18,15 @@ import sys
 
 
 def _index(folder, storage, cap):
-    env = {
-        **os.environ,
+    # Drop inherited JCODEMUNCH_* settings so the shell running the suite
+    # cannot change what the child discovers (Practice 8).
+    env = {k: v for k, v in os.environ.items() if not k.upper().startswith("JCODEMUNCH_")}
+    env.update({
         "CODE_INDEX_PATH": str(storage),
         "JCODEMUNCH_USE_AI_SUMMARIES": "false",
         "JCODEMUNCH_MAX_FOLDER_FILES": str(cap),
         "JCODEMUNCH_TRUSTED_FOLDERS": str(folder.parent),
-    }
+    })
     return subprocess.run(
         [sys.executable, "-m", "jcodemunch_mcp", "index", str(folder), "--no-ai-summaries"],
         capture_output=True,
