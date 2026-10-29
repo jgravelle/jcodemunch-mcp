@@ -8,8 +8,11 @@ CONFIGURATION.md documents `rate_limit` (requests per minute per client IP in
 HTTP mode), and `jcodemunch-mcp config` shows the value set in config.jsonc.
 The limiter read only the `JCODEMUNCH_RATE_LIMIT` env var, so a server
 configured with the key alone ran with no limit while its config output said
-otherwise. The limiter now reads the env var and falls back to the config key,
-the same order `host` and `port` use. The env var still wins when both are set.
+otherwise. The limiter now reads the key through the config loader, so it
+follows the documented order: a value in config.jsonc wins, and the env var
+fills the key only when the file leaves it unset. The limit the server enforces
+is now the one `config` shows, and an empty or unparseable env var can no
+longer switch off a limit set in the file.
 
 ## [1.108.402] - 2026-10-28 - the server instructions name the tools in the first 512 characters, and tool names hold across 1.x
 
