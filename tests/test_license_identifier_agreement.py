@@ -22,7 +22,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).parent.parent
 PYPROJECT = REPO_ROOT / "pyproject.toml"
-PLUGIN_JSON = REPO_ROOT / ".claude-plugin" / "plugin.json"
+PLUGIN_JSON = REPO_ROOT / "plugin" / "jcodemunch" / ".claude-plugin" / "plugin.json"
 LICENSE = REPO_ROOT / "LICENSE"
 
 # SPDX 3.0 §10.1: LicenseRef-[idstring], idstring = [A-Za-z0-9.-]+
@@ -53,7 +53,7 @@ def test_the_declared_expression_is_a_well_formed_license_ref() -> None:
 def test_plugin_manifest_names_the_same_identifier() -> None:
     declared = json.loads(PLUGIN_JSON.read_text(encoding="utf-8"))["license"]
     assert declared == _declared_expression(), (
-        f".claude-plugin/plugin.json says {declared!r}; pyproject.toml says "
+        f"plugin/jcodemunch/.claude-plugin/plugin.json says {declared!r}; pyproject.toml says "
         f"{_declared_expression()!r}. Two identifiers for one license means an "
         "allowlist needs two entries."
     )
@@ -143,7 +143,8 @@ def test_the_license_text_cannot_change_without_a_decision_being_made() -> None:
         f"{LICENSE.name} changed (digest {actual}).\n"
         "  Substantive change to the terms -> bump the MAJOR version in the "
         "LICENSE header, bump the identifier suffix in pyproject.toml and "
-        ".claude-plugin/plugin.json, and update _LICENSE_DIGEST.\n"
+        "plugin/jcodemunch/.claude-plugin/plugin.json, copy LICENSE into "
+        "plugin/jcodemunch/, and update _LICENSE_DIGEST.\n"
         "  Editorial change (typo, formatting, a clarification that grants and "
         "removes nothing) -> update _LICENSE_DIGEST alone.\n"
         "  Allowlists downstream key on the identifier, so the first case "

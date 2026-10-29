@@ -128,7 +128,7 @@ def _count_matching_lines(lines, pattern, query_lower, deadline) -> tuple[int, b
     return n, True
 
 
-def _count_matches(store, content_dir, files, pattern, query_lower, deadline):
+def _count_matches(store, content_dir, files, pattern, query_lower, deadline, text_filter=None):
     """Matching-line counts per file; (counts, complete, unreadable)."""
     counts: dict[str, int] = {}
     unreadable = 0
@@ -141,6 +141,8 @@ def _count_matches(store, content_dir, files, pattern, query_lower, deadline):
     for file_path in files:
         if deadline is not None and time.perf_counter() > deadline:
             return counts, False, unreadable
+        if text_filter is not None and text_filter.rules_out(file_path)[0]:
+            continue
         full_path = store._safe_content_path(content_dir, file_path)
         if not full_path:
             unreadable += 1
@@ -304,6 +306,9 @@ def search_text(
     _state_before = _subject.capture(index)
 
     content_dir = store._content_dir(owner, name)
+    from ..storage.text_filter import Filter as _TextFilter
+
+    text_filter = _TextFilter(content_dir, query_lower)
     results = []
     result_count = 0
     files_searched = 0
@@ -325,6 +330,12 @@ def search_text(
         # #377 hardening item 7: an eligible file the scan could not read is a
         # gap in the scan, not a file that contained no match. Counted so a
         # zero-result response cannot present a partial sweep as exhaustive.
+        # A file whose current trigram bitmap rules the query out holds no
+        # match, so it counts as searched without being opened.
+        ruled_out, stamp = text_filter.rules_out(file_path)
+        if ruled_out:
+            files_searched += 1
+            continue
         full_path = store._safe_content_path(content_dir, file_path)
         if not full_path:
             files_unreadable += 1
@@ -335,6 +346,7 @@ def search_text(
         except OSError:
             files_unreadable += 1
             continue
+        text_filter.note_read(file_path, stamp, "".join(lines))
 
         files_searched += 1
         file_matches = []
@@ -389,6 +401,8 @@ def search_text(
         if finished:
             later, complete, unreadable = _count_matches(
                 store, content_dir, files[cut_index + 1:], pattern, query_lower, _budget_deadline,
+                # Only a substring query has trigrams to test.
+                **({"text_filter": text_filter} if text_filter.grams else {}),
             )
             counts.update(later)
             complete = complete and unreadable == 0
@@ -400,6 +414,7 @@ def search_text(
             "more_files_complete": complete,
         }
 
+    text_filter.flush()
     attach_enclosing_symbols(results, index.symbols)
 
     elapsed = (time.perf_counter() - start) * 1000

@@ -111,6 +111,20 @@ RETIRED_TOOL_NAMES: dict[str, tuple[str, str]] = {
     "get_symbols": ("get_symbol_source", "symbol_ids"),
 }
 
+# Tool names are stable across 1.x: a renamed or merged tool keeps its old name
+# working as an alias for at least ALIAS_MIN_DAYS, listed in the CHANGELOG, and
+# only then moves to RETIRED_TOOL_NAMES. These two were removed outright on
+# 2026-03-24, before that promise, and are the only entries allowed without an
+# alias period. Nothing may be added here.
+RETIRED_BEFORE_STABLE_NAMES: frozenset[str] = frozenset({"get_symbol", "get_symbols"})
+
+ALIAS_MIN_DAYS = 30
+
+# A retired name's alias period: name -> (date its alias shipped, date it was
+# retired), ISO dates. Every RETIRED_TOOL_NAMES entry not in
+# RETIRED_BEFORE_STABLE_NAMES needs a row here.
+ALIAS_PERIODS: dict[str, tuple[str, str]] = {}
+
 
 def retired_hint(name: str) -> Optional[str]:
     """"It was replaced by X; call X with arg." for a retired name, else None."""
