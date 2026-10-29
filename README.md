@@ -162,7 +162,7 @@ What that lookup costs, from our benchmark on Express at commit `1faf2289`, coun
 | Grep-and-read: search `router route handler`, open the top 3 matching files whole | 9,890 |
 | jCodeMunch: one symbol search, then the source of the top 3 matches | 1,074 |
 
-That's one of the 15 lookups in the benchmark (5 each on express, fastapi and gin at pinned commits). Across all 15, jCodeMunch returned 96.2% fewer tokens in total than grep-and-read. The pack is built from Express 4.x, while the benchmark pins commit `1faf2289` on upstream main, so your count can differ. To rerun the benchmark at the pinned commits, follow [`benchmarks/REPRODUCING.md`](benchmarks/REPRODUCING.md); raw data is in [`benchmarks/`](benchmarks/).
+That's one of the 15 lookups in the benchmark (5 each on express, fastapi and gin at pinned commits). jCodeMunch used 96.2% fewer tokens per lookup than grep-and-read on our 15-lookup benchmark. The pack is built from Express 4.x, while the benchmark pins commit `1faf2289` on upstream main, so your count can differ. To rerun the benchmark at the pinned commits, follow [`benchmarks/REPRODUCING.md`](benchmarks/REPRODUCING.md); raw data is in [`benchmarks/`](benchmarks/).
 
 ---
 
