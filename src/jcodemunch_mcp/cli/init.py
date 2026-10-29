@@ -383,8 +383,8 @@ def _codex_command() -> Optional[str]:
 def _codex_command_name(exe: str) -> str:
     """The bare name when PATH finds ``exe`` itself, else ``exe``.
 
-    Codex starts a server named by its bare command through PATH (seen on
-    Codex 0.154.0, Windows). The bare name keeps working when the install
+    Codex starts a server named by its bare command through PATH (tested on
+    Windows only; elsewhere the absolute path is kept). The bare name keeps working when the install
     moves, but only if PATH finds this same install: otherwise it would start
     a different version, or nothing, so the absolute path is kept.
     """

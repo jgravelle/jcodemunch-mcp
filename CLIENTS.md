@@ -100,15 +100,15 @@ not recommended for Codex):
 [mcp_servers.jcodemunch]
 command = "uvx"
 args = ["jcodemunch-mcp"]
-# The first run fills about 250 MB of uv cache before the server answers.
+# The first run filled 251 MB of uv cache before the server answered.
 startup_timeout_sec = 30
 ```
 
 Codex waits 10 seconds for a server to start unless `startup_timeout_sec`
 says otherwise ([Codex MCP docs](https://learn.chatgpt.com/docs/extend/mcp?surface=cli)).
 Measured on 2026-10-28 (Windows, home broadband, `uvx` alone rather than
-inside Codex): 7.0 s to the first reply with an empty uv cache, 2.5 s
-once cached. A slower link can pass 10 s on the first run.
+inside Codex): 7.0 s to the first reply with an empty uv cache, then 2.6 s
+and 2.5 s once cached. A slower link can pass 10 s on the first run.
 </details>
 
 <details>

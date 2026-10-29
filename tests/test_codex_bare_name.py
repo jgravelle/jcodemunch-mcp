@@ -27,7 +27,7 @@ ROOT = Path(__file__).resolve().parent.parent
 def _no_own_executable(monkeypatch):
     monkeypatch.setattr(sys, "argv", ["pytest"])
     monkeypatch.setattr(install_layout, "_scripts_dir", lambda: None)
-    monkeypatch.setattr(install_layout, "_bare_name_platform", lambda: True)
+    monkeypatch.setattr(install_layout, "_bare_name_platform", lambda: True, raising=False)
 
 
 def _command(text: str) -> str:
@@ -88,7 +88,7 @@ def test_absolute_path_off_the_tested_platform(tmp_path, monkeypatch):
     PATH than init, so off the tested platform the working absolute entry is
     kept even when init's PATH finds the same install."""
     exe = "/home/u/.local/bin/jcodemunch-mcp"
-    monkeypatch.setattr(install_layout, "_bare_name_platform", lambda: False)
+    monkeypatch.setattr(install_layout, "_bare_name_platform", lambda: False, raising=False)
     monkeypatch.setattr(init_mod, "_codex_command", lambda: exe)
     monkeypatch.setattr(init_mod.shutil, "which", lambda name: exe)
     cfg = tmp_path / "config.toml"
