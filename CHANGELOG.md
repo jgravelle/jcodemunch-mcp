@@ -6,12 +6,12 @@
 
 A host that defers tool schemas (Claude Code, Codex) shows the model bare
 names and lets it search names and descriptions for the rest. An audit of the
-non-core tools found 22 whose descriptions opened with internal terms, such as
-"Composite preflight", "Task-aware single-call orchestrator" and "Mine the
-ranking telemetry ledger", and carried none of the words an agent types when
-it needs them. "Is it safe to delete this function" did not find
-`check_delete_safe` by its words, and "how risky is this pull request" ranked
-an unrelated tool first.
+whole catalog found 22 tools, four of them in the core tier, whose
+descriptions opened with internal terms, such as "Composite preflight",
+"Task-aware single-call orchestrator" and "Mine the ranking telemetry
+ledger", and carried none of the words an agent types when it needs them.
+"How risky is this pull request" did not put `get_pr_risk_profile` in the
+top three of the catalog search.
 
 Seventeen of them now open with their question: `check_delete_safe`,
 `check_edit_safe`, `assemble_task_context`, `digest`, `get_delivery_metrics`,
@@ -26,18 +26,25 @@ cache write for every user.
 
 `tests/test_question_queries_find_analysis_tools.py` fails if a question loses
 a word from its tool's description, or if the Counter's catalog search stops
-ranking the tool in its top three. The rewording is a one-time cache write
-for clients on the `full` and `standard` surfaces. `benchmarks/schema_baseline.json`
-records the new counts; `core_compact` stays under its ceiling.
+ranking the tool in its top three; two paraphrases are held to rank only.
+
+The rewording is a one-time cache write for clients on the `core`,
+`standard` and `full` profiles (`counter` is unchanged). From
+`benchmarks/schema_baseline.json`: `core_compact` 3980 to 3984 tokens (+4,
+under its 4,000 ceiling), `standard_compact` 20084 to 20174 (+90),
+`full_compact` 21512 to 21602 (+90).
 
 Descriptions are the router's input, so `benchmarks/route_recall/` was re-run.
-`menu` recall on the main corpus rises at every cutoff (@3 from 69.5 to 72.9,
-@10 from 81.4 to 86.4). On the held-out corpus, frozen before any routing
-fix, it holds at @1 and @3 and rises at @5 (40.9 to 43.2) and @10 (50.0 to
-52.3). Four individual queries, two in each corpus, drop one place. The
-first draft of this change lost three held-out queries, because a rewording
-dropped words other questions relied on (`annotations`, `source`); each word
-is back.
+On the held-out corpus, frozen before any routing fix, `menu` recall holds at
+@1 and @3 and rises at @5 (40.9 to 43.2) and @10 (50.0 to 52.3). At @3 one
+query left the top three and another entered, and the @5 and @10 gains are
+that one query. On the main corpus recall rises at every cutoff (@3 from 69.5
+to 72.9, @10 from 81.4 to 86.4), but part of that gain is the corpus's own
+wording now in a description: "how risky is this pull request" is now the
+`get_pr_risk_profile` opener, and the benchmark's description-overlap
+measure rose from 0.388 to 0.429 (held-out: 0.313 to 0.322). Four individual
+queries, two in each corpus, drop one place. `route` ranks are unchanged in
+both.
 
 ## [1.108.402] - 2026-10-28 - the server instructions name the tools in the first 512 characters, and tool names hold across 1.x
 
