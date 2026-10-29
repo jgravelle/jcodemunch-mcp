@@ -30,6 +30,15 @@ ranking the tool in its top three. The rewording is a one-time cache write
 for clients on the `full` and `standard` surfaces. `benchmarks/schema_baseline.json`
 records the new counts; `core_compact` stays under its ceiling.
 
+Descriptions are the router's input, so `benchmarks/route_recall/` was re-run.
+`menu` recall on the main corpus rises at every cutoff (@3 from 69.5 to 72.9,
+@10 from 81.4 to 86.4). On the held-out corpus, frozen before any routing
+fix, it holds at @1 and @3 and rises at @5 (40.9 to 43.2) and @10 (50.0 to
+52.3). Four individual queries, two in each corpus, drop one place. The
+first draft of this change lost three held-out queries, because a rewording
+dropped words other questions relied on (`annotations`, `source`); each word
+is back.
+
 ## [1.108.402] - 2026-10-28 - the server instructions name the tools in the first 512 characters, and tool names hold across 1.x
 
 ### Changed - tool names are a stable contract across 1.x
