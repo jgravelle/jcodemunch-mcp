@@ -71,3 +71,17 @@ def test_an_uncapped_index_prints_no_cap_warning(tmp_path):
     assert proc.returncode == 0, proc.stderr
     assert json.loads(proc.stdout).get("truncated") in (None, False)
     assert _cap_lines(proc.stderr) == []
+
+
+def test_a_capped_github_index_names_its_own_cap(capsys):
+    from jcodemunch_mcp.server import _warn_capped_index
+
+    _warn_capped_index(
+        {"success": True, "files_discovered": 30, "files_indexed": 10, "files_skipped_cap": 20},
+        local=False,
+    )
+    lines = capsys.readouterr().err.splitlines()
+    assert len(lines) == 1
+    assert "10 of 30" in lines[0]
+    assert "max_index_files" in lines[0] and "JCODEMUNCH_MAX_INDEX_FILES" in lines[0]
+    assert "max_folder_files" not in lines[0]
