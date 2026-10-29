@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+### Changed - every place the package describes itself says what it does for an agent
+
+The MCP registry listing, the PyPI summary, the plugin marketplace entry and
+the package's own docstring described jCodeMunch by its parsing method, and the
+docstring still carried an old name, `github-codemunch-mcp`, and described a
+tool for GitHub source exploration. Directories that copy these fields kept
+showing that. All four now lead with the job: the agent gets the function or
+class it asked for, not the whole file, on the user's machine, in 70+ languages.
+
 ## [1.108.402] - 2026-10-28 - the server instructions name the tools in the first 512 characters, and tool names hold across 1.x
 
 ### Changed - tool names are a stable contract across 1.x
