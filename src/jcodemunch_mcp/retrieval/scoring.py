@@ -133,28 +133,39 @@ def _tokenize(text: str) -> list[str]:
     result = []
     seen: set[str] = set()
     for tok in raw_tokens:
-        if _CJK_RE.fullmatch(tok):
-            # Bigram expansion; stemming/abbreviations are English-only.
-            for bg in _cjk_bigrams(tok):
-                result.append(bg)
-                seen.add(bg)
-            continue
-        if len(tok) < 2:
-            continue
-        result.append(tok)
-        seen.add(tok)
-        # Stemmed form
-        stemmed = _stem(tok)
-        if stemmed != tok and stemmed not in seen:
-            result.append(stemmed)
-            seen.add(stemmed)
-        # Abbreviation expansion (canonical forms, not stemmed)
-        for key in (tok, stemmed) if stemmed != tok else (tok,):
-            for exp in _ABBREV_MAP.get(key, ()):
-                if exp not in seen:
-                    result.append(exp)
-                    seen.add(exp)
+        always, if_new = _expand_word(tok)
+        for t in always:
+            result.append(t)
+            seen.add(t)
+        for t in if_new:
+            if t not in seen:
+                result.append(t)
+                seen.add(t)
     return result
+
+
+@functools.lru_cache(maxsize=65536)
+def _expand_word(tok: str) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """What one lowercased word contributes to a token bag.
+
+    Returns ``(always, if_new)``: tokens appended on every occurrence, then
+    tokens appended only if the bag does not hold them yet. It depends on the
+    word alone, so it is cached; the first search on a large index tokenizes
+    every symbol and meets each distinct word thousands of times.
+    """
+    if _CJK_RE.fullmatch(tok):
+        # Bigram expansion; stemming/abbreviations are English-only.
+        return tuple(_cjk_bigrams(tok)), ()
+    if len(tok) < 2:
+        return (), ()
+    stemmed = _stem(tok)
+    if_new: list[str] = []
+    if stemmed != tok:
+        if_new.append(stemmed)
+    # Abbreviation expansion (canonical forms, not stemmed)
+    for key in (tok, stemmed) if stemmed != tok else (tok,):
+        if_new.extend(_ABBREV_MAP.get(key, ()))
+    return (tok,), tuple(if_new)
 
 
 # --- Query words and test demotion (shared by every lexical scorer) -------- #
