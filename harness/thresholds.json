@@ -735,9 +735,9 @@
       }
     },
     {
-      "id": "suite.full_seconds_ci_ubuntu_py310",
+      "id": "suite.full_seconds_ci_ubuntu_ctrace",
       "criterion": "N1",
-      "metric": "full-tier pytest wall seconds on the GitHub-hosted ubuntu runner under Python 3.10 (GITHUB_ACTIONS set, sys.platform linux, Python 3.10)",
+      "metric": "full-tier pytest wall seconds on the GitHub-hosted ubuntu runner where coverage runs its C tracer (GITHUB_ACTIONS set, sys.platform linux, coverage core ctrace: Python 3.10 and 3.11, where sys.monitoring is not usable)",
       "comparator": "<=",
       "floor": 450,
       "unit": "seconds",
@@ -761,7 +761,7 @@
       ],
       "loosened": {
         "by": "jjg, 2026-10-21",
-        "reason": "360 -> 450 for the ubuntu Python 3.10 CI leg only, from 30 real runs: the leg's median (345.4 s) sat 15 s under the shared Floor and tripped it on three PRs in one day with no code cause. Every other leg and every local run keeps 360."
+        "reason": "360 -> 450 for the ubuntu Python 3.10 CI leg, from 30 real runs: the leg's median (345.4 s) sat 15 s under the shared Floor and tripped it on three PRs in one day with no code cause. Widened 2026-10-29 (L-232, approved by the maintainer) from the 3.10 leg to every ubuntu leg where coverage runs its C tracer, which adds 3.11, and renamed from suite.full_seconds_ci_ubuntu_py310. The scope is now chosen by asking coverage which core it will run, not by the Python version. Evidence: the last 94 completed runs of each ubuntu leg (2026-10-22 00:51Z to 2026-10-29 19:50Z, per job in the PR): 3.11 min 230.65, median 336.51, p95 364.26, max 377.33 s, 9 of 94 over 360 and every one a FAIL with all tests passing; 3.10 max 393.0 s; both C-tracer legs under 450 in all 188. The value stays 450. Sysmon legs (3.12 max 264.64, 3.13 max 262.31) and every local run keep 360."
       }
     },
     {
