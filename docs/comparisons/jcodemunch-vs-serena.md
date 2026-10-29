@@ -2,13 +2,13 @@
 
 Checked 29 October 2026 against Serena v2.1.0 (released 19 October 2026; github.com/oraios/serena) and jCodeMunch 1.108.402.
 
-Both are MCP servers that let a coding agent find code by symbol instead of reading whole files. They get there differently, and they're good at different jobs. A lot of people run both.
+Both are MCP servers that let a coding agent find code by symbol instead of reading whole files. They get there differently, and they're good at different jobs.
 
 ## How each one finds code
 
 **Serena** runs real language servers (pyright, rust-analyzer, typescript-language-server, gopls and others) and routes the agent's calls through them. Its README lists support for over 40 languages that way. Each language needs its server installed. A paid JetBrains plugin (free trial) uses the IDE's own analysis instead. Because the answers come from a language server, references are type-aware: they follow aliases, inheritance and type narrowing the way your IDE does.
 
-**jCodeMunch** parses source with tree-sitter grammars that ship inside the package, for 70+ languages. There is nothing else to install and no server process to start. It builds an index on disk once, updates it as files change, and returns a function or class by byte offset.
+**jCodeMunch** parses source with tree-sitter grammars that ship with the package, plus its own extractors for a few languages, for 70+ languages in all. There is no language server to install or start. It builds an index on disk once, updates it as files change, and returns a function or class by byte offset.
 
 ## What each one does
 
@@ -17,11 +17,11 @@ Both are MCP servers that let a coding agent find code by symbol instead of read
 | Read code by symbol | Yes, through the language server | Yes, from the tree-sitter index |
 | Find references | Type-aware, from the language server; type hierarchy with the JetBrains plugin | `find_references`, `find_importers`, `check_references` from the index and import graph |
 | Edit code | Yes: replace a symbol body, insert before or after a symbol, rename, safe delete; move and inline with the JetBrains plugin | No. Read-only by design. `plan_refactoring` returns edit blocks for the agent to apply with its own Edit tool |
-| Compiler diagnostics | Yes, the language server's errors and warnings as tools | No |
+| Compiler diagnostics | Yes, the language server's errors and warnings as tools | Reads your type checker's output when you import it (`import-trace --diagnostics`); never runs a checker |
 | Debugging | Yes, with the JetBrains plugin: breakpoints and variable inspection | No |
 | Change impact | Not listed in its README | `get_blast_radius`, `get_impact_preview`, `get_pr_risk_profile` |
 | Dead code | Removing unused code ("propagate deletions") with the JetBrains plugin | `find_dead_code`, `check_delete_safe` |
-| Docs and data files | Code only | Docs through jDocMunch, tabular data through jDataMunch |
+| Docs and data files | Code only | Code only; the companion servers jDocMunch (docs) and jDataMunch (tabular data) are separate installs |
 | What you install | Serena plus a language server per language (or the JetBrains plugin) | One Python package |
 | License | GPL-3.0-or-later since v2.0 (earlier releases MIT; its solidlsp library MIT) | Free for personal and other non-commercial use; commercial license, paid once |
 
@@ -35,7 +35,7 @@ That's against grep-and-read, not against Serena. We haven't published a measure
 
 Serena fits when the agent is editing: type-aware renames and symbol edits, compiler diagnostics in the loop, or debugging through JetBrains, on a machine where the language servers are already set up.
 
-jCodeMunch fits when there's no language server to lean on: CI runners, containers, a repo that mixes many languages, or a language without a good server. It also answers the team-level questions (what a change touches, what's dead, what a PR risks) and covers docs and data alongside code.
+jCodeMunch fits when there's no language server to lean on: CI runners, containers, a repo that mixes many languages, or a language without a good server. It also answers the team-level questions (what a change touches, what's dead, what a PR risks) and its companion servers cover docs and data alongside code.
 
 They can run together. If you do, the agent sees two ways to look up a symbol, so tell it which one to use for what (for example, jCodeMunch for finding and reading, Serena for editing).
 
