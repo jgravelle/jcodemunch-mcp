@@ -28,7 +28,9 @@ Every `file_pattern`, the `scope` of `get_ranked_context`,
   directory name.
 - `**/` matches zero or more directories, so `src/**/*.py`, the example in
   the tool schemas, now matches `src/a.py`; it used to require a
-  subdirectory.
+  subdirectory. This holds for a whole-segment `**/` (at the start or after
+  a `/`), up to three per pattern; past three, each needs at least one
+  directory, as before.
 - A backslash reads as `/` in the pattern as well as the path, on every
   platform.
 - Matching is case-sensitive on every platform. On Windows, every site that
