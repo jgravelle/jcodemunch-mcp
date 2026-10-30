@@ -689,7 +689,7 @@
     {
       "id": "deps.vuln_max",
       "criterion": "8",
-      "metric": "pip-audit advisories in the runtime dependency set, minus unexpired allowlist entries",
+      "metric": "pip-audit advisories in the runtime dependency set with every optional extra, for the interpreter and platform the audit runs on (CI: ubuntu, Python 3.12), minus unexpired allowlist entries",
       "comparator": "<=",
       "floor": 0,
       "unit": "advisories",
