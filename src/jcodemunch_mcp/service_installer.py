@@ -365,7 +365,9 @@ def _windows_exec_cmd() -> list[str]:
     `python.exe` is a console program, so a logon task that starts it opens a
     console window at every sign-in and keeps it open while the watcher runs.
     `pythonw.exe` opens none, but it has no stderr either, so the log goes to a
-    file under the log dir. Without a `pythonw.exe` beside the interpreter the
+    file under the log dir. Under pythonw, `watch-all` re-runs itself in a
+    console-less `python.exe` (`windowless.py`), so the git processes it starts
+    open no window either. Without a `pythonw.exe` beside the interpreter the
     console one is kept: a visible window beats a task that cannot start.
     """
     exe, *rest = _exec_cmd()

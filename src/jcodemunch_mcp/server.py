@@ -11488,6 +11488,13 @@ def main(argv: Optional[list[str]] = None):
 
         handle_hook_event(event_type=args.event_type)
     elif args.command == "watch-all":
+        # Under pythonw (the Windows sign-in task) the watcher runs in a
+        # console-less child, or every git it starts opens a window.
+        from .service_installer import _log_dir as _watch_log_dir
+        from .windowless import run_with_hidden_console
+        _code = run_with_hidden_console(raw_argv, _watch_log_dir() / "watch-all.log")
+        if _code is not None:
+            sys.exit(_code)
         from .watch_all import watch_all, DEFAULT_REDISCOVER_INTERVAL_S
         use_ai = not args.no_ai_summaries and _default_use_ai_summaries()
         asyncio.run(
