@@ -2,6 +2,19 @@
 
 ## [Unreleased]
 
+### Changed - the first search on a large index spends half as long tokenizing
+
+The first `search_symbols` call in a process builds the BM25 table, which
+tokenizes the name, signature, summary and docstring of every symbol. Each
+occurrence of a word re-ran its stem, its abbreviation lookup and its CJK check,
+although the result depends on the word alone. On a 50,373-symbol index the stem
+function ran 922,862 times for 9,633 distinct words, and the cold first search
+took 4.2 s. Each word's expansion is now computed once per process and kept in a
+bounded cache, and the same first search takes 2.2 s. The tokenizer's output is
+unchanged token for token: a test compares it against a frozen copy of the old
+code, and full rankings for 12 queries over two repositories are identical
+before and after.
+
 ## [1.108.402] - 2026-10-28 - the server instructions name the tools in the first 512 characters, and tool names hold across 1.x
 
 ### Changed - tool names are a stable contract across 1.x
