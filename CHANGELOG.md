@@ -2,6 +2,25 @@
 
 ## [Unreleased]
 
+### Fixed - agents sharing one index no longer make each other reload it
+
+A running server keeps the loaded index, and the embedding matrix, in memory,
+keyed by a stamp over the index file and its SQLite sidecars, so that a write
+made by another process is noticed. Opening the database creates an empty
+`-wal` file when none exists, and every read writes the `-shm` file. Both
+stamps counted those as writes. So a second server, a sub-agent or the
+`watch-all` service that only read the index made every other process reload
+all of it, and their reloads did the same back. Measured with 2 to 8 processes
+searching one 34,225-symbol index and nothing writing to it, every search took
+3.0 to 3.7 s (median); one process alone answered in 0.6 ms.
+
+A `-wal` file now counts only when it holds a commit, by size and modification
+time, and `-shm` never counts. One helper holds that rule for both stamps.
+Eight processes on the same index went from 48 searches in 20 seconds to
+36,867 (median 2.4 ms). A real write is still noticed;
+`tests/test_a_reader_does_not_invalidate_other_processes.py` checks both
+directions.
+
 ## [1.108.402] - 2026-10-28 - the server instructions name the tools in the first 512 characters, and tool names hold across 1.x
 
 ### Changed - tool names are a stable contract across 1.x
