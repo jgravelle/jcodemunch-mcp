@@ -1634,6 +1634,9 @@ _XAML_EVENT_ATTR = re.compile(
 # Boolean and capability properties that end like an event (`IsChecked`,
 # `IsSelected`, `CanContentScroll`, `AllowDrop`).
 _XAML_PROPERTY_PREFIXES = ("Is", "Can", "Has", "Allow")
+# A value no method can carry; a Binding's `NotifyOnSourceUpdated="True"` ends
+# like an event.
+_XAML_LITERALS = frozenset({"true", "false"})
 
 
 def _xaml_handler_names(content: str) -> list[str]:
@@ -1659,7 +1662,8 @@ def _xaml_handler_names(content: str) -> list[str]:
             if event.startswith(_XAML_PROPERTY_PREFIXES) or not _XAML_EVENT_ATTR.fullmatch(event):
                 continue
             value = value.strip()
-            if not _ASPX_HANDLER_NAME.match(value) or value in seen:
+            if (not _ASPX_HANDLER_NAME.match(value) or value.lower() in _XAML_LITERALS
+                    or value in seen):
                 continue
             seen.add(value)
             found.append(value)

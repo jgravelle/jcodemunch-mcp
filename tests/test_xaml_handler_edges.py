@@ -77,6 +77,13 @@ def test_property_attributes_name_no_handler(attr):
     assert "Some_Value" not in _names(_edges(view))
 
 
+@pytest.mark.parametrize("attr", ["NotifyOnSourceUpdated", "NotifyOnValidationError"])
+def test_a_boolean_on_an_event_shaped_attribute_is_not_a_handler(attr):
+    view = f'<Grid x:Class="A.V"><Binding {attr}="True"/><Button Click="Ok_Click"/></Grid>'
+    names = _names(_edges(view))
+    assert "True" not in names and "Ok_Click" in names, names
+
+
 def test_markup_handlers_and_the_class_ride_on_the_edge():
     names = _names(_edges(VIEW))
     assert {"Ctl", "Ctl_Loaded", "Ok_Click", "Title_Changed",
