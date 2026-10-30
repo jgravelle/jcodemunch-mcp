@@ -2,6 +2,23 @@
 
 ## [Unreleased]
 
+### Fixed - `get_blast_radius` counts its direct callers apart from deeper ones
+
+With `call_depth` above 1, `get_blast_radius` returned callers of every depth
+under one `caller_count`, so a reader taking the count at its word read
+indirect callers as direct ones. `get_call_hierarchy` had the same shape and
+was fixed with a direct count and a per-depth count; `get_blast_radius` had
+neither.
+
+The response now adds `direct_caller_count` and `callers_by_depth` beside
+`caller_count`, which stays the total over every depth, and the callers are
+ordered by depth. Both tools count with one function (`label_row_depths`),
+moved out of `get_call_hierarchy` rather than copied, so the two can no longer
+disagree about which caller is direct. The compact encoding carries the new
+counts and now also `caller_count`, which it had never carried.
+`get_endpoint_impact`, which republishes these callers at a default
+`call_depth` of 2, carries both new counts per endpoint.
+
 ## [1.108.402] - 2026-10-28 - the server instructions name the tools in the first 512 characters, and tool names hold across 1.x
 
 ### Changed - tool names are a stable contract across 1.x
