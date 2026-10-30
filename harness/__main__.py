@@ -557,7 +557,7 @@ AUDIT_ALLOWLIST = HERE / "audit-allowlist.json"
 
 
 def _measure_deps() -> int:
-    """Known advisories in the RUNTIME dependency set (criterion 8), minus unexpired allowlist entries.
+    """Known advisories in the RUNTIME dependency set, extras included (criterion 8), minus unexpired allowlist entries.
 
     pip-audit (OSV/PyPI) reports no severity, so the Floor counts every
     advisory; an entry in harness/audit-allowlist.json needs an id, a reason
@@ -571,6 +571,10 @@ def _measure_deps() -> int:
             "uv",
             "export",
             "--no-dev",
+            # Every extra a user can install (`[semantic]`, `[http]`, `[all]`...),
+            # not only the base install. Markers are evaluated for the running
+            # interpreter, so a pin limited to another Python version is not seen.
+            "--all-extras",
             "--no-hashes",
             "--format",
             "requirements-txt",
