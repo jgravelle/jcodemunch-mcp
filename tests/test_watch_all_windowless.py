@@ -17,6 +17,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 from pathlib import Path
 from unittest.mock import patch
 
@@ -173,8 +174,30 @@ with open(out, "ab") as log:
     wl.spawn_hidden([str(Path(sys.executable).with_name("python.exe")), "-c", child, grandchild], log).wait()
 """
 
+# Run under pythonw: start a long-lived hidden child the way watch-all does, and
+# wait on it, as the watch-all parent does. argv: <out log> <child pid file>
+_LONG_PARENT = """
+import sys
+from pathlib import Path
+from jcodemunch_mcp import windowless as wl
+out, pid_file = Path(sys.argv[1]), sys.argv[2]
+child = "import os,sys,time;open(sys.argv[1],'w').write(str(os.getpid()));time.sleep(300)"
+with open(out, "ab") as log:
+    wl.spawn_hidden([str(Path(sys.executable).with_name("python.exe")), "-c", child, pid_file], log).wait()
+"""
 
-if sys.platform == "win32" and Path(sys.executable).with_name("pythonw.exe").is_file():
+_SYNCHRONIZE = 0x00100000
+_WAIT_OBJECT_0 = 0
+_WAIT_TIMEOUT = 0x102
+
+
+# The BASE interpreter's pythonw, never a venv's: a venv pythonw.exe is a
+# launcher that puts its own child in a job, which would end the watcher on its
+# own and let the job test pass without ours. windowless.py imports only the
+# standard library, so the base interpreter can run it from src/.
+_BASE_PYTHONW = Path(getattr(sys, "_base_executable", sys.executable)).with_name("pythonw.exe")
+
+if sys.platform == "win32" and _BASE_PYTHONW.is_file():
 
     def test_a_grandchild_of_the_pythonw_task_has_no_visible_window(tmp_path):
         """The property the task exists for, measured: git started by the
@@ -186,7 +209,7 @@ if sys.platform == "win32" and Path(sys.executable).with_name("pythonw.exe").is_
         grandchild.write_text(_GRANDCHILD, encoding="utf-8")
         out = tmp_path / "out.log"
         src = Path(__file__).resolve().parents[1] / "src"
-        pythonw = Path(sys.executable).with_name("pythonw.exe")
+        pythonw = _BASE_PYTHONW
         done = subprocess.run(
             [str(pythonw), str(script), str(out), str(grandchild)],
             env={**os.environ, "PYTHONPATH": str(src)},
@@ -196,4 +219,41 @@ if sys.platform == "win32" and Path(sys.executable).with_name("pythonw.exe").is_
         assert done.returncode == 0
         lines = [ln for ln in out.read_text(encoding="utf-8", errors="replace").splitlines() if ln.strip()]
         assert json.loads(lines[-1]) == {"visible": False}, lines
-        assert "could not tie" not in "\n".join(lines)
+
+    def test_ending_the_pythonw_parent_ends_the_watcher_child(tmp_path):
+        """Ending the task kills the pythonw process. The watcher is its child,
+        so it must end too, or it runs on with no task to stop it."""
+        import ctypes
+
+        script = tmp_path / "parent.py"
+        script.write_text(_LONG_PARENT, encoding="utf-8")
+        pid_file = tmp_path / "child.pid"
+        src = Path(__file__).resolve().parents[1] / "src"
+        pythonw = _BASE_PYTHONW
+        parent = subprocess.Popen(
+            [str(pythonw), str(script), str(tmp_path / "out.log"), str(pid_file)],
+            env={**os.environ, "PYTHONPATH": str(src)},
+        )
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel32.OpenProcess.restype = ctypes.c_void_p
+        handle = None
+        try:
+            for _ in range(600):
+                if pid_file.is_file() and pid_file.read_text().strip():
+                    break
+                assert parent.poll() is None, "the parent exited before starting the child"
+                time.sleep(0.1)
+            child_pid = int(pid_file.read_text().strip())
+            handle = kernel32.OpenProcess(_SYNCHRONIZE, False, child_pid)
+            assert handle, "the child is not running"
+            assert kernel32.WaitForSingleObject(ctypes.c_void_p(handle), 0) == _WAIT_TIMEOUT
+
+            parent.kill()
+            parent.wait(timeout=30)
+
+            assert kernel32.WaitForSingleObject(ctypes.c_void_p(handle), 15000) == _WAIT_OBJECT_0
+        finally:
+            if handle:
+                kernel32.CloseHandle(ctypes.c_void_p(handle))
+            if parent.poll() is None:
+                parent.kill()
