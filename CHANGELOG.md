@@ -4,6 +4,20 @@
 
 ## [1.108.403] - 2026-10-30 - a file pattern means the same thing in every tool, and the rate_limit config key turns the limit on
 
+### Fixed - the CLI's license link points at the current site
+
+When a team feature needed a license, the CLI and the `get_license` field of
+its answers pointed at `https://j.gravelle.us/jCodeMunch/#pricing`, a page on
+the retired site that is no longer kept up. Every other sales link the CLI
+prints already went to jcodemunch.com and was tagged as coming from the CLI,
+so this one sent a buyer to an outdated page and was not counted.
+
+It now points at the pricing section of jcodemunch.com, tagged
+`utm_source=cli`. The license check and the savings counter stay on
+j.gravelle.us, where they are served. A test fails if any other link in the
+package's Python source points at that host, in any case, with or without
+`www.`, and with a scheme or a path. It cannot see a URL built at run time from a variable host.
+
 ### Fixed - one rule for a path pattern: with `/` it is anchored at the repo root, and a bare one matches at any depth
 
 On a large repository, `search_text` with `file_pattern="homeassistant/**"`
