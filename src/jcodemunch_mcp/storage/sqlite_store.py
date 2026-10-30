@@ -528,6 +528,42 @@ def _load_lock_for(key: tuple[str, str, str]) -> threading.Lock:
         return lock
 
 
+# What a symbol's BM25 token bag is built from (`retrieval.scoring._sym_tokens`),
+# plus content_hash. A summary can change while the source does not, so the
+# carry compares the inputs themselves, not the hash alone.
+_TOKEN_INPUTS = ("name", "keywords", "signature", "summary", "docstring", "content_hash")
+_BM25_SYMBOL_KEYS = ("_tokens", "_tf", "_dl")
+
+
+def _carry_bm25_tokens(old_index, new_index) -> int:
+    """Copy BM25 token bags from ``old_index`` to the matching symbols of ``new_index``.
+
+    A symbol matches when its id is the same and every token input is equal,
+    with a content_hash present on both. Returns how many were carried. Used by
+    every path that builds a fresh index from rows while an older copy is in
+    hand (a reload after another process's write, and a save that follows one),
+    so only what changed is re-tokenized.
+    """
+    old_by_id = {}
+    for sym in getattr(old_index, "symbols", None) or []:
+        if sym.get("_tokens") is not None and sym.get("content_hash"):
+            old_by_id[sym.get("id")] = sym
+    if not old_by_id:
+        return 0
+    carried = 0
+    for sym in new_index.symbols:
+        old = old_by_id.get(sym.get("id"))
+        if old is None or not sym.get("content_hash"):
+            continue
+        if any(old.get(k) != sym.get(k) for k in _TOKEN_INPUTS):
+            continue
+        for k in _BM25_SYMBOL_KEYS:
+            if k in old:
+                sym[k] = old[k]
+        carried += 1
+    return carried
+
+
 def _cache_evict(owner: str, name: str) -> None:
     """Remove a specific repo from cache (all branches)."""
     with _cache_lock:
@@ -1873,6 +1909,13 @@ class SQLiteIndexStore:
             if cached is not None:
                 return _stamp_load_provenance(cached, db_path, mtime_ns)
 
+            # The copy another process's write made stale: its symbols' token
+            # bags are carried to the reload where nothing they are built from
+            # changed, so the next search re-tokenizes only what did.
+            with _cache_lock:
+                _stale = _index_cache.get(key)
+            stale_index = _stale.code_index if _stale is not None else None
+
             try:
                 conn = self._connect(db_path)
                 try:
@@ -1901,6 +1944,11 @@ class SQLiteIndexStore:
                     file_rows = conn.execute("SELECT * FROM files").fetchall()
 
                     index = self._build_index_from_rows(meta, symbol_rows, file_rows, owner, name)
+                    if stale_index is not None:
+                        try:
+                            _carry_bm25_tokens(stale_index, index)
+                        except Exception:  # never fail a load over an optimisation
+                            logger.debug("Token carry on reload failed", exc_info=True)
 
                     # Warn if call references were not migrated (v7→v8 case)
                     if meta.get("call_refs_missing") == "1":
@@ -2489,6 +2537,14 @@ class SQLiteIndexStore:
             old_index = _cache_get(owner, safe_name, old_mtime)
         except OSError:
             pass
+        # A miss above means another process wrote since this one loaded. The
+        # copy it made stale is still in the cache, and its token bags are good
+        # for every symbol whose inputs did not change.
+        stale_index = None
+        if old_index is None:
+            with _cache_lock:
+                _stale = _index_cache.get((owner, safe_name, ""))
+            stale_index = _stale.code_index if _stale is not None else None
 
         conn = self._connect(db_path)
         try:
@@ -2685,29 +2741,13 @@ class SQLiteIndexStore:
             # Cold path: build from DB rows (no cached index available)
             index = self._build_index_from_rows(meta, all_symbol_rows, all_file_rows, owner, name)
 
-            # Carry forward cached BM25 token bags from unchanged symbols.
-            # (Only needed in cold path — patch path retains them automatically.)
-            # Matched by symbol id; content_hash must match on both sides to
-            # guarantee the symbol text is identical.
-            old_sym_map = {}
-            for sym in (old_index.symbols if old_index else []):
-                tokens = sym.get("_tokens")
-                ch = sym.get("content_hash")
-                if tokens is not None and ch:
-                    old_sym_map[sym["id"]] = (ch, sym)
-            if old_sym_map:
-                for sym in index.symbols:
-                    old = old_sym_map.get(sym["id"])
-                    if old is None:
-                        continue
-                    old_hash, old_sym = old
-                    new_hash = sym.get("content_hash")
-                    if new_hash and new_hash == old_hash:
-                        sym["_tokens"] = old_sym["_tokens"]
-                        if "_tf" in old_sym:
-                            sym["_tf"] = old_sym["_tf"]
-                        if "_dl" in old_sym:
-                            sym["_dl"] = old_sym["_dl"]
+            # Carry forward BM25 token bags from the stale copy, if one is
+            # cached. (The patch path above retains them automatically.)
+            if stale_index is not None:
+                try:
+                    _carry_bm25_tokens(stale_index, index)
+                except Exception:  # never fail a save over an optimisation
+                    logger.debug("Token carry on incremental save failed", exc_info=True)
 
         # Keep the returned/cached index consistent with the meta write above.
         # The fast (patch) path carries package_names from the old cached index,

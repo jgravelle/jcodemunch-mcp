@@ -2,6 +2,29 @@
 
 ## [Unreleased]
 
+### Fixed - a search after another process writes the index no longer re-tokenizes every symbol
+
+A running server keeps its loaded index keyed by the index file's modification
+time. When another process wrote the index (the `watch-all` service, a second
+server, an edit hook), the next search in the first server reloaded every row,
+then rebuilt the search tokens of every symbol, though almost none had changed.
+Measured on a 34,225-symbol index, the first search after such a write took
+3.0 to 3.2 s against 0.7 ms warm. Re-tokenizing that index from scratch takes
+about 1.8 s, and 7 ms when the tokens are kept. A write made in the same
+process already kept them; one made by another process did not.
+
+The reload now keeps the tokens of every symbol whose name, keywords,
+signature, summary, docstring and source are all unchanged. The same measurement
+reads 1.07 to 1.22 s on that index, and 1.11 to 1.23 s, down from 4.3 to 4.4 s,
+on a 50,320-symbol one. The rest is the reload of the rows itself.
+
+A save this process makes after another process's write rebuilt from rows the
+same way, and keeps the tokens now too. The match compares every input a
+symbol's tokens are built from, not only the source hash, because a summary
+can change while the source does not; a changed one is tokenized again.
+`tests/test_reload_carries_search_tokens.py` checks both routes and both
+directions.
+
 ## [1.108.402] - 2026-10-28 - the server instructions name the tools in the first 512 characters, and tool names hold across 1.x
 
 ### Changed - tool names are a stable contract across 1.x
