@@ -10,7 +10,7 @@ Two things happen here, and they are separable on purpose:
 
 1. **The decode is paid once.** ``load()`` reads the raw float32 BLOBs, builds
    one L2-normalised matrix, and caches it against a stamp of the database's
-   size + mtime (``.db`` and its ``-wal``/``-shm`` sidecars). Every write path
+   size + mtime (``.db`` and a ``-wal`` that holds frames). Every write path
    on ``EmbeddingStore`` goes through ``_connect``, which bumps that stamp, and
    also calls ``invalidate()`` directly.
 
@@ -93,14 +93,13 @@ def _stamp(db_path) -> Optional[tuple]:
         st = p.stat()
     except OSError:
         return None
-    parts: list = [(st.st_size, st.st_mtime_ns)]
-    for suffix in ("-wal", "-shm"):
-        try:
-            side = p.with_name(p.name + suffix).stat()
-            parts.append((side.st_size, side.st_mtime_ns))
-        except OSError:
-            parts.append(None)
-    return tuple(parts)
+    # A commit is seen through a non-empty -wal; an empty -wal and -shm are what
+    # a reader in any process leaves behind, and counting them threw the matrix
+    # away on every read (generation.committed_wal_stat holds the rule).
+    from .generation import committed_wal_stat
+
+    wal = committed_wal_stat(p)
+    return ((st.st_size, st.st_mtime_ns), (wal.st_size, wal.st_mtime_ns) if wal is not None else None)
 
 
 class EmbeddingMatrix:

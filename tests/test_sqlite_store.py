@@ -800,9 +800,12 @@ def test_db_mtime_ns_wal_newer(tmp_path):
     conn.execute("INSERT INTO meta VALUES ('test', 'value')")
     conn.close()
 
-    # Manually create a WAL file with newer mtime
+    # Manually create a WAL file with newer mtime. It holds bytes, as a WAL
+    # with a commit in it does: an EMPTY -wal is what a reader's connection
+    # creates and is deliberately not a write
+    # (tests/test_a_reader_does_not_invalidate_other_processes.py).
     wal_path = Path(str(db_path) + "-wal")
-    wal_path.write_bytes(b"")  # Create empty WAL file
+    wal_path.write_bytes(b"\0" * 32)  # stands in for a WAL header and frames
     time.sleep(0.01)
     wal_path.touch()  # Make WAL newer
 
