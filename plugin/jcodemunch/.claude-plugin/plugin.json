@@ -9,6 +9,7 @@
     "url": "https://jcodemunch.com"
   },
   "homepage": "https://jcodemunch.com",
+  "icon": "./icon.svg",
   "repository": "https://github.com/jgravelle/jcodemunch-mcp",
   "documentationUrl": "https://github.com/jgravelle/jcodemunch-mcp#readme",
   "supportUrl": "https://github.com/jgravelle/jcodemunch-mcp/issues",
