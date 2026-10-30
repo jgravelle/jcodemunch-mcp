@@ -12,20 +12,25 @@ method nothing used, and `find_dead_code` called the whole code-behind
 provably unreachable. Web Forms markup got the same edge earlier (#1012); XAML
 had no reader.
 
-A view with `x:Class` now gets an edge to its sibling code-behind (`.xaml.cs`,
-or `.xaml.vb`), carrying the class name and every bare-identifier attribute
-value. XAML has no spelling that marks an event attribute (`Click`, `Loaded`,
-`TextChanged`, an attached `Mouse.MouseDown`, an `EventSetter`'s `Handler`), so
-every such value is a candidate. That is safe because the dead-code tools match
-an edge's names against the target file only: `HorizontalAlignment="Center"`
-can keep a code-behind member named `Center` alive and nothing in any other
-file. `Name`, type-naming attributes, namespaced attributes (`x:Name`),
-`True`/`False`, markup extensions (`{Binding Save}`) and commented-out elements
-name nothing. The code-behind is matched as the view's sibling only, never a
-file of the same name in a parent folder.
+A view with `x:Class` now gets an edge to its sibling `.xaml.cs`, carrying the
+class name and the method names its event attributes wire. XAML has no marker
+for an event, so the attribute's name is the evidence: one ending like an event
+(`Click`, `Clicked`, `Loaded`, `TextChanged`, an attached `Mouse.MouseDown`,
+`PreviewKeyDown`, `GotFocus`) or an `EventSetter`'s `Handler`. Boolean
+properties that end the same way (`IsChecked`, `CanContentScroll`,
+`AllowDrop`) do not count. A layout value or button text
+(`HorizontalAlignment="Center"`, `Content="OK"`) is never a name, because
+`find_references`, `check_references` and `get_tectonic_map` match an edge's
+names across the whole repository, and `Center` would then read as imported by
+every view. Namespaced attributes (`x:Name`), markup extensions
+(`{Binding Save}`) and commented-out elements name nothing either. The
+code-behind is matched as the view's sibling only, never a file of the same
+name in a parent folder.
 
-A view without `x:Class` (a resource dictionary) gets no edge. Command names in
-`{Binding ...}` point at a view-model, not the code-behind, and are not read. As
+A view without `x:Class` (a resource dictionary) gets no edge. A Visual Basic
+code-behind (`.xaml.vb`) is not linked yet, so its handlers are still reported
+as before. Command names in `{Binding ...}` point at a view-model, not the
+code-behind, and are not read. As
 with Web Forms, once the code-behind has an importer, `check_delete_safe` blocks
 deleting its unused members at low confidence instead of calling them safe: the
 cautious direction. Existing indexes pick the edge up on their next re-index
