@@ -18,9 +18,10 @@ on each re-index would have flashed one on every save. Under pythonw,
 `watch-all` now re-runs itself in `python.exe` with no window. Everything that
 process starts shares its window-less console, and its stdout and stderr go to
 the log file, so the watcher's warning lines are kept. A job object ties it to
-the task, so ending the task ends the watcher. A Windows test starts a real
-pythonw and asks Windows whether the watcher's child has a visible window. It
-fails with the no-window flag removed.
+the task, so ending the task ends the watcher. Two Windows tests start a real
+pythonw: one asks Windows whether the watcher's child has a visible window,
+and one kills the pythonw process and waits for the watcher to exit. Each fails
+with its half removed (the no-window flag, the job object).
 
 An existing task changes only when you run `watch-install` again. Until then,
 `watch-status` (and the `get_watch_status` tool's `service` block) warns that
