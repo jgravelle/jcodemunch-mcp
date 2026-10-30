@@ -25,7 +25,6 @@ Supported axes in v1:
 
 from __future__ import annotations
 
-import fnmatch
 import logging
 import re
 import subprocess
@@ -36,6 +35,7 @@ from typing import Any, Optional
 from ..storage import IndexStore, record_savings, estimate_savings, cost_avoided
 from ._utils import symbol_span_bytes
 from ._utils import resolve_repo
+from ..path_glob import matches as _glob_match
 from .pagerank import compute_pagerank
 
 logger = logging.getLogger(__name__)
@@ -153,9 +153,7 @@ def _match_criterion(
     if axis == "file":
         if op != "matches":
             return False
-        file_path = (sym.get("file", "") or "").replace("\\", "/")
-        pattern = str(value).replace("\\", "/")
-        return fnmatch.fnmatch(file_path, pattern)
+        return _glob_match(sym.get("file", "") or "", str(value))
 
     if axis == "complexity":
         return _apply_numeric(op, sym.get("cyclomatic"), value)

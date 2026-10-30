@@ -958,9 +958,9 @@ class CodeIndex:
             return [sym for _, sym in scored]
 
     def _match_pattern(self, file_path: str, pattern: str) -> bool:
-        """Match file path against glob pattern."""
-        import fnmatch
-        return fnmatch.fnmatch(file_path, pattern) or fnmatch.fnmatch(file_path, f"*/{pattern}")
+        """Match file path against glob pattern (`path_glob`'s rule)."""
+        from .. import path_glob
+        return path_glob.matches(file_path, pattern)
 
     def _score_symbol(self, sym: dict, query_lower: str, query_words: set) -> int:
         """Calculate search score for a symbol."""
