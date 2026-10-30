@@ -1891,7 +1891,7 @@ def _build_tools_list(
         Tool(
             name="summarize_repo",
             description=(
-                "Re-run AI summarization on all symbols in an existing index. "
+                "Summaries missing after indexing? Re-runs AI summarization on all symbols in an existing index. "
                 "Use this when index_folder completed but AI summaries are missing — "
                 "e.g., the background summarization thread was interrupted, AI was disabled "
                 "at index time, or the summarizer provider wasn't configured yet. "
@@ -2325,7 +2325,7 @@ def _build_tools_list(
         ),
         Tool(
             name="get_file_content",
-            description="Get cached source for a file, optionally sliced to a line range. Reads the indexed copy, not the working tree.",
+            description="Read lines of a file: its cached source, optionally a line range. Reads the indexed copy, not the working tree.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -2722,7 +2722,7 @@ def _build_tools_list(
         ),
         Tool(
             name="check_embedding_drift",
-            description="Pin (or re-check) a 16-string canary against the active embedding provider. On first run with capture=True (or force=True), embeds CANARY_STRINGS and persists the vectors to ~/.code-index/embed_canary.json. Subsequent calls re-embed those strings and report cosine drift; alarm fires when max drift exceeds threshold (default 0.05 = cos sim < 0.95). Use after upgrading providers, when retrieval quality drops unexpectedly, or as a periodic background check. Requires an active embedding provider. The first run only captures the baseline; drift is reported from the second run onward.",
+            description="Did the embedding model change? Pins (or re-checks) a 16-string canary against the active embedding provider. On first run with capture=True (or force=True), embeds CANARY_STRINGS and persists the vectors to ~/.code-index/embed_canary.json. Subsequent calls re-embed those strings and report cosine drift; alarm fires when max drift exceeds threshold (default 0.05 = cos sim < 0.95). Use after upgrading providers, when retrieval quality drops unexpectedly, or as a periodic background check. Requires an active embedding provider. The first run only captures the baseline; drift is reported from the second run onward.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -2746,7 +2746,7 @@ def _build_tools_list(
         ),
         Tool(
             name="tune_weights",
-            description="Learn per-repo retrieval weights from the v1.78.0 ranking ledger. Computes confidence correlations for the semantic and identity-match channels and writes overrides to ~/.code-index/tuning.jsonc. search_symbols reads those overrides at query time when the caller doesn't pass an explicit semantic_weight. Learns from a recency window of the ledger (default 90 days) so stale events can't anchor the weights. Safe to re-run; idempotent for stable signal. Requires perf_telemetry_enabled and the ranking ledger it writes; without that history there is nothing to learn from.",
+            description="Tune the search ranking weights for this repo: learn per-repo retrieval weights from the v1.78.0 ranking ledger. Computes confidence correlations for the semantic and identity-match channels and writes overrides to ~/.code-index/tuning.jsonc. search_symbols reads those overrides at query time when the caller doesn't pass an explicit semantic_weight. Learns from a recency window of the ledger (default 90 days) so stale events can't anchor the weights. Safe to re-run; idempotent for stable signal. Requires perf_telemetry_enabled and the ranking ledger it writes; without that history there is nothing to learn from.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -2963,7 +2963,7 @@ def _build_tools_list(
         Tool(
             name="digest",
             description=(
-                "Agent stand-up briefing for a repo. Returns a tight (~200 token) "
+                "Brief me on what changed in this repo: a stand-up briefing. Returns a tight (~200 token) "
                 "markdown digest of (a) what changed since the agent's last session "
                 "(by tracking git HEAD between calls), (b) the current risk surface "
                 "(top hotspots by complexity × churn), and (c) dead-code candidates. "
@@ -3110,7 +3110,7 @@ def _build_tools_list(
         Tool(
             name="suggest_corrections",
             description=(
-                "Mine the ranking telemetry ledger for retrieval regret (re-query churn, "
+                "Why do searches keep missing? Mines the ranking telemetry ledger for retrieval regret (re-query churn, "
                 "low confidence, thin/ambiguous results, stale-at-query, vocabulary gaps) "
                 "and return a prioritized, explainable set of SUGGESTED corrections: "
                 "CLAUDE.md routing/glossary lines (as unified-diff previews), index-freshness "
@@ -3393,7 +3393,7 @@ def _build_tools_list(
         Tool(
             name="get_pr_risk_profile",
             description=(
-                "Produce a unified risk assessment for all changes between two git refs (branch, PR, "
+                "How risky is this pull request? A unified risk assessment for all changes between two git refs (branch, PR, "
                 "or SHA range). Fuses five signals — blast radius, complexity, churn, test gaps, "
                 "and change volume — into a single composite risk_score (0.0–1.0) with actionable "
                 "recommendations. Returns the top-5 riskiest changed symbols, untested symbols, "
@@ -3451,7 +3451,7 @@ def _build_tools_list(
         Tool(
             name="get_coupling_metrics",
             description=(
-                "Return afferent coupling (Ca), efferent coupling (Ce), and instability score "
+                "How coupled is this module: afferent coupling (Ca), efferent coupling (Ce), and instability score "
                 "for a file/module. Ca = files that import this module (dependents). "
                 "Ce = files this module imports (dependencies). "
                 "Instability I = Ce/(Ca+Ce): 0 = stable, 1 = unstable. "
@@ -3542,7 +3542,7 @@ def _build_tools_list(
         Tool(
             name="check_delete_safe",
             description=(
-                "Composite preflight: can this symbol be deleted safely? Combines find_importers "
+                "Is it safe to delete this function, class or symbol? Combines find_importers "
                 "(cross-repo), check_references, find_dead_code confidence, runtime evidence "
                 "(Phase 7 traces when available), and entry-point heuristics into a single verdict + "
                 "one-line recommended_action. Verdict tiers: safe_to_delete / test_coverage_only / "
@@ -3582,7 +3582,7 @@ def _build_tools_list(
         Tool(
             name="check_edit_safe",
             description=(
-                "Composite preflight: can this symbol be edited safely? Where check_delete_safe asks "
+                "Is it safe to edit or change this function, class or symbol? Where check_delete_safe asks "
                 "who breaks if it disappears, this asks what your regression risk is if you modify it "
                 "and what you must preserve. Fuses signature impact (external/cross-repo importers), "
                 "cyclomatic complexity, test-coverage presence, and runtime traffic into a single "
@@ -3874,7 +3874,7 @@ def _build_tools_list(
         Tool(
             name="get_delivery_metrics",
             description=(
-                "Call this when you want a cost-per-outcome read on a codebase — how much "
+                "How much change stuck (was not reverted or reworked)? A cost-per-outcome read on a codebase — how much "
                 "AI spend produced durable change over a window, not raw commit or token "
                 "volume. "
                 "Quantify durable-change delivery over a window: of the non-merge commits "
@@ -3978,7 +3978,7 @@ def _build_tools_list(
         Tool(
             name="get_decorator_census",
             description=(
-                "Repo-wide census of decorators / annotations / attributes: 'where is every "
+                "Where is every decorator? A repo-wide census of decorators / annotations / attributes: '"
                 "@app.route / @Injectable / @pytest.fixture / [Serializable], and how many?' in one "
                 "read-only call. Cross-language by construction (aggregates the decorators the index "
                 "stored on each symbol). Forms are NORMALIZED (leading @, call-arguments, and [] "
@@ -4031,7 +4031,7 @@ def _build_tools_list(
         Tool(
             name="get_architecture_metrics",
             description=(
-                "Structural concentration, dependency depth, and modularity in one read-only "
+                "How modular is this codebase: structural concentration, dependency depth, and modularity in one read-only "
                 "call, over the file import graph. concentration: Gini coefficient (0 even -> 1 "
                 "hoarded) over per-file symbol count, size, fan-in (importers), and fan-out "
                 "(imports) + the top concentrators — answers 'is complexity/coupling piling up in "
@@ -4061,7 +4061,7 @@ def _build_tools_list(
         Tool(
             name="get_hotspots",
             description=(
-                "Return the top-N highest-risk symbols ranked by hotspot score = "
+                "Where is the riskiest code: the top-N highest-risk symbols ranked by hotspot score = "
                 "cyclomatic_complexity x log(1 + commits_last_N_days). "
                 "Identifies code that is both complex and frequently changed — the highest "
                 "bug-introduction risk in the codebase. Methodology matches CodeScene/Adam Tornhill. "
@@ -4445,7 +4445,7 @@ def _build_tools_list(
         Tool(
             name="assemble_task_context",
             description=(
-                "Task-aware single-call orchestrator. Auto-classifies task into "
+                "Gather the context for a task in one call. Classifies it as "
                 "explore/debug/refactor/extend/audit/review intent, runs the right sub-tools, "
                 "returns one source-attributed capsule under token_budget."
             
@@ -4578,7 +4578,7 @@ def _build_tools_list(
         Tool(
             name="get_group_contracts",
             description=(
-                "Surface the de-facto API contracts across a group of indexed repos. Walks each "
+                "Which APIs do these repos share? Surfaces the de-facto API contracts across a group of indexed repos. Walks each "
                 "member's named imports, resolves them to symbols in other members via the package "
                 "registry, and classifies each shared symbol into one of four verdict tiers: "
                 "'de_facto_api' (used by ≥min_importers external repos), 'leaky_internal' (underscore-"
@@ -4639,7 +4639,7 @@ def _build_tools_list(
         Tool(
             name="get_tectonic_map",
             description=(
-                "Discover the logical module topology of a codebase by fusing three coupling signals: "
+                "What are the real modules of this codebase? Discovers the logical module topology by fusing three coupling signals: "
                 "structural (import edges), behavioral (shared symbol references), and temporal "
                 "(git co-churn). Returns tectonic plates (auto-detected file clusters), each with "
                 "an anchor file, cohesion score, inter-plate coupling, and drifters (files whose "

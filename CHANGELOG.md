@@ -2,6 +2,50 @@
 
 ## [Unreleased]
 
+### Changed - 17 tool descriptions open with the question an agent asks
+
+A host that defers tool schemas (Claude Code, Codex) shows the model bare
+names and lets it search names and descriptions for the rest. An audit of the
+whole catalog found 22 tools, four of them in the core tier, whose
+descriptions opened with internal terms, such as "Composite preflight",
+"Task-aware single-call orchestrator" and "Mine the ranking telemetry
+ledger", and carried none of the words an agent types when it needs them.
+"How risky is this pull request" did not put `get_pr_risk_profile` in the
+top three of the catalog search.
+
+Seventeen of them now open with their question: `check_delete_safe`,
+`check_edit_safe`, `assemble_task_context`, `digest`, `get_delivery_metrics`,
+`get_decorator_census`, `get_architecture_metrics`, `check_embedding_drift`,
+`tune_weights`, `suggest_corrections`, `get_tectonic_map`,
+`get_group_contracts`, `get_pr_risk_profile`, `get_hotspots`,
+`get_coupling_metrics`, `summarize_repo` and `get_file_content`. Three others
+(`get_repo_map`, `get_parity_map`, `analyze_perf`) already answered their
+question. `set_tool_tier` and `announce_model` are left as they are: they sit
+on the byte-pinned `counter` surface, where any rewording is a full-rate
+cache write for every user.
+
+`tests/test_question_queries_find_analysis_tools.py` fails if a question loses
+a word from its tool's description, or if the Counter's catalog search stops
+ranking the tool in its top three; two paraphrases are held to rank only.
+
+The rewording is a one-time cache write for clients on the `core`,
+`standard` and `full` profiles (`counter` is unchanged). From
+`benchmarks/schema_baseline.json`: `core_compact` 3980 to 3984 tokens (+4,
+under its 4,000 ceiling), `standard_compact` 20084 to 20174 (+90),
+`full_compact` 21512 to 21602 (+90).
+
+Descriptions are the router's input, so `benchmarks/route_recall/` was re-run.
+On the held-out corpus, frozen before any routing fix, `menu` recall holds at
+@1 and @3 and rises at @5 (40.9 to 43.2) and @10 (50.0 to 52.3). At @3 one
+query left the top three and another entered, and the @5 and @10 gains are
+that one query. On the main corpus recall rises at every cutoff (@3 from 69.5
+to 72.9, @10 from 81.4 to 86.4), but part of that gain is the corpus's own
+wording now in a description: "how risky is this pull request" is now the
+`get_pr_risk_profile` opener, and the benchmark's description-overlap
+measure rose from 0.388 to 0.429 (held-out: 0.313 to 0.322). Four individual
+queries, two in each corpus, drop one place. `route` ranks are unchanged in
+both.
+
 ### Fixed - the CLI's license link points at the current site
 
 When a team feature needed a license, the CLI and the `get_license` field of
