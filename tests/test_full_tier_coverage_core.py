@@ -66,7 +66,7 @@ def _call_tier_full(monkeypatch, *, preset=None):
 
     captured = {}
 
-    def fake_run(cmd, *, env=None):
+    def fake_run(cmd, *, env=None, echo=None):
         captured["cmd"] = list(cmd)
         captured["env"] = dict(env or {})
         return 0, _FAKE_PYTEST_OUT, 1.0
