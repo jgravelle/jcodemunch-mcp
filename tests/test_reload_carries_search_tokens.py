@@ -4,8 +4,9 @@ A running server caches the loaded index keyed by the .db mtime. When another
 process (the `watch-all` service, an editor's server, a hook) writes the index,
 the next search reloads every row, which is unavoidable today, and then
 re-tokenizes every symbol for BM25, which is not. Measured on a 34,225-symbol
-index, the re-tokenizing was most of the first search after a write
-(`.claude/state/runs/row51/`).
+index, the re-tokenizing was most of the first search after a write (see the
+CHANGELOG entry "a search after another process writes the index no longer
+re-tokenizes every symbol").
 `incremental_save` already carried them for its own writes; a write from
 another process skipped the carry.
 
