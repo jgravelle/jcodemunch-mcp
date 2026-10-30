@@ -2,6 +2,48 @@
 
 ## [Unreleased]
 
+### Added - Rails views are indexed: `.erb` is a language
+
+No language mapped `.erb`, so a Rails application's whole view layer
+(`show.html.erb`, `_form.html.erb`, `create.js.erb`, a mailer's
+`.text.erb`) never entered the index: no symbols, nothing for `search_text`
+to find, no outline, and a helper called only from views looked unused. The
+`erb` language is keyed on the bare `.erb`, so every inner suffix reaches it
+(`.html.erb`, `.en.html.erb`, `.html+phone.erb`, `.js.erb`, `.rb.erb`,
+`.yml.erb`, `.turbo_stream.erb`).
+
+An ERB file is parsed in up to three passes, each over a copy of the file
+of the same length, so a symbol's line and byte offset are the original
+file's and a non-ASCII character cannot move a slice:
+
+- the Ruby inside `<% %>` tags, parsed as Ruby, with each tag's close read
+  as a statement end so adjacent tags and a block spanning tags stay valid;
+- the template text, in the language its inner suffix names (`.js.erb` as
+  JavaScript, `.rb.erb` as Ruby, `.yml.erb` as YAML);
+- for an HTML host, a bare `.erb`, or a format with no parser (`.text`,
+  `.turbo_stream`): static HTML ids and `<script>` bodies as JavaScript.
+
+`content_for`, `provide` and `yield :name` slots become constants. Each
+symbol keeps the language of the pass that found it, so
+`search_symbols(language="javascript")` finds a function in a `.js.erb`.
+A name built from a tag is named by the tag, read at its own position
+(`<%= class_name %>Report`), never by the filler used to parse around it.
+The view is always the file's first symbol, which is what files it under
+`erb`: a function at byte 0 of a `.js.erb`, or a YAML merge key, would
+otherwise have filed the view as JavaScript or YAML.
+
+No re-index is forced: the next `index_folder` finds the views as new
+files, and a test holds that. `render` partials are not yet import edges,
+and `.tt` is left unmapped because Visual Studio's T4 templates use it too.
+Fixtures are real views from rails/rails (MIT) and solidus (BSD-3), pinned
+by commit in `tests/fixtures/erb/SOURCES.md` with the licence texts.
+
+`erb` joins the `language` enum every tool derives from the registry:
+`core_full`, `standard_full` and `full_full` each grow by 2 tokens
+(`benchmarks/schema_baseline.json`), and `core_compact` and the `counter`
+surface are unchanged. A changed tool block is written to the prompt cache
+once, at full rate, on the first request after upgrading.
+
 ## [1.108.402] - 2026-10-28 - the server instructions name the tools in the first 512 characters, and tool names hold across 1.x
 
 ### Changed - tool names are a stable contract across 1.x
