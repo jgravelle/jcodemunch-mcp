@@ -14,6 +14,29 @@ fills the key only when the file leaves it unset. The limit the server enforces
 is now the one `config` shows, and an empty or unparseable env var can no
 longer switch off a limit set in the file.
 
+### Changed - on Windows, `init` writes Codex's entry as the bare command name when PATH finds the same install
+
+`init` wrote Codex's `[mcp_servers.jcodemunch]` entry as an absolute path to
+the binary. That path breaks when a reinstall moves the binary. Codex starts a
+server named by its bare command through PATH, so on Windows `init` now
+writes `command = 'jcodemunch-mcp'` when, and only when, PATH's first
+`jcodemunch-mcp` is the executable it would otherwise have written. A
+current-directory hit and uv's cache don't count as PATH finding it. When PATH
+finds a different install, or none, the absolute path is written as before: a
+bare name there would start another version, or nothing. The comparison uses
+`init`'s own PATH, so a Codex launched with a different PATH can still find
+something else. Bare-name launch was tested on Windows only, so macOS and
+Linux keep the absolute path: there a Codex started from a GUI or a
+non-login shell can have a narrower PATH than `init`, and a bare name would
+turn a working entry into one that starts nothing.
+
+CLIENTS.md now recommends `uv tool install jcodemunch-mcp` for Codex, which
+also removes the first-run download. Its `uvx` example sets
+`startup_timeout_sec = 30`: Codex waits 10 seconds for a server to start by
+default (Codex's MCP docs). Measured on 2026-10-28 (Windows, home
+broadband, `uvx` alone rather than inside Codex): a cold run filled 251 MB of
+uv cache and replied in 7.0 s; cached runs replied in 2.6 s and 2.5 s.
+
 ## [1.108.402] - 2026-10-28 - the server instructions name the tools in the first 512 characters, and tool names hold across 1.x
 
 ### Changed - tool names are a stable contract across 1.x

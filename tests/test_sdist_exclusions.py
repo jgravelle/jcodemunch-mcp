@@ -60,6 +60,14 @@ REQUIRED_PATHS = [
     "vscode-extension/package.json",
     "vscode-extension/src/extension.ts",
     "benchmarks/tasks.json",
+    # The self-run A/B kit: its README says the sdist carries it.
+    "benchmarks/ab-kit/README.md",
+    "benchmarks/ab-kit/run_lookups.py",
+    "benchmarks/ab-kit/run_retrieval.py",
+    "benchmarks/ab-kit/report.py",
+    "benchmarks/ab-kit/lookups.example.json",
+    # run_retrieval.py runs this script.
+    "benchmarks/harness/run_benchmark.py",
 ]
 
 
