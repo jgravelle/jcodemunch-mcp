@@ -185,3 +185,42 @@ def test_main_exposes_descriptions_flag(sd):
     parser = sd.build_parser()
     assert parser.parse_args(["--descriptions"]).descriptions is True
     assert parser.parse_args([]).descriptions is False
+
+
+# --------------------------------------------------------------------------- summary file
+
+
+def test_summary_overwrites_so_an_evidence_file_holds_one_report(sd, tmp_path):
+    out = tmp_path / "surface.md"
+    sd.write_summary(str(out), "## report one")
+    sd.write_summary(str(out), "## report two")
+    assert out.read_text(encoding="utf-8") == "## report two"
+
+
+def test_main_run_twice_leaves_one_report(sd, tmp_path, monkeypatch):
+    """The wiring, not only the helper: two runs of the script into one file leave one report."""
+    surface = {"names": ["a", "b"], "descriptions": {"a": "x", "b": "y"}}
+    monkeypatch.setattr(sd, "base_surface", lambda ref: surface)
+    monkeypatch.setattr(sd, "_surface", lambda root: surface)
+    monkeypatch.setattr(sd, "changed_files", lambda ref: [])
+    monkeypatch.setattr(sd, "changelog_diff", lambda ref: "")
+    out = tmp_path / "surface.md"
+    out.write_text("## a stale report from an earlier branch", encoding="utf-8")
+    for _ in range(2):
+        assert sd.main(["--descriptions", "--base-ref", "x", "--summary", str(out)]) == 0
+    text = out.read_text(encoding="utf-8")
+    assert "stale report" not in text
+    assert text.count("## done: tool surface documented") == 1
+
+
+def test_surface_guard_does_not_write_the_pr_evidence_file():
+    """The guard diffs against HEAD after each edit; the PR's surface.md is against the base branch."""
+    src = (REPO / ".claude" / "hooks" / "surface_guard.py").read_text(encoding="utf-8")
+    assert 'EVIDENCE / "surface.md"' not in src
+    assert 'EVIDENCE / "surface_guard.md"' in src
+
+
+def test_the_checklist_writes_the_pr_surface_report():
+    """`dod_checklist.py` is the step that produces evidence/surface.md for the reviewer."""
+    src = (REPO / ".claude" / "hooks" / "dod_checklist.py").read_text(encoding="utf-8")
+    assert 'str(EVIDENCE / "surface.md")' in src
