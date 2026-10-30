@@ -50,7 +50,7 @@ def _test_thread_clock(monkeypatch, module, values, then):
 
 
 def _read_the_clock_from_another_thread():
-    """Another thread in the worker reads the clock, as a leftover watcher thread can."""
+    """Another thread in the test worker reads the clock while the fake is installed."""
     t = threading.Thread(target=lambda: [time.monotonic() for _ in range(5)])
     t.start()
     t.join()
