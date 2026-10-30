@@ -285,6 +285,21 @@ class WatcherDependencyError(WatcherError):
     pass
 
 
+def watchfiles_install_command() -> str:
+    """The command that adds watchfiles for the way jcm was installed.
+
+    The one place every "watchfiles is missing" message gets its install line;
+    falls back to the pip form when detection is unavailable.
+    """
+    try:
+        from .cli.upgrade import watch_extra_install_command
+
+        return watch_extra_install_command()
+    except Exception:
+        logger.debug("install-mechanism detection failed", exc_info=True)
+        return "pip install 'jcodemunch-mcp[watch]'"
+
+
 def _watchfiles_missing_msg() -> str:
     """Install hint for the optional ``watch`` extra, aware of how jcm was installed.
 
@@ -293,13 +308,10 @@ def _watchfiles_missing_msg() -> str:
     import keeps the core watcher free of a hard dependency on the CLI package,
     and falls back to the canonical pip form if detection is unavailable.
     """
-    try:
-        from .cli.upgrade import watch_extra_install_command
-
-        cmd = watch_extra_install_command()
-    except Exception:
-        cmd = "pip install 'jcodemunch-mcp[watch]'"
-    return f"watchfiles is required for the watch subcommand. Install it with: {cmd}"
+    return (
+        "watchfiles is required to watch files. "
+        f"Install it with: {watchfiles_install_command()}"
+    )
 
 
 def _require_watchfiles() -> None:
@@ -313,6 +325,23 @@ def _require_watchfiles() -> None:
         import watchfiles  # noqa: F401
     except ImportError as exc:
         raise WatcherDependencyError(_watchfiles_missing_msg()) from exc
+
+
+def exit_unless_watchfiles(command: str) -> None:
+    """For the standalone `watch` and `watch-all` commands: exit 1 before
+    starting anything when watchfiles is missing.
+
+    Without this, each folder's task failed on its own after the manager had
+    started, printed FATAL, and the process kept running with nothing watched,
+    so a user who did not read the console believed the index stayed fresh.
+    The server's embedded watcher does not call this: there the server must
+    keep answering, and it only warns.
+    """
+    try:
+        _require_watchfiles()
+    except WatcherDependencyError as exc:
+        print(f"jcodemunch-mcp {command}: not started. {exc}", file=sys.stderr)
+        sys.exit(1)
 
 
 # Platform-specific: fcntl for Unix (advisory locking)
