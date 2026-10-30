@@ -6,7 +6,7 @@ from typing import Optional
 from ..storage import IndexStore
 from ._utils import index_status_to_tool_error, resolve_repo
 from .get_blast_radius import _build_reverse_adjacency, _find_symbol
-from ._call_graph import build_symbols_by_file, bfs_callers, bfs_callees
+from ._call_graph import build_symbols_by_file, bfs_callers, bfs_callees, label_row_depths
 from ._scip_consume import open_scip_reader, scip_meta_and_stale, scip_meta_block
 from ..retrieval.verdict import (
     build_verdict,
@@ -126,34 +126,7 @@ def _label_depths(response: dict) -> None:
         ("callers", "direct_caller_count", "callers_by_depth"),
         ("callees", "direct_callee_count", "callees_by_depth"),
     ):
-        rows = response.get(key) or []
-        by_id = {r.get("id"): r for r in rows}
-        resolved: dict[Optional[str], Optional[int]] = {}
-
-        def depth_of(r: dict, seen: frozenset = frozenset()) -> Optional[int]:
-            rid = r.get("id")
-            if rid in resolved:
-                return resolved[rid]
-            parent = by_id.get(r.get("via"))
-            if parent is not None and rid not in seen:
-                pd = depth_of(parent, seen | {rid})
-                d = pd + 1 if pd is not None else None
-            else:
-                raw = r.get("depth")
-                d = raw if isinstance(raw, int) and not isinstance(raw, bool) and raw >= 1 else None
-            resolved[rid] = d
-            return d
-
-        for r in rows:
-            d = depth_of(r)
-            if d is not None:
-                r["depth"] = d
-        rows.sort(key=lambda r: resolved.get(r.get("id")) or 10**9)
-        counts: dict[str, int] = {}
-        for r in rows:
-            d = resolved.get(r.get("id"))
-            label = str(d) if d is not None else "unknown"
-            counts[label] = counts.get(label, 0) + 1
+        counts = label_row_depths(response.get(key) or [])
         response[direct_key] = counts.get("1", 0)
         response[by_depth_key] = counts
 

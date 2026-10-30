@@ -993,6 +993,47 @@ def find_direct_callees(
 # BFS traversals
 # ---------------------------------------------------------------------------
 
+def label_row_depths(rows: list[dict]) -> dict[str, int]:
+    """Re-derive each row's depth, order *rows* by it in place, and count each depth.
+
+    THE one depth rule for a caller or callee list: `get_call_hierarchy` and
+    `get_blast_radius` both call it (L-240), so a direct count can never mean
+    two things. A row's depth is one more than the row it is reached through
+    (``via``), so a row promoted to depth 1 shortens every chain through it; a
+    row with no usable depth counts under ``"unknown"``, sorts last and is never
+    direct. The sort is stable, so the walk's order holds within a depth.
+    Returns ``{"1": n, "2": n, ...}``; the direct count is ``counts.get("1", 0)``.
+    """
+    by_id = {r.get("id"): r for r in rows}
+    resolved: dict[Optional[str], Optional[int]] = {}
+
+    def depth_of(r: dict, seen: frozenset = frozenset()) -> Optional[int]:
+        rid = r.get("id")
+        if rid in resolved:
+            return resolved[rid]
+        parent = by_id.get(r.get("via"))
+        if parent is not None and rid not in seen:
+            pd = depth_of(parent, seen | {rid})
+            d = pd + 1 if pd is not None else None
+        else:
+            raw = r.get("depth")
+            d = raw if isinstance(raw, int) and not isinstance(raw, bool) and raw >= 1 else None
+        resolved[rid] = d
+        return d
+
+    for r in rows:
+        d = depth_of(r)
+        if d is not None:
+            r["depth"] = d
+    rows.sort(key=lambda r: resolved.get(r.get("id")) or 10**9)
+    counts: dict[str, int] = {}
+    for r in rows:
+        d = resolved.get(r.get("id"))
+        label = str(d) if d is not None else "unknown"
+        counts[label] = counts.get(label, 0) + 1
+    return counts
+
+
 def bfs_callers(
     index: "CodeIndex",
     store: "IndexStore",
