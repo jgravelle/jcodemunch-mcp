@@ -2,6 +2,38 @@
 
 ## [Unreleased]
 
+### Changed - watch-all leaves temp and idle indexes unwatched
+
+`watch-all`, and the login service that runs it, watched every local index for
+as long as the index existed. That included throwaway ones: an index of a folder
+under the system temp directory, or of a checkout nobody has touched in months,
+kept its watcher, a full re-index at every sign-in, and its share of idle CPU.
+Two settings now narrow it, both on by default:
+
+- `watch_all_skip_temp` (`true`) skips a repo under the system temp directory
+  or a top-level `tmp`/`temp` folder (`C:\tmp`, `/tmp`, `/var/tmp`).
+- `watch_all_max_idle_days` (`14`; `0` watches every repo) skips a repo whose
+  newest indexed file and last indexed commit are both older than that.
+
+The index's `indexed_at` is not the idle signal, because the watcher's own
+startup pass re-indexes every watched repo at sign-in and rewrites it. The
+signals are the newest file time the index stored and the date of the commit it
+stored, which move only when the code does. A signal that cannot be read (an
+unreadable index, a commit git cannot date) keeps the repo watched. A wrong
+skip leaves an index stale with nothing to show for it, so that is the error
+this avoids.
+
+A skipped repo's index stays searchable, any explicit re-index still works, and
+the repo is watched again on the next rediscovery pass once its files or
+commits are recent. `watch-all` prints what it skipped and which setting to
+change. `watch-status` and the `get_watch_status` tool mark each such repo with
+`watch_all_skipped` (`temp` or `idle`). Both settings also read
+`JCODEMUNCH_WATCH_ALL_SKIP_TEMP` and `JCODEMUNCH_WATCH_ALL_MAX_IDLE_DAYS`. A
+typo in the first keeps temp folders skipped. One consequence: an index you
+just built of a checkout whose files and last commit are both older than 14
+days counts as idle and is not watched. Set `watch_all_max_idle_days` to `0` to
+watch it.
+
 ## [1.108.402] - 2026-10-28 - the server instructions name the tools in the first 512 characters, and tool names hold across 1.x
 
 ### Changed - tool names are a stable contract across 1.x
