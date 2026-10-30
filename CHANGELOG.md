@@ -16,6 +16,8 @@ ordered by depth. Both tools count with one function (`label_row_depths`),
 moved out of `get_call_hierarchy` rather than copied, so the two can no longer
 disagree about which caller is direct. The compact encoding carries the new
 counts and now also `caller_count`, which it had never carried.
+`get_endpoint_impact`, which republishes these callers at a default
+`call_depth` of 2, carries both new counts per endpoint.
 
 ## [1.108.402] - 2026-10-28 - the server instructions name the tools in the first 512 characters, and tool names hold across 1.x
 
