@@ -15,14 +15,18 @@ run, so the only sign was a warning in the server log. A later plain
 with a second forced run, paid for again. Reported by @swf1996120 in #1282,
 with an exact reproduction against a local endpoint.
 
-A symbol this run summarized that comes back as only its signature fallback,
-while a provider is configured, now keeps the summary it had. The result
-carries `provider_fallbacks` (how many symbols got only the fallback) and
+The summarizer now names the symbols it sent to the provider and got no
+summary back for (a failed or rate-limited request, the circuit breaker, or a
+blank answer), and each of those keeps the summary it had. The result carries
+`provider_fallbacks` (how many symbols the provider did not summarize) and
 `previous_summaries_kept` with a reason, so a failed run no longer reads like a
 healthy one and says to run the forced refresh again once the provider
 answers. `updated` now counts summaries that differ from what was stored, not
-from the blank the forced run had just set. With no provider configured, a
-forced run still resets every summary to its fallback.
+from the blank the forced run had just set. A fallback the provider was never
+asked for is written as before: with no provider configured, with a provider
+whose client could not be built, and for a docstring symbol when
+`summarize_from_docstrings` is off, a forced run still resets the summary to
+its fallback.
 
 ### Fixed - the `rate_limit` config key now turns on the HTTP rate limit
 

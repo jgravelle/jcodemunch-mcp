@@ -6,7 +6,6 @@ from typing import Optional
 
 from ..storage import IndexStore
 from ..summarizer import summarize_symbols
-from ..summarizer.batch_summarize import resolve_provider_name, signature_fallback
 from ._utils import index_status_to_tool_error, resolve_repo
 
 logger = logging.getLogger(__name__)
@@ -94,8 +93,6 @@ def summarize_repo(
         for sym in symbols:
             sym.summary = ""
 
-    before = {sym.id: sym.summary for sym in symbols}
-
     logger.info(
         "summarize_repo starting: repo=%s/%s symbols=%d force=%s",
         owner, name, len(symbols), force,
@@ -104,31 +101,34 @@ def summarize_repo(
     # Pass source_root as `repo` so project-aware config reads honor
     # `.jcodemunch.jsonc` overrides for summarizer_model / provider (#304).
     _index_source_root = getattr(index, "source_root", "") or None
+    report: dict = {}
     symbols = summarize_symbols(
         symbols, use_ai=True, repo=_index_source_root,
         # summarizer_body_chars sends the index's own text, not the file on disk.
         source_for=lambda rel: store.read_cached_source(owner, name, rel),
+        report=report,
     )
 
     stored = {d["id"]: d.get("summary", "") for d in index.symbols}
 
-    # (#1282) A symbol this run summarized that came back as only its signature
-    # fallback, while a provider is configured, is a provider failure (a 429, an
-    # error body, the circuit breaker). Keep what was stored rather than save
-    # the fallback over it, and say so: otherwise a failed forced run reads like
-    # a healthy one and a later plain run finds nothing to redo. With no
-    # provider configured the fallback IS the summary, as before.
+    # (#1282) A symbol the provider was asked for and did not summarize (a 429,
+    # an error body, the circuit breaker, a blank answer) keeps what was stored
+    # rather than have its signature fallback saved over it, and the result
+    # says so: otherwise a failed forced run reads like a healthy one and a
+    # later plain run finds nothing to redo. The summarizer names those symbols;
+    # a fallback it did not name (no provider, the docstring tier switched off)
+    # is the pipeline's answer and is written as before.
+    failed = report.get("provider_failed") or set()
     provider_fallbacks = 0
     kept = 0
-    if resolve_provider_name(repo=_index_source_root) is not None:
-        for sym in symbols:
-            if before.get(sym.id, "") or sym.summary != signature_fallback(sym):
-                continue
-            provider_fallbacks += 1
-            previous = stored.get(sym.id, "")
-            if previous and previous != sym.summary:
-                sym.summary = previous
-                kept += 1
+    for sym in symbols:
+        if sym.id not in failed:
+            continue
+        provider_fallbacks += 1
+        previous = stored.get(sym.id, "")
+        if previous and previous != sym.summary:
+            sym.summary = previous
+            kept += 1
 
     # `updated` counts summaries that differ from what was stored, so a kept
     # summary is not counted as updated (#1282). Before, a forced run counted
@@ -181,7 +181,7 @@ def summarize_repo(
     if kept > 0:
         result["previous_summaries_kept"] = kept
         result["previous_summaries_kept_reason"] = (
-            "the configured provider returned no summary for these symbols (failed or rate-limited), "
+            "the AI provider was asked for these symbols and returned no summary (a failed or rate-limited request, or a blank answer), "
             "so each kept the summary it already had; run summarize_repo(force=true) again to retry them"
         )
     return result
