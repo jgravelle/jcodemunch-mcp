@@ -43,9 +43,20 @@ def _isolated_git_config(monkeypatch, tmp_path):
 
 def _git(repo: Path, *args: str) -> str:
     out = subprocess.run(
-        ["git", "-c", "user.email=t@example.com", "-c", "user.name=t",
-         "-c", "commit.gpgsign=false", *args],
-        cwd=repo, capture_output=True, text=True, check=True,
+        [
+            "git",
+            "-c",
+            "user.email=t@example.com",
+            "-c",
+            "user.name=t",
+            "-c",
+            "commit.gpgsign=false",
+            *args,
+        ],
+        cwd=repo,
+        capture_output=True,
+        text=True,
+        check=True,
     )
     return out.stdout.strip()
 
@@ -62,6 +73,7 @@ def _hook_path(repo: Path) -> Path:
 
 
 # ---------------------------------------------------------------- installer
+
 
 def test_install_writes_one_executable_block(tmp_path):
     repo = _repo(tmp_path)
@@ -149,6 +161,7 @@ def test_uninstall_deletes_a_file_it_created(tmp_path):
 
 # ------------------------------------------------------- hook-post-checkout
 
+
 def _two_branches(tmp_path: Path) -> tuple[Path, str, str]:
     repo = _repo(tmp_path)
     (repo / "keep.py").write_text("def keep():\n    return 1\n", encoding="utf-8")
@@ -159,7 +172,9 @@ def _two_branches(tmp_path: Path) -> tuple[Path, str, str]:
     base = _git(repo, "rev-parse", "HEAD")
 
     _git(repo, "switch", "-q", "-c", "feature")
-    (repo / "keep.py").write_text("def keep():\n    return 1\n\ndef added():\n    return 4\n", encoding="utf-8")
+    (repo / "keep.py").write_text(
+        "def keep():\n    return 1\n\ndef added():\n    return 4\n", encoding="utf-8"
+    )
     _git(repo, "rm", "-q", "gone.py")
     _git(repo, "mv", "old_name.py", "new_name.py")
     _git(repo, "add", "-A")
@@ -171,7 +186,10 @@ def _two_branches(tmp_path: Path) -> tuple[Path, str, str]:
 
 def _index(repo: Path, store: Path):
     from jcodemunch_mcp.tools.index_folder import index_folder
-    result = index_folder(path=str(repo), use_ai_summaries=False, storage_path=str(store))
+
+    result = index_folder(
+        path=str(repo), use_ai_summaries=False, storage_path=str(store)
+    )
     assert result.get("success"), result
 
 
@@ -182,12 +200,18 @@ def test_hook_hands_the_indexer_exactly_the_changed_paths(tmp_path):
     _git(repo, "switch", "-q", "feature")
 
     spy = MagicMock(return_value={"success": True})
-    rc = git_hook.run_post_checkout(base, feature, "1", cwd=str(repo),
-                                    storage_path=str(store), indexer=spy)
+    rc = git_hook.run_post_checkout(
+        base, feature, "1", cwd=str(repo), storage_path=str(store), indexer=spy
+    )
     assert rc == 0
     assert spy.call_count == 1
     kwargs = spy.call_args.kwargs
-    assert sorted(kwargs["paths"]) == ["gone.py", "keep.py", "new_name.py", "old_name.py"]
+    assert sorted(kwargs["paths"]) == [
+        "gone.py",
+        "keep.py",
+        "new_name.py",
+        "old_name.py",
+    ]
     assert kwargs["use_ai_summaries"] is False
     assert Path(kwargs["path"]).resolve() == repo.resolve()
 
@@ -198,13 +222,21 @@ def test_hook_brings_the_index_to_the_checked_out_branch(tmp_path):
     _index(repo, store)
     _git(repo, "switch", "-q", "feature")
 
-    assert git_hook.run_post_checkout(base, feature, "1", cwd=str(repo),
-                                      storage_path=str(store)) == 0
+    assert (
+        git_hook.run_post_checkout(
+            base, feature, "1", cwd=str(repo), storage_path=str(store)
+        )
+        == 0
+    )
 
     from jcodemunch_mcp.storage.sqlite_store import SQLiteIndexStore
+
     st = SQLiteIndexStore(base_path=str(store))
-    rows = [r for r in st.list_repos()
-            if Path(r.get("source_root") or "").resolve() == repo.resolve()]
+    rows = [
+        r
+        for r in st.list_repos()
+        if Path(r.get("source_root") or "").resolve() == repo.resolve()
+    ]
     assert len(rows) == 1
     owner, name = rows[0]["repo"].split("/", 1)
     index = st.load_index(owner, name)
@@ -215,15 +247,27 @@ def test_hook_brings_the_index_to_the_checked_out_branch(tmp_path):
     assert "gone" not in names
 
 
-@pytest.mark.parametrize("prev,new,flag", [
-    ("A", "B", "0"),          # a file checkout, not a branch checkout
-    ("A", "A", "1"),          # nothing moved
-    ("0" * 40, "B", "1"),     # a clone: no previous commit
-])
+@pytest.mark.parametrize(
+    "prev,new,flag",
+    [
+        ("A", "B", "0"),  # a file checkout, not a branch checkout
+        ("A", "A", "1"),  # nothing moved
+        ("0" * 40, "B", "1"),  # a clone: no previous commit
+    ],
+)
 def test_hook_skips_what_is_not_a_branch_move(tmp_path, prev, new, flag):
     spy = MagicMock()
-    assert git_hook.run_post_checkout(prev, new, flag, cwd=str(tmp_path),
-                                      storage_path=str(tmp_path / "s"), indexer=spy) == 0
+    assert (
+        git_hook.run_post_checkout(
+            prev,
+            new,
+            flag,
+            cwd=str(tmp_path),
+            storage_path=str(tmp_path / "s"),
+            indexer=spy,
+        )
+        == 0
+    )
     assert not spy.called
 
 
@@ -231,8 +275,17 @@ def test_hook_never_builds_a_first_index(tmp_path):
     repo, base, feature = _two_branches(tmp_path)
     _git(repo, "switch", "-q", "feature")
     spy = MagicMock()
-    assert git_hook.run_post_checkout(base, feature, "1", cwd=str(repo),
-                                      storage_path=str(tmp_path / "store"), indexer=spy) == 0
+    assert (
+        git_hook.run_post_checkout(
+            base,
+            feature,
+            "1",
+            cwd=str(repo),
+            storage_path=str(tmp_path / "store"),
+            indexer=spy,
+        )
+        == 0
+    )
     assert not spy.called
 
 
@@ -242,11 +295,16 @@ def test_hook_exits_zero_when_the_indexer_raises(tmp_path):
     _index(repo, store)
     _git(repo, "switch", "-q", "feature")
     boom = MagicMock(side_effect=RuntimeError("boom"))
-    assert git_hook.run_post_checkout(base, feature, "1", cwd=str(repo),
-                                      storage_path=str(store), indexer=boom) == 0
+    assert (
+        git_hook.run_post_checkout(
+            base, feature, "1", cwd=str(repo), storage_path=str(store), indexer=boom
+        )
+        == 0
+    )
 
 
 # --------------------------------------------- the hook as git runs it
+
 
 def test_a_real_checkout_runs_the_installed_hook(tmp_path, monkeypatch):
     repo, base, feature = _two_branches(tmp_path)
@@ -263,18 +321,31 @@ def test_a_real_checkout_runs_the_installed_hook(tmp_path, monkeypatch):
     while not out.exists() and time.monotonic() < deadline:
         time.sleep(0.1)
     assert out.exists(), "the post-checkout hook did not run the command"
-    assert out.read_text(encoding="utf-8").split() == ["hook-post-checkout", base, feature]
+    assert out.read_text(encoding="utf-8").split() == [
+        "hook-post-checkout",
+        base,
+        feature,
+    ]
 
 
 # ------------------------------------------------------- init / uninstall
 
+
 @pytest.fixture
 def _quiet_init(monkeypatch):
-    spies = {name: MagicMock(return_value="  (spy)") for name in (
-        "install_claude_md", "install_cursor_rules", "install_windsurf_rules",
-        "install_agents_md", "install_hooks", "install_enforcement_hooks",
-        "install_copilot_hooks", "run_index",
-    )}
+    spies = {
+        name: MagicMock(return_value="  (spy)")
+        for name in (
+            "install_claude_md",
+            "install_cursor_rules",
+            "install_windsurf_rules",
+            "install_agents_md",
+            "install_hooks",
+            "install_enforcement_hooks",
+            "install_copilot_hooks",
+            "run_index",
+        )
+    }
     spies["run_audit"] = MagicMock(return_value=iter([]))
     for name, mock in spies.items():
         monkeypatch.setattr(init_module, name, mock)
@@ -282,7 +353,9 @@ def _quiet_init(monkeypatch):
     client.name = "Claude Code"
     client.config_path = None
     monkeypatch.setattr(init_module, "_detect_clients", lambda: [client])
-    monkeypatch.setattr(init_module, "configure_client", MagicMock(return_value="  configured"))
+    monkeypatch.setattr(
+        init_module, "configure_client", MagicMock(return_value="  configured")
+    )
     hook_spy = MagicMock(return_value="  post-checkout (spy)")
     monkeypatch.setattr(git_hook, "install_post_checkout", hook_spy)
     return hook_spy
@@ -299,8 +372,14 @@ def test_init_writes_the_hook_only_when_asked(_quiet_init):
 
 def test_uninstall_removes_the_hook_unless_kept(monkeypatch):
     monkeypatch.setattr(init_module, "_detect_clients", lambda: [])
-    for name in ("uninstall_claude_md", "uninstall_cursor_rules", "uninstall_windsurf_rules",
-                 "uninstall_agents_md", "uninstall_hooks", "uninstall_copilot_hooks"):
+    for name in (
+        "uninstall_claude_md",
+        "uninstall_cursor_rules",
+        "uninstall_windsurf_rules",
+        "uninstall_agents_md",
+        "uninstall_hooks",
+        "uninstall_copilot_hooks",
+    ):
         monkeypatch.setattr(init_module, name, MagicMock(return_value="  (spy)"))
     spy = MagicMock(return_value="  post-checkout (spy)")
     monkeypatch.setattr(git_hook, "uninstall_post_checkout", spy)
@@ -313,13 +392,16 @@ def test_uninstall_removes_the_hook_unless_kept(monkeypatch):
 
 def test_cli_parses_the_flags_and_the_hook_command():
     from jcodemunch_mcp import server
+
     src = Path(server.__file__).read_text(encoding="utf-8")
     assert '"--git-hook"' in src
     assert '"--keep-git-hook"' in src
     assert '"hook-post-checkout"' in src
     out = subprocess.run(
         [sys.executable, "-m", "jcodemunch_mcp", "hook-post-checkout", "A", "A"],
-        capture_output=True, text=True, timeout=120,
+        capture_output=True,
+        text=True,
+        timeout=120,
         env={**os.environ, "PYTHONPATH": str(Path(server.__file__).parents[1])},
     )
     assert out.returncode == 0, out.stderr

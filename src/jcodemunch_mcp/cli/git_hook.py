@@ -44,9 +44,14 @@ _GIT_TIMEOUT = 30
 def _git(cwd: str, *args: str) -> Optional[str]:
     try:
         out = subprocess.run(
-            ["git", *args], cwd=cwd, capture_output=True, text=True,
+            ["git", *args],
+            cwd=cwd,
+            capture_output=True,
+            text=True,
             stdin=subprocess.DEVNULL,
-            timeout=_GIT_TIMEOUT, encoding="utf-8", errors="replace",
+            timeout=_GIT_TIMEOUT,
+            encoding="utf-8",
+            errors="replace",
         )
     except (OSError, subprocess.SubprocessError):
         logger.debug("git %s failed in %s", args, cwd, exc_info=True)
@@ -161,7 +166,9 @@ def install_post_checkout(cwd: str, dry_run: bool = False, backup: bool = True) 
     return f"  created {path}"
 
 
-def uninstall_post_checkout(cwd: str, dry_run: bool = False, backup: bool = True) -> str:
+def uninstall_post_checkout(
+    cwd: str, dry_run: bool = False, backup: bool = True
+) -> str:
     """Remove the jcodemunch block; delete the file if nothing but a shebang is left."""
     hooks = _hooks_dir(cwd)
     if hooks is None:
@@ -190,7 +197,11 @@ def _indexed_root(root: Path, storage_path: Optional[str]) -> bool:
     """Is there an index whose source_root is this folder? (refresh's rule)."""
     from ..storage.sqlite_store import SQLiteIndexStore
 
-    base = storage_path or os.environ.get("CODE_INDEX_PATH") or str(Path.home() / ".code-index")
+    base = (
+        storage_path
+        or os.environ.get("CODE_INDEX_PATH")
+        or str(Path.home() / ".code-index")
+    )
     if not Path(base).is_dir():
         return False
     store = SQLiteIndexStore(base_path=base)
@@ -229,8 +240,16 @@ def run_post_checkout(
         root = Path(top.strip()).resolve()
         if not _indexed_root(root, storage_path):
             return 0
-        out = _git(str(root), "diff", "--name-only", "--no-renames", "-z",
-                   "--ignore-submodules=all", prev, new)
+        out = _git(
+            str(root),
+            "diff",
+            "--name-only",
+            "--no-renames",
+            "-z",
+            "--ignore-submodules=all",
+            prev,
+            new,
+        )
         if out is None:
             return 0
         paths = sorted({p for p in out.split("\0") if p})
