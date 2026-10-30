@@ -6,8 +6,8 @@ process is noticed. Opening a WAL-mode database creates an EMPTY `-wal` file
 when none exists, and every read touches `-shm`. The stamps counted both, so
 an agent that merely held a read connection made every other process think the
 index had been written: each reloaded every row, and with several agents on
-one index they kept invalidating each other. Measured with 2 to 8 worker
-processes on a 34,225-symbol index, every search took about 3 s.
+one index they kept invalidating each other (the CHANGELOG entry "agents
+sharing one index no longer make each other reload it" has the measurement).
 
 A write still has to be noticed: a commit puts frames in `-wal`, so a
 NON-empty `-wal` counts, by size and mtime. These tests pin both directions.
@@ -54,7 +54,7 @@ def _hold_a_reader(db: Path) -> sqlite3.Connection:
     return con
 
 
-def _commit_from_elsewhere(db: Path) -> None:
+def _commit_from_elsewhere(db: Path) -> sqlite3.Connection:
     con = sqlite3.connect(str(db))
     con.execute("PRAGMA journal_mode=WAL")
     con.execute("INSERT OR REPLACE INTO meta(key, value) VALUES ('_probe', 'x')")

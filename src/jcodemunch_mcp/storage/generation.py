@@ -87,7 +87,9 @@ def readonly_uri(db_path: PathLike) -> str:
     a process moved the mtime mid-scan, ``index_changed_since_load`` reported
     ``channels.index: "rebuilding"``, and a genuine absence could not reach
     ``absent``. Reproduced 2026-08-02: sidecars ``(False, False)`` ->
-    ``(True, True)``, mtime moved.
+    ``(True, True)``, mtime moved. (Since ``committed_wal_stat``, the empty
+    ``-wal`` such an open creates no longer moves ``_db_mtime_ns``; avoiding
+    the sidecars still keeps a read from writing to the filesystem at all.)
 
     ``immutable=1`` alone is NOT safe when the sidecars are present, and the
     cost is worse than the docstring it replaces admitted. That flag tells

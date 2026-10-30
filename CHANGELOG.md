@@ -12,7 +12,7 @@ stamps counted those as writes. So a second server, a sub-agent or the
 `watch-all` service that only read the index made every other process reload
 all of it, and their reloads did the same back. Measured with 2 to 8 processes
 searching one 34,225-symbol index and nothing writing to it, every search took
-3.0 to 3.7 s (median); one process alone answered in 0.6 ms.
+3.0 to 3.7 s (median); one process alone answered in 0.5 ms.
 
 A `-wal` file now counts only when it holds a commit, by size and modification
 time, and `-shm` never counts. One helper holds that rule for both stamps.

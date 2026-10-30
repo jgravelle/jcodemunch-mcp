@@ -555,11 +555,12 @@ def _stamp_load_provenance(index, db_path: Path, mtime_ns: int):
 
 
 def _db_mtime_ns(db_path: Path) -> int:
-    """Return the most recent mtime_ns between .db and .db-wal files.
+    """Return the most recent mtime_ns between .db and a .db-wal that holds a commit.
 
     SQLite WAL mode may not update the .db file's mtime on every commit,
     so we check both files and return the maximum to ensure cache
-    invalidation works correctly across processes.
+    invalidation works correctly across processes. An empty -wal is what a
+    reader's connection creates and is not counted (`committed_wal_stat`).
     """
     db_mtime = db_path.stat().st_mtime_ns
     # An empty -wal is what a reader's connection creates, not a write
@@ -2310,9 +2311,11 @@ class SQLiteIndexStore:
             # (the symbol writers take it; `set_coverage`,
             # `stamp_parser_generation` and `heal_pack_index_paths` do not,
             # LEDGER L-230) and BEFORE connecting, because
-            # opening a connection creates the -wal sidecar and moves the very
+            # opening a connection creates the -wal sidecar and moved the very
             # mtime compared: the cache may be patched only if it was loaded at
-            # exactly this state (review of L-227, round 2).
+            # exactly this state (review of L-227, round 2). An empty -wal no
+            # longer counts (`generation.committed_wal_stat`), and sampling
+            # first still costs nothing.
             pre_mtime_ns = _db_mtime_ns(db_path)
             conn = self._connect(db_path)
             try:
