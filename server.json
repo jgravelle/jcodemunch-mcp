@@ -4,13 +4,13 @@
   "title": "jCodeMunch MCP",
   "description": "Retrieves code by symbol via tree-sitter, so an agent reads the function it needs, not the file.",
   "websiteUrl": "https://jcodemunch.com",
-  "version": "1.108.402",
+  "version": "1.108.403",
   "packages": [
     {
       "registryType": "pypi",
       "identifier": "jcodemunch-mcp",
       "runtimeHint": "uvx",
-      "version": "1.108.402",
+      "version": "1.108.403",
       "transport": {
         "type": "stdio"
       }

@@ -2988,3 +2988,13 @@ The 1.108.399 entry, verbatim as it stood in `CLAUDE.md`:
 The `Tests:` line's 1.108.399 count, verbatim:
 
 - ⚠ Prior (1.108.399): 18696 passed, 24 skipped, **0 failed** (18720 total).
+
+## Current State rotation (2026-10-30, release 1.108.403)
+
+The 1.108.400 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.400):** **a text search returns the code it found, and a retired tool name says what replaced it** (#1237, #1236): `search_text` attaches `sources` when matches sit in at most `SOURCE_MAX_SYMBOLS` symbols within `SOURCE_MAX_LINES`/`SOURCE_MAX_BYTES`, disclosing `sources_omitted_reason`; encoding `st5`. `counter.RETIRED_TOOL_NAMES` maps `get_symbol`/`get_symbols` to `get_symbol_source` for the unknown-tool error and `order`. Full text: `CHANGELOG.md`.
+
+The `Tests:` line's 1.108.400 count, verbatim:
+
+- ⚠ Prior (1.108.400): 18715 passed, 24 skipped, **0 failed** (18739 total).

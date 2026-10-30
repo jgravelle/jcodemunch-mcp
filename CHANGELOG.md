@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.403] - 2026-10-30 - a file pattern means the same thing in every tool, and the rate_limit config key turns the limit on
+
 ### Fixed - one rule for a path pattern: with `/` it is anchored at the repo root, and a bare one matches at any depth
 
 On a large repository, `search_text` with `file_pattern="homeassistant/**"`
