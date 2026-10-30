@@ -20,11 +20,16 @@ handed to the indexer there would publish a few files as the whole corpus. It
 does nothing on a file checkout or an empty diff, and it always exits 0, so it
 never changes a checkout's exit status.
 
-An existing hook keeps every line. The block goes right after its shebang,
-because a hook that ends in `exit` would skip a block appended at the end, and
-a hook written in another language (python, node) is left alone with a
-message. `uninstall` removes the block, and deletes the file when it created
-it and nothing else is left; `--keep-git-hook` keeps it. A plain `init`,
+An existing hook keeps every line and its line endings. The block goes at the
+top, after the shebang when there is one, because a hook that ends in `exit`
+would skip a block appended at the end; a hook with no shebang gets none added,
+and a hook written in another language (python, node) is left alone with a
+message. `uninstall` takes the block out of the repository it runs in and gives
+back the file as it was, deleting it only when jcodemunch created it;
+`--keep-git-hook` keeps it. Nothing records which repositories have the hook,
+so removal is per repository, and SECURITY.md says so. The executable path is
+`shlex`-quoted, because sh reads it, and a path with a `$` or a quote in it
+would otherwise break. A plain `init`,
 `init --yes` and `init --minimal` write no git hook. SECURITY.md "Background
 behavior, fully disclosed" lists what the hook runs and reads.
 `tests/test_git_post_checkout_hook.py` runs a real `git checkout` against the

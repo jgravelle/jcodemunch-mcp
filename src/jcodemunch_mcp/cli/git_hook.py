@@ -29,7 +29,7 @@ import time
 from pathlib import Path
 from typing import Callable, Optional
 
-from .init import _hook_invocation
+import shlex
 
 logger = logging.getLogger(__name__)
 
@@ -72,26 +72,58 @@ def _hooks_dir(cwd: str) -> Optional[Path]:
     return p.resolve()
 
 
-def _block() -> str:
+def _resolve_exe() -> str:
+    """The jcodemunch-mcp executable the hook runs, forward slashes on Windows."""
+    from ..install_layout import executable_for_commands
+
+    resolved = executable_for_commands() or "jcodemunch-mcp"
+    if os.name == "nt":
+        resolved = resolved.replace("\\", "/")
+    return resolved
+
+
+def _hook_invocation() -> str:
+    # shlex.quote, not the Claude hooks' space-only quoting: this string is
+    # read by sh, where a quote, `$` or backtick in the path would be live.
+    return shlex.quote(_resolve_exe())
+
+
+def _block(nl: str = "\n") -> str:
     exe = _hook_invocation()
-    return (
-        f"{BLOCK_BEGIN}\n"
-        "# Added by `jcodemunch-mcp init --git-hook`: on a branch checkout, re-index the\n"
-        "# files that differ between the two commits, in the background.\n"
-        "# Remove it with `jcodemunch-mcp uninstall`.\n"
-        'if [ "$3" = "1" ]; then\n'
-        f'  ({exe} hook-post-checkout "$1" "$2" </dev/null >/dev/null 2>&1 &)\n'
-        "fi\n"
-        f"{BLOCK_END}\n"
-    )
+    lines = [
+        BLOCK_BEGIN,
+        "# Added by `jcodemunch-mcp init --git-hook`: on a branch checkout, re-index the",
+        "# files that differ between the two commits, in the background.",
+        "# Remove it with `jcodemunch-mcp uninstall` run in this repository.",
+        'if [ "$3" = "1" ]; then',
+        f'  ({exe} hook-post-checkout "$1" "$2" </dev/null >/dev/null 2>&1 &)',
+        "fi",
+        BLOCK_END,
+    ]
+    return nl.join(lines) + nl
 
 
 def _strip_block(text: str) -> str:
     pattern = re.compile(
-        r"^" + re.escape(BLOCK_BEGIN) + r"\n.*?^" + re.escape(BLOCK_END) + r"\n?",
+        r"^"
+        + re.escape(BLOCK_BEGIN)
+        + r"\r?\n.*?^"
+        + re.escape(BLOCK_END)
+        + r"(\r?\n)?",
         re.M | re.S,
     )
     return pattern.sub("", text)
+
+
+def _read(path: Path) -> str:
+    # newline="" keeps CRLF as written; the block follows the file's own endings.
+    with open(path, encoding="utf-8", errors="replace", newline="") as fh:
+        return fh.read()
+
+
+def _write(path: Path, text: str) -> None:
+    with open(path, "w", encoding="utf-8", newline="") as fh:
+        fh.write(text)
 
 
 def _shebang_shell(first_line: str) -> Optional[str]:
@@ -102,8 +134,11 @@ def _shebang_shell(first_line: str) -> Optional[str]:
     if not parts:
         return None
     prog = os.path.basename(parts[0])
-    if prog == "env" and len(parts) > 1:
-        prog = os.path.basename(parts[1])
+    if prog == "env":
+        # `#!/usr/bin/env -S bash -e`: skip env's own options.
+        rest = [p for p in parts[1:] if not p.startswith("-")]
+        if rest:
+            prog = os.path.basename(rest[0])
     return prog
 
 
@@ -128,7 +163,7 @@ def install_post_checkout(cwd: str, dry_run: bool = False, backup: bool = True) 
     path = hooks / "post-checkout"
 
     if path.exists():
-        text = path.read_text(encoding="utf-8", errors="replace")
+        text = _read(path)
         lines = text.splitlines(keepends=True)
         first = lines[0].rstrip("\r\n") if lines else ""
         shell = _shebang_shell(first)
@@ -138,15 +173,18 @@ def install_post_checkout(cwd: str, dry_run: bool = False, backup: bool = True) 
                 f"re-index yourself, run `jcodemunch-mcp hook-post-checkout <old> <new>` "
                 f"from it on a branch checkout"
             )
+        nl = "\r\n" if "\r\n" in text else "\n"
         body = _strip_block(text)
         body_lines = body.splitlines(keepends=True)
         if body_lines and body_lines[0].startswith("#!"):
             head, rest = body_lines[0], "".join(body_lines[1:])
             if not head.endswith("\n"):
-                head += "\n"
+                head += nl
         else:
-            head, rest = _DEFAULT_SHEBANG + "\n", body
-        new_text = head + _block() + rest
+            # No shebang: the block goes first and nothing is added, so
+            # uninstall gives back the file exactly as it was.
+            head, rest = "", body
+        new_text = head + _block(nl) + rest
         verb = "refresh" if BLOCK_BEGIN in text else "add to"
         if new_text == text:
             return f"  already current: {path}"
@@ -154,14 +192,14 @@ def install_post_checkout(cwd: str, dry_run: bool = False, backup: bool = True) 
             return f"  would {verb} {path}"
         if backup:
             _backup(path)
-        path.write_text(new_text, encoding="utf-8", newline="\n")
+        _write(path, new_text)
         _make_executable(path)
         return f"  {'refreshed' if verb == 'refresh' else 'added to'} {path}"
 
     if dry_run:
         return f"  would create {path}"
     hooks.mkdir(parents=True, exist_ok=True)
-    path.write_text(_DEFAULT_SHEBANG + "\n" + _block(), encoding="utf-8", newline="\n")
+    _write(path, _DEFAULT_SHEBANG + "\n" + _block())
     _make_executable(path)
     return f"  created {path}"
 
@@ -176,12 +214,15 @@ def uninstall_post_checkout(
     path = hooks / "post-checkout"
     if not path.exists():
         return "  not installed"
-    text = path.read_text(encoding="utf-8", errors="replace")
+    text = _read(path)
     if BLOCK_BEGIN not in text:
         return "  not installed"
     rest = _strip_block(text)
     left = [ln for ln in rest.splitlines() if ln.strip()]
-    only_shebang = len(left) == 0 or (len(left) == 1 and left[0].startswith("#!"))
+    # Only a file this module created is deleted: our default shebang and nothing else.
+    only_shebang = len(left) == 0 or (
+        len(left) == 1 and left[0].strip() == _DEFAULT_SHEBANG
+    )
     if dry_run:
         return f"  would {'delete' if only_shebang else 'remove the block from'} {path}"
     if backup:
@@ -189,7 +230,7 @@ def uninstall_post_checkout(
     if only_shebang:
         path.unlink()
         return f"  deleted {path}"
-    path.write_text(rest, encoding="utf-8", newline="\n")
+    _write(path, rest)
     return f"  removed the block from {path}"
 
 

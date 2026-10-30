@@ -16,6 +16,7 @@ can go wrong:
 from __future__ import annotations
 
 import os
+import shlex
 import stat
 import subprocess
 import sys
@@ -307,13 +308,20 @@ def test_hook_exits_zero_when_the_indexer_raises(tmp_path):
 
 
 def test_a_real_checkout_runs_the_installed_hook(tmp_path, monkeypatch):
+    """git runs the block, and sh reads the executable path as one word.
+
+    The stub lives under a directory with a space, an apostrophe and a `$`,
+    the characters a hand-quoted path gets wrong, and the block calls it by path
+    the way it calls the real executable.
+    """
     repo, base, feature = _two_branches(tmp_path)
     out = tmp_path / "called.txt"
-    stub = tmp_path / "stub.sh"
+    odd = tmp_path / "it's a $dir"
+    odd.mkdir()
+    stub = odd / "jcodemunch-mcp"
     stub.write_text(f'#!/bin/sh\necho "$@" > "{out.as_posix()}"\n', encoding="utf-8")
     stub.chmod(0o755)
-    # Run the stub through sh so the test needs no executable bit on Windows.
-    monkeypatch.setattr(git_hook, "_hook_invocation", lambda: f"sh {stub.as_posix()}")
+    monkeypatch.setattr(git_hook, "_resolve_exe", lambda: stub.as_posix())
     git_hook.install_post_checkout(str(repo))
 
     _git(repo, "switch", "-q", "feature")
@@ -326,6 +334,60 @@ def test_a_real_checkout_runs_the_installed_hook(tmp_path, monkeypatch):
         base,
         feature,
     ]
+
+
+def _lf_only(data: bytes) -> bool:
+    return b"\n" in data.replace(b"\r\n", b"")
+
+
+def test_a_hook_without_a_shebang_comes_back_byte_identical(tmp_path):
+    repo = _repo(tmp_path)
+    hook = _hook_path(repo)
+    hook.parent.mkdir(parents=True, exist_ok=True)
+    user = b"echo no-shebang\r\nexit 0\r\n"
+    hook.write_bytes(user)
+
+    git_hook.install_post_checkout(str(repo), backup=False)
+    installed = hook.read_bytes()
+    assert not installed.startswith(b"#!")
+    assert installed.index(git_hook.BLOCK_BEGIN.encode()) == 0
+    # The block follows the file's own line endings.
+    assert not _lf_only(installed)
+
+    git_hook.uninstall_post_checkout(str(repo), backup=False)
+    assert hook.read_bytes() == user
+
+
+def test_crlf_endings_survive_install_and_uninstall(tmp_path):
+    repo = _repo(tmp_path)
+    hook = _hook_path(repo)
+    hook.parent.mkdir(parents=True, exist_ok=True)
+    user = b"#!/bin/sh\r\necho mine\r\n"
+    hook.write_bytes(user)
+    git_hook.install_post_checkout(str(repo), backup=False)
+    assert not _lf_only(hook.read_bytes())
+    git_hook.uninstall_post_checkout(str(repo), backup=False)
+    assert hook.read_bytes() == user
+
+
+def test_env_dash_s_bash_counts_as_a_shell(tmp_path):
+    assert git_hook._shebang_shell("#!/usr/bin/env -S bash -e") == "bash"
+    repo = _repo(tmp_path)
+    hook = _hook_path(repo)
+    hook.parent.mkdir(parents=True, exist_ok=True)
+    hook.write_text("#!/usr/bin/env -S bash -e\necho mine\n", encoding="utf-8")
+    git_hook.install_post_checkout(str(repo), backup=False)
+    assert git_hook.BLOCK_BEGIN in hook.read_text(encoding="utf-8")
+
+
+def test_the_executable_path_is_shell_quoted(monkeypatch):
+    monkeypatch.setattr(
+        git_hook, "_resolve_exe", lambda: "C:/it's a $dir/jcodemunch-mcp.exe"
+    )
+    assert git_hook._hook_invocation() == shlex.quote(
+        "C:/it's a $dir/jcodemunch-mcp.exe"
+    )
+    assert git_hook._hook_invocation() in git_hook._block()
 
 
 # ------------------------------------------------------- init / uninstall
