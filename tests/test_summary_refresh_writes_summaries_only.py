@@ -122,7 +122,8 @@ def test_the_complexity_tools_still_answer_after_a_refresh(indexed, monkeypatch)
 
 def test_the_response_counts_are_unchanged(indexed, monkeypatch):
     """`updated` and `skipped` keep their meaning: a forced run counts every
-    symbol whose summary differs from the cleared one."""
+    symbol whose summary differs from the one stored (#1282: not from the
+    cleared one, which counted a kept summary as updated)."""
     repo, storage, db = indexed
     n = len(_rows(db))
     monkeypatch.setattr(summarize_mod, "summarize_symbols", _fake_summarizer)

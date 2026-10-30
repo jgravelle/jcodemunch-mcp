@@ -805,18 +805,13 @@ def get_model_name(repo: Optional[str] = None) -> Optional[str]:
     return str(val).strip() or None
 
 
-def _create_summarizer(repo: Optional[str] = None) -> Optional[BaseSummarizer]:
-    """Return the appropriate summarizer based on tri-state use_ai_summaries + provider config.
+def resolve_provider_name(repo: Optional[str] = None) -> Optional[str]:
+    """The provider AI summaries would use, or None when AI summaries are off.
 
-    Tri-state semantics for use_ai_summaries:
-    - False / "false" / "0" / "no" / "off": AI disabled — returns None immediately.
-    - True (bool, explicit): use summarizer_provider + summarizer_model from config;
-      falls back to auto-detect if provider is empty/unset.
-    - "auto" / "true" / anything else truthy: auto-detect by env vars (legacy behavior).
-
-    `repo` (when given) routes all config reads through the project-aware path
-    so `.jcodemunch.jsonc` overrides for `summarizer_model`, `summarizer_provider`,
-    and `use_ai_summaries` are honored at runtime (#304).
+    THE one reading of `use_ai_summaries` and `summarizer_provider`:
+    `_create_summarizer` builds its client from this answer, and
+    `summarize_repo` asks it whether a signature fallback means the provider
+    failed (#1282). Builds no client and sends nothing.
     """
     raw = _config.get("use_ai_summaries", "auto", repo=repo)
 
@@ -832,28 +827,43 @@ def _create_summarizer(repo: Optional[str] = None) -> Optional[BaseSummarizer]:
     if disabled:
         return None
 
-    model_override = get_model_name(repo=repo)
+    if not explicit_mode:
+        return get_provider_name(repo=repo)
+    # Use summarizer_provider from config; fall back to auto-detect if unset
+    explicit_provider = (_config.get("summarizer_provider", "", repo=repo) or "").lower().strip()
+    if explicit_provider == "":
+        logger.warning(
+            "use_ai_summaries is 'true' but summarizer_provider is not set; falling back to auto-detect"
+        )
+        return get_provider_name(repo=repo)
+    if explicit_provider not in _VALID_PROVIDERS:
+        logger.warning(
+            "summarizer_provider '%s' is not a valid provider; falling back to auto-detect. "
+            "Valid values: %s",
+            explicit_provider,
+            ", ".join(sorted(_VALID_PROVIDERS - {"none"})),
+        )
+        return get_provider_name(repo=repo)
+    return None if explicit_provider == "none" else explicit_provider
 
-    if explicit_mode:
-        # Use summarizer_provider from config; fall back to auto-detect if unset
-        explicit_provider = (_config.get("summarizer_provider", "", repo=repo) or "").lower().strip()
-        if explicit_provider == "":
-            logger.warning(
-                "use_ai_summaries is 'true' but summarizer_provider is not set; falling back to auto-detect"
-            )
-            name = get_provider_name(repo=repo)
-        elif explicit_provider not in _VALID_PROVIDERS:
-            logger.warning(
-                "summarizer_provider '%s' is not a valid provider; falling back to auto-detect. "
-                "Valid values: %s",
-                explicit_provider,
-                ", ".join(sorted(_VALID_PROVIDERS - {"none"})),
-            )
-            name = get_provider_name(repo=repo)
-        else:
-            name = None if explicit_provider == "none" else explicit_provider
-    else:
-        name = get_provider_name(repo=repo)
+
+def _create_summarizer(repo: Optional[str] = None) -> Optional[BaseSummarizer]:
+    """Return the appropriate summarizer based on tri-state use_ai_summaries + provider config.
+
+    Tri-state semantics for use_ai_summaries:
+    - False / "false" / "0" / "no" / "off": AI disabled — returns None immediately.
+    - True (bool, explicit): use summarizer_provider + summarizer_model from config;
+      falls back to auto-detect if provider is empty/unset.
+    - "auto" / "true" / anything else truthy: auto-detect by env vars (legacy behavior).
+
+    `repo` (when given) routes all config reads through the project-aware path
+    so `.jcodemunch.jsonc` overrides for `summarizer_model`, `summarizer_provider`,
+    and `use_ai_summaries` are honored at runtime (#304).
+    """
+    name = resolve_provider_name(repo=repo)
+    if name is None:
+        return None
+    model_override = get_model_name(repo=repo)
 
     if name == "anthropic":
         s = BatchSummarizer(repo=repo)

@@ -6,6 +6,7 @@ from typing import Optional
 
 from ..storage import IndexStore
 from ..summarizer import summarize_symbols
+from ..summarizer.batch_summarize import resolve_provider_name, signature_fallback
 from ._utils import index_status_to_tool_error, resolve_repo
 
 logger = logging.getLogger(__name__)
@@ -109,14 +110,36 @@ def summarize_repo(
         source_for=lambda rel: store.read_cached_source(owner, name, rel),
     )
 
-    updated = sum(1 for sym in symbols if sym.summary != before.get(sym.id, ""))
+    stored = {d["id"]: d.get("summary", "") for d in index.symbols}
+
+    # (#1282) A symbol this run summarized that came back as only its signature
+    # fallback, while a provider is configured, is a provider failure (a 429, an
+    # error body, the circuit breaker). Keep what was stored rather than save
+    # the fallback over it, and say so: otherwise a failed forced run reads like
+    # a healthy one and a later plain run finds nothing to redo. With no
+    # provider configured the fallback IS the summary, as before.
+    provider_fallbacks = 0
+    kept = 0
+    if resolve_provider_name(repo=_index_source_root) is not None:
+        for sym in symbols:
+            if before.get(sym.id, "") or sym.summary != signature_fallback(sym):
+                continue
+            provider_fallbacks += 1
+            previous = stored.get(sym.id, "")
+            if previous and previous != sym.summary:
+                sym.summary = previous
+                kept += 1
+
+    # `updated` counts summaries that differ from what was stored, so a kept
+    # summary is not counted as updated (#1282). Before, a forced run counted
+    # every summary against the blank it had just set.
+    updated = sum(1 for sym in symbols if sym.summary != stored.get(sym.id, ""))
     skipped = len(symbols) - updated
 
     # Persist only the summaries that differ from what is stored. A whole-row
     # rewrite from these Symbol objects stored NULL in every field
     # `_dict_to_symbol` does not copy: the complexity columns and the
     # call_references in `data` (#1161).
-    stored = {d["id"]: d.get("summary", "") for d in index.symbols}
     new_summaries = {
         sym.id: (sym.summary, sym.content_hash)
         for sym in symbols
@@ -148,4 +171,17 @@ def summarize_repo(
     if not_written > 0:
         result["not_written"] = not_written
         result["not_written_reason"] = "the symbol was re-indexed or removed during the refresh"
+    if provider_fallbacks > 0:
+        result["provider_fallbacks"] = provider_fallbacks
+        logger.warning(
+            "summarize_repo: %d symbol(s) got only a signature fallback from the configured provider "
+            "(%d kept their stored summary) for %s/%s",
+            provider_fallbacks, kept, owner, name,
+        )
+    if kept > 0:
+        result["previous_summaries_kept"] = kept
+        result["previous_summaries_kept_reason"] = (
+            "the configured provider returned no summary for these symbols (failed or rate-limited), "
+            "so each kept the summary it already had; run summarize_repo(force=true) again to retry them"
+        )
     return result
