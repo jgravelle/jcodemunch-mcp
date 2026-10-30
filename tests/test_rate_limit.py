@@ -19,32 +19,43 @@ from jcodemunch_mcp.server import _make_rate_limit_middleware
 # ---------------------------------------------------------------------------
 
 class TestMakeRateLimitMiddleware:
+    """The env var reaches the middleware through the config loader, as it
+    does in `main()`, which calls `load_config` before starting a server."""
 
-    def test_returns_none_when_limit_zero(self, monkeypatch):
-        monkeypatch.setenv("JCODEMUNCH_RATE_LIMIT", "0")
+    @staticmethod
+    def _env(tmp_path, monkeypatch, value):
+        from jcodemunch_mcp import config as config_module
+        if value is None:
+            monkeypatch.delenv("JCODEMUNCH_RATE_LIMIT", raising=False)
+        else:
+            monkeypatch.setenv("JCODEMUNCH_RATE_LIMIT", value)
+        config_module.load_config(storage_path=str(tmp_path), create_missing=False)
+
+    def test_returns_none_when_limit_zero(self, tmp_path, monkeypatch):
+        self._env(tmp_path, monkeypatch, "0")
         assert _make_rate_limit_middleware() is None
 
-    def test_returns_none_when_env_unset(self, monkeypatch):
-        monkeypatch.delenv("JCODEMUNCH_RATE_LIMIT", raising=False)
+    def test_returns_none_when_env_unset(self, tmp_path, monkeypatch):
+        self._env(tmp_path, monkeypatch, None)
         assert _make_rate_limit_middleware() is None
 
-    def test_returns_none_for_invalid_value(self, monkeypatch):
-        monkeypatch.setenv("JCODEMUNCH_RATE_LIMIT", "not_a_number")
+    def test_returns_none_for_invalid_value(self, tmp_path, monkeypatch):
+        self._env(tmp_path, monkeypatch, "not_a_number")
         assert _make_rate_limit_middleware() is None
 
-    def test_returns_none_for_negative_value(self, monkeypatch):
-        monkeypatch.setenv("JCODEMUNCH_RATE_LIMIT", "-5")
+    def test_returns_none_for_negative_value(self, tmp_path, monkeypatch):
+        self._env(tmp_path, monkeypatch, "-5")
         assert _make_rate_limit_middleware() is None
 
-    def test_returns_middleware_when_limit_positive(self, monkeypatch):
+    def test_returns_middleware_when_limit_positive(self, tmp_path, monkeypatch):
         starlette = pytest.importorskip("starlette", reason="starlette not installed")
-        monkeypatch.setenv("JCODEMUNCH_RATE_LIMIT", "10")
+        self._env(tmp_path, monkeypatch, "10")
         mw = _make_rate_limit_middleware()
         assert mw is not None
 
-    def test_returns_middleware_for_limit_one(self, monkeypatch):
+    def test_returns_middleware_for_limit_one(self, tmp_path, monkeypatch):
         pytest.importorskip("starlette", reason="starlette not installed")
-        monkeypatch.setenv("JCODEMUNCH_RATE_LIMIT", "1")
+        self._env(tmp_path, monkeypatch, "1")
         mw = _make_rate_limit_middleware()
         assert mw is not None
 
@@ -145,3 +156,57 @@ class TestRateLimitBucketLogic:
         results = self._run_bucket(limit=1, n_requests=2)
         assert results[0] is True
         assert results[1] is False
+
+
+# ---------------------------------------------------------------------------
+# The `rate_limit` config key (L-257)
+# ---------------------------------------------------------------------------
+
+class TestRateLimitConfigKey:
+    """`rate_limit` in config.jsonc was documented and displayed but never read.
+
+    Each case goes through the real loader on a config file in a scratch
+    directory: the file wins, and JCODEMUNCH_RATE_LIMIT fills the key only when
+    the file leaves it unset (CONFIGURATION.md). That is also the order
+    `jcodemunch-mcp config` displays, so the shown limit is the enforced one.
+    """
+
+    @staticmethod
+    def _load(tmp_path, monkeypatch, file_value=None, env_value=None):
+        from jcodemunch_mcp import config as config_module
+        body = "{}" if file_value is None else '{"rate_limit": %s}' % file_value
+        (tmp_path / "config.jsonc").write_text(body, encoding="utf-8")
+        if env_value is None:
+            monkeypatch.delenv("JCODEMUNCH_RATE_LIMIT", raising=False)
+        else:
+            monkeypatch.setenv("JCODEMUNCH_RATE_LIMIT", env_value)
+        config_module.load_config(storage_path=str(tmp_path), create_missing=False)
+
+    def test_config_key_alone_turns_the_limit_on(self, tmp_path, monkeypatch):
+        pytest.importorskip("starlette", reason="starlette not installed")
+        self._load(tmp_path, monkeypatch, file_value=30)
+        assert _make_rate_limit_middleware() is not None
+
+    def test_config_key_zero_leaves_it_off(self, tmp_path, monkeypatch):
+        self._load(tmp_path, monkeypatch, file_value=0)
+        assert _make_rate_limit_middleware() is None
+
+    def test_the_config_file_wins_over_the_env_var(self, tmp_path, monkeypatch):
+        """`config` shows the file's value with source [config]; the server
+        must enforce that same value, not the env var's 0."""
+        pytest.importorskip("starlette", reason="starlette not installed")
+        self._load(tmp_path, monkeypatch, file_value=30, env_value="0")
+        assert _make_rate_limit_middleware() is not None
+
+    @pytest.mark.parametrize("env_value", ["", "not_a_number"])
+    def test_an_empty_or_garbage_env_var_does_not_turn_a_configured_limit_off(
+        self, tmp_path, monkeypatch, env_value
+    ):
+        pytest.importorskip("starlette", reason="starlette not installed")
+        self._load(tmp_path, monkeypatch, file_value=30, env_value=env_value)
+        assert _make_rate_limit_middleware() is not None
+
+    def test_the_env_var_fills_the_key_when_the_file_leaves_it_unset(self, tmp_path, monkeypatch):
+        pytest.importorskip("starlette", reason="starlette not installed")
+        self._load(tmp_path, monkeypatch, env_value="10")
+        assert _make_rate_limit_middleware() is not None
