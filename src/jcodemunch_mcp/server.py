@@ -1371,6 +1371,34 @@ def _index_target_is_local(target: str) -> bool:
     )
 
 
+def _warn_capped_index(result: object, *, local: bool) -> None:
+    """Tell the person at the terminal, on stderr, that the file cap dropped files.
+
+    The result JSON already says so, but a capped index still reports success
+    and exits 0, so the flag was easy to miss. Stdout and the exit code stay
+    as they are: a capped index works, it just lacks files.
+    """
+    if not isinstance(result, dict):
+        return
+    try:
+        skipped = int(result.get("files_skipped_cap") or 0)
+    except (TypeError, ValueError):
+        return
+    if skipped <= 0:
+        return
+    key, env = (
+        ("max_folder_files", "JCODEMUNCH_MAX_FOLDER_FILES")
+        if local
+        else ("max_index_files", "JCODEMUNCH_MAX_INDEX_FILES")
+    )
+    print(
+        f"jcodemunch-mcp: warning: the index holds {result.get('files_indexed')} of "
+        f"{result.get('files_discovered')} files; {skipped} were left out by the "
+        f"{key} cap. Raise {key} in config.jsonc (or set {env}) and index again.",
+        file=sys.stderr,
+    )
+
+
 def _load_index_paths_from_arg(paths_from: str) -> tuple[Optional[list], Optional[str]]:
     """Read explicit paths from a file or stdin for `jcodemunch-mcp index --paths-from`.
 
@@ -11590,6 +11618,7 @@ def main(argv: Optional[list[str]] = None):
                 storage_path=os.environ.get("CODE_INDEX_PATH"),
             ))
         print(_json.dumps(result, indent=2))
+        _warn_capped_index(result, local=is_local)
         if not result.get("success"):
             sys.exit(1)
     elif args.command == "index-file":

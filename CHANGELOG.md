@@ -2,6 +2,19 @@
 
 ## [Unreleased]
 
+### Fixed - the CLI says when the file cap left files out of an index
+
+`jcodemunch-mcp index` prints its result as JSON. When the `max_folder_files`
+cap dropped files, that JSON said `truncated: true` with the counts and a
+warning, but the run still reported success, exited 0 and wrote nothing to
+stderr. A person skimming the output, or a script checking the exit code, saw a
+complete index. Under the default cap of 2,000, a repository many times that
+size was indexed as 2,000 files this way. The CLI now writes one line to stderr giving the files
+indexed and discovered, how many were left out, and the key to raise. A GitHub
+index that hits `max_index_files` gets the same line, naming that cap. Stdout and
+the exit code don't change, because a capped index still works; it just lacks
+files.
+
 ## [1.108.402] - 2026-10-28 - the server instructions name the tools in the first 512 characters, and tool names hold across 1.x
 
 ### Changed - tool names are a stable contract across 1.x
