@@ -562,12 +562,12 @@ def _db_mtime_ns(db_path: Path) -> int:
     invalidation works correctly across processes.
     """
     db_mtime = db_path.stat().st_mtime_ns
-    wal_path = Path(str(db_path) + "-wal")
-    try:
-        wal_mtime = wal_path.stat().st_mtime_ns
-        return max(db_mtime, wal_mtime)
-    except FileNotFoundError:
-        return db_mtime
+    # An empty -wal is what a reader's connection creates, not a write
+    # (generation.committed_wal_stat holds the rule and the reason).
+    from .generation import committed_wal_stat
+
+    wal = committed_wal_stat(db_path)
+    return max(db_mtime, wal.st_mtime_ns) if wal is not None else db_mtime
 
 
 def _cache_clear() -> None:

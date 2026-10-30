@@ -48,6 +48,24 @@ def _text(value) -> Optional[str]:
     return None
 
 
+def committed_wal_stat(db_path: PathLike):
+    """The ``-wal`` sidecar's stat when it holds at least one frame, else None.
+
+    THE rule for whether a WAL sidecar is evidence of a write, shared by every
+    cache stamp. Opening a WAL-mode database creates an EMPTY ``-wal`` when
+    none exists, so a reader in another process makes one appear with a fresh
+    mtime; counting it told every other process the index had been written,
+    and agents sharing one index kept reloading each other. A commit appends
+    frames, so a non-empty ``-wal`` is counted, by size and mtime. ``-shm`` is
+    never evidence: readers write it on every read.
+    """
+    try:
+        st = Path(str(db_path) + "-wal").stat()
+    except OSError:
+        return None
+    return st if st.st_size > 0 else None
+
+
 def wal_sidecar_present(db_path: PathLike) -> bool:
     """Whether a ``-wal`` sidecar already exists beside this database."""
     try:
