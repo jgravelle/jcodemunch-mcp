@@ -333,6 +333,50 @@ def test_install_pack_json_error(mock_httpx, tmp_path, monkeypatch):
     assert result == 1
 
 
+_PRICING = "https://example.com/pricing"
+
+
+def _refused_with_sales_link():
+    return _mock_error_response(
+        "This pack requires a jCodeMunch license",
+        {"get_license": _PRICING, "hint": "Use: install-pack premium-pack --license YOUR-KEY"},
+    )
+
+
+@patch("jcodemunch_mcp.cli.install_pack.httpx")
+def test_a_refused_download_without_a_key_shows_where_to_get_one(mock_httpx, tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("JCODEMUNCH_SHARE_SAVINGS", "0")
+    mock_httpx.get.return_value = _refused_with_sales_link()
+    assert _install_pack("premium-pack", base_path=tmp_path) == 1
+    assert _PRICING in capsys.readouterr().out
+
+
+@patch("jcodemunch_mcp.cli.install_pack.httpx")
+def test_a_licensed_install_is_never_shown_a_sales_link(mock_httpx, tmp_path, monkeypatch, capsys):
+    """A key holder whose download is refused is told the key was sent, not where to buy one."""
+    monkeypatch.setenv("JCODEMUNCH_SHARE_SAVINGS", "0")
+    mock_httpx.get.return_value = _refused_with_sales_link()
+    assert _install_pack("premium-pack", license_key="JCM-TEST-KEY-0001", base_path=tmp_path) == 1
+    out = capsys.readouterr().out
+    assert _PRICING not in out
+    assert "Get a license" not in out
+    assert "sent as X-JCM-License" in out
+
+
+@patch("jcodemunch_mcp.cli.install_pack.httpx")
+def test_a_key_from_config_also_suppresses_the_sales_link(mock_httpx, tmp_path, monkeypatch, capsys):
+    """The user's entry point: no --license flag, the key comes from config."""
+    monkeypatch.setenv("JCODEMUNCH_SHARE_SAVINGS", "0")
+    monkeypatch.setattr(
+        "jcodemunch_mcp.cli.install_pack.resolve_effective_license_key",
+        lambda explicit: "JCM-TEST-KEY-0002",
+    )
+    monkeypatch.setattr("jcodemunch_mcp.cli.install_pack._storage_path", lambda: tmp_path)
+    mock_httpx.get.return_value = _refused_with_sales_link()
+    assert run_install_pack(pack_id="premium-pack") == 1
+    assert _PRICING not in capsys.readouterr().out
+
+
 @patch("jcodemunch_mcp.cli.install_pack.httpx")
 def test_install_pack_network_error(mock_httpx, tmp_path, monkeypatch):
     import httpx as real_httpx

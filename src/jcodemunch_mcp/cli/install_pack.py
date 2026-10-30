@@ -380,8 +380,11 @@ def _install_pack(
         free_packs = data.get("free_packs")
         if free_packs:
             print(f"  Free packs available: {', '.join(free_packs)}")
+        # A key holder is never shown where to buy one: the server attaches
+        # `get_license` to a refused download whether or not a key was sent,
+        # and relaying it to a paying user reads as "your license is not one".
         get_license = data.get("get_license")
-        if get_license:
+        if get_license and not license_key:
             print(f"  Get a license: {get_license}")
         hint = data.get("hint")
         # ⚠ Suppress the server's hint when we ALREADY did what it advises.
