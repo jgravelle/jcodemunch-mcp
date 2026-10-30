@@ -1612,6 +1612,81 @@ def _extract_aspx_imports(content: str) -> list[dict]:
     return edges
 
 
+_XAML_SUFFIX = ".xaml"
+# A C# code-behind sits beside its view as `<view>.xaml.cs`. A VB code-behind
+# (`.xaml.vb`) is not linked: an edge per language doubles every name match in
+# the reference tools, and the extractor cannot see which file exists.
+_XAML_CODE_BEHIND_SUFFIX = ".cs"
+_XAML_CLASS = re.compile(r"""\bx:Class\s*=\s*(?:"([^"]*)"|'([^']*)')""")
+_XML_COMMENT = re.compile(r"<!--.*?-->", re.DOTALL)
+# An event attribute, by its last dotted segment (`Click`, `TextChanged`,
+# `Mouse.MouseDown`, `PreviewKeyDown`, MAUI's `Clicked`). XAML has no marker for
+# an event, so the name's ending is the evidence; `Handler` is an EventSetter's.
+_XAML_EVENT_ATTR = re.compile(
+    r"(?:[A-Z]\w*)?(?:Click|Clicked|Changed|Changing|Loaded|Unloaded|Loading|"
+    r"Opened|Opening|Closed|Closing|Checked|Unchecked|Indeterminate|Pressed|"
+    r"Released|Tapped|Holding|Entered|Exited|Enter|Leave|Down|Up|Move|Moved|"
+    r"Wheel|Drop|Over|Executed|Activated|Deactivated|Focus|Focused|Unfocused|"
+    r"Completed|Started|Requested|Initialized|Invoked|Toggled|Selected|"
+    r"Unselected|Scroll|Scrolled|Expanded|Collapsed|Appearing|Disappearing|"
+    r"Input|Navigated|Navigating|Rendered|Updated|Error|Failed)|Handler"
+)
+# Boolean and capability properties that end like an event (`IsChecked`,
+# `IsSelected`, `CanContentScroll`, `AllowDrop`).
+_XAML_PROPERTY_PREFIXES = ("Is", "Can", "Has", "Allow")
+# A value no method can carry; a Binding's `NotifyOnSourceUpdated="True"` ends
+# like an event.
+_XAML_LITERALS = frozenset({"true", "false"})
+
+
+def _xaml_handler_names(content: str) -> list[str]:
+    """Method names wired to event attributes in XAML markup.
+
+    Only an event-shaped attribute names a handler, the Web Forms rule
+    (`_aspx_handler_names` reads `On*=` only): a layout value
+    (`HorizontalAlignment="Center"`) or button text (`Content="OK"`) would
+    otherwise ride on the edge as an imported name, and `find_references`,
+    `check_references` and `get_tectonic_map` match edge names repo-wide.
+    Namespaced attributes, markup extensions (`{Binding X}`) and commented-out
+    elements name nothing.
+    """
+    found: list[str] = []
+    seen: set[str] = set()
+    for raw in _aspx_tags(_XML_COMMENT.sub(" ", content)):
+        if raw.startswith(("</", "<?", "<!")):
+            continue
+        for attr_name, value in _aspx_attr_pairs(_ASPX_TAG_ATTR, raw):
+            if ":" in attr_name:
+                continue
+            event = attr_name.rsplit(".", 1)[-1]
+            if event.startswith(_XAML_PROPERTY_PREFIXES) or not _XAML_EVENT_ATTR.fullmatch(event):
+                continue
+            value = value.strip()
+            if (not _ASPX_HANDLER_NAME.match(value) or value.lower() in _XAML_LITERALS
+                    or value in seen):
+                continue
+            seen.add(value)
+            found.append(value)
+    return found
+
+
+def _extract_xaml_imports(content: str, file_path: str) -> list[dict]:
+    """An edge from a XAML view to its code-behind, carrying the class and handler names (L-202).
+
+    Only a view with `x:Class` has a code-behind; a resource dictionary or an
+    `App.xaml` without one gets no edge. The names are what keep markup-wired
+    handlers off the dead-code lists, the Web Forms `markup_event` edge's twin.
+    """
+    m = _XAML_CLASS.search(content)
+    if not m:
+        return []
+    cls = (m.group(1) or m.group(2) or "").strip().rsplit(".", 1)[-1]
+    names = sorted({cls, *_xaml_handler_names(content)} - {""})
+    base = posixpath.basename(file_path.replace("\\", "/"))
+    return [{"specifier": base + _XAML_CODE_BEHIND_SUFFIX, "names": names,
+             "xaml_binding": "code_behind"}]
+
+
 def _extract_astro_imports(content: str) -> list[dict]:
     """Extract imports from Astro frontmatter + synthetic template usage edges."""
     frontmatter, template_body, _, _ = split_astro_frontmatter(content)
@@ -2022,6 +2097,10 @@ def extract_imports(content: str, file_path: str, language: str,
             return []
 
     extractor = _LANGUAGE_EXTRACTORS.get(language)
+    # XAML is indexed as `xml`, which has no extractor of its own: only a
+    # `.xaml` view has a code-behind to point at (L-202).
+    if extractor is None and language == "xml" and file_path.lower().endswith(_XAML_SUFFIX):
+        extractor = lambda c: _extract_xaml_imports(c, file_path)  # noqa: E731
     if extractor is None:
         return []
     try:
@@ -2834,6 +2913,15 @@ def resolve_specifier(
     # Namespace="Utils" %>` bound an unrelated `utils.js` in any ancestor
     # directory, and `check_delete_safe` blocked that file's deletion as final
     # (review of #1012). A namespace resolves to nothing, here or below.
+    # A XAML code-behind is the view's sibling and nothing else: climbing like
+    # Web Forms would bind a same-named file in an ancestor (L-202).
+    if importer_path.lower().endswith(_XAML_SUFFIX):
+        joined = posixpath.normpath(
+            posixpath.join(posixpath.dirname(importer_path), specifier)
+        )
+        if joined in source_files:
+            return joined
+        return _lowercase_paths(source_files).get(joined.lower())
     if not specifier.startswith((".", "/")) and importer_path.lower().endswith(
         _ASPX_MARKUP_SUFFIXES
     ):

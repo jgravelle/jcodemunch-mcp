@@ -2,6 +2,40 @@
 
 ## [Unreleased]
 
+### Fixed - a XAML view's markup-wired event handlers are no longer reported dead
+
+A WPF, UWP, Avalonia or MAUI view wires its handlers in markup
+(`<Button Click="Ok_Click"/>`) and names its code-behind class with `x:Class`.
+Nothing read either, so a `.xaml` file had no edge to `Ctl.xaml.cs`:
+`get_dead_code_v2` listed `Ok_Click` as dead in its default output, beside a
+method nothing used, and `find_dead_code` called the whole code-behind
+provably unreachable. Web Forms markup got the same edge earlier (#1012); XAML
+had no reader.
+
+A view with `x:Class` now gets an edge to its sibling `.xaml.cs`, carrying the
+class name and the method names its event attributes wire. XAML has no marker
+for an event, so the attribute's name is the evidence: one ending like an event
+(`Click`, `Clicked`, `Loaded`, `TextChanged`, an attached `Mouse.MouseDown`,
+`PreviewKeyDown`, `GotFocus`) or an `EventSetter`'s `Handler`. Boolean
+properties that end the same way (`IsChecked`, `CanContentScroll`,
+`AllowDrop`) do not count. A layout value or button text
+(`HorizontalAlignment="Center"`, `Content="OK"`) is never a name, because
+`find_references`, `check_references` and `get_tectonic_map` match an edge's
+names across the whole repository, and `Center` would then read as imported by
+every view. Namespaced attributes (`x:Name`), markup extensions
+(`{Binding Save}`) and commented-out elements name nothing either. The
+code-behind is matched as the view's sibling only, never a file of the same
+name in a parent folder.
+
+A view without `x:Class` (a resource dictionary) gets no edge. A Visual Basic
+code-behind (`.xaml.vb`) is not linked yet, so its handlers are still reported
+as before. Command names in `{Binding ...}` point at a view-model, not the
+code-behind, and are not read. As
+with Web Forms, once the code-behind has an importer, `check_delete_safe` blocks
+deleting its unused members at low confidence instead of calling them safe: the
+cautious direction. Existing indexes pick the edge up on their next re-index
+(parser generation 27).
+
 ## [1.108.402] - 2026-10-28 - the server instructions name the tools in the first 512 characters, and tool names hold across 1.x
 
 ### Changed - tool names are a stable contract across 1.x

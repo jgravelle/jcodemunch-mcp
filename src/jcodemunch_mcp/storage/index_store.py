@@ -686,7 +686,11 @@ INDEX_VERSION = 17
 #   bump does not rewrite a stored AI summary that already says GET: a
 #   re-parse keeps paid AI summaries (see 21), so those need
 #   `summarize_repo(force=true)`.
-PARSER_GENERATION = 26
+# 27 (L-202): a XAML view with `x:Class` gains an edge to its code-behind,
+#   carrying the class and the handler names its markup wires. `files.imports`
+#   changes on UNCHANGED content, so a re-parse is the only way an existing
+#   index gains the edge (the generation-25 shape).
+PARSER_GENERATION = 27
 
 
 @dataclass(frozen=True)
