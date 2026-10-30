@@ -1399,8 +1399,13 @@ def run_init(
     guidance: bool = False,
     policy: bool = False,
     remove_guidance: bool = False,
+    git_hook: bool = False,
 ) -> int:
     """Run the init flow. Returns exit code (0 = success).
+
+    ``git_hook`` writes a git post-checkout hook into the repository in the
+    current directory, which re-indexes the files a branch checkout changed.
+    Only a typed ``--git-hook`` or a yes to the interactive offer writes it.
 
     A default install registers the server and adds only the hooks whose
     output the model never sees. ``guidance`` adds the model-facing hooks,
@@ -1706,6 +1711,18 @@ def run_init(
                 f"Index {os.getcwd()}",
                 "Symbol search, find-references, and repo exploration would be available immediately — without opening a single file",
             ))
+
+    # ----- Step 4b: git post-checkout hook (opt-in) -----
+    from . import git_hook as _git_hook
+    do_git_hook = git_hook
+    if not do_git_hook and interactive and _git_hook._hooks_dir(os.getcwd()) is not None:
+        print()
+        do_git_hook = _prompt_yn(
+            "Add a git post-checkout hook that re-indexes changed files after a branch switch?",
+            default=False,
+        )
+    if do_git_hook:
+        print(f"  Git hook:{_git_hook.install_post_checkout(os.getcwd(), dry_run=dry_run, backup=backup)}")
 
     # ----- Step 5: Audit agent config -----
     do_audit = audit
@@ -2208,6 +2225,7 @@ def run_uninstall(
     dry_run: bool = False,
     no_backup: bool = False,
     yes: bool = False,
+    git_hook: bool = True,
 ) -> int:
     """Reverse a prior `init` run. Returns exit code (0 = success)."""
     backup = not no_backup
@@ -2269,6 +2287,11 @@ def run_uninstall(
     if copilot_hooks and not scoped_to_one:
         msg = uninstall_copilot_hooks(dry_run=dry_run, backup=backup)
         print(f"  Copilot hooks:{msg}")
+
+    if git_hook and not scoped_to_one:
+        from . import git_hook as _git_hook
+        msg = _git_hook.uninstall_post_checkout(os.getcwd(), dry_run=dry_run, backup=backup)
+        print(f"  Git hook:{msg}")
 
     if skills and not scoped_to_one:
         from .skills import uninstall_claude_skill

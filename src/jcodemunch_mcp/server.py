@@ -10206,6 +10206,18 @@ def main(argv: Optional[list[str]] = None):
         ),
     )
     init_parser.add_argument(
+        "--git-hook",
+        action="store_true",
+        dest="git_hook",
+        help=(
+            "Write a git post-checkout hook into the repository in this directory. "
+            "On a branch checkout it re-indexes, in the background, only the files "
+            "that differ between the two commits, and only if the repository is "
+            "already indexed. An existing hook keeps its lines. Off by default; "
+            "`uninstall` removes it."
+        ),
+    )
+    init_parser.add_argument(
         "--remove-guidance",
         action="store_true",
         dest="remove_guidance",
@@ -10359,6 +10371,10 @@ def main(argv: Optional[list[str]] = None):
     uninstall_parser.add_argument(
         "--keep-hooks", action="store_true", dest="keep_hooks",
         help="Preserve jcodemunch hooks in ~/.claude/settings.json",
+    )
+    uninstall_parser.add_argument(
+        "--keep-git-hook", action="store_true", dest="keep_git_hook",
+        help="Preserve the jcodemunch block in this repository's git post-checkout hook",
     )
     uninstall_parser.add_argument(
         "--keep-copilot-hooks", action="store_true", dest="keep_copilot_hooks",
@@ -10649,6 +10665,15 @@ def main(argv: Optional[list[str]] = None):
         help="SubagentStart hook: inject condensed repo orientation for spawned agents (reads stdin)",
     )
 
+    # --- hook-post-checkout ---
+    pc_parser = subparsers.add_parser(
+        "hook-post-checkout",
+        help="git post-checkout hook (written by init --git-hook): re-index the files that differ between two commits",
+    )
+    pc_parser.add_argument("prev", help="commit before the checkout")
+    pc_parser.add_argument("new", help="commit after the checkout")
+    pc_parser.add_argument("flag", nargs="?", default="1", help="1 for a branch checkout, 0 for a file checkout")
+
     # --- hook-sessionstart ---
     subparsers.add_parser(
         "hook-sessionstart",
@@ -10803,7 +10828,7 @@ def main(argv: Optional[list[str]] = None):
     if any(arg in top_level_flags for arg in raw_argv):
         args = parser.parse_args(raw_argv)
     else:
-        known_commands = {"serve", "watch", "hook-event", "hook-pretooluse", "hook-posttooluse", "hook-copilot-posttooluse", "hook-precompact", "hook-taskcomplete", "hook-subagent-start", "hook-sessionstart", "watch-claude", "watch-all", "watch-install", "watch-uninstall", "watch-status", "config", "list-repos", "delete-index", "org-report", "org-rollup", "license", "index", "index-file", "import-trace", "import-scip", "claude-md", "init", "install", "install-status", "uninstall", "install-pack", "download-model", "upgrade", "whatsnew", "receipt", "digest", "reflect", "delivery", "parity", "refresh", "health", "file-risk", "observatory", "keyring", "surface", "diagnose"}
+        known_commands = {"serve", "watch", "hook-event", "hook-pretooluse", "hook-posttooluse", "hook-copilot-posttooluse", "hook-precompact", "hook-taskcomplete", "hook-subagent-start", "hook-sessionstart", "hook-post-checkout", "watch-claude", "watch-all", "watch-install", "watch-uninstall", "watch-status", "config", "list-repos", "delete-index", "org-report", "org-rollup", "license", "index", "index-file", "import-trace", "import-scip", "claude-md", "init", "install", "install-status", "uninstall", "install-pack", "download-model", "upgrade", "whatsnew", "receipt", "digest", "reflect", "delivery", "parity", "refresh", "health", "file-risk", "observatory", "keyring", "surface", "diagnose"}
         # MCP-tool-name typos: route to the right CLI verb with a friendly hint.
         # `index_repo` and `index_folder` are MCP tools, not CLI subcommands.
         _CLI_ALIASES = {
@@ -11071,6 +11096,7 @@ def main(argv: Optional[list[str]] = None):
             guidance=getattr(args, "guidance", False),
             policy=getattr(args, "policy", False),
             remove_guidance=getattr(args, "remove_guidance", False),
+            git_hook=getattr(args, "git_hook", False),
         ))
 
     if args.command == "install":
@@ -11168,6 +11194,7 @@ def main(argv: Optional[list[str]] = None):
             dry_run=getattr(args, "dry_run", False),
             no_backup=getattr(args, "no_backup", False),
             yes=getattr(args, "yes", False),
+            git_hook=not getattr(args, "keep_git_hook", False),
         ))
 
     if args.command == "keyring":
@@ -11431,6 +11458,10 @@ def main(argv: Optional[list[str]] = None):
     if args.command == "hook-sessionstart":
         from .cli.hooks import run_sessionstart
         sys.exit(run_sessionstart())
+
+    if args.command == "hook-post-checkout":
+        from .cli.git_hook import run_post_checkout
+        sys.exit(run_post_checkout(args.prev, args.new, args.flag))
 
     # Apply config defaults for watcher keys: CLI args > config > env vars.
     # config.load_config() is called inside each subcommand handler, but we need
