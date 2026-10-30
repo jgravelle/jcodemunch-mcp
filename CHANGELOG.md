@@ -2,6 +2,34 @@
 
 ## [Unreleased]
 
+### Added - `init --git-hook`: a branch switch re-indexes the files it changed
+
+After `git switch` the index still described the branch you left, until a
+watcher, an edit hook or a manual `index` caught up, so the first answers on
+the new branch could name functions that were no longer there. `init
+--git-hook` (or a yes to the new offer in an interactive `init`, default no)
+writes a git post-checkout hook into the repository in the current directory,
+in the hooks directory git itself names, so `core.hooksPath` and linked
+worktrees are honored. On a branch checkout it starts `jcodemunch-mcp
+hook-post-checkout <old> <new>` in the background, which re-indexes only the
+files `git diff --name-only --no-renames` lists between the two commits.
+`--no-renames` matters: with rename detection the old name is not listed, and
+a renamed file would have stayed in the index under its old path. The command
+does nothing on a repository with no index, because a partial path list
+handed to the indexer there would publish a few files as the whole corpus. It
+does nothing on a file checkout or an empty diff, and it always exits 0, so it
+never changes a checkout's exit status.
+
+An existing hook keeps every line. The block goes right after its shebang,
+because a hook that ends in `exit` would skip a block appended at the end, and
+a hook written in another language (python, node) is left alone with a
+message. `uninstall` removes the block, and deletes the file when it created
+it and nothing else is left; `--keep-git-hook` keeps it. A plain `init`,
+`init --yes` and `init --minimal` write no git hook. SECURITY.md "Background
+behavior, fully disclosed" lists what the hook runs and reads.
+`tests/test_git_post_checkout_hook.py` runs a real `git checkout` against the
+installed hook.
+
 ## [1.108.402] - 2026-10-28 - the server instructions name the tools in the first 512 characters, and tool names hold across 1.x
 
 ### Changed - tool names are a stable contract across 1.x
