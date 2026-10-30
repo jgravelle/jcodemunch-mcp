@@ -4,7 +4,8 @@ A running server caches the loaded index keyed by the .db mtime. When another
 process (the `watch-all` service, an editor's server, a hook) writes the index,
 the next search reloads every row, which is unavoidable today, and then
 re-tokenizes every symbol for BM25, which is not. Measured on a 34,225-symbol
-index: 0.42 s to load, 1.8 s to re-tokenize, 5 ms when the tokens are carried.
+index, the re-tokenizing was most of the first search after a write
+(`.claude/state/runs/row51/`).
 `incremental_save` already carried them for its own writes; a write from
 another process skipped the carry.
 
@@ -140,3 +141,49 @@ def test_a_matching_symbol_is_carried():
 
     assert _carry_bm25_tokens(_Idx([old_sym]), _Idx([new_sym])) == 1
     assert new_sym["_tokens"] is old_sym["_tokens"]
+
+
+def test_an_own_save_after_an_outside_write_keeps_unchanged_tokens(indexed):
+    """The second route: another process writes, then this one saves with no load between.
+
+    `index_folder` loads before it saves, so that load's carry already serves it;
+    a writer that calls `incremental_save` on a cache the outside write made
+    stale (as `index_file` can) rebuilds from rows, and the stale copy's bags
+    must carry there too.
+    """
+    store, owner, name, db = indexed
+    first = store.load_index(owner, name)
+    for s in first.symbols:
+        _sym_tokens(s)
+    old_gamma_tokens = _by_name(first)["gamma"]["_tokens"]
+    _write_from_elsewhere(db, "INSERT OR REPLACE INTO meta(key, value) VALUES ('_probe', '2')")
+
+    saved = store.incremental_save(owner, name, [], [], [], [], {})
+    assert saved is not None and saved is not first, "the save took the patch path"
+    assert _by_name(saved)["gamma"].get("_tokens") is old_gamma_tokens
+
+
+def _carry_one(old_sym, new_sym):
+    from jcodemunch_mcp.storage.sqlite_store import _carry_bm25_tokens
+
+    class _Idx:
+        def __init__(self, symbols):
+            self.symbols = symbols
+
+    return _carry_bm25_tokens(_Idx([old_sym]), _Idx([new_sym]))
+
+
+def test_a_different_content_hash_blocks_the_carry():
+    old_sym = {"id": "x", "name": "f", "content_hash": "h1"}
+    _sym_tokens(old_sym)
+    new_sym = {"id": "x", "name": "f", "content_hash": "h2"}
+    assert _carry_one(old_sym, new_sym) == 0
+    assert "_tokens" not in new_sym
+
+
+def test_a_missing_content_hash_blocks_the_carry():
+    old_sym = {"id": "x", "name": "f", "content_hash": "h"}
+    _sym_tokens(old_sym)
+    new_sym = {"id": "x", "name": "f"}
+    assert _carry_one(old_sym, new_sym) == 0
+    assert "_tokens" not in new_sym
