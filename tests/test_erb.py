@@ -1,0 +1,500 @@
+"""Ruby ERB templates (`.erb`) are indexed as language `erb`.
+
+The parser runs up to three passes over one file, each over a same-length copy
+of it, so every symbol's line and byte offset are the original file's:
+
+- the Ruby inside `<% %>` tags, parsed as Ruby;
+- the host text, parsed in the language its inner suffix names (`.js.erb` as
+  JavaScript, `.rb.erb` as Ruby, `.yml.erb` as YAML, ...), with output tags
+  filled by an identifier and statement tags blanked;
+- for an HTML host (`.html.erb`, bare `.erb`, or a format with no parser such as
+  `.text.erb`): a view symbol, static HTML ids, `content_for`/`provide`/`yield`
+  slots, and inline `<script>` bodies parsed as JavaScript.
+
+Fixtures and their licences: `tests/fixtures/erb/SOURCES.md`.
+"""
+
+from __future__ import annotations
+
+import shutil
+from pathlib import Path
+
+import pytest
+
+from jcodemunch_mcp.cli.hooks._common import _CODE_EXTENSIONS
+from jcodemunch_mcp.parser import extractor, parse_budget, parse_file
+from jcodemunch_mcp.parser.languages import LANGUAGE_EXTENSIONS, LANGUAGE_REGISTRY, get_language_for_path
+from jcodemunch_mcp.parser.symbols import compute_content_hash
+from jcodemunch_mcp.tools.index_folder import index_folder
+from jcodemunch_mcp.tools.search_symbols import search_symbols
+
+FIXTURES = Path(__file__).parent / "fixtures" / "erb"
+ALL_FIXTURES = sorted(p.name for p in FIXTURES.glob("*.erb"))
+
+
+def _parse(name: str, path: str | None = None):
+    source = (FIXTURES / name).read_bytes()
+    symbols = parse_file(source.decode("utf-8"), path or f"app/views/fixtures/{name}", "erb")
+    return source, symbols
+
+
+def _view(symbols):
+    views = [s for s in symbols if s.language == "erb" and s.signature.startswith("view ")]
+    assert len(views) == 1, [(s.name, s.signature) for s in views]
+    return views[0]
+
+
+def _line_of(source: bytes, offset: int) -> int:
+    return source.count(b"\n", 0, offset) + 1
+
+
+def _named(symbols, name, language=None):
+    found = [s for s in symbols if s.name == name and (language is None or s.language == language)]
+    assert found, f"no {language or ''} symbol named {name!r} in {[(s.name, s.language) for s in symbols]}"
+    return found[0]
+
+
+# ---------------------------------------------------------------------------
+# Detection
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "app/views/users/show.html.erb",
+        "app/views/users/show.en.html.erb",
+        "app/views/users/index.html+phone.erb",
+        "app/views/layouts/rescue.erb",
+        "app/views/user_mailer/welcome.text.erb",
+        "app/views/comments/create.js.erb",
+        "app/views/messages/show.json.erb",
+        "app/views/posts/feed.xml.erb",
+        "lib/generators/model/templates/model.rb.erb",
+        "config/database.yml.erb",
+        "app/views/option_values/update.turbo_stream.erb",
+        "app/views/v1.2/_partial.html.erb",
+    ],
+)
+def test_every_erb_suffix_form_maps_to_erb(path):
+    assert get_language_for_path(path) == "erb"
+
+
+def test_erb_is_registered_and_no_existing_mapping_moves():
+    assert LANGUAGE_EXTENSIONS[".erb"] == "erb"
+    assert "erb" in LANGUAGE_REGISTRY
+    for path, language in {
+        "a.rb": "ruby", "a.rake": "ruby", "a.html": "html", "a.js": "javascript",
+        "a.yml": "yaml", "a.ejs": "ejs", "a.cshtml": "razor", "a.aspx": "aspx",
+    }.items():
+        assert get_language_for_path(path) == language, path
+
+
+def test_edit_hooks_treat_an_erb_file_as_code():
+    assert ".erb" in _CODE_EXTENSIONS
+
+
+def test_plan_refactoring_reads_a_render_line_and_a_definition():
+    import re
+
+    from jcodemunch_mcp.tools.plan_refactoring import _DEF_PATTERNS, _IMPORT_PATTERNS, fill_name_template
+
+    assert _IMPORT_PATTERNS["erb"].match('<%= render "shared/nav" %>')
+    assert not _IMPORT_PATTERNS["erb"].match("<p>render</p>")
+    definition = re.compile(fill_name_template(_DEF_PATTERNS["erb"].pattern, "sidebar"))
+    assert definition.match("<% def sidebar(x)")
+    assert definition.match("<% content_for :sidebar do %>")
+    assert definition.match("<%- provide(:sidebar, 'x') -%>")
+    assert not definition.match("<%= sidebar(1) %>")
+    assert not definition.match("<% def sidebar_extra %>")
+
+
+# ---------------------------------------------------------------------------
+# The masks keep every byte where it was
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("name", ALL_FIXTURES)
+def test_both_masks_keep_the_length_and_every_newline(name):
+    source = (FIXTURES / name).read_bytes()
+    ruby, host = extractor._erb_masks(source)
+    assert len(ruby) == len(source) and len(host) == len(source)
+    newlines = [i for i, b in enumerate(source) if b == 0x0A]
+    assert [i for i, b in enumerate(ruby) if b == 0x0A] == newlines
+    assert [i for i, b in enumerate(host) if b == 0x0A] == newlines
+
+
+def test_the_ruby_mask_keeps_tag_code_in_place_and_drops_everything_else():
+    source = (FIXTURES / "handwritten_slots.html.erb").read_bytes()
+    ruby, host = extractor._erb_masks(source)
+    at = source.index(b"current_user.name")
+    assert ruby[at:at + len(b"current_user.name")] == b"current_user.name"
+    # A literal `<%%= tags %>` is template TEXT, never Ruby.
+    assert b"tags" not in ruby
+    # The comment tag, and the HTML around the tags, are gone from the Ruby copy.
+    assert b"Hand-written" not in ruby and b"<nav" not in ruby
+    # The host copy keeps the HTML and loses the tags.
+    assert b'<nav id="side-nav">' in host
+    assert b"current_user" not in host and b"<%=" not in host.replace(b"<%%=", b"")
+
+
+# ---------------------------------------------------------------------------
+# Integrity over every fixture
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("name", ALL_FIXTURES)
+def test_every_symbol_is_a_slice_of_the_original_file(name):
+    source, symbols = _parse(name)
+    view = _view(symbols)
+    assert (view.line, view.byte_offset, view.byte_length) == (1, 0, len(source))
+    assert view.parent is None and view.kind == "class"
+
+    ids = {s.id for s in symbols}
+    for s in symbols:
+        if s is view:
+            continue
+        # The YAML parser represents a key merged in by `<<: *anchor` as a
+        # zero-length symbol at line 0; that is its own shape, not ERB's.
+        if s.language == "yaml" and s.line == 0 and s.byte_length == 0:
+            continue
+        piece = source[s.byte_offset:s.byte_offset + s.byte_length]
+        assert 0 <= s.byte_offset and s.byte_offset + s.byte_length <= len(source), s.name
+        assert s.byte_length > 0, s.name
+        assert s.line == _line_of(source, s.byte_offset), (s.name, s.line)
+        assert s.end_line >= s.line
+        assert s.content_hash == compute_content_hash(piece), s.name
+        assert s.name.encode("utf-8") in piece, (s.name, piece[:80])
+        assert s.parent in ids, (s.name, s.parent)
+        assert s.file == f"app/views/fixtures/{name}"
+
+    own = [s.id for s in symbols if s.language in ("erb", "ruby", "javascript")]
+    assert len(own) == len(set(own)), "duplicate symbol ids"
+
+
+# ---------------------------------------------------------------------------
+# HTML hosts
+# ---------------------------------------------------------------------------
+
+def test_the_view_is_named_up_to_its_first_dot():
+    _, symbols = _parse("rails_rescues_trace.html.erb", "actionpack/rescues/_trace.html.erb")
+    view = _view(symbols)
+    assert view.name == "_trace" and view.signature == "view _trace"
+
+
+def test_a_trace_view_keeps_its_script_function_and_skips_dynamic_ids():
+    source, symbols = _parse("rails_rescues_trace.html.erb")
+    view = _view(symbols)
+    fn = _named(symbols, "changeSourceExtract", "javascript")
+    assert fn.kind == "function"
+    assert fn.line == _line_of(source, source.index(b"function changeSourceExtract"))
+    # Both ids in this file are built by a tag (`id="traces-<%= ... %>"`); neither is a symbol.
+    assert not [s for s in symbols if s.language == "erb" and s is not view and s.kind == "constant"
+                and ("traces" in s.name or "X" * 3 in s.name)]
+
+
+def test_a_layout_yields_slots_ids_and_script_functions():
+    source, symbols = _parse("rails_rescues_layout.erb", "actionpack/rescues/layout.erb")
+    view = _view(symbols)
+    assert view.name == "layout"
+    slot = _named(symbols, "style", "erb")
+    assert slot.kind == "constant" and slot.signature == "yield :style"
+    assert slot.qualified_name == "layout.yield:style"
+    copy_id = _named(symbols, "exception-message-for-copy", "erb")
+    assert copy_id.kind == "constant" and copy_id.parent == view.id
+    toggle = _named(symbols, "toggle", "javascript")
+    assert toggle.line == _line_of(source, source.index(b"var toggle = function"))
+    assert toggle.parent == view.id
+
+
+def test_content_for_provide_and_yield_are_slots_and_static_ids_are_constants():
+    _, symbols = _parse("handwritten_slots.html.erb", "app/views/layouts/handwritten_slots.html.erb")
+    view = _view(symbols)
+    slots = {s.qualified_name: s for s in symbols if s.language == "erb" and ":" in s.qualified_name}
+    assert set(slots) == {
+        "handwritten_slots.content_for:sidebar",
+        "handwritten_slots.provide:title",
+        "handwritten_slots.yield:title",
+    }
+    assert slots["handwritten_slots.content_for:sidebar"].signature == "content_for :sidebar"
+    ids = {s.name for s in symbols if s.language == "erb" and s.kind == "constant" and ":" not in s.qualified_name}
+    assert ids == {"side-nav", "greeting"}
+    helper = _named(symbols, "helper_inside_a_view", "ruby")
+    assert helper.parent == view.id and helper.qualified_name == "handwritten_slots.helper_inside_a_view"
+    wire = _named(symbols, "wireSidebar", "javascript")
+    assert wire.parent == view.id
+
+
+def test_a_script_whose_body_loops_in_tags_still_parses():
+    _, symbols = _parse("solidus_orders_form.html.erb", "backend/app/views/spree/admin/orders/_form.html.erb")
+    view = _view(symbols)
+    assert view.name == "_form"
+    order_number = _named(symbols, "order_number", "javascript")
+    assert order_number.parent == view.id
+
+
+def test_an_application_layout_has_its_static_id():
+    _, symbols = _parse("solidus_admin_application.html.erb")
+    main = _named(symbols, "main", "erb")
+    assert main.kind == "constant"
+
+
+# ---------------------------------------------------------------------------
+# Host-language passes
+# ---------------------------------------------------------------------------
+
+def test_a_js_erb_function_is_javascript_and_keeps_its_line():
+    source, symbols = _parse("handwritten_widget.js.erb", "app/views/widgets/show.js.erb")
+    view = _view(symbols)
+    render = _named(symbols, "renderWidget", "javascript")
+    assert render.kind == "function" and render.parent == view.id
+    assert render.line == _line_of(source, source.index(b"function renderWidget"))
+    assert render.qualified_name == "show.renderWidget"
+    # A JavaScript host has no HTML ids.
+    assert not [s for s in symbols if s.language == "erb" and s.kind == "constant"]
+
+
+def test_a_name_built_by_a_tag_is_named_by_the_tag_never_by_the_filler():
+    _, symbols = _parse("handwritten_widget.js.erb")
+    ready = [s for s in symbols if s.name.endswith("Ready")]
+    assert [s.name for s in ready] == ["<%= @callback_name %>Ready"]
+    assert not [s for s in symbols if "XXX" in s.name or "XXX" in s.qualified_name]
+
+
+def test_a_signature_read_from_the_file_shows_the_tag_never_the_filler():
+    _, symbols = _parse("handwritten_widget.js.erb")
+    assert _named(symbols, "count", "javascript").signature == "var count = <%= @items.size %>;"
+    _, symbols = _parse("solidus_orders_form.html.erb")
+    assert _named(symbols, "order_number", "javascript").signature == "var order_number = '<%= @order.number %>';"
+
+
+def test_a_rb_erb_class_owns_its_methods_and_a_tag_named_class_owns_its_own():
+    _, symbols = _parse("handwritten_model.rb.erb", "lib/templates/model.rb.erb")
+    view = _view(symbols)
+    archive = _named(symbols, "Archive", "ruby")
+    assert archive.kind == "class" and archive.parent == view.id
+    assert archive.qualified_name == "model.Archive"
+    for method in ("table_label", "summary"):
+        assert _named(symbols, method, "ruby").parent == archive.id
+    report = _named(symbols, "<%= class_name %>Report", "ruby")
+    generate = _named(symbols, "generate", "ruby")
+    assert generate.parent == report.id
+    assert generate.qualified_name == "model.<%= class_name %>Report.generate"
+    assert not [s for s in symbols if "XXX" in s.name or "XXX" in s.qualified_name]
+
+
+def test_a_yaml_host_is_parsed_as_yaml():
+    _, symbols = _parse("handwritten_database.yml.erb", "config/database.yml.erb")
+    view = _view(symbols)
+    pool = _named(symbols, "pool", "yaml")
+    assert pool.parent == view.id
+    assert _named(symbols, "development", "yaml").parent == view.id
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "rails_rescues_trace.text.erb",
+        "rails_messages_show.json.erb",
+        "rails_comments_show.js.erb",
+        "rails_customer.xml.erb",
+        "solidus_option_values_create.turbo_stream.erb",
+        "rails_fragment_cached_with_variant.html+phone.erb",
+    ],
+)
+def test_small_hosts_of_every_kind_yield_a_view(name):
+    _, symbols = _parse(name)
+    view = _view(symbols)
+    assert view.name == name.split(".", 1)[0]
+
+
+# ---------------------------------------------------------------------------
+# Tag Ruby: statement boundaries and blocks across tags
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize(
+    "source, names",
+    [
+        # Each of these loses a `def` when a tag's close is not a statement end.
+        ("<% if a %><%= b %><% end %><% def after; end %>", ["after"]),
+        ("<% def one %><% end %><% def after; end %>", ["one", "after"]),
+        ("<% def before %><% end %><% def after %><% end %>", ["before", "after"]),
+        ("<% def a %>1<% end %>2<% def after %>3<% end %>", ["a", "after"]),
+    ],
+)
+def test_adjacent_tags_on_one_line_stay_separate_statements(source, names):
+    symbols = parse_file(source, "app/views/a/one_line.html.erb", "erb")
+    assert [s.name for s in symbols if s.language == "ruby"] == names
+
+
+def test_each_tag_close_is_a_statement_end_in_the_ruby_copy():
+    ruby, _ = extractor._erb_masks(b"<% a %><% b %>")
+    assert ruby == b"   a ;    b ; "
+    ruby, _ = extractor._erb_masks(b"<%- a -%>")
+    assert ruby == b"    a ;  "
+
+
+def test_an_id_written_inside_a_tag_is_ruby_not_markup():
+    source = """<%= raw('<p id="ruby-made">') %><div id="static"></div>"""
+    symbols = parse_file(source, "app/views/a/ids.html.erb", "erb")
+    assert [s.name for s in symbols if s.kind == "constant"] == ["static"]
+
+
+def test_an_attribute_ending_in_id_is_not_an_id():
+    source = """<div data-id="5" aria:id="6" id="real"></div>"""
+    symbols = parse_file(source, "app/views/a/ids.html.erb", "erb")
+    assert [s.name for s in symbols if s.kind == "constant"] == ["real"]
+
+
+def test_a_block_spanning_tags_does_not_hide_what_follows():
+    source = (
+        "<%= form_with model: @post do |f| %>\n"
+        "  <%= f.text_field :title %>\n"
+        "  <% if f.object.persisted? %><p>saved</p><% end %>\n"
+        "<% end %>\n"
+        "<% def after_the_block; end %>\n"
+    )
+    symbols = parse_file(source, "app/views/a/form.html.erb", "erb")
+    after = _named(symbols, "after_the_block", "ruby")
+    assert after.line == 5
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "",
+        "<p>no tags at all</p>\n",
+        "<% unterminated statement\n<p>",
+        "<%= unterminated output",
+        "<%# unterminated comment",
+        "%> a closer with no opener <%",
+        "<%%",
+        "<p>a</p>\r\n<% def crlf; end %>\r\n<div id=\"x\"></div>\r\n",
+        "<script>never closed <%= x %>",
+        "<script></script><script>",
+        "<% content_for :",
+        "<%= yield( :side ) %><% provide(:t) %>",
+    ],
+)
+def test_awkward_inputs_parse_without_raising(source):
+    data = source.encode("utf-8")
+    symbols = parse_file(source, "app/views/a/edge.html.erb", "erb")
+    view = _view(symbols)
+    assert view.byte_length == len(data)
+    for s in symbols:
+        assert 0 <= s.byte_offset <= s.byte_offset + s.byte_length <= len(data)
+        if s is not view:
+            assert s.line == _line_of(data, s.byte_offset)
+
+
+def test_crlf_line_endings_keep_lines():
+    source = "<p>a</p>\r\n<% def crlf; end %>\r\n<div id=\"x\"></div>\r\n"
+    symbols = parse_file(source, "app/views/a/crlf.html.erb", "erb")
+    assert _named(symbols, "crlf", "ruby").line == 2
+    assert _named(symbols, "x", "erb").line == 3
+
+
+# ---------------------------------------------------------------------------
+# Cost: linear in file size on hostile input
+# ---------------------------------------------------------------------------
+
+def _checkpoints(monkeypatch, content: str) -> int:
+    count = 0
+    real = parse_budget.checkpoint
+
+    def counting():
+        nonlocal count
+        count += 1
+        real()
+
+    monkeypatch.setattr(parse_budget, "checkpoint", counting)
+    try:
+        parse_file(content, "app/views/a/hostile.html.erb", "erb")
+    finally:
+        monkeypatch.setattr(parse_budget, "checkpoint", real)
+    return count
+
+
+@pytest.mark.parametrize(
+    "build",
+    [
+        lambda n: "<% a\n" * n,
+        lambda n: "<%= a %>" * n,
+        lambda n: "<script>" * n,
+        lambda n: "<script><%= a %></script>\n" * n,
+        lambda n: '<p id="a' + "b" * n,
+        lambda n: "<% provide" + " " * (50 * n) + "x %>",
+        lambda n: "<% content_for :a %>\n" * n,
+    ],
+    ids=["unclosed-tags", "output-tags", "unclosed-scripts", "scripts-with-tags", "unclosed-id", "slot-then-spaces", "slots"],
+)
+def test_twice_the_file_is_about_twice_the_work(monkeypatch, build):
+    small = _checkpoints(monkeypatch, build(200))
+    big = _checkpoints(monkeypatch, build(400))
+    assert small > 0, "no checkpoint passed: the ERB path is not on the parse budget"
+    assert big / small < 2.6, f"{small} checkpoints at 200, {big} at 400"
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "<script>" * 40_000,
+        "<% provide" + " " * 300_000 + "x %>",
+        "<% yield" + "\t" * 300_000,
+        '<div id="' + "a" * 300_000,
+    ],
+    ids=["unclosed-scripts", "provide-then-spaces", "yield-then-tabs", "unclosed-id"],
+)
+def test_hostile_input_of_a_few_hundred_kilobytes_parses_quickly(source):
+    import time
+
+    started = time.perf_counter()
+    symbols = parse_file(source, "app/views/a/hostile.html.erb", "erb")
+    assert time.perf_counter() - started < 5.0
+    _view(symbols)  # it was parsed as ERB, not skipped
+
+
+# ---------------------------------------------------------------------------
+# Through the indexer
+# ---------------------------------------------------------------------------
+
+def test_an_index_built_before_erb_picks_up_the_views_on_the_next_run(tmp_path, monkeypatch):
+    # No PARSER_GENERATION bump came with `erb`: the next walk finds the views
+    # as new files. This fails if a fast path ever skips that walk.
+    from jcodemunch_mcp.parser import languages
+
+    root = tmp_path / "app"
+    (root / "views").mkdir(parents=True)
+    (root / "a.rb").write_text("class A\n  def x; end\nend\n", encoding="utf-8")
+    (root / "views" / "show.html.erb").write_text("<div id='hero'></div>\n", encoding="utf-8")
+    store = tmp_path / "store"
+
+    monkeypatch.delitem(languages.LANGUAGE_EXTENSIONS, ".erb")
+    before = index_folder(str(root), use_ai_summaries=False, storage_path=str(store))
+    assert before["languages"] == {"ruby": 1}
+    monkeypatch.undo()
+
+    after = index_folder(str(root), use_ai_summaries=False, storage_path=str(store))
+    assert after["new"] == 1
+    found = search_symbols(repo=after["repo"], query="hero", language="erb", storage_path=str(store))
+    assert [r["name"] for r in found["results"]] == ["hero"]
+
+
+def test_index_folder_indexes_views_and_search_finds_each_language(tmp_path):
+    root = tmp_path / "shop"
+    views = root / "app" / "views" / "widgets"
+    views.mkdir(parents=True)
+    shutil.copy(FIXTURES / "handwritten_widget.js.erb", views / "show.js.erb")
+    shutil.copy(FIXTURES / "handwritten_slots.html.erb", views / "_slots.html.erb")
+    shutil.copy(FIXTURES / "rails_rescues_trace.text.erb", views / "trace.text.erb")
+    store = tmp_path / "store"
+
+    result = index_folder(str(root), use_ai_summaries=False, storage_path=str(store))
+
+    assert result["success"] is True
+    assert result["languages"]["erb"] == 3
+    assert "app/views/widgets/show.js.erb" in result["files"]
+
+    found = search_symbols(repo=result["repo"], query="renderWidget", language="javascript", storage_path=str(store))
+    assert [r["name"] for r in found["results"]][:1] == ["renderWidget"]
+    found = search_symbols(repo=result["repo"], query="helper_inside_a_view", language="ruby", storage_path=str(store))
+    assert [r["name"] for r in found["results"]][:1] == ["helper_inside_a_view"]
+    found = search_symbols(repo=result["repo"], query="side-nav", language="erb", storage_path=str(store))
+    assert "side-nav" in [r["name"] for r in found["results"]]

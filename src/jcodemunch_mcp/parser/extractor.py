@@ -879,6 +879,8 @@ def _parse_file_within_budget(content: str, filename: str, language: str, source
         symbols = _parse_razor_symbols(source_bytes, filename)
     elif language == "aspx":
         symbols = _parse_aspx_symbols(source_bytes, filename)
+    elif language == "erb":
+        symbols = _parse_erb_symbols(source_bytes, filename)
     elif language == "astro":
         symbols = _parse_astro_symbols(source_bytes, filename)
     elif language in TEMPLATE_ENGINE_LANGUAGES:
@@ -10202,6 +10204,339 @@ def _parse_razor_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
 
     symbols.sort(key=lambda s: (s.line, s.byte_offset, s.name))
     return symbols
+
+
+# ---------------------------------------------------------------------------
+# Ruby ERB templates (.erb)
+# ---------------------------------------------------------------------------
+#
+# Every pass parses a same-length copy of the file, so a symbol's line and
+# byte offset are the original file's with no arithmetic: the Ruby in the tags
+# (everything else blanked), the host text (tags filled), and an HTML host's
+# <script> bodies. Bytes throughout, never decoded text: a non-ASCII character
+# before a symbol would otherwise move its slice (the aspx fixtures' lesson).
+
+
+def _erb_fill_table(fill: int) -> bytes:
+    """A bytes.translate table sending every byte but a line break to ``fill``."""
+    table = bytearray([fill]) * 256
+    table[0x0A] = 0x0A
+    table[0x0D] = 0x0D
+    return bytes(table)
+
+
+_ERB_BLANK = _erb_fill_table(0x20)
+# An output tag in host text becomes X's: an identifier in JavaScript, YAML and
+# Ruby, and a constant in Ruby, so `class <%= name %>Report` stays a class.
+_ERB_HOLE = _erb_fill_table(ord("X"))
+_ERB_HOLE_NAME_RE = re.compile(r"[\w$]*X{5,}[\w$]*")
+_ERB_ID_RE = re.compile(rb"""(?<![\w:-])id\s*=\s*["']([^"'<>]+)["']""", re.IGNORECASE)
+_ERB_SLOT_RE = re.compile(rb"\b(content_for|provide|yield)(?:[ \t]+|[ \t]*\([ \t]*):([A-Za-z_]\w*)")
+
+
+def _erb_tags(source: bytes) -> list[tuple[int, int, int, int, str]]:
+    """``(start, code_start, code_end, end, kind)`` for each tag, in order.
+
+    ``kind`` is ``"output"`` (``<%=``, ``<%==``), ``"code"`` (``<%``, ``<%-``)
+    or ``"comment"`` (``<%#``); ``-%>`` closes like ``%>``. ``<%%`` is template
+    text. A tag that never closes runs to the end of the file.
+    """
+    tags: list[tuple[int, int, int, int, str]] = []
+    size = len(source)
+    pos = 0
+    while True:
+        parse_budget.checkpoint()
+        start = source.find(b"<%", pos)
+        if start < 0:
+            break
+        code_start = start + 2
+        marker = source[code_start:code_start + 1]
+        if marker == b"%":
+            pos = code_start + 1
+            continue
+        if marker == b"#":
+            kind = "comment"
+        elif marker == b"=":
+            kind = "output"
+            code_start += 2 if source[code_start + 1:code_start + 2] == b"=" else 1
+        else:
+            kind = "code"
+            if marker == b"-":
+                code_start += 1
+        close = source.find(b"%>", code_start)
+        if close < 0:
+            tags.append((start, code_start, size, size, kind))
+            break
+        code_end = close - 1 if close > code_start and source[close - 1] == 0x2D else close
+        tags.append((start, code_start, code_end, close + 2, kind))
+        pos = close + 2
+    return tags
+
+
+def _erb_masks(source: bytes, tags: Optional[list] = None) -> tuple[bytes, bytes]:
+    """``(ruby, host)``: two copies of an ERB file, each its length, each with
+    its line breaks where they were.
+
+    ``ruby`` keeps only the code inside ``<% %>`` and ``<%= %>`` tags and ends
+    each tag with ``;``, so adjacent tags and a block opened in one tag and
+    closed in another stay valid Ruby. ``host`` keeps the template text, fills
+    each output tag with ``X`` and blanks statement and comment tags.
+    ⚠ A Ruby ``#`` comment inside a tag runs to the line's end in the copy, so
+    a later tag on the SAME line is commented out with it.
+    """
+    if tags is None:
+        tags = _erb_tags(source)
+    ruby = bytearray(source.translate(_ERB_BLANK))
+    host = bytearray(source)
+    for start, code_start, code_end, end, kind in tags:
+        parse_budget.checkpoint()
+        host[start:end] = source[start:end].translate(_ERB_HOLE if kind == "output" else _ERB_BLANK)
+        if kind == "comment":
+            continue
+        ruby[code_start:code_end] = source[code_start:code_end]
+        if code_end < end:
+            ruby[code_end] = 0x3B  # `;`
+    return bytes(ruby), bytes(host)
+
+
+def _erb_host_language(filename: str) -> Optional[str]:
+    """The language of an ERB file's template text, from the suffix before
+    ``.erb`` with any ``+variant`` dropped (``show.js.erb`` -> javascript).
+
+    None for HTML, a bare ``.erb``, and a format no parser reads (``.text``,
+    ``.turbo_stream``, ``.iphone``): those get the HTML pass.
+    """
+    from .languages import LANGUAGE_EXTENSIONS
+
+    base = filename.replace("\\", "/").rsplit("/", 1)[-1]
+    if base.lower().endswith(".erb"):
+        base = base[:-4]
+    if "." not in base:
+        return None
+    inner = base.rsplit(".", 1)[-1].split("+", 1)[0].lower()
+    language = LANGUAGE_EXTENSIONS.get("." + inner)
+    if language in (None, "html", "erb"):
+        return None
+    return language
+
+
+def _erb_script_bodies(host: bytes) -> list[tuple[int, int]]:
+    """``(start, end)`` of each closed ``<script>`` body, found in one forward
+    pass (a lazy regex rescans to the end for every unclosed tag)."""
+    low = host.lower()
+    bodies: list[tuple[int, int]] = []
+    pos = 0
+    while True:
+        parse_budget.checkpoint()
+        open_at = low.find(b"<script", pos)
+        if open_at < 0:
+            break
+        after = open_at + len(b"<script")
+        if after < len(low) and low[after] not in b" \t\r\n/>":
+            pos = after
+            continue
+        gt = low.find(b">", after)
+        if gt < 0:
+            break
+        close = low.find(b"</script", gt + 1)
+        if close < 0:
+            break
+        bodies.append((gt + 1, close))
+        pos = close + len(b"</script")
+    return bodies
+
+
+def _erb_adopt(
+    parsed: list[Symbol],
+    filename: str,
+    view: Symbol,
+    source: bytes,
+    masked: bytes,
+    holes: list[tuple[int, int]],
+) -> list[Symbol]:
+    """Re-home one pass's symbols in the ERB file: its path, the view as owner
+    (unless their own parse gave them one), a hash of the ORIGINAL bytes.
+
+    A name the host copy filled from an output tag (``XXXX…Report``) is named
+    by the tag's own text instead (``<%= class_name %>Report``), in the symbol,
+    its signature and every qualified name that carries it.
+    """
+    hole_starts = [start for start, _ in holes]
+    renames: dict[str, str] = {}
+    for sym in parsed:
+        parse_budget.checkpoint()
+        if not holes or "XXXXX" not in sym.name:
+            continue
+        raw = sym.name.encode("utf-8")
+        at = masked.find(raw, sym.byte_offset, sym.byte_offset + max(sym.byte_length, len(raw)))
+        if at < 0:
+            continue
+        i = bisect.bisect_right(hole_starts, at + len(raw) - 1) - 1
+        if i >= 0 and holes[i][1] > at:
+            renames[sym.name] = source[at:at + len(raw)].decode("utf-8", errors="replace")
+
+    def _restore(text: str) -> str:
+        if not renames or "XXXXX" not in text:
+            return text
+        return _ERB_HOLE_NAME_RE.sub(lambda m: renames.get(m.group(0), m.group(0)), text)
+
+    def _signature(sym: Symbol) -> str:
+        # A signature copied from the host copy is shown as the original bytes
+        # it came from; one the parser rewrote (YAML quotes values) keeps its
+        # filler, with only the restored names put back.
+        if not holes or "XXXXX" not in sym.signature:
+            return sym.signature
+        raw = sym.signature.encode("utf-8")
+        at = masked.find(raw, sym.byte_offset, sym.byte_offset + max(sym.byte_length, len(raw)))
+        if at >= 0:
+            return source[at:at + len(raw)].decode("utf-8", errors="replace")
+        return _restore(sym.signature)
+
+    pairs: list[tuple[Symbol, Symbol]] = []
+    for sym in parsed:
+        parse_budget.checkpoint()
+        qualified = f"{view.name}.{_restore(sym.qualified_name)}"
+        piece = source[sym.byte_offset:sym.byte_offset + sym.byte_length]
+        pairs.append((sym, replace(
+            sym,
+            id=make_symbol_id(filename, qualified, sym.kind),
+            file=filename,
+            name=renames.get(sym.name, sym.name),
+            qualified_name=qualified,
+            signature=_signature(sym),
+            parent=view.id,
+            content_hash=compute_content_hash(piece),
+        )))
+    return _keep_block_parents(pairs)
+
+
+def _parse_erb_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
+    """Extract symbols from a Ruby ERB template (``.erb``).
+
+    - A view symbol named for the file up to its first dot (``_form.html.erb``
+      -> ``_form``), spanning the file.
+    - The Ruby inside tags, parsed as Ruby (a ``def`` in a view, rare).
+    - A host the inner suffix names a parser for (``.js.erb``, ``.rb.erb``,
+      ``.yml.erb``, ...): its text parsed in that language, each symbol keeping
+      that language.
+    - An HTML host, a bare ``.erb`` or a format with no parser: static HTML ids
+      and inline ``<script>`` bodies parsed as JavaScript.
+    - ``content_for``/``provide``/``yield :name`` slots, for any host.
+    """
+    source = source_bytes
+    base = filename.replace("\\", "/").rsplit("/", 1)[-1]
+    view_name = base.split(".", 1)[0] or base
+    newlines = [m.start() for m in re.finditer(b"\n", source)]
+
+    def line_of(offset: int) -> int:
+        return bisect.bisect_left(newlines, offset) + 1
+
+    view = Symbol(
+        id=make_symbol_id(filename, view_name, "class"),
+        file=filename,
+        name=view_name,
+        qualified_name=view_name,
+        kind="class",
+        language="erb",
+        signature=f"view {view_name}",
+        line=1,
+        end_line=len(newlines) + 1,
+        byte_offset=0,
+        byte_length=len(source),
+        content_hash=compute_content_hash(source),
+    )
+    symbols: list[Symbol] = [view]
+
+    tags = _erb_tags(source)
+    ruby, host = _erb_masks(source, tags)
+    holes = [(start, end) for start, _, _, end, kind in tags if kind == "output"]
+
+    def _nested(masked: bytes, suffix: str, language: str, with_holes: bool) -> None:
+        if not masked.strip():
+            return
+        parsed = parse_file(
+            masked.decode("utf-8", errors="replace"), f"{filename}#{suffix}", language, source_bytes=masked
+        )
+        symbols.extend(_erb_adopt(parsed, filename, view, source, masked, holes if with_holes else []))
+
+    if any(kind != "comment" for *_, kind in tags):
+        _nested(ruby, "erb.rb", "ruby", with_holes=False)
+
+    host_language = _erb_host_language(filename)
+    if host_language is not None:
+        _nested(host, f"host.{host_language}", host_language, with_holes=True)
+    else:
+        bodies = _erb_script_bodies(host)
+        if bodies:
+            scripts = bytearray(host.translate(_ERB_BLANK))
+            for start, end in bodies:
+                parse_budget.checkpoint()
+                scripts[start:end] = host[start:end]
+            _nested(bytes(scripts), "script.js", "javascript", with_holes=True)
+
+        tag_starts = [t[0] for t in tags]
+        seen_ids: set[str] = set()
+        for match in _ERB_ID_RE.finditer(source):
+            parse_budget.checkpoint()
+            i = bisect.bisect_right(tag_starts, match.start()) - 1
+            if i >= 0 and tags[i][3] > match.start():
+                continue  # inside a tag: Ruby, not markup
+            elem_id = match.group(1).decode("utf-8", errors="replace")
+            if elem_id in seen_ids:
+                continue
+            seen_ids.add(elem_id)
+            snippet = match.group(0)
+            symbols.append(Symbol(
+                id=make_symbol_id(filename, f"{view_name}.{elem_id}", "constant"),
+                file=filename,
+                name=elem_id,
+                qualified_name=f"{view_name}.{elem_id}",
+                kind="constant",
+                language="erb",
+                signature=snippet.decode("utf-8", errors="replace"),
+                parent=view.id,
+                line=line_of(match.start()),
+                end_line=line_of(match.end()),
+                byte_offset=match.start(),
+                byte_length=len(snippet),
+                content_hash=compute_content_hash(snippet),
+            ))
+
+    seen_slots: set[tuple[bytes, bytes]] = set()
+    for match in _ERB_SLOT_RE.finditer(ruby):
+        parse_budget.checkpoint()
+        verb, slot = match.group(1), match.group(2)
+        if (verb, slot) in seen_slots:
+            continue
+        seen_slots.add((verb, slot))
+        name = slot.decode("ascii")
+        label = f"{verb.decode('ascii')}:{name}"
+        snippet = source[match.start():match.end()]
+        symbols.append(Symbol(
+            id=make_symbol_id(filename, f"{view_name}.{label}", "constant"),
+            file=filename,
+            name=name,
+            qualified_name=f"{view_name}.{label}",
+            kind="constant",
+            language="erb",
+            signature=f"{verb.decode('ascii')} :{name}",
+            parent=view.id,
+            line=line_of(match.start()),
+            end_line=line_of(match.end()),
+            byte_offset=match.start(),
+            byte_length=len(snippet),
+            content_hash=compute_content_hash(snippet),
+        ))
+
+    unique: list[Symbol] = []
+    seen: set[str] = set()
+    for sym in symbols:
+        parse_budget.checkpoint()
+        if sym.id not in seen:
+            seen.add(sym.id)
+            unique.append(sym)
+    unique.sort(key=lambda s: (s.line, s.byte_offset, s.name))
+    return unique
 
 
 def _parse_template_symbols(
