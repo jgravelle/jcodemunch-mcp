@@ -2,6 +2,18 @@
 
 ## [Unreleased]
 
+### Fixed - the `rate_limit` config key now turns on the HTTP rate limit
+
+CONFIGURATION.md documents `rate_limit` (requests per minute per client IP in
+HTTP mode), and `jcodemunch-mcp config` shows the value set in config.jsonc.
+The limiter read only the `JCODEMUNCH_RATE_LIMIT` env var, so a server
+configured with the key alone ran with no limit while its config output said
+otherwise. The limiter now reads the key through the config loader, so it
+follows the documented order: a value in config.jsonc wins, and the env var
+fills the key only when the file leaves it unset. The limit the server enforces
+is now the one `config` shows, and an empty or unparseable env var can no
+longer switch off a limit set in the file.
+
 ### Changed - on Windows, `init` writes Codex's entry as the bare command name when PATH finds the same install
 
 `init` wrote Codex's `[mcp_servers.jcodemunch]` entry as an absolute path to
