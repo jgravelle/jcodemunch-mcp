@@ -318,6 +318,34 @@ def test_two_tag_built_names_of_the_same_length_keep_their_own_tags():
         assert s.name.encode() in data[s.byte_offset:s.byte_offset + s.byte_length]
 
 
+def test_a_tag_built_class_nested_in_another_keeps_each_owner_in_order():
+    # Outer and inner tags have one length, so they fill identically; the
+    # qualified name must read outer-then-inner, never the other way round.
+    source = (
+        "class <%= a %>Report\n"
+        "  class <%= b %>Report\n"
+        "    def run; end\n"
+        "  end\n"
+        "end\n"
+    )
+    symbols = parse_file(source, "lib/templates/model.rb.erb", "erb")
+    run = _named(symbols, "run", "ruby")
+    assert run.qualified_name == "model.<%= a %>Report.<%= b %>Report.run"
+    inner = _named(symbols, "<%= b %>Report", "ruby")
+    assert inner.qualified_name == "model.<%= a %>Report.<%= b %>Report"
+    assert run.parent == inner.id
+
+
+def test_a_literal_owner_that_looks_like_the_filler_keeps_its_name():
+    # `XXXXXXXXReport` is a real class name; its member `<%= b %>Report` fills
+    # to the same text, and only the member's own segment is restored.
+    source = "class XXXXXXXXReport\n  class <%= b %>Report\n    def run; end\n  end\nend\n"
+    symbols = parse_file(source, "lib/templates/model.rb.erb", "erb")
+    inner = _named(symbols, "<%= b %>Report", "ruby")
+    assert inner.qualified_name == "model.XXXXXXXXReport.<%= b %>Report"
+    assert _named(symbols, "run", "ruby").qualified_name == "model.XXXXXXXXReport.<%= b %>Report.run"
+
+
 def test_a_literal_name_that_looks_like_the_filler_is_never_renamed():
     # `<%= abcd %>` is 11 bytes, the length of `XXXXXXXXXXX`.
     source = "var n = <%= abcd %>;\nfunction XXXXXXXXXXXReady() { return n; }\n"

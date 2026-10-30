@@ -67,11 +67,14 @@ The view is always the file's first symbol, which is what files it under
 `erb`: a function at byte 0 of a `.js.erb`, or a YAML merge key, would
 otherwise have filed the view as JavaScript or YAML.
 
-No re-index is forced: the next `index_folder` finds the views as new
-files, and a test holds that. `render` partials are not yet import edges,
-and `.tt` is left unmapped because Visual Studio's T4 templates use it too.
-Fixtures are real views from rails/rails (MIT) and solidus (BSD-3), pinned
-by commit in `tests/fixtures/erb/SOURCES.md` with the licence texts.
+No re-index is forced: the next `index_folder` finds the views as new files,
+and a test holds that. The edit hooks treat `.erb` as code, so an edited
+view is re-indexed. `plan_refactoring` recognises a `<%= render %>` line and
+a `def` or `content_for` definition in a view, but rewriting a `render` line
+on a rename is still left to hand. `render` partials are not yet import
+edges, and `.tt` is left unmapped because Visual Studio's T4 templates use
+it too. Fixtures are real views from rails/rails (MIT) and solidus (BSD-3),
+pinned by commit in `tests/fixtures/erb/SOURCES.md` with the licence texts.
 
 `erb` joins the `language` enum every tool derives from the registry:
 `core_full`, `standard_full` and `full_full` each grow by 2 tokens

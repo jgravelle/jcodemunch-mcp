@@ -10378,22 +10378,32 @@ def _erb_adopt(
     by_id = {sym.id: sym for sym in parsed}
 
     def _restore(sym: Symbol, text: str) -> str:
-        # The tag text of this symbol's name and of each owner's, outermost
-        # first, so a member's qualified name carries ITS owner's tag.
+        # The tag text of this symbol's name and of each owner's. The owners
+        # are walked outermost first and each name is found AFTER the one
+        # before it, so every name is put back at its own segment: a literal
+        # owner spelled like a filled name keeps its name.
         if not own or "XXXXX" not in text:
             return text
-        chain: list[tuple[str, str]] = []
+        chain: list[Symbol] = []
         current: Optional[Symbol] = sym
         for _ in range(64):  # bounded: a parent cycle cannot hang the parse
             parse_budget.checkpoint()
             if current is None:
                 break
-            if current.id in own:
-                chain.append(own[current.id])
+            chain.append(current)
             current = by_id.get(current.parent) if current.parent else None
-        for filled, tag_text in reversed(chain):
+        cursor = 0
+        for owner in reversed(chain):
             parse_budget.checkpoint()
-            text = text.replace(filled, tag_text, 1)
+            at = text.find(owner.name, cursor)
+            if at < 0:
+                continue
+            if owner.id in own:
+                filled, tag_text = own[owner.id]
+                text = text[:at] + tag_text + text[at + len(filled):]
+                cursor = at + len(tag_text)
+            else:
+                cursor = at + len(owner.name)
         return text
 
     def _signature(sym: Symbol) -> str:
