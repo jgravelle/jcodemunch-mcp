@@ -98,19 +98,22 @@ def _kill_with_parent(proc: subprocess.Popen) -> None:
                 ("PeakJobMemoryUsed", ctypes.c_size_t),
             ]
 
-        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        # Looked up by name: the type checker runs for Linux, where neither
+        # `WinDLL`, `get_last_error` nor `Popen._handle` exists.
+        kernel32 = getattr(ctypes, "WinDLL")("kernel32", use_last_error=True)
+        last_error = getattr(ctypes, "get_last_error")
         kernel32.CreateJobObjectW.restype = wintypes.HANDLE
         job = kernel32.CreateJobObjectW(None, None)
         if not job:
-            raise OSError(ctypes.get_last_error(), "CreateJobObjectW failed")
+            raise OSError(last_error(), "CreateJobObjectW failed")
         info = _ExtendedLimits()
         info.BasicLimitInformation.LimitFlags = _KILL_ON_JOB_CLOSE
         if not kernel32.SetInformationJobObject(
             job, _EXTENDED_LIMIT_INFORMATION, ctypes.byref(info), ctypes.sizeof(info)
         ):
-            raise OSError(ctypes.get_last_error(), "SetInformationJobObject failed")
-        if not kernel32.AssignProcessToJobObject(job, wintypes.HANDLE(int(proc._handle))):
-            raise OSError(ctypes.get_last_error(), "AssignProcessToJobObject failed")
+            raise OSError(last_error(), "SetInformationJobObject failed")
+        if not kernel32.AssignProcessToJobObject(job, wintypes.HANDLE(int(getattr(proc, "_handle")))):
+            raise OSError(last_error(), "AssignProcessToJobObject failed")
         # The handle is deliberately never closed: closing it ends the watcher.
         # It closes when this process exits, which is the point.
     except Exception:
