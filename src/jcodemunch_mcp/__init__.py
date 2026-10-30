@@ -1,4 +1,4 @@
-"""github-codemunch-mcp - Token-efficient MCP server for GitHub source code exploration."""
+"""jcodemunch-mcp: MCP server that gives AI coding agents the exact function or class they asked for, not the whole file. Runs on your machine, 70+ languages."""
 
 from importlib.metadata import PackageNotFoundError, version
 

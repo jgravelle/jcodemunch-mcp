@@ -2,7 +2,7 @@
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.jgravelle/jcodemunch-mcp",
   "title": "jCodeMunch MCP",
-  "description": "Retrieves code by symbol via tree-sitter, so an agent reads the function it needs, not the file.",
+  "description": "Gives AI coding agents the function they asked for, not the whole file. Runs locally, 70+ languages.",
   "websiteUrl": "https://jcodemunch.com",
   "version": "1.108.402",
   "packages": [
