@@ -143,7 +143,55 @@ def _git(*args: str) -> str:
         return "unknown"
 
 
-def _run(cmd: list[str], *, env: dict | None = None) -> tuple[int, str, float]:
+_PROGRESS_RE = re.compile(r"\[\s*\d+%\]\s*$")
+
+
+class _ProgressEcho:
+    """Which pytest lines the full tier prints while pytest runs.
+
+    A progress line (`....  [ 30%]`) shows how far the run got, and a
+    faulthandler dump names the test that was stuck: `Timeout (0:05:00)!`, then
+    one block per thread (`Thread 0x...` or `Current thread 0x...` and indented
+    `File` lines), the blocks separated by blank lines. The stuck test is in
+    whichever block holds it, often not the first, so the dump ends only at the
+    first line that is none of those. Everything else stays in the captured
+    output and is reported at the end as before, so a passing run's log grows
+    by the progress lines alone.
+    """
+
+    def __init__(self) -> None:
+        self._in_dump = False
+
+    def __call__(self, line: str) -> bool:
+        if self._in_dump:
+            if (
+                not line.strip()
+                or line[:1].isspace()
+                or line.startswith(("Thread 0x", "Current thread 0x"))
+            ):
+                return True
+            self._in_dump = False
+        if line.startswith("Timeout ("):
+            self._in_dump = True
+            return True
+        return bool(_PROGRESS_RE.search(line))
+
+
+# pytest's faulthandler plugin dumps every thread's stack when one test runs
+# longer than this. It is well under the CI job's `timeout-minutes`
+# (`ci.test_job_timeout_minutes`), so a hang is named while the job still runs.
+FAULTHANDLER_TIMEOUT_SECONDS = 300
+
+
+def _run(
+    cmd: list[str], *, env: dict | None = None, echo=None
+) -> tuple[int, str, float]:
+    """Run ``cmd`` and return (returncode, combined output, seconds).
+
+    With ``echo`` (a line predicate), stdout and stderr are read as one stream
+    and each line ``echo`` accepts is printed as it arrives. A CI job cancelled
+    at its timeout keeps what was printed; a captured-only run kept nothing.
+    """
     t0 = time.perf_counter()
     e = dict(os.environ)
     e.setdefault("PYTHONPATH", str(REPO / "src"))
@@ -154,6 +202,26 @@ def _run(cmd: list[str], *, env: dict | None = None) -> tuple[int, str, float]:
     e.setdefault("JCODEMUNCH_SHARE_SAVINGS", "0")
     if env:
         e.update(env)
+    if echo is not None:
+        chunks: list[str] = []
+        with subprocess.Popen(
+            cmd,
+            cwd=REPO,
+            env=e,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            bufsize=1,
+        ) as p:
+            assert p.stdout is not None
+            for line in p.stdout:
+                chunks.append(line)
+                if echo(line.rstrip("\r\n")):
+                    print(line, end="" if line.endswith("\n") else "\n", flush=True)
+            rc = p.wait()
+        return rc, "".join(chunks), time.perf_counter() - t0
     proc = subprocess.run(
         cmd,
         cwd=REPO,
@@ -862,11 +930,14 @@ def tier_full(result: dict) -> bool:
             "no:cacheprovider",
             *_xdist_args(),
             "--tb=short",
+            "-o",
+            f"faulthandler_timeout={FAULTHANDLER_TIMEOUT_SECONDS}",
             "--cov=src",
             "--cov-report=term",
             f"--cov-fail-under={cov}",
         ],
         env=cov_env,
+        echo=_ProgressEcho(),
     )
     summ = _pytest_summary(out)
     print("  ", summ["line"])
