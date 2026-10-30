@@ -100,8 +100,11 @@ def commit_time_ns(folder: str, git_head: str) -> Optional[int]:
     try:
         out = subprocess.run(
             ["git", "-C", folder, "show", "-s", "--format=%ct", git_head],
+            stdin=subprocess.DEVNULL,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=10,
             check=False,
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
