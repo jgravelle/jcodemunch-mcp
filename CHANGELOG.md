@@ -2,6 +2,25 @@
 
 ## [Unreleased]
 
+### Fixed - `uninstall` and `claude-md --refresh` find the policy block's end by Markdown's own rules
+
+Both commands act on the lines between the policy heading and the next heading
+of yours. Finding that end, the reader skipped headings inside code fences, but
+it treated any line opening with three backticks or three tildes as the end of
+a fence and stripped indentation before testing for a heading. In your own
+CLAUDE.md text after the block, a tilde line inside a backtick fence, a shorter
+run inside a longer fence, or a fence line carrying a language name closed the
+fence early, and a line indented four spaces read as a heading. A `#` comment in
+the rest of that code then ended the block too soon, or a fenced or indented
+example of the heading started it in the wrong place, which moved the lines a
+refresh rewrites and an uninstall deletes.
+
+A fence now closes only on the character that opened it, at least as long, with
+nothing after it, and a line indented four or more columns is code, never a
+heading or a fence. One scanner serves both the start and the end, so the two
+cannot read the same file differently. The installed policy text holds no fence,
+so only your own text was ever at risk.
+
 ## [1.108.402] - 2026-10-28 - the server instructions name the tools in the first 512 characters, and tool names hold across 1.x
 
 ### Changed - tool names are a stable contract across 1.x
