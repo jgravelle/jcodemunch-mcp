@@ -107,6 +107,10 @@ NOT_LEDGERS: dict[tuple[str, str], str] = {
         "DOC_KEYS_SKIPPED",
     ): "config keys documented as prose, not a single literal",
     (
+        "test_no_assistant_leftovers.py",
+        "SKIPPED_HISTORY_FILES",
+    ): "history files quote old text verbatim; they are not published guidance",
+    (
         "test_grammar_spelled_forms.py",
         "_HELPER_LITERAL_EXCEPTIONS",
     ): "measured non-gaps: helper literals the parse function does not hold",
