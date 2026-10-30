@@ -102,7 +102,7 @@ def watch_all_scope(
     cfg_skip, cfg_days = watch_scope.settings()
     skip_temp = cfg_skip if skip_temp is None else skip_temp
     max_idle_days = cfg_days if max_idle_days is None else max_idle_days
-    store = None
+    store: Optional[SQLiteIndexStore] = None
     kept: list[str] = []
     skipped: dict[str, str] = {}
     if entries is None:
