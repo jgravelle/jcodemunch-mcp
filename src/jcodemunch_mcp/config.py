@@ -88,6 +88,8 @@ ENV_VAR_MAPPING = {
     "JCODEMUNCH_WATCH_IDLE_TIMEOUT": "watch_idle_timeout",
     "JCODEMUNCH_WATCH_LOG": "watch_log",
     "JCODEMUNCH_WATCH_PATHS": "watch_paths",
+    "JCODEMUNCH_WATCH_ALL_SKIP_TEMP": "watch_all_skip_temp",
+    "JCODEMUNCH_WATCH_ALL_MAX_IDLE_DAYS": "watch_all_max_idle_days",
     "JCODEMUNCH_FRESHNESS_MODE": "freshness_mode",
     "JCODEMUNCH_SUMMARIZER_PROVIDER": "summarizer_provider",
     "JCODEMUNCH_SUMMARIZER_MODEL": "summarizer_model",
@@ -494,6 +496,8 @@ DEFAULTS = {
     "watch_idle_timeout": None,
     "watch_log": None,
     "watch_paths": [],
+    "watch_all_skip_temp": True,
+    "watch_all_max_idle_days": 14,
     "freshness_mode": "relaxed",
     "strict_timeout_ms": 500,
     "summarizer_provider": "",
@@ -601,6 +605,8 @@ CONFIG_TYPES = {
     "watch_idle_timeout": (int, type(None)),
     "watch_log": (str, type(None)),
     "watch_paths": list,
+    "watch_all_skip_temp": bool,
+    "watch_all_max_idle_days": int,
     "freshness_mode": str,
     "strict_timeout_ms": int,
     "summarizer_provider": str,
@@ -897,6 +903,7 @@ BOOL_ENV_TYPO_KEEPS_DEFAULT: frozenset[str] = frozenset({
     "skip_virtualenvs",
     "trusted_folders_whitelist_mode",
     "runtime_redact_enabled",
+    "watch_all_skip_temp",
 })
 
 
@@ -2653,6 +2660,14 @@ def generate_template() -> str:
   // "watch_log": null,
   //   Path to a file the watcher appends reindex activity to.
   //   null = log to stderr only.
+  // "watch_all_skip_temp": true,
+  //   `watch-all` leaves unwatched any indexed repo under the system temp
+  //   directory or a top-level tmp/temp folder (C:\\tmp, /tmp, /var/tmp).
+  //   Its index stays searchable. false watches them too.
+  // "watch_all_max_idle_days": 14,
+  //   `watch-all` leaves unwatched any indexed repo whose newest indexed
+  //   file AND last indexed commit are both older than this many days.
+  //   It is watched again once either is recent. 0 = watch every repo.
   // "freshness_mode": "relaxed",
   //   relaxed - Default. Index remains queryable during reindex.
   //             Best for interactive use (IDE, chat).

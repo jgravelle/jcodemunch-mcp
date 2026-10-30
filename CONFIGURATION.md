@@ -204,6 +204,8 @@ The legacy `suppress_meta` per-call parameter still works for backward compatibi
 | `watch_idle_timeout` | int or null | `null` | Auto-stop watcher after N minutes with no re-indexing. `null` = disabled. |
 | `watch_log` | str or null | `null` | Log watcher output to file. `"auto"` = temp file. `null` = quiet. |
 | `watch_paths` | list | `[]` | Folder(s) to watch. Empty = current working directory. |
+| `watch_all_skip_temp` | bool | `true` | `watch-all` leaves unwatched any indexed repo under the system temp directory or a top-level `tmp`/`temp` folder. The index stays searchable. |
+| `watch_all_max_idle_days` | int | `14` | `watch-all` leaves unwatched any indexed repo whose newest indexed file and last indexed commit are both older than this. It is watched again once either is recent. `0` = watch every repo. |
 | `freshness_mode` | str | `"relaxed"` | `"relaxed"` = serve immediately. `"strict"` = wait for fresh results (500ms timeout). |
 | `claude_poll_interval` | float | `5.0` | Poll interval (seconds) for Claude Code worktree discovery. |
 
@@ -390,6 +392,8 @@ Every `JCODEMUNCH_*` env var maps to a config key:
 | `JCODEMUNCH_PORT` | `port` |
 | `JCODEMUNCH_WATCH` | `watch` |
 | `JCODEMUNCH_WATCH_DEBOUNCE_MS` | `watch_debounce_ms` |
+| `JCODEMUNCH_WATCH_ALL_SKIP_TEMP` | `watch_all_skip_temp` |
+| `JCODEMUNCH_WATCH_ALL_MAX_IDLE_DAYS` | `watch_all_max_idle_days` |
 | `JCODEMUNCH_FRESHNESS_MODE` | `freshness_mode` |
 | `JCODEMUNCH_CLAUDE_POLL_INTERVAL` | `claude_poll_interval` |
 | `JCODEMUNCH_LOG_LEVEL` | `log_level` |

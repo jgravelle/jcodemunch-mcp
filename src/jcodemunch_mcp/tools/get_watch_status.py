@@ -21,7 +21,7 @@ from typing import Optional
 from ..reindex_state import get_reindex_status, has_any_reindex_state
 from ..service_installer import service_status
 from ..storage import process_locks
-from ..watch_all import discover_local_repo_entries
+from ..watch_all import discover_local_repo_entries, watch_all_scope
 
 logger = logging.getLogger(__name__)
 
@@ -109,6 +109,14 @@ def get_watch_status(
     """
     entries = discover_local_repo_entries(storage_path)
     discovered = list(entries)
+    # Which of these watch-all leaves unwatched (temp folder, idle), from the
+    # same discovery: a repo it skips is otherwise indistinguishable here from
+    # one it watches.
+    try:
+        skipped = watch_all_scope(storage_path, entries=entries)[1]
+    except Exception:
+        logger.debug("watch-all scope could not be read", exc_info=True)
+        skipped = {}
     repos_out = []
     any_stale = False
     any_freshness_unknown = False
@@ -142,6 +150,8 @@ def get_watch_status(
             "watcher_flagged_stale": watcher_flagged,
             **status,
         }
+        if folder in skipped:
+            entry["watch_all_skipped"] = skipped[folder]
         # Multi-process holder info: which process currently owns the watcher
         # slot for this folder. Holder == None means lock file is absent OR
         # holder PID is dead (stale lock — inspect() filters those out).

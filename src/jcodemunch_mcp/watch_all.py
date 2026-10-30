@@ -24,7 +24,9 @@ import sys
 from pathlib import Path
 from typing import IO, Optional
 
+from . import watch_scope
 from .storage import IndexStore
+from .storage.sqlite_store import SQLiteIndexStore
 from .watcher import (
     DEFAULT_DEBOUNCE_MS,
     WatcherManager,
@@ -81,6 +83,75 @@ def discover_local_repos(storage_path: Optional[str] = None) -> list[str]:
     filtering — one authority, two shapes.
     """
     return list(discover_local_repo_entries(storage_path))
+
+
+def watch_all_scope(
+    storage_path: Optional[str] = None,
+    *,
+    skip_temp: Optional[bool] = None,
+    max_idle_days: Optional[int] = None,
+    entries: "Optional[dict[str, dict]]" = None,
+) -> "tuple[list[str], dict[str, str]]":
+    """(paths watch-all watches, {path: reason} for the ones it leaves).
+
+    Reasons come from `watch_scope.skip_reason`: ``"temp"`` or ``"idle"``.
+    `None` settings read config (`watch_all_skip_temp`,
+    `watch_all_max_idle_days`). `entries` reuses a discovery the caller
+    already made (`get_watch_status`), so it is not paid twice.
+    """
+    cfg_skip, cfg_days = watch_scope.settings()
+    skip_temp = cfg_skip if skip_temp is None else skip_temp
+    max_idle_days = cfg_days if max_idle_days is None else max_idle_days
+    store = None
+    kept: list[str] = []
+    skipped: dict[str, str] = {}
+    if entries is None:
+        entries = discover_local_repo_entries(storage_path)
+    for folder, entry in entries.items():
+        db_path = None
+        repo_id = (entry.get("repo") or "").strip()
+        if "/" in repo_id:
+            owner, name = repo_id.split("/", 1)
+            try:
+                if store is None:
+                    store = SQLiteIndexStore(base_path=storage_path)
+                db_path = store._db_path(owner, name)
+            except Exception:
+                logger.debug("no index path for %s", repo_id, exc_info=True)
+        reason = watch_scope.skip_reason(
+            folder, entry, db_path, skip_temp=skip_temp, max_idle_days=max_idle_days,
+        )
+        if reason is None:
+            kept.append(folder)
+        else:
+            skipped[folder] = reason
+    return kept, skipped
+
+
+def discover_watch_all_repos(storage_path: Optional[str] = None) -> list[str]:
+    """The repos watch-all watches: every local index minus temp and idle ones."""
+    return watch_all_scope(storage_path)[0]
+
+
+def _skipped_summary(skipped: "dict[str, str]") -> Optional[str]:
+    if not skipped:
+        return None
+    temp = sum(1 for r in skipped.values() if r == watch_scope.SKIP_TEMP)
+    idle = sum(1 for r in skipped.values() if r == watch_scope.SKIP_IDLE)
+    _, days = watch_scope.settings()
+    parts = []
+    if temp:
+        parts.append(f"{temp} under a temp folder (watch_all_skip_temp)")
+    if idle:
+        parts.append(
+            f"{idle} with no file or commit change in {days} days (watch_all_max_idle_days)"
+        )
+    return (
+        f"jcodemunch-mcp watch-all: not watching {len(skipped)} indexed repo(s): "
+        + "; ".join(parts)
+        + ". Their indexes stay searchable; set the named config key to change this. "
+        "`watch-status` lists them."
+    )
 
 
 def _install_signal_handlers(loop: asyncio.AbstractEventLoop, stop: asyncio.Event) -> None:
@@ -151,7 +222,7 @@ async def watch_all(
     async def _rediscover_loop() -> None:
         while not stop_event.is_set():
             try:
-                discovered = set(discover_local_repos(storage_path))
+                discovered = set(discover_watch_all_repos(storage_path))
                 watched = set(manager.list_folders())
                 for folder in sorted(discovered - watched):
                     await manager.add_folder(folder)
@@ -166,9 +237,12 @@ async def watch_all(
 
     # Seed discovery before run() starts so initial repos are watched
     # by the time the caller sees log lines.
-    initial = discover_local_repos(storage_path)
+    initial, skipped = watch_all_scope(storage_path)
     for folder in initial:
         await manager.add_folder(folder)
+    skipped_line = _skipped_summary(skipped)
+    if skipped_line:
+        _watcher_output(skipped_line, quiet=quiet, log_file_handle=log_file_handle)
 
     # watch-all is a long-lived foreground daemon: it indexes, then blocks
     # watching for edits. Say so once up front so the post-index silence isn't
