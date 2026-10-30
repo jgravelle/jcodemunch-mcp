@@ -6,11 +6,11 @@ Nothing read that, so the `.xaml` file had no edge to `Ctl.xaml.cs` and
 `get_dead_code_v2` published `Ok_Click` as dead beside a truly unused method.
 Web Forms markup got the same edge in #1012; this is its XAML twin.
 
-The handler names ride on an edge to the code-behind file, and the dead-code
-tools match an edge's names against the TARGET file's symbols only, so a
-property value that happens to be an identifier (`HorizontalAlignment="Center"`)
-can rescue a code-behind member of that name and nothing anywhere else. The
-decoy test below pins that scope.
+Only an event-shaped attribute (`Click`, `TextChanged`, `Mouse.MouseDown`, an
+EventSetter's `Handler`) names a handler, as Web Forms reads only `On*=`. A
+layout value or button text (`HorizontalAlignment="Center"`, `Content="OK"`)
+must not ride on the edge: `find_references`, `check_references` and
+`get_tectonic_map` match edge names repo-wide. The decoy tests below pin that.
 """
 
 from __future__ import annotations
@@ -53,9 +53,28 @@ def _names(edges):
     return out
 
 
-def test_a_view_gets_an_edge_to_its_code_behind():
-    specs = {e["specifier"] for e in _edges(VIEW)}
-    assert "Ctl.xaml.cs" in specs
+def test_a_view_gets_one_edge_to_its_code_behind():
+    """One edge: a second (`.xaml.vb`) doubled every name match in the
+    reference tools."""
+    assert [e["specifier"] for e in _edges(VIEW)] == ["Ctl.xaml.cs"]
+
+
+@pytest.mark.parametrize("attr", [
+    "Click", "Clicked", "Loaded", "SelectionChanged", "PreviewKeyDown", "GotFocus",
+    "Expanded", "DragOver", "Mouse.MouseUp", "Tapped", "Completed",
+])
+def test_event_shaped_attributes_name_a_handler(attr):
+    view = f'<Grid x:Class="A.V"><Button {attr}="On_It"/></Grid>'
+    assert "On_It" in _names(_edges(view))
+
+
+@pytest.mark.parametrize("attr", [
+    "IsChecked", "IsSelected", "CanContentScroll", "AllowDrop", "Content",
+    "HorizontalAlignment", "Visibility", "Orientation", "TextWrapping",
+])
+def test_property_attributes_name_no_handler(attr):
+    view = f'<Grid x:Class="A.V"><Button {attr}="Some_Value"/></Grid>'
+    assert "Some_Value" not in _names(_edges(view))
 
 
 def test_markup_handlers_and_the_class_ride_on_the_edge():
@@ -64,10 +83,13 @@ def test_markup_handlers_and_the_class_ride_on_the_edge():
             "Title_MouseDown", "Any_MouseEnter"} <= names
 
 
-@pytest.mark.parametrize("value", ["Root", "OkButton", "True", "Title", "SaveCommand", "Button"])
+@pytest.mark.parametrize(
+    "value", ["Root", "OkButton", "True", "Title", "SaveCommand", "Button", "Center", "OK"],
+)
 def test_names_bindings_and_literals_are_not_handlers(value):
     """`x:Name`/`Name` declare fields, `{Binding X}` names a view-model member,
-    `True` is a literal, and `TargetType` names a type."""
+    `True` is a literal, `TargetType` names a type, and a layout value or a
+    button's text is not an event."""
     assert value not in _names(_edges(VIEW))
 
 
@@ -141,7 +163,8 @@ def wpf_repo(tmp_path_factory) -> tuple[str, str]:
             '<UserControl x:Class="App.Ctl"\n'
             '  xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"\n'
             '  xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">\n'
-            '  <Button Click="Ok_Click" HorizontalAlignment="Center" Content="OK"/>\n'
+            '  <Button Click="Ok_Click" HorizontalAlignment="Center" Visibility="Collapsed"'
+            ' Content="OK"/>\n'
             "</UserControl>\n"
         ),
         root / "App" / "Ctl.xaml.cs": (
@@ -151,11 +174,12 @@ def wpf_repo(tmp_path_factory) -> tuple[str, str]:
             "    private void Never_Used(object sender, System.Windows.RoutedEventArgs e) { }\n"
             "} }\n"
         ),
-        # A decoy: `Center` is a property value in the markup, and this unused
-        # method of that name lives in ANOTHER file, so the edge must not reach it.
+        # Decoys: `Center` and `Collapsed` are property values in the markup,
+        # and these unused methods of those names live in ANOTHER file.
         root / "Lib" / "Util.cs": (
             "namespace Lib { public static class Util {\n"
             "    public static void Center() { }\n"
+            "    public static void Collapsed() { }\n"
             "} }\n"
         ),
     }
@@ -206,3 +230,28 @@ def test_find_dead_code_no_longer_calls_the_handler_provably_dead(wpf_repo):
     conf = {d["symbol_id"]: d["confidence"] for d in out.get("dead_symbols", [])}
     handler = [c for sid, c in conf.items() if sid.endswith("::Ctl.Ok_Click#method")]
     assert all(c < 0.8 for c in handler), conf
+
+
+@pytest.mark.parametrize("name", ["Center", "Collapsed", "OK"])
+def test_a_property_value_is_not_a_named_import_anywhere(wpf_repo, name):
+    """`find_references` and `check_references` index edge names repo-wide."""
+    from jcodemunch_mcp.tools.check_references import check_references
+    from jcodemunch_mcp.tools.find_references import find_references
+
+    repo_id, storage = wpf_repo
+    refs = find_references(repo_id, identifier=name, storage_path=storage)
+    assert not [r for r in refs.get("references", []) if r["file"].endswith(".xaml")], refs
+    chk = check_references(repo_id, identifier=name, search_content=False, storage_path=storage)
+    assert not chk.get("import_count"), chk
+
+
+def test_the_handler_is_a_named_import_of_the_view(wpf_repo):
+    """The twin: a real handler is found once, so the decoy test is not vacuous."""
+    from jcodemunch_mcp.tools.check_references import check_references
+    from jcodemunch_mcp.tools.find_references import find_references
+
+    repo_id, storage = wpf_repo
+    refs = find_references(repo_id, identifier="Ok_Click", storage_path=storage)
+    assert [r["file"] for r in refs.get("references", [])] == ["App/Ctl.xaml"], refs
+    chk = check_references(repo_id, identifier="Ok_Click", search_content=False, storage_path=storage)
+    assert chk.get("import_count") == 1, chk

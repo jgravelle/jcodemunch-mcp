@@ -1613,31 +1613,39 @@ def _extract_aspx_imports(content: str) -> list[dict]:
 
 
 _XAML_SUFFIX = ".xaml"
-# A code-behind sits beside its view as `<view>.xaml.cs` (or `.vb`); a missing
-# one just does not resolve.
-_XAML_CODE_BEHIND_SUFFIXES = (".cs", ".vb")
+# A C# code-behind sits beside its view as `<view>.xaml.cs`. A VB code-behind
+# (`.xaml.vb`) is not linked: an edge per language doubles every name match in
+# the reference tools, and the extractor cannot see which file exists.
+_XAML_CODE_BEHIND_SUFFIX = ".cs"
 _XAML_CLASS = re.compile(r"""\bx:Class\s*=\s*(?:"([^"]*)"|'([^']*)')""")
 _XML_COMMENT = re.compile(r"<!--.*?-->", re.DOTALL)
-# Attributes whose identifier value names a field, a type or a property, never
-# a handler. Namespaced attributes (`x:Name`, `d:DataContext`, `xmlns:*`) are
-# skipped by their colon.
-_XAML_NOT_A_HANDLER = frozenset({
-    "name", "targettype", "datatype", "type", "event", "property", "targetname",
-    "sourcename", "storyboard.targetname", "storyboard.targetproperty", "xmlns",
-})
-_XAML_LITERALS = frozenset({"true", "false"})
+# An event attribute, by its last dotted segment (`Click`, `TextChanged`,
+# `Mouse.MouseDown`, `PreviewKeyDown`, MAUI's `Clicked`). XAML has no marker for
+# an event, so the name's ending is the evidence; `Handler` is an EventSetter's.
+_XAML_EVENT_ATTR = re.compile(
+    r"(?:[A-Z]\w*)?(?:Click|Clicked|Changed|Changing|Loaded|Unloaded|Loading|"
+    r"Opened|Opening|Closed|Closing|Checked|Unchecked|Indeterminate|Pressed|"
+    r"Released|Tapped|Holding|Entered|Exited|Enter|Leave|Down|Up|Move|Moved|"
+    r"Wheel|Drop|Over|Executed|Activated|Deactivated|Focus|Focused|Unfocused|"
+    r"Completed|Started|Requested|Initialized|Invoked|Toggled|Selected|"
+    r"Unselected|Scroll|Scrolled|Expanded|Collapsed|Appearing|Disappearing|"
+    r"Input|Navigated|Navigating|Rendered|Updated|Error|Failed)|Handler"
+)
+# Boolean and capability properties that end like an event (`IsChecked`,
+# `IsSelected`, `CanContentScroll`, `AllowDrop`).
+_XAML_PROPERTY_PREFIXES = ("Is", "Can", "Has", "Allow")
 
 
 def _xaml_handler_names(content: str) -> list[str]:
-    """Bare identifiers in XAML attribute values that may name a code-behind member.
+    """Method names wired to event attributes in XAML markup.
 
-    XAML has no event-attribute spelling (`Click`, `Loaded`, `TextChanged`, an
-    attached `Mouse.MouseDown`, an `EventSetter`'s `Handler`), so every bare
-    identifier value is a candidate. That is safe because the names ride on the
-    edge to the code-behind file, and the dead-code tools match an edge's names
-    against that file's symbols only: `HorizontalAlignment="Center"` can keep a
-    code-behind member named `Center` alive and nothing in any other file.
-    Markup extensions (`{Binding X}`) are not bare and name view-model members.
+    Only an event-shaped attribute names a handler, the Web Forms rule
+    (`_aspx_handler_names` reads `On*=` only): a layout value
+    (`HorizontalAlignment="Center"`) or button text (`Content="OK"`) would
+    otherwise ride on the edge as an imported name, and `find_references`,
+    `check_references` and `get_tectonic_map` match edge names repo-wide.
+    Namespaced attributes, markup extensions (`{Binding X}`) and commented-out
+    elements name nothing.
     """
     found: list[str] = []
     seen: set[str] = set()
@@ -1645,11 +1653,13 @@ def _xaml_handler_names(content: str) -> list[str]:
         if raw.startswith(("</", "<?", "<!")):
             continue
         for attr_name, value in _aspx_attr_pairs(_ASPX_TAG_ATTR, raw):
-            if ":" in attr_name or attr_name.lower() in _XAML_NOT_A_HANDLER:
+            if ":" in attr_name:
+                continue
+            event = attr_name.rsplit(".", 1)[-1]
+            if event.startswith(_XAML_PROPERTY_PREFIXES) or not _XAML_EVENT_ATTR.fullmatch(event):
                 continue
             value = value.strip()
-            if (not _ASPX_HANDLER_NAME.match(value) or value.lower() in _XAML_LITERALS
-                    or value in seen):
+            if not _ASPX_HANDLER_NAME.match(value) or value in seen:
                 continue
             seen.add(value)
             found.append(value)
@@ -1669,10 +1679,8 @@ def _extract_xaml_imports(content: str, file_path: str) -> list[dict]:
     cls = (m.group(1) or m.group(2) or "").strip().rsplit(".", 1)[-1]
     names = sorted({cls, *_xaml_handler_names(content)} - {""})
     base = posixpath.basename(file_path.replace("\\", "/"))
-    return [
-        {"specifier": base + ext, "names": names, "xaml_binding": "code_behind"}
-        for ext in _XAML_CODE_BEHIND_SUFFIXES
-    ]
+    return [{"specifier": base + _XAML_CODE_BEHIND_SUFFIX, "names": names,
+             "xaml_binding": "code_behind"}]
 
 
 def _extract_astro_imports(content: str) -> list[dict]:

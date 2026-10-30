@@ -132,14 +132,13 @@ def test_v2_has_nothing_to_decide_for_a_schema_or_build_item(build_items_repo):
     imported = {
         (f, i["specifier"]) for f in capped for i in (index.imports or {}).get(f, [])
     }
-    assert imported == {
-        ("App/Ctl.xaml", "Ctl.xaml.cs"), ("App/Ctl.xaml", "Ctl.xaml.vb"),
-    }, imported
+    assert imported == {("App/Ctl.xaml", "Ctl.xaml.cs")}, imported
 
     out = get_dead_code_v2(repo, min_confidence=0.0, storage_path=storage)
     boundary = out.get("unseen_consumer_boundary") or {}
     assert boundary.get("files") == 1, boundary
     assert not [d for d in out.get("dead_symbols", []) if d.get("file") in capped]
     behind = [d for d in out.get("dead_symbols", []) if d.get("file") == "App/Ctl.xaml.cs"]
+    assert behind, out.get("dead_symbols")  # `Helper` is still judged
     assert all("unreachable_file" not in (d.get("counted_signals") or d.get("signals", []))
                for d in behind), behind
