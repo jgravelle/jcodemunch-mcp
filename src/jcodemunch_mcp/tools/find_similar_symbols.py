@@ -22,7 +22,7 @@ import logging
 import math
 import re
 import time
-from fnmatch import fnmatch
+from ..path_glob import matches as _glob_match
 from typing import Optional
 
 from ..storage import IndexStore, record_savings, estimate_savings, cost_avoided
@@ -273,7 +273,7 @@ def find_similar_symbols(
             continue
         if _looks_generated(f):
             continue
-        if scope and not (fnmatch(f, scope) or f.startswith(scope.rstrip("/") + "/")):
+        if scope and not (_glob_match(f, scope) or f.startswith(scope.rstrip("/") + "/")):
             continue
         candidates.append(sym)
 

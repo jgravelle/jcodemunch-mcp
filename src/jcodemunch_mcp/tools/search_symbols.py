@@ -5,7 +5,7 @@ import json
 import logging
 import math
 import time
-from fnmatch import fnmatch
+from .. import path_glob as _path_glob
 from typing import Optional
 
 logger = logging.getLogger(__name__)
@@ -1012,7 +1012,7 @@ def search_symbols(
         if has_filters:
             if kind and sym.get("kind") != kind:
                 continue
-            if file_pattern and not fnmatch(sym.get("file", ""), file_pattern):
+            if file_pattern and not _path_glob.matches(sym.get("file", ""), file_pattern):
                 continue
             if language and sym.get("language") != language:
                 continue
@@ -1132,7 +1132,7 @@ def search_symbols(
             if has_filters:
                 if kind and sym.get("kind") != kind:
                     continue
-                if file_pattern and not fnmatch(sym.get("file", ""), file_pattern):
+                if file_pattern and not _path_glob.matches(sym.get("file", ""), file_pattern):
                     continue
                 if language and sym.get("language") != language:
                     continue
@@ -1604,7 +1604,7 @@ def _search_symbols_semantic(
         if has_filters:
             if kind and sym.get("kind") != kind:
                 continue
-            if file_pattern and not fnmatch(sym.get("file", ""), file_pattern):
+            if file_pattern and not _path_glob.matches(sym.get("file", ""), file_pattern):
                 continue
             if language and sym.get("language") != language:
                 continue
@@ -1972,11 +1972,10 @@ def _search_symbols_fusion(
 
     # Apply filters to get candidate symbols
     if has_filters:
-        from fnmatch import fnmatch as _fnmatch
         candidates = [
             sym for sym in index.symbols
             if (not kind or sym.get("kind") == kind)
-            and (not file_pattern or _fnmatch(sym.get("file", ""), file_pattern))
+            and (not file_pattern or _path_glob.matches(sym.get("file", ""), file_pattern))
             and (not language or sym.get("language") == language)
             and (not decorator or any(decorator.lower() in d.lower() for d in (sym.get("decorators") or [])))
         ]

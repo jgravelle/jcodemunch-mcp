@@ -230,15 +230,14 @@ def _in_scope(path: str, scope: Optional[str]) -> bool:
     """Would a scan restricted to *scope* have had to look at *path*?
 
     No scope means the whole repository, so everything is in it. A glob is
-    matched the way the tools match one: against the full repo-relative path
-    and against the bare basename, since ``*.py`` is meant to mean "any Python
-    file", not "a Python file at the root".
+    matched the way the tools match one (`path_glob`): a pattern with `/` from
+    the root, a bare one such as ``*.py`` at any depth.
     """
     if not scope:
         return True
-    from fnmatch import fnmatch
+    from .. import path_glob
 
-    return fnmatch(path, scope) or fnmatch(path, f"*/{scope}")
+    return path_glob.matches(path, scope)
 
 
 def working_tree_state(

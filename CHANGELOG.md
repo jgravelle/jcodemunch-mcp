@@ -2,6 +2,50 @@
 
 ## [Unreleased]
 
+### Fixed - one rule for a path pattern: with `/` it is anchored at the repo root, and a bare one matches at any depth
+
+On a large repository, `search_text` with `file_pattern="homeassistant/**"`
+also returned files under `tests/homeassistant/`, and the agent spent steps
+filtering them out. `search_text`, the index store's symbol search and the
+working-tree scope check each tried the pattern and then `*/` + pattern, and
+fnmatch's `*` crosses `/`, so the second try matched an anchored pattern at
+every depth. `search_symbols`, `get_dead_code_v2`, `search_ast`,
+`get_ranked_context`'s `scope` and `winnow_symbols`' `file` axis used plain
+fnmatch, so a bare `route.ts` matched only at the root there, and
+`get_untested_symbols` had a third rule (full path or basename): the same
+argument meant different files depending on the tool.
+
+Every `file_pattern`, the `scope` of `get_ranked_context`,
+`find_similar_symbols`, `get_repo_map` and `get_symbol_importance`, and the
+`file` axis of `winnow_symbols` now ask `path_glob`:
+
+- A pattern containing `/` names a place in the tree and matches from the
+  root (`./` and a leading `/` mean the root too). A brace expansion follows
+  the same rule, so `{a,c}/mod.py` no longer reaches into `pkg/`; write
+  `pkg/{a,c}/mod.py`.
+- A bare pattern such as `*.py` or `route.ts` matches at any depth. As
+  before, fnmatch's `*` crosses `/`, so `*detached*` also matches a
+  directory name.
+- `**/` matches zero or more directories, so `src/**/*.py`, the example in
+  the tool schemas, now matches `src/a.py`; it used to require a
+  subdirectory. This holds for a whole-segment `**/` (at the start or after
+  a `/`), up to three per pattern; past three, each needs at least one
+  directory, as before.
+- A backslash reads as `/` in the pattern as well as the path, on every
+  platform.
+- Matching is case-sensitive on every platform. On Windows, every site that
+  used `fnmatch.fnmatch` folded case (all of the above except `search_text`),
+  so `PKG/*` used to match `pkg/` there and now does not. `get_ranked_context`
+  checks the working tree with the same rule as its scan, so the two can no
+  longer disagree about which files a scope covers.
+
+The three directory-prefix scopes keep matching a bare directory name
+(`scope="src"`). `find_dead_code`'s live-root patterns keep their own
+documented matcher. `tests/test_file_pattern_anchoring.py` lists every other
+glob call in `src/` with the reason it is not a path filter, and fails on a
+new one. Run against the previous tree, it finds the sixteen functions this
+change moved onto the one rule.
+
 ### Fixed - the `rate_limit` config key now turns on the HTTP rate limit
 
 CONFIGURATION.md documents `rate_limit` (requests per minute per client IP in
