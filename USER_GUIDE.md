@@ -964,7 +964,7 @@ For hosted OpenAI-compatible providers, use explicit provider selection instead:
 }
 ```
 
-If you document this section, I would keep it framed as optional power-user tuning, not required setup.
+Everything in this section is optional tuning. jCodeMunch needs none of it to work.
 
 ---
 
