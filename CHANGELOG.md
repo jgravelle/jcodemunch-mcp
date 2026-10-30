@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+### Fixed - two packages never share an `index_dependency` snapshot
+
+`index_dependency` copies a package into the store's `deps/` folder and indexes the copy. The folder name was a cleanup of the package name, and the cleanup sent different packages to one folder: `@a/b` and `a__b` both became `a__b@<version>`, names that differ only in case are one folder on Windows and macOS, and an npm and a PyPI package with the same name and version shared a folder too. The second package deleted the first one's snapshot and rebuilt it as itself, so the first package's index answered with the wrong package's code, and nothing reported it.
+
+The folder name now ends in a digest of the exact ecosystem, name and version, so two different packages always get two folders, and the readable name and version stay in front. A re-run of the same package still finds and rebuilds its own folder. A snapshot written under the old name is cleared on the next run, as any earlier snapshot already was, because it may hold files the current copy rules would not copy. Each new snapshot carries a `.jcodemunch-snapshot.json` marker, and that cleanup never touches a folder holding one: the version comes from the package's own metadata, so a crafted version could otherwise make an old name equal another package's current folder. ⚠ An `indexed_repo` id from an earlier run names the old folder. After the next run that folder is gone, but the old index is still listed, and its freshness reads `unknown`; use the new id the run returns.
+
 ## [1.108.402] - 2026-10-28 - the server instructions name the tools in the first 512 characters, and tool names hold across 1.x
 
 ### Changed - tool names are a stable contract across 1.x
