@@ -115,6 +115,20 @@ def test_only_the_helper_spells_the_pip_fallback():
     assert sorted(hits) == ["cli/upgrade.py", "watcher.py"], sorted(hits)
 
 
+def test_watch_once_still_runs_without_watchfiles(tmp_path, monkeypatch, no_watchfiles):
+    """`watch --once` is a one-shot sync and never needed watchfiles; the check
+    must stay below its branch."""
+    ran = []
+
+    async def fake_sync(**kwargs):
+        ran.append(kwargs["paths"])
+
+    monkeypatch.setattr(watcher, "sync_folders", fake_sync)
+    monkeypatch.setenv("CODE_INDEX_PATH", str(tmp_path / "store"))
+    server.main(["watch", "--once", str(tmp_path)])
+    assert ran == [[str(tmp_path)]]
+
+
 def test_the_check_passes_when_watchfiles_is_present():
     pytest.importorskip("watchfiles")
     watcher.exit_unless_watchfiles("watch")  # returns, does not exit
