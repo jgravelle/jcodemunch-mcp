@@ -168,6 +168,9 @@ class _ProgressEcho:
                 not line.strip()
                 or line[:1].isspace()
                 or line.startswith(("Thread 0x", "Current thread 0x"))
+                # Under xdist other workers keep reporting while one dumps, so
+                # a progress line can land inside a dump; it must not end it.
+                or _PROGRESS_RE.search(line)
             ):
                 return True
             self._in_dump = False
@@ -216,10 +219,16 @@ def _run(
             bufsize=1,
         ) as p:
             assert p.stdout is not None
-            for line in p.stdout:
-                chunks.append(line)
-                if echo(line.rstrip("\r\n")):
-                    print(line, end="" if line.endswith("\n") else "\n", flush=True)
+            try:
+                for line in p.stdout:
+                    chunks.append(line)
+                    if echo(line.rstrip("\r\n")):
+                        print(line, end="" if line.endswith("\n") else "\n", flush=True)
+            except BaseException:
+                # subprocess.run kills the child on any exception; Popen's
+                # __exit__ would wait on it forever instead.
+                p.kill()
+                raise
             rc = p.wait()
         return rc, "".join(chunks), time.perf_counter() - t0
     proc = subprocess.run(

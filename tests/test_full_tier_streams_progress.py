@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import sys
 import textwrap
+import time
 from pathlib import Path
 
 from harness import __main__ as harness_main
@@ -65,6 +66,11 @@ def test_the_echo_keeps_progress_and_a_hang_dump_only():
         ("Thread 0x00001234 (most recent call first):", True),
         ('  File "tests/test_x.py", line 9 in test_hangs', True),
         ("", True),
+        # Another worker reported while this one dumped: the dump goes on.
+        ("........................................................ [ 32%]", True),
+        ("Thread 0x00005678 (most recent call first):", True),
+        ('  File "tests/test_z.py", line 3 in test_stuck', True),
+        ("", True),
         ("tests/test_y.py::test_ok PASSED", False),
         ("18846 passed, 25 skipped in 869.66s (0:14:29)", False),
     ]
@@ -98,8 +104,8 @@ def test_the_faulthandler_bound_fires_before_the_job_is_cancelled():
     from harness import thresholds as T
 
     job_seconds = T.floor("ci.test_job_timeout_minutes") * 60
-    # A hang has to be dumped while the job still runs, with the rest of the
-    # suite (about 15 min on a windows runner) still to fit.
+    # A hang has to be dumped while the job still runs, with most of the
+    # job's time left for the rest of the suite.
     assert 0 < harness_main.FAULTHANDLER_TIMEOUT_SECONDS <= job_seconds / 3
 
 
@@ -131,3 +137,69 @@ def test_a_hung_test_is_named_in_the_echoed_output(tmp_path, capsys):
     assert "Timeout" in printed
     assert "test_sleeps_past_the_bound" in printed
     assert Path(t).name in printed
+
+
+def test_a_failing_run_parses_the_same_on_both_paths(tmp_path, capsys):
+    """Summary, failed ids and the coverage TOTAL read the same with and without echo.
+
+    The streamed path reads stdout and stderr as one stream where the old path
+    joined them stdout-then-stderr, so stderr text (a warning) can sit in a
+    different place in the failure report. Everything the tier PARSES from the
+    output must not move.
+    """
+    t = tmp_path / "test_mixed.py"
+    t.write_text(
+        "import pytest, sys\n\n"
+        "def test_ok():\n    assert True\n\n"
+        "def test_bad():\n    print('noise', file=sys.stderr)\n    assert 1 == 2\n\n"
+        "@pytest.fixture\ndef broken():\n    raise RuntimeError('setup')\n\n"
+        "def test_err(broken):\n    pass\n",
+        encoding="utf-8",
+    )
+    cmd = [
+        sys.executable,
+        "-m",
+        "pytest",
+        str(t),
+        "-q",
+        "-p",
+        "no:cacheprovider",
+        "-n",
+        "2",
+        "--tb=short",
+    ]
+    rc_a, out_a, _ = harness_main._run(cmd)
+    rc_b, out_b, _ = harness_main._run(cmd, echo=harness_main._ProgressEcho())
+    capsys.readouterr()
+    assert rc_a == rc_b != 0
+    sa, sb = harness_main._pytest_summary(out_a), harness_main._pytest_summary(out_b)
+    assert {k: sa[k] for k in ("passed", "failed", "skipped")} == {
+        k: sb[k] for k in ("passed", "failed", "skipped")
+    }
+    assert sa["failed"] >= 1
+    assert sorted(harness_main._failed_id_lines(out_a)) == sorted(
+        harness_main._failed_id_lines(out_b)
+    )
+
+
+def test_a_raising_echo_kills_the_child(tmp_path):
+    """subprocess.run kills its child on an exception; the streamed path must too."""
+    pidfile = tmp_path / "pid"
+    child = (
+        "import os, sys, time, pathlib\n"
+        f"pathlib.Path({str(pidfile)!r}).write_text(str(os.getpid()))\n"
+        "print('go', flush=True)\n"
+        "time.sleep(60)\n"
+    )
+
+    def boom(line):
+        raise RuntimeError("echo failed")
+
+    t0 = time.monotonic()
+    try:
+        harness_main._run([sys.executable, "-c", child], echo=boom)
+    except RuntimeError:
+        pass
+    else:
+        raise AssertionError("the echo's exception was swallowed")
+    assert time.monotonic() - t0 < 30, "the child was waited on instead of killed"
