@@ -128,9 +128,10 @@ def watch_all_scope(
     return kept, skipped
 
 
-def discover_watch_all_repos(storage_path: Optional[str] = None) -> list[str]:
-    """The repos watch-all watches: every local index minus temp and idle ones."""
-    return watch_all_scope(storage_path)[0]
+_REASON_TEXT = {
+    watch_scope.SKIP_TEMP: "under a temp folder; watch_all_skip_temp",
+    watch_scope.SKIP_IDLE: "no file or commit change past watch_all_max_idle_days",
+}
 
 
 def _skipped_summary(skipped: "dict[str, str]") -> Optional[str]:
@@ -222,12 +223,20 @@ async def watch_all(
     async def _rediscover_loop() -> None:
         while not stop_event.is_set():
             try:
-                discovered = set(discover_watch_all_repos(storage_path))
+                kept, skipped_now = watch_all_scope(storage_path)
+                discovered = set(kept)
                 watched = set(manager.list_folders())
                 for folder in sorted(discovered - watched):
                     await manager.add_folder(folder)
                 for folder in sorted(watched - discovered):
                     await manager.remove_folder(folder)
+                    if folder in skipped_now:
+                        _watcher_output(
+                            f"jcodemunch-mcp watch-all: stopped watching {folder} "
+                            f"({_REASON_TEXT.get(skipped_now[folder], skipped_now[folder])}). "
+                            "Its index stays searchable.",
+                            quiet=quiet, log_file_handle=log_file_handle,
+                        )
             except Exception:
                 logger.warning("rediscover pass failed", exc_info=True)
             try:

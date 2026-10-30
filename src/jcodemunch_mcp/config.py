@@ -2667,7 +2667,8 @@ def generate_template() -> str:
   // "watch_all_max_idle_days": 14,
   //   `watch-all` leaves unwatched any indexed repo whose newest indexed
   //   file AND last indexed commit are both older than this many days.
-  //   It is watched again once either is recent. 0 = watch every repo.
+  //   The tree is checked too, at most every 10 minutes, so a repo you edit
+  //   or commit in is watched again. 0 = watch every repo.
   // "freshness_mode": "relaxed",
   //   relaxed - Default. Index remains queryable during reindex.
   //             Best for interactive use (IDE, chat).

@@ -12,6 +12,7 @@ dir, so the idle tests pass `skip_temp=False` to isolate the idle rule.
 
 from __future__ import annotations
 
+import asyncio
 import os
 import subprocess
 import time
@@ -45,6 +46,8 @@ def _index(tmp_path: Path, *, file_age_days: float, commit_age_days=None):
         )
     stamp = time.time() - file_age_days * _DAY
     os.utime(f, (stamp, stamp))
+    # The folder holding the file is aged too: the live tree check reads it.
+    os.utime(repo, (stamp, stamp))
     store_dir = tmp_path / "store"
     from jcodemunch_mcp.tools.index_folder import index_folder
 
@@ -55,6 +58,13 @@ def _index(tmp_path: Path, *, file_age_days: float, commit_age_days=None):
     entry = store.list_repos()[0]
     owner, name = entry["repo"].split("/", 1)
     return str(repo.resolve()), entry, store._db_path(owner, name), str(store_dir)
+
+
+@pytest.fixture(autouse=True)
+def _fresh_verdicts():
+    watch_scope._idle_verdicts.clear()
+    yield
+    watch_scope._idle_verdicts.clear()
 
 
 def _reason(folder, entry, db, **kw):
@@ -218,3 +228,166 @@ class TestWatchAllUsesTheScope:
         out = gws.get_watch_status(str(tmp_path / "store"), check_freshness=False)
 
         assert out["repos"][0]["watch_all_skipped"] == "temp"
+
+
+class TestASkipEndsWhenTheTreeMoves:
+    """The index's signals do not move while a repo is unwatched, so the skip
+    must be checked against the tree, or it is permanent."""
+
+    def test_an_edit_after_the_index_ends_the_skip(self, tmp_path):
+        folder, entry, db, _ = _index(tmp_path, file_age_days=30)
+        assert _reason(folder, entry, db) == "idle"
+        watch_scope._idle_verdicts.clear()
+
+        f = Path(folder) / "a.py"
+        f.write_text("def alpha():\n    return 2\n", encoding="utf-8")
+
+        assert _reason(folder, entry, db) is None
+
+    def test_a_deleted_file_ends_the_skip(self, tmp_path):
+        folder, entry, db, _ = _index(tmp_path, file_age_days=30)
+        (Path(folder) / "a.py").unlink()
+        assert _reason(folder, entry, db) is None
+
+    def test_a_file_added_beside_an_indexed_one_ends_the_skip(self, tmp_path):
+        folder, entry, db, _ = _index(tmp_path, file_age_days=30)
+        new = Path(folder) / "b.py"
+        new.write_text("x = 1\n", encoding="utf-8")
+        old = time.time() - 30 * _DAY
+        os.utime(new, (old, old))  # an old file copied in: only the folder moved
+        assert _reason(folder, entry, db) is None
+
+    def test_a_commit_after_the_index_ends_the_skip(self, tmp_path):
+        folder, entry, db, _ = _index(tmp_path, file_age_days=30, commit_age_days=30)
+        when = f"@{int(time.time() - 30 * _DAY)} +0000"
+        env = {**os.environ, "GIT_AUTHOR_DATE": when, "GIT_COMMITTER_DATE": when}
+        subprocess.run(
+            [
+                "git",
+                "-c",
+                "user.email=t@t",
+                "-c",
+                "user.name=t",
+                "commit",
+                "-q",
+                "--allow-empty",
+                "-m",
+                "y",
+            ],
+            cwd=folder,
+            check=True,
+            env=env,
+        )
+        old = time.time() - 30 * _DAY
+        os.utime(folder, (old, old))
+        assert _reason(folder, entry, db) is None
+
+    def test_a_git_repo_whose_index_stored_no_commit_stays_watched(self, tmp_path):
+        folder, entry, db, _ = _index(tmp_path, file_age_days=30, commit_age_days=30)
+        assert _reason(folder, {**entry, "git_head": ""}, db) is None
+
+    def test_the_verdict_is_reused_until_the_recheck_interval(
+        self, tmp_path, monkeypatch
+    ):
+        folder, entry, db, _ = _index(tmp_path, file_age_days=30)
+        assert _reason(folder, entry, db) == "idle"
+        (Path(folder) / "a.py").write_text("y = 2\n", encoding="utf-8")
+
+        assert _reason(folder, entry, db) == "idle"  # within the interval
+        monkeypatch.setattr(watch_scope, "IDLE_RECHECK_S", 0.0)
+        assert _reason(folder, entry, db) is None
+
+
+class TestMacSpellings:
+    @pytest.mark.parametrize(
+        "parts", [("private", "tmp", "x"), ("private", "var", "tmp", "x")]
+    )
+    def test_the_private_prefix_macos_resolves_to_counts(self, parts):
+        anchor = Path(Path.cwd().anchor)
+        assert watch_scope.is_temp_path(str(anchor.joinpath(*parts))) is True
+
+    def test_another_private_folder_does_not(self):
+        anchor = Path(Path.cwd().anchor)
+        assert watch_scope.is_temp_path(str(anchor / "private" / "work" / "x")) is False
+
+
+class _Manager:
+    def __init__(self, **kw):
+        self.folders: list[str] = []
+        self.removed: list[str] = []
+
+    async def add_folder(self, folder):
+        self.folders.append(folder)
+
+    async def remove_folder(self, folder):
+        if folder in self.folders:
+            self.folders.remove(folder)
+            self.removed.append(folder)
+
+    def list_folders(self):
+        return list(self.folders)
+
+    async def run(self):
+        await asyncio.sleep(0.3)
+
+    def stop(self):
+        pass
+
+
+class TestTheDaemon:
+    """watch_all() itself, driven with the real scope over a real index."""
+
+    def _run(self, monkeypatch, store_dir, **settings):
+        made: list[_Manager] = []
+
+        def _make(**kw):
+            m = _Manager(**kw)
+            made.append(m)
+            return m
+
+        lines: list[str] = []
+        monkeypatch.setattr(watch_all, "WatcherManager", _make)
+        monkeypatch.setattr(watch_all, "_is_wsl", lambda: False)
+        monkeypatch.setattr(
+            watch_all, "_watcher_output", lambda msg, **kw: lines.append(msg)
+        )
+        monkeypatch.setattr(watch_scope, "settings", lambda: settings["s"])
+        asyncio.run(
+            watch_all.watch_all(storage_path=store_dir, rediscover_interval_s=0.05)
+        )
+        return made[0], lines
+
+    def test_a_temp_index_is_not_watched_and_the_startup_line_says_why(
+        self, tmp_path, monkeypatch
+    ):
+        folder, _e, _d, store_dir = _index(tmp_path, file_age_days=1)
+        manager, lines = self._run(monkeypatch, store_dir, s=(True, 14))
+
+        assert folder not in manager.folders and folder not in manager.removed
+        assert any(
+            "not watching 1" in ln and "watch_all_skip_temp" in ln for ln in lines
+        ), lines
+
+    def test_with_skipping_off_the_same_index_is_watched(self, tmp_path, monkeypatch):
+        folder, _e, _d, store_dir = _index(tmp_path, file_age_days=1)
+        manager, lines = self._run(monkeypatch, store_dir, s=(False, 0))
+
+        assert manager.removed == [folder]  # watched until shutdown
+        assert not any("not watching" in ln for ln in lines)
+
+    def test_a_repo_that_goes_idle_mid_run_is_dropped_and_named(
+        self, tmp_path, monkeypatch
+    ):
+        folder, _e, _d, store_dir = _index(tmp_path, file_age_days=1)
+        calls = {"n": 0}
+        real = watch_scope.skip_reason
+
+        def _flip(*a, **kw):
+            calls["n"] += 1
+            return "idle" if calls["n"] > 1 else real(*a, **kw)
+
+        monkeypatch.setattr(watch_scope, "skip_reason", _flip)
+        manager, lines = self._run(monkeypatch, store_dir, s=(False, 14))
+
+        assert folder in manager.removed
+        assert any("stopped watching" in ln and folder in ln for ln in lines), lines

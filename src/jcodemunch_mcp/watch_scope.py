@@ -21,8 +21,10 @@ unreadable database, a commit git cannot date) keeps the repo watched; a wrong
 skip leaves an index silently stale, which is the worse error.
 
 Nothing here deletes or edits an index. A skipped repo is still searchable and
-is re-indexed by any explicit ``index_folder``; once its files or commits are
-recent again it is watched on the next rediscovery pass.
+is re-indexed by any explicit ``index_folder``. Because the index's signals do
+not move while a repo is unwatched, an idle verdict also checks the tree
+(``tree_changed_since``, ``head_unchanged``), at most every ``IDLE_RECHECK_S``,
+so a repo edited or committed in after a skip is watched again.
 """
 
 from __future__ import annotations
@@ -45,8 +47,18 @@ SKIP_IDLE = "idle"
 _TEMP_ROOT_NAMES = frozenset({"tmp", "temp"})
 _DAY_NS = 86_400 * 1_000_000_000
 
+# A file mtime counts as newer than the index only past this slack: some file
+# systems store coarser times than the index read (FAT keeps 2 s).
+_MTIME_SLACK_NS = 2 * 1_000_000_000
+
+#: Seconds an idle verdict is reused before the tree is stat'ed again.
+IDLE_RECHECK_S = 600.0
+
 # (folder, git_head) -> commit time in ns, or None when git could not date it.
 _commit_times: dict[tuple[str, str], Optional[int]] = {}
+
+# (folder, db path, max_idle_days) -> (idle?, time.monotonic() of the check)
+_idle_verdicts: dict[tuple[str, str, int], tuple[bool, float]] = {}
 
 
 def settings() -> tuple[bool, int]:
@@ -70,10 +82,17 @@ def is_temp_path(path: str) -> bool:
             return True
     except OSError:
         logger.debug("could not resolve the temp dir", exc_info=True)
-    parts = [x.lower() for x in p.parts[1:]]
-    if parts and parts[0] in _TEMP_ROOT_NAMES:
-        return True
-    return len(parts) >= 2 and parts[0] == "var" and parts[1] in _TEMP_ROOT_NAMES
+    # Both spellings: macOS resolves /tmp to /private/tmp and /var/tmp to
+    # /private/var/tmp, so the resolved path alone never starts with tmp.
+    for spelling in (Path(path).absolute(), p):
+        parts = [x.lower() for x in spelling.parts[1:]]
+        if parts[:1] == ["private"]:
+            parts = parts[1:]
+        if parts and parts[0] in _TEMP_ROOT_NAMES:
+            return True
+        if len(parts) >= 2 and parts[0] == "var" and parts[1] in _TEMP_ROOT_NAMES:
+            return True
+    return False
 
 
 def newest_indexed_mtime_ns(db_path: Path) -> Optional[int]:
@@ -118,6 +137,89 @@ def commit_time_ns(folder: str, git_head: str) -> Optional[int]:
     return value
 
 
+def head_unchanged(folder: str, entry: dict) -> Optional[bool]:
+    """Is the checkout still at the commit the index stored? None when unknown.
+
+    Asks `FreshnessProbe.repo_freshness`, the authority on this question:
+    ``fresh`` is True, ``stale`` False, ``not_tracked`` (a plain folder, no
+    revision to move) True, anything else None.
+    """
+    try:
+        from .retrieval.freshness import FreshnessProbe
+
+        verdict = FreshnessProbe(
+            folder, entry.get("indexed_at") or "", entry.get("git_head")
+        ).repo_freshness
+    except Exception:
+        logger.debug("freshness probe failed for %s", folder, exc_info=True)
+        return None
+    if verdict in ("fresh", "not_tracked"):
+        return True
+    if verdict == "stale":
+        return False
+    return None
+
+
+def tree_changed_since(folder: str, db_path: Path, newest_ns: int) -> Optional[bool]:
+    """Has the tree moved past what the index holds? None when it cannot tell.
+
+    The index's own signals do not move while a repo is unwatched, so a skip
+    decided from them alone would be permanent. This stats every file the index
+    holds and each folder that holds one: an edited file has a newer mtime, a
+    deleted one is missing, and a file added or renamed moves its folder's
+    mtime. A change in a folder holding no indexed file is not seen.
+    """
+    try:
+        conn = connect_readonly(db_path)
+        try:
+            paths = [r[0] for r in conn.execute("SELECT path FROM files")]
+        finally:
+            conn.close()
+    except Exception:
+        logger.debug("could not read file paths from %s", db_path, exc_info=True)
+        return None
+    root = Path(folder)
+    limit = newest_ns + _MTIME_SLACK_NS
+    folders: set[Path] = {root}
+    for rel in paths:
+        target = root / rel
+        folders.add(target.parent)
+        try:
+            if target.stat().st_mtime_ns > limit:
+                return True
+        except FileNotFoundError:
+            return True
+        except OSError:
+            return None
+    for d in folders:
+        try:
+            if d.stat().st_mtime_ns > limit:
+                return True
+        except FileNotFoundError:
+            return True
+        except OSError:
+            return None
+    return False
+
+
+def _idle(
+    folder: str, entry: dict, db_path: Path, max_idle_days: int, now_ns: int
+) -> bool:
+    cutoff = now_ns - max_idle_days * _DAY_NS
+    newest = newest_indexed_mtime_ns(db_path)
+    if newest is None or newest >= cutoff:
+        return False
+    head = (entry.get("git_head") or "").strip()
+    if head:
+        committed = commit_time_ns(folder, head)
+        if committed is None or committed >= cutoff:
+            return False
+    # The index says idle; the tree must agree, or the skip never ends.
+    if head_unchanged(folder, entry) is not True:
+        return False
+    return tree_changed_since(folder, db_path, newest) is False
+
+
 def skip_reason(
     folder: str,
     entry: dict,
@@ -127,19 +229,24 @@ def skip_reason(
     max_idle_days: int,
     now_ns: Optional[int] = None,
 ) -> Optional[str]:
-    """``"temp"``, ``"idle"`` or None (watch it)."""
+    """``"temp"``, ``"idle"`` or None (watch it).
+
+    The idle verdict is kept for `IDLE_RECHECK_S` per repo, so the rediscovery
+    pass (every 30 s) re-stats an idle repo's tree at most that often. A repo
+    edited or committed after a skip is therefore watched again within that
+    interval.
+    """
     if skip_temp and is_temp_path(folder):
         return SKIP_TEMP
     if max_idle_days <= 0 or db_path is None:
         return None
     now_ns = time.time_ns() if now_ns is None else now_ns
-    cutoff = now_ns - max_idle_days * _DAY_NS
-    newest = newest_indexed_mtime_ns(db_path)
-    if newest is None or newest >= cutoff:
-        return None
-    head = (entry.get("git_head") or "").strip()
-    if head:
-        committed = commit_time_ns(folder, head)
-        if committed is None or committed >= cutoff:
-            return None
-    return SKIP_IDLE
+    key = (folder, str(db_path), max_idle_days)
+    cached = _idle_verdicts.get(key)
+    clock = time.monotonic()
+    if cached is not None and clock - cached[1] < IDLE_RECHECK_S:
+        idle = cached[0]
+    else:
+        idle = _idle(folder, entry, db_path, max_idle_days, now_ns)
+        _idle_verdicts[key] = (idle, clock)
+    return SKIP_IDLE if idle else None

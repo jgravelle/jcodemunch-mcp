@@ -116,7 +116,8 @@ def get_watch_status(
         skipped = watch_all_scope(storage_path, entries=entries)[1]
     except Exception:
         logger.debug("watch-all scope could not be read", exc_info=True)
-        skipped = {}
+        # Not knowing is not "watched": say so per repo.
+        skipped = {folder: "unknown" for folder in discovered}
     repos_out = []
     any_stale = False
     any_freshness_unknown = False
