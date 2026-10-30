@@ -140,7 +140,7 @@ def test_a_hung_test_is_named_in_the_echoed_output(tmp_path, capsys):
 
 
 def test_a_failing_run_parses_the_same_on_both_paths(tmp_path, capsys):
-    """Summary, failed ids and the coverage TOTAL read the same with and without echo.
+    """The summary counts and the failed ids read the same with and without echo.
 
     The streamed path reads stdout and stderr as one stream where the old path
     joined them stdout-then-stderr, so stderr text (a warning) can sit in a
