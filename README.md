@@ -133,7 +133,7 @@ Then tell the agent to prefer the tools. This matters more than people think; in
 Call the jcodemunch_guide tool and strictly follow its instructions.
 ```
 
-Using Cursor, Windsurf, Codex CLI, Antigravity, Gemini CLI, Qwen Code, Kiro, Cline, Zed, Goose, Hermes, Odysseus, or Paperclip? Every tested client configuration lives in **[CLIENTS.md](CLIENTS.md)**. Optional extras (local semantic search, AI summaries per provider) are in [QUICKSTART.md](QUICKSTART.md); the system surfaces each extra pulls in are documented in [SECURITY.md](SECURITY.md#optional-extras--system-surfaces-each-pulls-in).
+Using Cursor, Windsurf, Codex CLI, JetBrains AI Assistant, Junie, Antigravity, Gemini CLI, Qwen Code, Kiro, Cline, Zed, Goose, Hermes, Odysseus, or Paperclip? Every tested client configuration lives in **[CLIENTS.md](CLIENTS.md)**, along with [fewer approval prompts](CLIENTS.md#fewer-approval-prompts), [a committed `.mcp.json` for your team](CLIENTS.md#share-it-with-your-team) and [a shared HTTP server](CLIENTS.md#run-it-as-a-shared-http-server). Optional extras (local semantic search, AI summaries per provider) are in [QUICKSTART.md](QUICKSTART.md); the system surfaces each extra pulls in are documented in [SECURITY.md](SECURITY.md#optional-extras--system-surfaces-each-pulls-in).
 
 ---
 
