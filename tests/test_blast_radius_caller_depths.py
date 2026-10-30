@@ -94,8 +94,48 @@ def test_the_compact_encoding_carries_the_counts(chain):
     assert back["callers_by_depth"] == {"1": 2, "2": 1, "3": 1}
 
 
-def test_the_old_compact_encoding_id_stays_readable():
+def test_the_old_compact_encoding_id_stays_readable(chain):
+    """Encode with the br2 scalars and id, then decode through the registry."""
+    from jcodemunch_mcp.encoding import decoder
+    from jcodemunch_mcp.encoding import schema_driven as sd
     from jcodemunch_mcp.encoding.schemas import get_blast_radius as enc
 
     assert enc.ENCODING_ID != "br2"
     assert "br2" in enc.LEGACY_ENCODING_IDS
+    br2_scalars = tuple(s for s in enc._SCALARS if s not in ("caller_count", "direct_caller_count"))
+    br2_json = tuple(j for j in enc._JSON if j != "callers_by_depth")
+    rid, store = chain
+    res = get_blast_radius(rid, "helper", call_depth=3, storage_path=store)
+    payload, _ = sd.encode(
+        "get_blast_radius", res, "br2", enc._TABLES, br2_scalars,
+        nested_dicts=enc._NESTED, meta_keys=enc._META,
+        meta_json_blobs=enc._META_JSON, json_blobs=br2_json,
+    )
+    back = decoder.decode(payload)
+    assert back["symbol"]["name"] == "helper"
+    assert len(back["callers"]) == 4
+
+
+def test_endpoint_impact_carries_the_direct_count(tmp_path):
+    """`get_endpoint_impact` republishes the callers at a default depth of 2."""
+    from jcodemunch_mcp.tools.get_endpoint_impact import get_endpoint_impact
+
+    app = tmp_path / "app"
+    app.mkdir()
+    (app / "views.py").write_text(
+        "from flask import Flask\napp = Flask(__name__)\n\n"
+        "@app.route('/users')\ndef list_users():\n    return []\n",
+        encoding="utf-8",
+    )
+    (app / "jobs.py").write_text(
+        "from views import list_users\n\ndef trigger():\n    return list_users()\n\n"
+        "def nightly():\n    return trigger()\n",
+        encoding="utf-8",
+    )
+    store = tmp_path / "store"
+    out = index_folder(str(app), use_ai_summaries=False, storage_path=str(store))
+    res = get_endpoint_impact(out["repo"], endpoint="GET /users", storage_path=str(store))
+    imp = next(i for i in res["impacts"] if i["handler"]["name"] == "list_users")
+    assert imp["caller_count"] == 2, imp
+    assert imp["direct_caller_count"] == 1
+    assert imp["callers_by_depth"] == {"1": 1, "2": 1}

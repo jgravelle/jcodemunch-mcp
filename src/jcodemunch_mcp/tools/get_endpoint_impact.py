@@ -177,6 +177,11 @@ def _impact_for_handler(
         "caller_count": br.get("caller_count", 0),
         "rendered_views": views,
     }
+    # `caller_count` is every depth; the default `call_depth` is 2, so the
+    # direct count travels with it (L-240).
+    for key in ("direct_caller_count", "callers_by_depth"):
+        if key in br:
+            out[key] = br[key]
     # `get_blast_radius` runs its cross-repo channel whenever `cross_repo_default`
     # is on; dropping it left `affected_file_count: 0` for a handler whose only
     # dependents live in another repository (#877).
