@@ -1612,6 +1612,69 @@ def _extract_aspx_imports(content: str) -> list[dict]:
     return edges
 
 
+_XAML_SUFFIX = ".xaml"
+# A code-behind sits beside its view as `<view>.xaml.cs` (or `.vb`); a missing
+# one just does not resolve.
+_XAML_CODE_BEHIND_SUFFIXES = (".cs", ".vb")
+_XAML_CLASS = re.compile(r"""\bx:Class\s*=\s*(?:"([^"]*)"|'([^']*)')""")
+_XML_COMMENT = re.compile(r"<!--.*?-->", re.DOTALL)
+# Attributes whose identifier value names a field, a type or a property, never
+# a handler. Namespaced attributes (`x:Name`, `d:DataContext`, `xmlns:*`) are
+# skipped by their colon.
+_XAML_NOT_A_HANDLER = frozenset({
+    "name", "targettype", "datatype", "type", "event", "property", "targetname",
+    "sourcename", "storyboard.targetname", "storyboard.targetproperty", "xmlns",
+})
+_XAML_LITERALS = frozenset({"true", "false"})
+
+
+def _xaml_handler_names(content: str) -> list[str]:
+    """Bare identifiers in XAML attribute values that may name a code-behind member.
+
+    XAML has no event-attribute spelling (`Click`, `Loaded`, `TextChanged`, an
+    attached `Mouse.MouseDown`, an `EventSetter`'s `Handler`), so every bare
+    identifier value is a candidate. That is safe because the names ride on the
+    edge to the code-behind file, and the dead-code tools match an edge's names
+    against that file's symbols only: `HorizontalAlignment="Center"` can keep a
+    code-behind member named `Center` alive and nothing in any other file.
+    Markup extensions (`{Binding X}`) are not bare and name view-model members.
+    """
+    found: list[str] = []
+    seen: set[str] = set()
+    for raw in _aspx_tags(_XML_COMMENT.sub(" ", content)):
+        if raw.startswith(("</", "<?", "<!")):
+            continue
+        for attr_name, value in _aspx_attr_pairs(_ASPX_TAG_ATTR, raw):
+            if ":" in attr_name or attr_name.lower() in _XAML_NOT_A_HANDLER:
+                continue
+            value = value.strip()
+            if (not _ASPX_HANDLER_NAME.match(value) or value.lower() in _XAML_LITERALS
+                    or value in seen):
+                continue
+            seen.add(value)
+            found.append(value)
+    return found
+
+
+def _extract_xaml_imports(content: str, file_path: str) -> list[dict]:
+    """An edge from a XAML view to its code-behind, carrying the class and handler names (L-202).
+
+    Only a view with `x:Class` has a code-behind; a resource dictionary or an
+    `App.xaml` without one gets no edge. The names are what keep markup-wired
+    handlers off the dead-code lists, the Web Forms `markup_event` edge's twin.
+    """
+    m = _XAML_CLASS.search(content)
+    if not m:
+        return []
+    cls = (m.group(1) or m.group(2) or "").strip().rsplit(".", 1)[-1]
+    names = sorted({cls, *_xaml_handler_names(content)} - {""})
+    base = posixpath.basename(file_path.replace("\\", "/"))
+    return [
+        {"specifier": base + ext, "names": names, "xaml_binding": "code_behind"}
+        for ext in _XAML_CODE_BEHIND_SUFFIXES
+    ]
+
+
 def _extract_astro_imports(content: str) -> list[dict]:
     """Extract imports from Astro frontmatter + synthetic template usage edges."""
     frontmatter, template_body, _, _ = split_astro_frontmatter(content)
@@ -2022,6 +2085,10 @@ def extract_imports(content: str, file_path: str, language: str,
             return []
 
     extractor = _LANGUAGE_EXTRACTORS.get(language)
+    # XAML is indexed as `xml`, which has no extractor of its own: only a
+    # `.xaml` view has a code-behind to point at (L-202).
+    if extractor is None and language == "xml" and file_path.lower().endswith(_XAML_SUFFIX):
+        extractor = lambda c: _extract_xaml_imports(c, file_path)  # noqa: E731
     if extractor is None:
         return []
     try:
@@ -2834,6 +2901,15 @@ def resolve_specifier(
     # Namespace="Utils" %>` bound an unrelated `utils.js` in any ancestor
     # directory, and `check_delete_safe` blocked that file's deletion as final
     # (review of #1012). A namespace resolves to nothing, here or below.
+    # A XAML code-behind is the view's sibling and nothing else: climbing like
+    # Web Forms would bind a same-named file in an ancestor (L-202).
+    if importer_path.lower().endswith(_XAML_SUFFIX):
+        joined = posixpath.normpath(
+            posixpath.join(posixpath.dirname(importer_path), specifier)
+        )
+        if joined in source_files:
+            return joined
+        return _lowercase_paths(source_files).get(joined.lower())
     if not specifier.startswith((".", "/")) and importer_path.lower().endswith(
         _ASPX_MARKUP_SUFFIXES
     ):
