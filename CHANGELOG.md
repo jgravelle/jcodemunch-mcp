@@ -2,6 +2,28 @@
 
 ## [Unreleased]
 
+### Fixed - a forced summary refresh keeps the summaries it had when the AI provider fails
+
+`summarize_repo(force=true)`, the refresh the docs recommend, cleared every
+summary before calling the AI provider. When the provider failed (a 429, a 200
+response carrying an error body, or three failed batches in a row tripping the
+circuit breaker), each remaining symbol got its signature fallback, and that
+fallback was saved over the AI summary it replaced. The result was
+`success: true` with `updated` equal to the symbol count, the same as a healthy
+run, so the only sign was a warning in the server log. A later plain
+`summarize_repo` then found nothing to do, and the summaries came back only
+with a second forced run, paid for again. Reported by @swf1996120 in #1282,
+with an exact reproduction against a local endpoint.
+
+A symbol this run summarized that comes back as only its signature fallback,
+while a provider is configured, now keeps the summary it had. The result
+carries `provider_fallbacks` (how many symbols got only the fallback) and
+`previous_summaries_kept` with a reason, so a failed run no longer reads like a
+healthy one and says to run the forced refresh again once the provider
+answers. `updated` now counts summaries that differ from what was stored, not
+from the blank the forced run had just set. With no provider configured, a
+forced run still resets every summary to its fallback.
+
 ### Fixed - the `rate_limit` config key now turns on the HTTP rate limit
 
 CONFIGURATION.md documents `rate_limit` (requests per minute per client IP in
