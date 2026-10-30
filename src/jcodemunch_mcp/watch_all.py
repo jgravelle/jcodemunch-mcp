@@ -223,7 +223,9 @@ async def watch_all(
     async def _rediscover_loop() -> None:
         while not stop_event.is_set():
             try:
-                kept, skipped_now = watch_all_scope(storage_path)
+                # Off the event loop: a slow git or network drive must not stall
+                # the file events the manager is handling meanwhile.
+                kept, skipped_now = await asyncio.to_thread(watch_all_scope, storage_path)
                 discovered = set(kept)
                 watched = set(manager.list_folders())
                 for folder in sorted(discovered - watched):
