@@ -2,6 +2,17 @@
 
 ## [Unreleased]
 
+### Fixed - a refused pack download no longer shows a key holder where to buy a license
+
+When the starter-pack server refuses a download, it attaches a pricing link
+whether or not the request carried a license key, and `install-pack` printed
+it. A paying user whose key was sent read "Get a license" right under the line
+saying their key had been sent. The link now appears only when no key was sent,
+from `--license` or from the config. The `--list` view and the `license` command
+already followed this rule; the refused download was the one path that did not.
+`tests/test_install_pack.py` checks both directions, including a key read from
+config.
+
 ## [1.108.402] - 2026-10-28 - the server instructions name the tools in the first 512 characters, and tool names hold across 1.x
 
 ### Changed - tool names are a stable contract across 1.x
