@@ -433,7 +433,9 @@ def get_changed_symbols(
             entry = dict(before_syms[key])
             entry["change_type"] = "removed"
             if include_blast_radius and rev_adj is not None:
-                _attach_blast(entry, file_path)
+                # A removed symbol is named at the path it was removed from, so
+                # its blast is that path's importers (review of L-67).
+                _attach_blast(entry, before_path)
             removed_symbols.append(entry)
 
         for key in before_keys & after_keys:

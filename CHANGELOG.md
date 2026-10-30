@@ -14,11 +14,18 @@ list.
 The diff already carried the old path and the tool discarded it. Now the
 before side is read and parsed at the old path: a moved symbol whose body did
 not change is no change, an edited one is `modified`, and one deleted in the
-move is `removed` at its old path. If the old side cannot be read the file is
+move is `removed` at its old path, with that path's importers as its blast
+radius. If the old side cannot be read the file is
 listed as `unreadable` rather than published as all-new. Rename detection is
 requested explicitly, so a repository with `diff.renames=false` gets the same
 answer. A new `renamed_files` list names each move as `{from, to}`, one row
 per renamed file in `changed_files`.
+
+`renamed_files` has no cap of its own: it holds one row per renamed file in
+`changed_files`, so any future cap on `changed_files` bounds it too. On this
+repository's largest rename commit it came to 1849 bytes for 18 moves, beside
+1097 bytes of `changed_files`; before this fix the same moves also published
+every symbol in each moved file as added.
 
 ## [1.108.402] - 2026-10-28 - the server instructions name the tools in the first 512 characters, and tool names hold across 1.x
 

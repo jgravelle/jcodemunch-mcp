@@ -152,3 +152,19 @@ def test_renamed_files_survives_the_compact_encoding(tmp_path, monkeypatch):
     res = asyncio.run(server.call_tool("get_changed_symbols", {"repo": repo, "since_sha": base, "format": "compact"}))
     text = (res.content if isinstance(res, CallToolResult) else res)[0].text
     assert "renamed_files" in text and "app/old_name.py" in text, text[:600]
+
+
+def test_a_symbol_removed_in_a_move_carries_the_old_paths_blast(tmp_path):
+    """Review of L-67: the removed row names the old path, so its blast is the old path's importers."""
+    root, repo, storage, base = _repo(tmp_path, {
+        "app/__init__.py": "",
+        "app/old_name.py": BODY,
+        "app/caller.py": "from app.old_name import dropped\n\n\ndef use():\n    return dropped()\n",
+    })
+    after = BODY.replace("def dropped():\n    return 0\n\n\n", "")
+    _move(root, "app/old_name.py", "app/new_name.py", after)
+
+    result = get_changed_symbols(repo, since_sha=base, storage_path=storage, include_blast_radius=True)
+    removed = _by_name(result["removed_symbols"])
+    assert removed["dropped"]["file"] == "app/old_name.py"
+    assert removed["dropped"]["blast_radius"] == ["app/caller.py"], removed["dropped"]
