@@ -124,6 +124,10 @@ NOT_LEDGERS: dict[tuple[str, str], str] = {
     ): "the file names the historical values in its own docstring",
     ("test_sdist_exclusions.py", "ALLOWED_ROOT_FILES"): "the sdist allowlist itself",
     (
+        "test_file_pattern_anchoring.py",
+        "_ALLOWED",
+    ): "glob calls that are not path filters (model ids, AST names, secret names), each with its reason",
+    (
         "test_subprocess_encoding_guard.py",
         "EXEMPT_TREES",
     ): "a scope decision: tests/ drives git over ASCII fixtures",

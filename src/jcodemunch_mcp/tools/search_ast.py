@@ -25,6 +25,7 @@ import time
 from pathlib import Path
 from typing import Any, Optional
 
+from .. import path_glob
 from ..storage import IndexStore
 from ..parser.languages import LANGUAGE_EXTENSIONS, LANGUAGE_REGISTRY
 from ._utils import resolve_repo
@@ -1134,7 +1135,7 @@ def search_ast(
             continue
         if language and lang_name != language.lower():
             continue
-        if file_pattern and not fnmatch.fnmatch(fpath, file_pattern):
+        if file_pattern and not path_glob.matches(fpath, file_pattern):
             continue
         files_to_scan.append((fpath, lang_name))
 
