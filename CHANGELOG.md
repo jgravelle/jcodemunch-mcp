@@ -20,20 +20,144 @@ otherwise exit and restart forever. `watch --once` does not need `watchfiles` an
 The server's own config-enabled watcher still only warns, because the server
 must keep answering without it.
 
-### Fixed - a git clone inside an indexed checkout gets its own index
+## [1.108.402] - 2026-10-28 - the server instructions name the tools in the first 512 characters, and tool names hold across 1.x
 
-A benchmark kept its datasets in a gitignored folder of its own checkout. Each
-dataset was a full clone, with its own `.git` and its own origin. Even so,
-`index_folder` on one of them filed it under the outer checkout's index. The
-lookup for an existing index matched by path containment and made one
-exception, a nested linked worktree (#372). So every dataset became part of one
-index, and every lookup by a clone's own id found nothing.
+### Changed - tool names are a stable contract across 1.x
 
-The lookup now asks `checkout_boundary.separate_checkout_between`, the rule
-`resolve_repo` and the session hooks already use (#1202). A separate checkout
-between a path and an indexed root is not part of that root, so a nested clone
-gets an index of its own. A plain subdirectory of the checkout still resolves
-to the checkout's index.
+An admin's allowlist or a team's policy file names jCodeMunch tools, and a
+rename broke it with no warning: `get_symbol` and `get_symbols` were removed
+outright when they merged into `get_symbol_source` in March. From now on a
+renamed or merged tool keeps its old name working as an alias for at least 30
+days, listed here, and only then answers with an error naming the replacement.
+`counter.RETIRED_BEFORE_STABLE_NAMES` pins those two as the only names retired
+without an alias period, and `tests/test_retired_tool_names.py` fails if any
+other retired name lacks a 30-day alias period in `ALIAS_PERIODS` or a
+CHANGELOG mention from the alias date on. `tests/fixtures/tool_names_1x.json`
+freezes every tool name served on 1.x, and the same test file fails if one of
+them leaves the catalog without an alias period, which is how `get_symbol` was
+lost, or if a new tool is not added to that list. The README's "For admins"
+section states the promise, and a test binds its 30 days to `ALIAS_MIN_DAYS`.
+
+### Changed - the first 512 characters of the server instructions serve every client
+
+The `instructions` string a client receives at startup opened with what the
+server is for, then the Claude Code-only line on loading deferred tools
+through ToolSearch, then the tool list. Codex advises that a server's
+instructions make sense from their first 512 characters, and in the default
+(`full`) text that window ended inside the ToolSearch line, before any tool
+was named.
+
+The ToolSearch line now follows the tool list, so the window names the
+indexing tool and the first tools to call. The `counter` surface's opening
+now names its three verbs (route, menu and order), because its window ended
+just before the list. Claude Code still receives the ToolSearch line. The
+total stays under the 1,000-character budget, and no tool or description
+changed.
+
+### Fixed - writing a file into a watched folder no longer re-walks the whole repo
+
+Windows reports a folder as modified whenever a file inside it is written, next
+to the file's own event. The watcher treated any changed path that is a folder
+as a change to the tree's shape and re-discovered the whole repo: every file
+stat-ed, checked against gitignore and the secret rules, and opened for the
+binary test. A repo where tools write notes or status files all day was
+re-walked on every write. Profiling `watch-all` over one idle hour on a
+maintainer's machine with 23 watched repos found 40 of 109 change batches
+carrying such a folder, and the per-file filter running about 90,000 times in
+fifteen quiet minutes. That idle cost is what showed up as a large CPU total
+for the background watcher.
+
+A folder reported as modified is now skipped: the file inside it carries its
+own event. An added folder (a tree moved in, which arrives with no events for
+its files) and the watcher's own rescan of the root still re-walk, and a
+deleted folder is handled as before. With real file events on Windows, five
+notes written into a subfolder now cost five targeted re-indexes and no
+re-walk, where they cost five re-walks before.
+
+### Added - an install that never runs `init` is told the license terms once
+
+`init` ends with a license line. An install that starts the server through
+`uvx` or the Claude Code plugin never runs `init`, so the person using it was
+never told that work use needs a license. Nothing in the product said so
+anywhere they would look.
+
+The first successful tool answer on such a machine now carries one plain
+`license_notice` field: "License: free for personal and other non-commercial
+use. Work use needs a commercial license, paid once, that includes every 1.x
+update: https://jcodemunch.com/buying.php". It is the plugin README's line,
+word for word, and a statement rather than a request to the agent. It sits in
+the answer body (the default `meta_fields: []` strips `_meta`) and forces JSON
+for that one answer, because a compact encoding drops a key it does not
+declare. The same line goes to stderr once, as a debug courtesy; no client
+shows a server's stderr to the person by default.
+
+It is said once per machine. A marker, `license_notice_state.json`, under
+`CODE_INDEX_PATH` (default `~/.code-index`) records it, so a persistent volume
+keeps it, and an `init` that prints its own license line writes the same
+marker (`upgrade` re-runs `init` silently, prints nothing and writes nothing).
+An `init` from before this release left no marker, and nothing it left can
+prove the line was printed: `init` printed it only from 1.108.376 (#1131), and
+`upgrade` writes the same `last_init_version.txt` stamp without printing it. So
+a machine that ran `init` before this release sees the line once. It can be said a second time
+if the marker cannot be written, or if two servers answer their first call at
+the same moment. It is never said with a license key configured (read locally,
+never sent), after `init`, with `JCODEMUNCH_LICENSE_NOTICE=0`, or on a CI or remote
+runner (`CI=true` or `CLAUDE_CODE_REMOTE=true`), where every run is a fresh
+machine. `CLAUDECODE=1` does not count as CI: every local Claude Code session
+sets it, and a test fails if it is ever read as one. Disclosed in SECURITY.md
+"Background behavior, fully disclosed" and the README.
+
+## [1.108.401] - 2026-10-28 - a redirected Grep can carry the index's answer, and a substring search opens only the files that can match
+
+### Added - a redirected Grep can carry the index's answer (opt-in)
+
+With the PreToolUse hook installed (`init --guidance` or `--strict`), it steered a Grep inside an indexed
+repo toward `search_text`, and the agent then spent a second turn making that
+search. With `JCODEMUNCH_HOOK_GREP_ANSWER=1`, the hook runs the search itself and refuses the Grep with the
+result as the reason, so the next turn reads the answer instead of asking for
+it. It answers once per session and Grep arguments: the same Grep sent again
+runs normally, which keeps raw output one call away.
+
+The answer says what it is: a case-insensitive `search_text` over the source
+files the index holds. Files the index does not hold (most docs, config and
+data) and files added since indexing are not in it, so it is never presented
+as the Grep's own output. Secret redaction applies to it as to any tool
+answer, and `_meta` is left out.
+
+It answers nothing, and the Grep runs untouched, when the search root is not
+an indexed repo, any indexed file changed on disk since it was indexed (the
+answer would come from the old copy), the search finds nothing or is cut
+short (time budget, result cap, unreadable files, a scope that matched no
+file), the Grep uses an argument the answer cannot reproduce (`type`,
+`multiline`, `-A`/`-B`/`-C`/`context`, `head_limit`, `offset`, a count, a glob
+with `**`, or a sub-path with a `glob`), the page is over 8,000 characters, or
+the search runs past `JCODEMUNCH_HOOK_ANSWER_BUDGET_SECONDS` (default 4). It records which Greps it
+answered, as hashes, in `~/.code-index/_grep_answered.json`.
+It is off by default. Measured on short bug-fix tasks, it made sessions cost
+more and solved the same tasks, so it stays opt-in until a test on larger
+repositories shows it pays. Disclosed in SECURITY.md.
+
+### Changed - a substring search opens only the files that can match
+
+A cold `search_text` opened and read every cached file in scope, so its cost
+grew with the repo, not with the answer, and a hook's budget could not hold
+it on a large one. Indexing now writes a small trigram bitmap per
+cached file to `~/.code-index/<repo>.textfilter`, with that file's size and
+mtime. A file whose current bitmap lacks a trigram of the lowered query holds
+no match and is counted as searched without being opened.
+
+A bitmap can say "maybe" for a file with no match, never "no" for one with a
+match. A file whose stat differs from its row, or that has no row, is read,
+and the read repairs the row; a regex or a query under three characters gets
+no filter. The sidecar is separate from the index `.db` because the index's
+mtime keys the in-memory index cache, and a search that repaired a row there
+would invalidate it. An index built before this release has no sidecar and
+searches as before until it is re-indexed or searched once. Under
+`cache_mode: metadata_only` the indexer writes no body and no row.
+
+The tradeoff is index time. Building the bitmaps made a cold index of this
+repository take 5.84 s against 5.30 s without them (about 10% longer),
+measured back to back on one machine with the harness's `index.cold_self_seconds`.
 
 ## [1.108.400] - 2026-10-27 - a text search returns the code it found, and a retired tool name says what replaced it
 
@@ -84,6 +208,21 @@ get_symbol_source with symbol_id.` It also carries `replaced_by`. Through
 routes read one table (`counter.RETIRED_TOOL_NAMES`). It stays an error: the server dispatches only the tools it lists, so a retired name is not
 a hidden alias. `tests/test_retired_tool_names.py` fails if a replacement is
 not a published tool, or if a retired name is published again.
+
+### Fixed - a git clone inside an indexed checkout gets its own index
+
+A benchmark kept its datasets in a gitignored folder of its own checkout. Each
+dataset was a full clone, with its own `.git` and its own origin. Even so,
+`index_folder` on one of them filed it under the outer checkout's index. The
+lookup for an existing index matched by path containment and made one
+exception, a nested linked worktree (#372). So every dataset became part of one
+index, and every lookup by a clone's own id found nothing.
+
+The lookup now asks `checkout_boundary.separate_checkout_between`, the rule
+`resolve_repo` and the session hooks already use (#1202). A separate checkout
+between a path and an indexed root is not part of that root, so a nested clone
+gets an index of its own. A plain subdirectory of the checkout still resolves
+to the checkout's index.
 
 ## [1.108.399] - 2026-10-26 - four core tool descriptions open with the question each tool answers
 

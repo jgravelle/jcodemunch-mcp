@@ -439,7 +439,7 @@ def _mcp_instructions(
     else:
         subject = "This repo can be indexed by jcodemunch"
     if surface == "counter":
-        opening = f"{subject}. Its whole tool catalog sits behind a 3-verb front door."
+        opening = f"{subject}. Its whole tool catalog sits behind a 3-verb front door: route, menu and order."
     else:
         opening = f"{subject}: every symbol, its file:line span and who references what."
     routes = (
@@ -458,13 +458,17 @@ def _mcp_instructions(
             'route("who calls <name>") or route("what breaks if I change <name>") '
             "names the action that lists its callers or what the edit reaches."
         )
+    # The ToolSearch line is for Claude Code alone, so it follows the tool
+    # bullets: a client may keep only the first 512 characters, and those
+    # should say what the server is for and which tools to start with
+    # (tests/test_instructions_first_512.py).
+    lines.append("")
+    lines += ["- %s: %s" % (name, why) for name, why in rows]
     lines += [
         "",
         "**Tools deferred? Load all in ONE lookup:** ToolSearch "
         '"%s". One round trip for the session.' % _tool_search_query(surface, prefix),
-        "",
     ]
-    lines += ["- %s: %s" % (name, why) for name, why in rows]
     return "\n".join(lines)
 
 
@@ -1678,10 +1682,13 @@ async def list_tools() -> list[Tool]:
 
 
 # --- MCP read-only annotations --------------------------------------------- #
-# Claude Code's plan mode prompts for approval on every tool it cannot prove is
-# read-only. jcm is read-only by charter, so annotate each tool with
-# ToolAnnotations(readOnlyHint=...) and plan mode runs the query tools silently
-# while still gating the handful that mutate index/session/config state.
+# readOnlyHint tells a client which tools only read. jcm is read-only by
+# charter, so each query tool is marked readOnlyHint=True and the handful that
+# change index, session or config state are marked False. What a client does
+# with the hint is its own: Codex's `writes` approval mode documents skipping
+# the prompt for read-only tools, and Claude Code documents running them in
+# parallel. Claude Code's docs do not say plan mode skips its prompt for an
+# annotated MCP tool, and that is not tested here.
 #
 # The write-set is derived from the authoritative counter.STATE_CHANGING_ACTIONS
 # so it can't drift from source. Two things are added on top:
@@ -1730,9 +1737,9 @@ _OPEN_WORLD_TOOLS: frozenset[str] = frozenset({
 def _apply_readonly_annotations(tools: list[Tool]) -> list[Tool]:
     """Attach ToolAnnotations(readOnlyHint=...) to any tool lacking annotations.
 
-    Read tools (readOnlyHint=True) run silently in Claude Code plan mode; the
-    write-set (_NON_READONLY_TOOLS) is marked readOnlyHint=False so those still
-    prompt. Tools that already carry annotations are left untouched. Returns a
+    Read tools get readOnlyHint=True and the write-set (_NON_READONLY_TOOLS)
+    readOnlyHint=False, for clients that act on the hint (see the comment
+    above). Tools that already carry annotations are left untouched. Returns a
     new list; input Tool objects are copied (model_copy) rather than mutated.
     """
     annotated: list[Tool] = []
@@ -7783,6 +7790,20 @@ async def _call_tool_impl(name: str, arguments: dict) -> list[TextContent] | Cal
                 _requested_format = "json"
         except Exception:
             logger.debug("policy notice attach failed", exc_info=True)
+
+        # (2026-10-28, jjg option B) The license notice, once per machine, on
+        # the first successful answer of any tool: an install that never ran
+        # `init` never saw its license line. A plain statement, in the body and
+        # as JSON for the reasons above. See `license_notice`.
+        try:
+            from .license_notice import notice_for as _license_notice_for
+
+            _license_notice = _license_notice_for(name, result, version=__version__)
+            if _license_notice:
+                result = {**result, "license_notice": _license_notice}
+                _requested_format = "json"
+        except Exception:
+            logger.debug("license notice attach failed", exc_info=True)
 
         # Response-level secret redaction — scrub leaked credentials
         # before they reach the LLM context window. Skipped for tools that

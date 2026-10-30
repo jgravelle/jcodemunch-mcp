@@ -1,6 +1,18 @@
 {
-  "current": "1.108.400",
+  "current": "1.108.402",
   "entries": [
+    {
+      "version": "1.108.402",
+      "date": "2026-10-28",
+      "title": "the server instructions name the tools in the first 512 characters, and tool names hold across 1.x",
+      "summary": "Clients that read only the first 512 characters of the server instructions, Codex among them, now see the core tool names. Tool names are frozen for 1.x: a renamed tool keeps its old name as an alias for at least 30 days. Writing a file into a watched folder no longer re-walks the whole repo, and an install that never ran init sees the license terms once."
+    },
+    {
+      "version": "1.108.401",
+      "date": "2026-10-28",
+      "title": "a redirected Grep can carry the index's answer, and a substring search opens only the files that can match",
+      "summary": "With JCODEMUNCH_HOOK_GREP_ANSWER=1, the PreToolUse hook answers a redirected Grep with the search_text result instead of asking for a second turn; it is off by default. Indexing writes a trigram bitmap per cached file, so a substring search_text skips files that cannot match; a cold index takes about 10% longer."
+    },
     {
       "version": "1.108.400",
       "date": "2026-10-27",

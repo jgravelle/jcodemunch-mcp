@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
+  "name": "jcodemunch",
+  "displayName": "jCodeMunch",
+  "version": "1.108.402",
+  "description": "Local code index for Claude and its sub-agents: the one function asked for, its callers and what a change would break. Free for personal and non-commercial use; work use needs a paid license.",
+  "author": {
+    "name": "jMunch, LLC",
+    "url": "https://jcodemunch.com"
+  },
+  "homepage": "https://jcodemunch.com",
+  "repository": "https://github.com/jgravelle/jcodemunch-mcp",
+  "documentationUrl": "https://github.com/jgravelle/jcodemunch-mcp#readme",
+  "supportUrl": "https://github.com/jgravelle/jcodemunch-mcp/issues",
+  "privacyPolicyUrl": "https://jcodemunch.com/privacy.php",
+  "termsOfServiceUrl": "https://github.com/jgravelle/jcodemunch-mcp/blob/main/LICENSE",
+  "license": "LicenseRef-jCodeMunch-Dual-Use-1",
+  "keywords": [
+    "code-search",
+    "symbols",
+    "impact-analysis",
+    "sub-agents",
+    "tree-sitter",
+    "mcp"
+  ],
+  "mcpServers": {
+    "jcodemunch": {
+      "command": "uvx",
+      "args": [
+        "jcodemunch-mcp==1.108.402"
+      ],
+      "env": {
+        "JCODEMUNCH_SHARE_SAVINGS": "0"
+      }
+    }
+  }
+}

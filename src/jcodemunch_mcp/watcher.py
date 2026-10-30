@@ -972,6 +972,14 @@ async def _watch_single(
                 cached_rel = Path(p).relative_to(folder_path).as_posix()
                 if _hash_cache_prefix:
                     cached_rel = f"{_hash_cache_prefix}/{cached_rel}"
+                # (L-256) Windows reports a folder as MODIFIED whenever a file
+                # inside it is written, beside the file's own event. It names no
+                # change the child's event does not, and reading it as a topology
+                # change re-walked the whole repo on every note an agent wrote.
+                # Only an added folder (a tree moved in) or the root (the rescan
+                # `_safe_awatch` yields) needs discovery.
+                if ct == Change.modified and p != folder_path and os.path.isdir(p):
+                    continue
                 if not needs_discovery and (p == folder_path or os.path.isdir(p)):
                     needs_discovery = True
                 if ct == Change.deleted:
@@ -999,6 +1007,10 @@ async def _watch_single(
                     # For additions, no old hash
                     old_hash = ""
                 watcher_changes.append(WatcherChange(change_type_str, p, old_hash))
+
+            if not needs_discovery and not watcher_changes:
+                # Only modified folders: nothing to index (L-256).
+                continue
 
             mark_reindex_start(repo_id)
             result = await asyncio.to_thread(
