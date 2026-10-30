@@ -228,6 +228,20 @@ class SelectiveIndexView:
         """Rows this view was opened with, before any targeted fetches."""
         return len(self._partial.symbols)
 
+    @property
+    def generation(self) -> Optional[str]:
+        """The ``indexed_at`` this view's single read transaction saw, or None."""
+        return self._generation
+
+    def selected_symbols(self) -> list:
+        """The symbol rows this view was opened with (by id or by file), only those.
+
+        Not the corpus. A caller that needs every symbol reads ``.symbols``,
+        which promotes; this exists for a caller that asked for named files and
+        wants exactly their rows without paying for the rest.
+        """
+        return list(self._partial.symbols)
+
     def __repr__(self) -> str:  # pragma: no cover - debugging aid
         state = f"promoted by {self._promoted_by!r}" if self.promoted else "selective"
         return (
