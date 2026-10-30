@@ -10229,7 +10229,6 @@ _ERB_BLANK = _erb_fill_table(0x20)
 # An output tag in host text becomes X's: an identifier in JavaScript, YAML and
 # Ruby, and a constant in Ruby, so `class <%= name %>Report` stays a class.
 _ERB_HOLE = _erb_fill_table(ord("X"))
-_ERB_HOLE_NAME_RE = re.compile(r"[\w$]*X{5,}[\w$]*")
 _ERB_ID_RE = re.compile(rb"""(?<![\w:-])id\s*=\s*["']([^"'<>]+)["']""", re.IGNORECASE)
 _ERB_SLOT_RE = re.compile(rb"\b(content_for|provide|yield)(?:[ \t]+|[ \t]*\([ \t]*):([A-Za-z_]\w*)")
 
@@ -10359,10 +10358,12 @@ def _erb_adopt(
 
     A name the host copy filled from an output tag (``XXXX…Report``) is named
     by the tag's own text instead (``<%= class_name %>Report``), in the symbol,
-    its signature and every qualified name that carries it.
+    its signature and its members' qualified names. Each name is read at its
+    own position: two tags of one length fill identically, so a rename keyed
+    by the filled name would give both symbols the same tag.
     """
     hole_starts = [start for start, _ in holes]
-    renames: dict[str, str] = {}
+    own: dict[str, tuple[str, str]] = {}  # nested id -> (filled name, tag text)
     for sym in parsed:
         parse_budget.checkpoint()
         if not holes or "XXXXX" not in sym.name:
@@ -10373,12 +10374,27 @@ def _erb_adopt(
             continue
         i = bisect.bisect_right(hole_starts, at + len(raw) - 1) - 1
         if i >= 0 and holes[i][1] > at:
-            renames[sym.name] = source[at:at + len(raw)].decode("utf-8", errors="replace")
+            own[sym.id] = (sym.name, source[at:at + len(raw)].decode("utf-8", errors="replace"))
+    by_id = {sym.id: sym for sym in parsed}
 
-    def _restore(text: str) -> str:
-        if not renames or "XXXXX" not in text:
+    def _restore(sym: Symbol, text: str) -> str:
+        # The tag text of this symbol's name and of each owner's, outermost
+        # first, so a member's qualified name carries ITS owner's tag.
+        if not own or "XXXXX" not in text:
             return text
-        return _ERB_HOLE_NAME_RE.sub(lambda m: renames.get(m.group(0), m.group(0)), text)
+        chain: list[tuple[str, str]] = []
+        current: Optional[Symbol] = sym
+        for _ in range(64):  # bounded: a parent cycle cannot hang the parse
+            parse_budget.checkpoint()
+            if current is None:
+                break
+            if current.id in own:
+                chain.append(own[current.id])
+            current = by_id.get(current.parent) if current.parent else None
+        for filled, tag_text in reversed(chain):
+            parse_budget.checkpoint()
+            text = text.replace(filled, tag_text, 1)
+        return text
 
     def _signature(sym: Symbol) -> str:
         # A signature copied from the host copy is shown as the original bytes
@@ -10390,18 +10406,18 @@ def _erb_adopt(
         at = masked.find(raw, sym.byte_offset, sym.byte_offset + max(sym.byte_length, len(raw)))
         if at >= 0:
             return source[at:at + len(raw)].decode("utf-8", errors="replace")
-        return _restore(sym.signature)
+        return _restore(sym, sym.signature)
 
     pairs: list[tuple[Symbol, Symbol]] = []
     for sym in parsed:
         parse_budget.checkpoint()
-        qualified = f"{view.name}.{_restore(sym.qualified_name)}"
+        qualified = f"{view.name}.{_restore(sym, sym.qualified_name)}"
         piece = source[sym.byte_offset:sym.byte_offset + sym.byte_length]
         pairs.append((sym, replace(
             sym,
             id=make_symbol_id(filename, qualified, sym.kind),
             file=filename,
-            name=renames.get(sym.name, sym.name),
+            name=own[sym.id][1] if sym.id in own else sym.name,
             qualified_name=qualified,
             signature=_signature(sym),
             parent=view.id,
@@ -10528,15 +10544,12 @@ def _parse_erb_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
             content_hash=compute_content_hash(snippet),
         ))
 
-    unique: list[Symbol] = []
-    seen: set[str] = set()
-    for sym in symbols:
-        parse_budget.checkpoint()
-        if sym.id not in seen:
-            seen.add(sym.id)
-            unique.append(sym)
-    unique.sort(key=lambda s: (s.line, s.byte_offset, s.name))
-    return unique
+    # The view leads, always: the indexer reads a file's language off its first
+    # symbol, and host code can start at byte 0 or (YAML merge keys) at line 0.
+    # Two symbols sharing an id (a `def` in each branch of an `if`) are both
+    # kept; parse_file numbers them `~1`/`~2` after this returns.
+    symbols.sort(key=lambda s: (s is not view, s.line, s.byte_offset, s.name))
+    return symbols
 
 
 def _parse_template_symbols(

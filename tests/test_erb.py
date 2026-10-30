@@ -251,6 +251,80 @@ def test_a_js_erb_function_is_javascript_and_keeps_its_line():
     assert not [s for s in symbols if s.language == "erb" and s.kind == "constant"]
 
 
+def test_the_view_is_the_first_symbol_even_when_host_code_starts_at_byte_zero(tmp_path):
+    # The indexer reads a file's language off its FIRST symbol, so a host
+    # function at offset 0 sorted ahead of the view filed a `.js.erb` as
+    # javascript (found on forem's initializeCommentsPage.js.erb).
+    # `alpha` sorts ahead of the view's name `widget`: a tie broken by name.
+    source = "function alpha() {\n  return '<%= j t(:x) %>';\n}\n"
+    symbols = parse_file(source, "app/assets/javascripts/widget.js.erb", "erb")
+    assert symbols[0].signature == "view widget" and symbols[0].language == "erb"
+    assert _named(symbols, "alpha", "javascript").byte_offset == 0
+
+    root = tmp_path / "app"
+    (root / "assets").mkdir(parents=True)
+    (root / "assets" / "widget.js.erb").write_text(source, encoding="utf-8")
+    result = index_folder(str(root), use_ai_summaries=False, storage_path=str(tmp_path / "store"))
+    assert result["languages"] == {"erb": 1}
+
+
+@pytest.mark.parametrize("name", ALL_FIXTURES)
+def test_every_fixture_leads_with_its_view(name):
+    # Including a `.yml.erb`, whose YAML merge keys come back at line 0.
+    _, symbols = _parse(name)
+    assert symbols[0].signature.startswith("view ") and symbols[0].language == "erb"
+
+
+def test_a_yml_erb_with_a_merge_key_is_indexed_as_erb(tmp_path):
+    root = tmp_path / "app"
+    (root / "config").mkdir(parents=True)
+    shutil.copy(FIXTURES / "handwritten_database.yml.erb", root / "config" / "database.yml.erb")
+    result = index_folder(str(root), use_ai_summaries=False, storage_path=str(tmp_path / "store"))
+    assert result["languages"] == {"erb": 1}
+
+
+@pytest.mark.parametrize(
+    "path, source, name",
+    [
+        ("lib/templates/model.rb.erb",
+         "<% if options[:api] %>\ndef bar\n  1\nend\n<% else %>\ndef bar\n  2\nend\n<% end %>\n", "bar"),
+        ("app/views/a/show.js.erb", "function go() { return 1; }\nfunction go() { return 2; }\n", "go"),
+        ("app/views/a/show.html.erb",
+         "<% if a %><% def helper; 1; end %><% else %><% def helper; 2; end %><% end %>\n", "helper"),
+    ],
+    ids=["rb-erb-branches", "js-erb-redefinition", "tag-ruby-branches"],
+)
+def test_same_named_definitions_in_two_branches_are_both_kept(path, source, name):
+    symbols = parse_file(source, path, "erb")
+    found = [s for s in symbols if s.name == name]
+    assert len(found) == 2, [(s.name, s.id) for s in symbols]
+    assert (found[0].line, found[0].byte_offset) < (found[1].line, found[1].byte_offset)
+    assert len({s.id for s in symbols}) == len(symbols)
+
+
+def test_two_tag_built_names_of_the_same_length_keep_their_own_tags():
+    source = (
+        "class <%= a %>Report\n  def first; end\nend\n"
+        "class <%= b %>Report\n  def second; end\nend\n"
+    )
+    symbols = parse_file(source, "lib/templates/model.rb.erb", "erb")
+    data = source.encode("utf-8")
+    a = _named(symbols, "<%= a %>Report", "ruby")
+    b = _named(symbols, "<%= b %>Report", "ruby")
+    assert a.line == 1 and b.line == 4
+    assert _named(symbols, "first", "ruby").qualified_name == "model.<%= a %>Report.first"
+    assert _named(symbols, "second", "ruby").qualified_name == "model.<%= b %>Report.second"
+    for s in (a, b):
+        assert s.name.encode() in data[s.byte_offset:s.byte_offset + s.byte_length]
+
+
+def test_a_literal_name_that_looks_like_the_filler_is_never_renamed():
+    # `<%= abcd %>` is 11 bytes, the length of `XXXXXXXXXXX`.
+    source = "var n = <%= abcd %>;\nfunction XXXXXXXXXXXReady() { return n; }\n"
+    symbols = parse_file(source, "app/views/a/show.js.erb", "erb")
+    assert _named(symbols, "XXXXXXXXXXXReady", "javascript").qualified_name == "show.XXXXXXXXXXXReady"
+
+
 def test_a_name_built_by_a_tag_is_named_by_the_tag_never_by_the_filler():
     _, symbols = _parse("handwritten_widget.js.erb")
     ready = [s for s in symbols if s.name.endswith("Ready")]
