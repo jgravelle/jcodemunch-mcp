@@ -357,32 +357,74 @@ def policy_block_span(lines: list[str]) -> tuple[int, int] | None:
     uses only ``## `` headings and holds no code fence (read from all 686 tags
     on 2026-10-14), so a user's own ``#`` or ``###`` section after the block
     ends it too (review, 2026-10-14: the refresh would otherwise have deleted
-    it). A ``#`` line inside a fenced code block is not a heading.
+    it). A ``#`` line inside a fenced or indented code block is not a
+    heading; ``_outside_code`` says which lines are code (L-204).
     """
     start = None
-    in_fence = False
-    for i, ln in enumerate(lines):
-        stripped = (ln.removeprefix(chr(0xFEFF)) if i == 0 else ln).strip()
-        if stripped.startswith(("```", "~~~")):
-            in_fence = not in_fence
-            continue
-        if not in_fence and _MARKER_HEADING_RE.fullmatch(stripped):
+    for i, stripped in _outside_code(lines):
+        if _MARKER_HEADING_RE.fullmatch(stripped):
             start = i
             break
     if start is None:
         return None
     own = _policy_headings()
     end = len(lines)
-    in_fence = False
-    for i in range(start + 1, len(lines)):
-        stripped = lines[i].strip()
-        if stripped.startswith(("```", "~~~")):
-            in_fence = not in_fence
-            continue
-        if not in_fence and _HEADING_RE.match(stripped) and stripped not in own:
+    for i, stripped in _outside_code(lines, start + 1):
+        if _HEADING_RE.match(stripped) and stripped not in own:
             end = i
             break
     return start, end
+
+
+def _indent_columns(line: str) -> int:
+    """Leading whitespace in columns, a tab advancing to the next multiple of 4."""
+    col = 0
+    for ch in line:
+        if ch == " ":
+            col += 1
+        elif ch == "\t":
+            col += 4 - col % 4
+        else:
+            break
+    return col
+
+
+def _outside_code(lines: list[str], begin: int = 0):
+    """``(index, stripped)`` for each line from *begin* that may be a heading.
+
+    THE one reading of Markdown code for ``policy_block_span``'s two loops
+    (L-204), so the start and the end cannot disagree about what is code. A
+    line is skipped when it is a fence line, inside a fenced block, or indented
+    four or more columns (an indented code block, CommonMark 4.4). A fence
+    opens with three or more backticks or tildes indented at most three
+    columns, and closes only on a line of the SAME character, at least as
+    long, with nothing after it (CommonMark 4.5): a tilde line inside a
+    backtick fence, a shorter run, or a line with an info string is content.
+    An unclosed fence runs to the end of *lines*. Scanning always starts at
+    line 0 so a fence opened above *begin* is still known to be open.
+    """
+    fence: tuple[str, int] | None = None
+    for i, ln in enumerate(lines):
+        if i == 0:
+            ln = ln.removeprefix(chr(0xFEFF))
+        indent = _indent_columns(ln)
+        stripped = ln.strip()
+        m = _FENCE_RE.match(stripped) if indent <= 3 else None
+        if fence is not None:
+            if m and m.group(1)[0] == fence[0] and len(m.group(1)) >= fence[1] and not m.group(2).strip():
+                fence = None
+            continue
+        if m and not (m.group(1)[0] == "`" and "`" in m.group(2)):
+            fence = (m.group(1)[0], len(m.group(1)))
+            continue
+        if indent > 3 or i < begin:
+            continue
+        yield i, stripped
+
+
+# A fence line: three or more of one character, then an info string. A
+# backtick fence's info string may not hold a backtick (CommonMark 4.5).
+_FENCE_RE = re.compile(r"(`{3,}|~{3,})(.*)")
 
 
 _HEADING_RE = re.compile(r"#{1,6}\s")
