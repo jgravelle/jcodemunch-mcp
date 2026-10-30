@@ -205,7 +205,7 @@ The legacy `suppress_meta` per-call parameter still works for backward compatibi
 | `watch_log` | str or null | `null` | Log watcher output to file. `"auto"` = temp file. `null` = quiet. |
 | `watch_paths` | list | `[]` | Folder(s) to watch. Empty = current working directory. |
 | `watch_all_skip_temp` | bool | `true` | `watch-all` leaves unwatched any indexed repo under the system temp directory or a top-level `tmp`/`temp` folder. The index stays searchable. |
-| `watch_all_max_idle_days` | int | `14` | `watch-all` leaves unwatched any indexed repo whose newest indexed file and last indexed commit are both older than this. It is watched again once either is recent. `0` = watch every repo. |
+| `watch_all_max_idle_days` | int | `14` | `watch-all` leaves unwatched any indexed repo whose newest indexed file and last indexed commit are both older than this. Before skipping, the tree is checked too (the indexed commit is still checked out; no indexed file or its folder is newer), at most every 10 minutes per repo, so an edited or committed repo is watched again. `0` = watch every repo. |
 | `freshness_mode` | str | `"relaxed"` | `"relaxed"` = serve immediately. `"strict"` = wait for fresh results (500ms timeout). |
 | `claude_poll_interval` | float | `5.0` | Poll interval (seconds) for Claude Code worktree discovery. |
 
