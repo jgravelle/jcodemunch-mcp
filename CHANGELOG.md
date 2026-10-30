@@ -2,6 +2,47 @@
 
 ## [Unreleased]
 
+### Changed - watch-all leaves temp and idle indexes unwatched
+
+`watch-all`, and the login service that runs it, watched every local index for
+as long as the index existed. That included throwaway ones: an index of a folder
+under the system temp directory, or of a checkout nobody has touched in months,
+kept its watcher, a full re-index at every sign-in, and its share of idle CPU.
+Two settings now narrow it, both on by default:
+
+- `watch_all_skip_temp` (`true`) skips a repo under the system temp directory
+  or a top-level `tmp`/`temp` folder (`C:\tmp`, `/tmp`, `/var/tmp`).
+- `watch_all_max_idle_days` (`14`; `0` watches every repo) skips a repo whose
+  newest indexed file and last indexed commit are both older than that.
+
+The index's `indexed_at` is not the idle signal, because the watcher's own
+startup pass re-indexes every watched repo at sign-in and rewrites it. The
+signals are the newest file time the index stored and the date of the commit it
+stored, which move only when the code does.
+
+Those signals don't move while a repo is unwatched, so a skip decided from the
+index alone would never end. Before calling a repo idle, `watch-all` also checks
+the tree. The checkout must still be at the commit the index stored, and no
+file the index holds, and no folder holding one, may be newer than the index.
+That check runs again at most every 10 minutes per repo. So editing, deleting,
+adding a file beside an indexed one, or committing in a skipped repo gets it
+watched again within that time. A change in a folder that holds no indexed file
+is not seen. A signal that cannot be read keeps the repo watched. That covers an
+unreadable index, a commit git cannot date, and a git repo whose index stored no
+commit. A wrong skip leaves an index stale with nothing to show for it, so that
+is the error this avoids.
+
+A skipped repo's index stays searchable, and any explicit re-index still works.
+`watch-all` prints what it skipped at startup and which setting to change. It
+also prints a line when it stops watching a repo mid-run. `watch-status` and the
+`get_watch_status` tool mark each such repo with `watch_all_skipped` (`temp`,
+`idle`, or `unknown` when the scope could not be read). Both settings also read
+`JCODEMUNCH_WATCH_ALL_SKIP_TEMP` and `JCODEMUNCH_WATCH_ALL_MAX_IDLE_DAYS`. A
+typo in the first keeps temp folders skipped. One consequence: an index you
+just built of a checkout whose files and last commit are both older than 14
+days counts as idle and is not watched. Set `watch_all_max_idle_days` to `0` to
+watch it.
+
 ## [1.108.402] - 2026-10-28 - the server instructions name the tools in the first 512 characters, and tool names hold across 1.x
 
 ### Changed - tool names are a stable contract across 1.x
