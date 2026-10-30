@@ -36,7 +36,9 @@ def _interpreters(tmp_path: Path, *, console: bool = True) -> Path:
 
 
 class TestWhoRelaunches:
-    def test_pythonw_with_python_beside_it_names_the_console_interpreter(self, tmp_path):
+    def test_pythonw_with_python_beside_it_names_the_console_interpreter(
+        self, tmp_path
+    ):
         d = _interpreters(tmp_path)
         assert wl.console_interpreter(str(d / "pythonw.exe")) == d / "python.exe"
 
@@ -50,9 +52,11 @@ class TestWhoRelaunches:
 
     def test_off_windows_nothing_relaunches(self, tmp_path):
         d = _interpreters(tmp_path)
-        with patch.object(wl.sys, "platform", "linux"), \
-             patch.object(wl.sys, "executable", str(d / "pythonw.exe")), \
-             patch.object(wl, "spawn_hidden") as spawn:
+        with (
+            patch.object(wl.sys, "platform", "linux"),
+            patch.object(wl.sys, "executable", str(d / "pythonw.exe")),
+            patch.object(wl, "spawn_hidden") as spawn,
+        ):
             assert wl.run_with_hidden_console(["watch-all"], tmp_path / "x.log") is None
         spawn.assert_not_called()
 
@@ -86,15 +90,25 @@ class TestTheChildCommand:
             seen["mode"] = fh.mode
             return _Proc()
 
-        with patch.object(wl.sys, "platform", "win32"), \
-             patch.object(wl.sys, "executable", str(d / "pythonw.exe")), \
-             patch.object(wl, "spawn_hidden", side_effect=_spawn):
+        with (
+            patch.object(wl.sys, "platform", "win32"),
+            patch.object(wl.sys, "executable", str(d / "pythonw.exe")),
+            patch.object(wl, "spawn_hidden", side_effect=_spawn),
+        ):
             code = wl.run_with_hidden_console(
-                ["watch-all", "--log-file", str(log), "--debounce", "5"], tmp_path / "default.log"
+                ["watch-all", "--log-file", str(log), "--debounce", "5"],
+                tmp_path / "default.log",
             )
 
         assert code == 7
-        assert seen["cmd"] == [str(d / "python.exe"), "-m", "jcodemunch_mcp", "watch-all", "--debounce", "5"]
+        assert seen["cmd"] == [
+            str(d / "python.exe"),
+            "-m",
+            "jcodemunch_mcp",
+            "watch-all",
+            "--debounce",
+            "5",
+        ]
         assert seen["log"] == log and seen["mode"] == "ab"
 
     def test_without_a_log_file_argument_the_default_log_is_used(self, tmp_path):
@@ -109,17 +123,23 @@ class TestTheChildCommand:
             seen["log"] = Path(fh.name)
             return _Proc()
 
-        with patch.object(wl.sys, "platform", "win32"), \
-             patch.object(wl.sys, "executable", str(d / "pythonw.exe")), \
-             patch.object(wl, "spawn_hidden", side_effect=_spawn):
+        with (
+            patch.object(wl.sys, "platform", "win32"),
+            patch.object(wl.sys, "executable", str(d / "pythonw.exe")),
+            patch.object(wl, "spawn_hidden", side_effect=_spawn),
+        ):
             wl.run_with_hidden_console(["watch-all"], tmp_path / "default.log")
 
         assert seen["log"] == tmp_path / "default.log"
 
     def test_the_spawn_asks_for_no_window_and_ties_the_child_to_us(self, tmp_path):
         calls = {}
-        with patch.object(wl.subprocess, "Popen") as popen, \
-             patch.object(wl, "_kill_with_parent", lambda proc: calls.setdefault("tied", proc)):
+        with (
+            patch.object(wl.subprocess, "Popen") as popen,
+            patch.object(
+                wl, "_kill_with_parent", lambda proc: calls.setdefault("tied", proc)
+            ),
+        ):
             with open(tmp_path / "l.log", "ab") as fh:
                 proc = wl.spawn_hidden(["x"], fh)
 
@@ -134,8 +154,10 @@ class TestTheCliDispatch:
     def test_a_relaunched_watch_all_exits_with_the_childs_code(self):
         from jcodemunch_mcp import server
 
-        with patch("jcodemunch_mcp.windowless.run_with_hidden_console", return_value=3), \
-             patch("jcodemunch_mcp.watch_all.watch_all") as watch:
+        with (
+            patch("jcodemunch_mcp.windowless.run_with_hidden_console", return_value=3),
+            patch("jcodemunch_mcp.watch_all.watch_all") as watch,
+        ):
             with pytest.raises(SystemExit) as exc:
                 server.main(["watch-all"])
 
@@ -148,8 +170,12 @@ class TestTheCliDispatch:
         async def _done(**kwargs):
             return None
 
-        with patch("jcodemunch_mcp.windowless.run_with_hidden_console", return_value=None), \
-             patch("jcodemunch_mcp.watch_all.watch_all", side_effect=_done) as watch:
+        with (
+            patch(
+                "jcodemunch_mcp.windowless.run_with_hidden_console", return_value=None
+            ),
+            patch("jcodemunch_mcp.watch_all.watch_all", side_effect=_done) as watch,
+        ):
             server.main(["watch-all"])
 
         watch.assert_called_once()
@@ -195,7 +221,9 @@ _WAIT_TIMEOUT = 0x102
 # launcher that puts its own child in a job, which would end the watcher on its
 # own and let the job test pass without ours. windowless.py imports only the
 # standard library, so the base interpreter can run it from src/.
-_BASE_PYTHONW = Path(getattr(sys, "_base_executable", sys.executable)).with_name("pythonw.exe")
+_BASE_PYTHONW = Path(getattr(sys, "_base_executable", sys.executable)).with_name(
+    "pythonw.exe"
+)
 
 if sys.platform == "win32" and _BASE_PYTHONW.is_file():
 
@@ -213,11 +241,16 @@ if sys.platform == "win32" and _BASE_PYTHONW.is_file():
         done = subprocess.run(
             [str(pythonw), str(script), str(out), str(grandchild)],
             env={**os.environ, "PYTHONPATH": str(src)},
-            timeout=120, check=False,
+            timeout=120,
+            check=False,
         )
 
         assert done.returncode == 0
-        lines = [ln for ln in out.read_text(encoding="utf-8", errors="replace").splitlines() if ln.strip()]
+        lines = [
+            ln
+            for ln in out.read_text(encoding="utf-8", errors="replace").splitlines()
+            if ln.strip()
+        ]
         assert json.loads(lines[-1]) == {"visible": False}, lines
 
     def test_ending_the_pythonw_parent_ends_the_watcher_child(tmp_path):
@@ -241,17 +274,25 @@ if sys.platform == "win32" and _BASE_PYTHONW.is_file():
             for _ in range(600):
                 if pid_file.is_file() and pid_file.read_text().strip():
                     break
-                assert parent.poll() is None, "the parent exited before starting the child"
+                assert parent.poll() is None, (
+                    "the parent exited before starting the child"
+                )
                 time.sleep(0.1)
             child_pid = int(pid_file.read_text().strip())
             handle = kernel32.OpenProcess(_SYNCHRONIZE, False, child_pid)
             assert handle, "the child is not running"
-            assert kernel32.WaitForSingleObject(ctypes.c_void_p(handle), 0) == _WAIT_TIMEOUT
+            assert (
+                kernel32.WaitForSingleObject(ctypes.c_void_p(handle), 0)
+                == _WAIT_TIMEOUT
+            )
 
             parent.kill()
             parent.wait(timeout=30)
 
-            assert kernel32.WaitForSingleObject(ctypes.c_void_p(handle), 15000) == _WAIT_OBJECT_0
+            assert (
+                kernel32.WaitForSingleObject(ctypes.c_void_p(handle), 15000)
+                == _WAIT_OBJECT_0
+            )
         finally:
             if handle:
                 kernel32.CloseHandle(ctypes.c_void_p(handle))

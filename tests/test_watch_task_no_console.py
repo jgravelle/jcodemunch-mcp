@@ -42,8 +42,10 @@ def _exec(interpreter: Path) -> list[str]:
 class TestTheTaskCommand:
     def test_pythonw_is_used_when_it_sits_beside_the_interpreter(self, tmp_path):
         d = _interpreter_dir(tmp_path, windowless=True)
-        with patch.object(si, "_exec_cmd", lambda: _exec(d / "python.exe")), \
-             patch.object(si, "_log_dir", lambda: tmp_path / "logs"):
+        with (
+            patch.object(si, "_exec_cmd", lambda: _exec(d / "python.exe")),
+            patch.object(si, "_log_dir", lambda: tmp_path / "logs"),
+        ):
             cmd = si._windows_exec_cmd()
 
         assert cmd[0] == str(d / "pythonw.exe")
@@ -51,8 +53,10 @@ class TestTheTaskCommand:
 
     def test_the_console_interpreter_is_kept_when_there_is_no_pythonw(self, tmp_path):
         d = _interpreter_dir(tmp_path, windowless=False)
-        with patch.object(si, "_exec_cmd", lambda: _exec(d / "python.exe")), \
-             patch.object(si, "_log_dir", lambda: tmp_path / "logs"):
+        with (
+            patch.object(si, "_exec_cmd", lambda: _exec(d / "python.exe")),
+            patch.object(si, "_log_dir", lambda: tmp_path / "logs"),
+        ):
             cmd = si._windows_exec_cmd()
 
         assert cmd[0] == str(d / "python.exe")
@@ -60,8 +64,10 @@ class TestTheTaskCommand:
     def test_the_log_goes_to_a_file_in_the_log_dir(self, tmp_path):
         d = _interpreter_dir(tmp_path, windowless=True)
         logs = tmp_path / "my logs"
-        with patch.object(si, "_exec_cmd", lambda: _exec(d / "python.exe")), \
-             patch.object(si, "_log_dir", lambda: logs):
+        with (
+            patch.object(si, "_exec_cmd", lambda: _exec(d / "python.exe")),
+            patch.object(si, "_log_dir", lambda: logs),
+        ):
             cmd = si._windows_exec_cmd()
 
         assert cmd[-2:] == ["--log-file", str(logs / "watch-all.log")]
@@ -69,8 +75,10 @@ class TestTheTaskCommand:
     def test_the_task_definition_carries_pythonw_and_a_quoted_log_path(self, tmp_path):
         d = _interpreter_dir(tmp_path, windowless=True)
         logs = tmp_path / "my logs"
-        with patch.object(si, "_exec_cmd", lambda: _exec(d / "python.exe")), \
-             patch.object(si, "_log_dir", lambda: logs):
+        with (
+            patch.object(si, "_exec_cmd", lambda: _exec(d / "python.exe")),
+            patch.object(si, "_log_dir", lambda: logs),
+        ):
             root = ET.fromstring(si._windows_task_xml().encode("utf-16"))
         exec_ = root.find("t:Actions/t:Exec", _NS)
 
@@ -91,10 +99,16 @@ class TestStatusNamesAConsoleTask:
     }
 
     def _status(self, command):
-        with patch.object(si, "_run_schtasks", lambda args: (0, "TaskName: \\jcodemunch-watch", "")), \
-             patch.object(si, "_scheduled_task_state", lambda: "Running"), \
-             patch.object(si, "_scheduled_task_settings", lambda: dict(self._FIXED)), \
-             patch.object(si, "_scheduled_task_command", lambda: command):
+        with (
+            patch.object(
+                si,
+                "_run_schtasks",
+                lambda args: (0, "TaskName: \\jcodemunch-watch", ""),
+            ),
+            patch.object(si, "_scheduled_task_state", lambda: "Running"),
+            patch.object(si, "_scheduled_task_settings", lambda: dict(self._FIXED)),
+            patch.object(si, "_scheduled_task_command", lambda: command),
+        ):
             return si._status_windows()
 
     def test_a_task_that_starts_python_exe_is_named_with_its_repair(self, tmp_path):
@@ -121,7 +135,9 @@ class TestStatusNamesAConsoleTask:
 
 class TestCommandProbe:
     def _probe(self, stdout: bytes, returncode: int = 0):
-        completed = subprocess.CompletedProcess(args=[], returncode=returncode, stdout=stdout, stderr=b"")
+        completed = subprocess.CompletedProcess(
+            args=[], returncode=returncode, stdout=stdout, stderr=b""
+        )
         with patch.object(si.subprocess, "run", return_value=completed) as run:
             return si._scheduled_task_command(), run
 
@@ -130,7 +146,11 @@ class TestCommandProbe:
 
         assert result == "C:\\Python\\python.exe"
         script = run.call_args.args[0][-1]
-        assert "Get-ScheduledTask" in script and si.SERVICE_NAME in script and "Execute" in script
+        assert (
+            "Get-ScheduledTask" in script
+            and si.SERVICE_NAME in script
+            and "Execute" in script
+        )
 
     @pytest.mark.parametrize("stdout,returncode", [(b"", 1), (b"\r\n", 0)])
     def test_a_failed_or_empty_probe_is_unknown(self, stdout, returncode):

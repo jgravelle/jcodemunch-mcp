@@ -83,10 +83,17 @@ def _kill_with_parent(proc: subprocess.Popen) -> None:
             ]
 
         class _IoCounters(ctypes.Structure):
-            _fields_ = [(n, ctypes.c_uint64) for n in (
-                "ReadOperationCount", "WriteOperationCount", "OtherOperationCount",
-                "ReadTransferCount", "WriteTransferCount", "OtherTransferCount",
-            )]
+            _fields_ = [
+                (n, ctypes.c_uint64)
+                for n in (
+                    "ReadOperationCount",
+                    "WriteOperationCount",
+                    "OtherOperationCount",
+                    "ReadTransferCount",
+                    "WriteTransferCount",
+                    "OtherTransferCount",
+                )
+            ]
 
         class _ExtendedLimits(ctypes.Structure):
             _fields_ = [
@@ -112,14 +119,17 @@ def _kill_with_parent(proc: subprocess.Popen) -> None:
             job, _EXTENDED_LIMIT_INFORMATION, ctypes.byref(info), ctypes.sizeof(info)
         ):
             raise OSError(last_error(), "SetInformationJobObject failed")
-        if not kernel32.AssignProcessToJobObject(job, wintypes.HANDLE(int(getattr(proc, "_handle")))):
+        if not kernel32.AssignProcessToJobObject(
+            job, wintypes.HANDLE(int(getattr(proc, "_handle")))
+        ):
             raise OSError(last_error(), "AssignProcessToJobObject failed")
         # The handle is deliberately never closed: closing it ends the watcher.
         # It closes when this process exits, which is the point.
     except Exception:
         logger.warning(
             "could not tie the watcher to the task's lifetime; ending the task "
-            "may leave the watcher running", exc_info=True,
+            "may leave the watcher running",
+            exc_info=True,
         )
 
 
