@@ -185,3 +185,43 @@ def test_main_exposes_descriptions_flag(sd):
     parser = sd.build_parser()
     assert parser.parse_args(["--descriptions"]).descriptions is True
     assert parser.parse_args([]).descriptions is False
+
+
+# --------------------------------------------------------------------------- summary file
+
+
+def test_summary_overwrites_by_default_so_an_evidence_file_holds_one_report(sd, tmp_path):
+    out = tmp_path / "surface.md"
+    sd.write_summary(str(out), "## report one\n", append=False)
+    sd.write_summary(str(out), "## report two\n", append=False)
+    assert out.read_text(encoding="utf-8") == "## report two\n"
+
+
+def test_append_summary_keeps_earlier_text_for_a_shared_step_summary(sd, tmp_path):
+    out = tmp_path / "step_summary.md"
+    out.write_text("## an earlier step\n", encoding="utf-8")
+    sd.write_summary(str(out), "## surface\n", append=True)
+    assert out.read_text(encoding="utf-8") == "## an earlier step\n## surface\n"
+
+
+def test_main_append_flag_defaults_off(sd):
+    parser = sd.build_parser()
+    assert parser.parse_args([]).append_summary is False
+    assert parser.parse_args(["--append-summary"]).append_summary is True
+
+
+def test_ci_step_summary_call_appends():
+    """CI's step summary is shared by every step of the job, so the workflow must ask to append."""
+    wf = (REPO / ".github" / "workflows" / "pr-gate.yml").read_text(encoding="utf-8")
+    calls = [ln for ln in wf.splitlines() if "scripts/surface_diff.py" in ln and "--summary" in ln]
+    assert calls, "pr-gate.yml no longer calls surface_diff.py with --summary"
+    for ln in calls:
+        if "GITHUB_STEP_SUMMARY" in ln:
+            assert "--append-summary" in ln, ln
+
+
+def test_surface_guard_does_not_write_the_pr_evidence_file():
+    """The guard diffs against HEAD after each edit; the PR's surface.md is against the base branch."""
+    src = (REPO / ".claude" / "hooks" / "surface_guard.py").read_text(encoding="utf-8")
+    assert 'EVIDENCE / "surface.md"' not in src
+    assert 'EVIDENCE / "surface_guard.md"' in src
