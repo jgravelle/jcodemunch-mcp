@@ -126,7 +126,10 @@ def _build_reverse_adjacency(
 
 
 # Languages whose package is a directory: every file in it sees its siblings'
-# names with no import statement (Go). A language fact, not a repo heuristic.
+# names with no import statement (Go). A language fact, not a repo heuristic:
+# the Go spec defines a package by its directory. That differs from
+# `_unresolved_package_edges` below, which measures how IMPORTS resolve, a
+# property of the resolver that a table would misstate.
 PACKAGE_DIRECTORY_LANGUAGES = frozenset({"go"})
 
 

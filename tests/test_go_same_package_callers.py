@@ -89,3 +89,30 @@ def test_a_python_file_in_the_same_directory_is_still_gated(tmp_path):
     )
     h = _callers(repo, store, "pkg/a.py::helper#function")
     assert h["callers"] == [], h
+
+
+def test_a_same_named_method_on_another_type_is_not_a_caller(tmp_path):
+    """Review round 1: `RouterGroup.Use`'s own declaration names `Use`, so it
+    was reported as a caller of `Engine.Use`. Nothing calls `Engine.Use`."""
+    repo, store = _index(
+        tmp_path,
+        {
+            "gin/engine.go": "package gin\n\ntype Engine struct{}\n\nfunc (e *Engine) Use() {}\n",
+            "gin/group.go": "package gin\n\ntype RouterGroup struct{}\n\nfunc (g *RouterGroup) Use() {}\n",
+        },
+    )
+    h = _callers(repo, store, "gin/engine.go::Engine.Use#method")
+    assert h["callers"] == [], h
+
+
+def test_impact_preview_sees_a_same_package_caller(tmp_path):
+    """The reported what-breaks symptom: get_impact_preview reached nothing."""
+    from jcodemunch_mcp.tools.get_impact_preview import get_impact_preview
+
+    repo, store = _index(tmp_path, SAME_PACKAGE)
+    r = get_impact_preview(
+        repo=repo, symbol_id="gin/a.go::helper#function", storage_path=store
+    )
+    assert "error" not in r, r
+    names = sorted(s["name"] for s in r["affected_symbols"])
+    assert names == ["Other", "Use"], r

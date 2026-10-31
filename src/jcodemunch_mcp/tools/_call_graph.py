@@ -876,6 +876,12 @@ def find_direct_callers(
             if not cid or cid in seen_ids or not candidate.get("line"):
                 continue
             body = _symbol_body(file_lines, candidate)
+            if body and candidate.get("name") == sym_name:
+                # A same-named declaration names itself: `func (g *Group)
+                # Use()` beside the target `Engine.Use` is not a call.
+                # Only a SECOND mention can be one (L-262 review).
+                starts = _word_starts(body, sym_name)
+                body = body[starts[0] + len(sym_name):] if starts else body
             if body and _word_match(body, sym_name):
                 seen_ids.add(cid)
                 callers.append({
