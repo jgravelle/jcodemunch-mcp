@@ -4652,11 +4652,13 @@ def _js_is_iife(fn_node) -> bool:
     """`(function () {...})()` / `(() => {...})()`: called where it is written."""
     up = fn_node.parent
     while up is not None and up.type == "parenthesized_expression":
+        parse_budget.checkpoint()
         up = up.parent
     if up is None or up.type != "call_expression":
         return False
     callee = up.child_by_field_name("function")
     while callee is not None and callee.type == "parenthesized_expression":
+        parse_budget.checkpoint()
         callee = callee.named_children[0] if callee.named_children else None
     return callee is not None and (callee.start_byte, callee.end_byte) == (
         fn_node.start_byte, fn_node.end_byte,
@@ -4703,6 +4705,7 @@ def _extract_member_assignment_function(
     parts: list[str] = []
     cur = left
     while cur is not None and cur.type == "member_expression":
+        parse_budget.checkpoint()
         prop = cur.child_by_field_name("property")
         if prop is None or prop.type != "property_identifier":
             return None
