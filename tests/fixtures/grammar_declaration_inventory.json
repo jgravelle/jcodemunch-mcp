@@ -279,7 +279,6 @@
       "enum_declaration",
       "enum_field_declaration",
       "parameter_declaration",
-      "tuple_deconstruct_declaration",
       "variant_declaration"
     ],
     "objc": [
