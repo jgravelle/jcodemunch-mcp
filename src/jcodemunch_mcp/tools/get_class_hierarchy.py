@@ -30,15 +30,29 @@ _DECL_HEAD_RE = re.compile(
     r'(?:(?:alignas|__declspec|__attribute__)\s*\((?:[^()]|\([^()]*\))*\)\s*|\[\[.*?\]\]\s*)*'
     r'[\w$.]+(?:::[\w$.]+)*'
 )
-# Comments a signature can carry: `// ...`, `/* ... */`, and `# ...` to end of line.
-# A double-quoted string is matched first and kept, so a `#` or `//` inside an
-# annotation argument (`@SerialName("#tag")`, `[Url("http://a")]`) is not a comment.
-_COMMENT_RE = re.compile(r'("(?:\\.|[^"\\\n])*")|/\*.*?\*/|//[^\n]*|#[^\n]*', re.DOTALL)
+# Comments a signature can carry: `// ...` and `/* ... */`, plus `# ...` to end of
+# line in a language where `#` starts a comment. A double-quoted string is matched
+# first and kept, so `//` inside an annotation argument (`[Url("http://a")]`) is
+# not a comment.
+_SLASH_COMMENT_RE = re.compile(r'("(?:\\.|[^"\\\n])*")|/\*.*?\*/|//[^\n]*', re.DOTALL)
+_HASH_COMMENT_RE = re.compile(r'("(?:\\.|[^"\\\n])*")|/\*.*?\*/|//[^\n]*|#[^\n]*', re.DOTALL)
+# Languages where `#` starts a comment. In C#, Kotlin, Swift, C++ and Rust it does
+# not (`[Sep('#')]`, `#[derive]`, `#if`), so there it is left alone.
+_HASH_COMMENT_LANGUAGES = frozenset({
+    "python", "ruby", "crystal", "nim", "gdscript", "elixir", "julia", "r",
+    "perl", "coffeescript", "powershell", "bash", "shell",
+})
 
 
-def _strip_comments(text: str) -> str:
-    """Replace each comment with a space; strings are left as written."""
-    return _COMMENT_RE.sub(lambda m: m.group(1) or " ", text)
+def _strip_comments(text: str, language: Optional[str] = None) -> str:
+    """Replace each comment with a space; strings are left as written.
+
+    `#` is a comment only for a `#`-comment language, or when the language is
+    unknown (an unlabelled Python `class X:` signature carries its comment lines).
+    """
+    lang = (language or "").lower()
+    pattern = _HASH_COMMENT_RE if not lang or lang in _HASH_COMMENT_LANGUAGES else _SLASH_COMMENT_RE
+    return pattern.sub(lambda m: m.group(1) or " ", text)
 # Languages whose `:` after the head opens a block, never a base list.
 _BLOCK_COLON_LANGUAGES = frozenset({"python"})
 # Words that may sit between a declaration's name and its `:` base list:
@@ -119,7 +133,7 @@ def _split_top_level(text: str, seps: str) -> list[str]:
     return parts
 
 
-def _colon_bases(signature: str, language_known: bool = False) -> list[str]:
+def _colon_bases(signature: str, language: Optional[str] = None) -> list[str]:
     """`Head : A, B<T>` - C#, Kotlin, Swift, C++ and Rust supertraits (#1284).
 
     After the name, generics, a primary constructor, annotations, modifiers
@@ -132,7 +146,8 @@ def _colon_bases(signature: str, language_known: bool = False) -> list[str]:
     When it is known, and not Python, the list may start on the next line
     (C# `class W :` then `Base, IFoo`).
     """
-    signature = _strip_comments(signature)
+    language_known = bool(language)
+    signature = _strip_comments(signature, language)
     n = len(signature)
     for head in _DECL_HEAD_RE.finditer(signature):
         i = head.end()
@@ -221,11 +236,11 @@ def _parse_bases(signature: str, language: Optional[str] = None) -> list[str]:
 
     # class Foo : Bar, Baz<T>  - C#, Kotlin, Swift, C++, Rust (#1284)
     if not bases and (language or "").lower() not in _BLOCK_COLON_LANGUAGES:
-        bases += _colon_bases(signature, language_known=bool(language))
+        bases += _colon_bases(signature, language)
 
     # class Foo < Bar  - Ruby; a trailing `# :nodoc:` must not hide the base
     if not bases:
-        m = _RUBY_BASE_RE.search(_strip_comments(signature))
+        m = _RUBY_BASE_RE.search(_strip_comments(signature, language))
         if m:
             bases.append(m.group(1))
 

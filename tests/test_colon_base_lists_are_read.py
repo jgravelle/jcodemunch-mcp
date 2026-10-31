@@ -113,6 +113,25 @@ def test_a_comment_marker_inside_a_string_is_not_a_comment(
 
 
 @pytest.mark.parametrize(
+    "signature, expected, language",
+    [
+        # Review round 4, stored by the extractors: `#` is not a comment in these
+        # languages, so a char literal or a C# string holding it hides nothing.
+        ("[Sep('#')] public class A : B", ["B"], "csharp"),
+        ("@Sep('#') class K : Base()", ["Base"], "kotlin"),
+        ("template<char C = '#'> class X : public B", ["B"], "cpp"),
+        ('[A(\'"\', "#")] class C : D', ["D"], "csharp"),
+        ('[Path(@"C:\\dir\\", "#x")] public class A : B', ["B"], "csharp"),
+        ("pub trait T<'a>: Base<'a> + Send // c", ["Base", "Send"], "rust"),
+    ],
+)
+def test_a_hash_is_a_comment_only_where_the_language_says_so(
+    signature, expected, language
+):
+    assert _parse_bases(signature, language) == expected
+
+
+@pytest.mark.parametrize(
     "signature",
     [
         # Stored Ruby spellings: the Rails `# :nodoc:` idiom and a trailing note.
