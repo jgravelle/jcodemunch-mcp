@@ -190,3 +190,19 @@ def test_blast_radius_counts_a_same_package_caller_as_a_dependent(tmp_path, call
     assert r["_meta"]["verdict"]["state"] != "absent"
     # A peer that never calls the symbol is not listed as a potential importer.
     assert r["potential"] == [], r["potential"]
+
+
+def test_a_same_package_go_test_gives_test_reach(tmp_path):
+    """Review round 4: a Go test sits in its package with no import, so
+    `has_test_reach` read every same-package dependent as untested."""
+    from jcodemunch_mcp.tools.get_blast_radius import get_blast_radius
+
+    files = dict(_ROOT_PACKAGE)
+    files["gin/b_test.go"] = (
+        "package gin\n\nimport \"testing\"\n\n"
+        "func TestUse(t *testing.T) { if Use() != helper() { t.Fatal() } }\n"
+    )
+    repo, store = _index(tmp_path, files)
+    r = get_blast_radius(repo=repo, symbol="gin/a.go::helper#function", storage_path=store)
+    by_file = {c["file"]: c for c in r["confirmed"]}
+    assert by_file["gin/b.go"]["has_test_reach"] is True, r["confirmed"]

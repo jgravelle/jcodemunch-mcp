@@ -218,7 +218,7 @@ class TestReachesTheCaller:
     ``query``.
     """
 
-    def _call(self, repo, monkeypatch, meta_fields):
+    def _call(self, repo, monkeypatch, meta_fields, symbol="Record"):
         import asyncio
         import json
 
@@ -231,9 +231,9 @@ class TestReachesTheCaller:
             lambda k, *a, **kw: meta_fields if k == "meta_fields" else real_get(k, *a, **kw),
         )
         out = asyncio.run(
-            # `Record` has no same-package caller, so its only caller sits
-            # behind the unresolved package edge (L-262 found DeleteItem's).
-            server.call_tool("get_blast_radius", {"repo": repo, "symbol": "Record"})
+            # `Record` (the default) has no same-package caller, so its only
+            # caller sits behind the unresolved package edge (L-262).
+            server.call_tool("get_blast_radius", {"repo": repo, "symbol": symbol})
         )
         # `call_tool` returns a plain list on success and a CallToolResult on
         # error. Asserting the type is not ceremony: without it an unresolvable
@@ -257,6 +257,17 @@ class TestReachesTheCaller:
         # Added by the dispatcher, not by the tool: the refusal is not citable.
         assert v["absence_citable"] is False
         assert v["absence_blocked_by"]
+
+    def test_a_partial_answer_says_so_on_the_shipped_default(self, served_repo, monkeypatch):
+        """L-262 review round 4: DeleteItem's same-package caller is found and
+        its cross-package caller is not. No absence carrier fires for a
+        non-empty answer, so the reason must ride in the body, or a default
+        install reads the partial list as complete."""
+        d = self._call(served_repo, monkeypatch, [], symbol="DeleteItem")
+        assert "verdict" not in (d.get("_meta") or {}), "precondition: stripped"
+        assert [c["file"] for c in d["confirmed"]] == ["repository/same_pkg_caller.go"]
+        assert d["incomplete"]["reason"] == "package_granular_imports"
+        assert d["overall_risk_score"] is None
 
     def test_carrier_survives_on_the_shipped_default(self, served_repo, monkeypatch):
         """meta_fields: [] strips the verdict. Without the carrier the caller gets

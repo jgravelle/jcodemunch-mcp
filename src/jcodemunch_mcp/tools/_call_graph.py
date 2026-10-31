@@ -329,19 +329,25 @@ class _ContentCache:
     argument so direct callers of the finders keep their original behavior.
     """
 
-    __slots__ = ("_store", "_owner", "_repo", "_content", "_lines")
+    __slots__ = ("_store", "_owner", "_repo", "_index", "_content", "_lines")
 
-    def __init__(self, store: "IndexStore", owner: str, repo_name: str):
+    def __init__(
+        self, store: "IndexStore", owner: str, repo_name: str,
+        index: Optional["CodeIndex"] = None,
+    ):
         self._store = store
         self._owner = owner
         self._repo = repo_name
+        # With the index, a read checks the file against it instead of opening
+        # a SQLite connection per file (L-262 review: 299 reads cost 0.62 s).
+        self._index = index
         self._content: dict[str, Optional[str]] = {}
         self._lines: dict[str, list[str]] = {}
 
     def content(self, file_path: str) -> Optional[str]:
         if file_path not in self._content:
             self._content[file_path] = self._store.get_file_content(
-                self._owner, self._repo, file_path
+                self._owner, self._repo, file_path, self._index
             )
         return self._content[file_path]
 
@@ -1048,6 +1054,7 @@ def bfs_callers(
     reverse_adj: dict[str, list[str]],
     symbols_by_file: dict[str, list[dict]],
     max_depth: int,
+    content_cache: Optional[_ContentCache] = None,
 ) -> tuple[list[dict], int]:
     """BFS over callers up to *max_depth* hops.
 
@@ -1061,7 +1068,8 @@ def bfs_callers(
     results: list[dict] = []
     depth_reached = 0
     symbol_index: dict[str, dict] = getattr(index, "_symbol_index", {})
-    content_cache = _ContentCache(store, owner, repo_name)
+    if content_cache is None:
+        content_cache = _ContentCache(store, owner, repo_name)
 
     # Depth-1 callers
     for c in find_direct_callers(index, store, owner, repo_name, sym, reverse_adj, symbols_by_file, content_cache):
