@@ -353,8 +353,21 @@ tool allowlist for each approved server.
 
 ## Share it with your team
 
-Commit a `.mcp.json` at the repo root and everyone who clones it gets the
-same servers. This one adds jCodeMunch beside Context7 (library docs):
+`jcodemunch-mcp init --project` writes the files for you, at the git
+repository root: `.mcp.json` (Claude Code, VS Code, Copilot CLI),
+`.cursor/mcp.json` and `.vscode/mcp.json`, plus `.junie/mcp/mcp.json`,
+`.gemini/settings.json`, `opencode.json` and `.devin/mcp_config.json` when
+the repo already uses that client (`--project-all` writes them all). It
+merges into existing files, keeps an existing `jcodemunch` entry as
+written, writes nothing under your home folder, and prints the `git add`
+line. Each entry runs `uvx jcodemunch-mcp`, unpinned; pin a version by
+editing one line. Codex is not covered: it needs a path to the installed
+binary, which differs per machine. Committing these files means each
+teammate's client may start the server when they open the repo; most
+clients ask first.
+
+Or commit a `.mcp.json` at the repo root by hand. This one adds jCodeMunch
+beside Context7 (library docs):
 
 ```json
 {

@@ -1389,6 +1389,48 @@ UPGRADE_REFRESH_ENV = "_JCODEMUNCH_UPGRADE_REFRESH"
 
 
 @with_scoped_config
+
+def _run_init_project(
+    *, all_files: bool, policy: bool, dry_run: bool, backup: bool
+) -> int:
+    """`init --project`: write the repository's MCP config files, nothing else.
+
+    Nothing under the home folder: no client registration, no hooks. With
+    ``policy`` the project CLAUDE.md gets the policy text too.
+    """
+    from . import project_config
+
+    root = project_config.repo_root()
+    if root is None:
+        print()
+        print(
+            f"init --project writes files for a team to commit, and {Path.cwd()} "
+            "is not inside a git repository. Run it from the repository."
+        )
+        print()
+        return 1
+    print()
+    print(f"jCodeMunch init --project -- {root}")
+    print()
+    result = project_config.install_project_config(
+        root, all_files=all_files, dry_run=dry_run, backup=backup
+    )
+    for line in project_config.report_lines(result, dry_run=dry_run):
+        print(line)
+    if policy:
+        here = Path.cwd()
+        try:
+            os.chdir(root)
+            print("  " + install_claude_md("project", dry_run=dry_run, backup=backup))
+        finally:
+            os.chdir(here)
+    print()
+    print("Dry run complete -- no changes were made." if dry_run else
+          "Teammates need uv installed; their client may ask before starting the server.")
+    print()
+    return 2 if result.refused else 0
+
+
 def run_init(
     *,
     clients: Optional[list[str]] = None,
@@ -1415,6 +1457,8 @@ def run_init(
     guidance: bool = False,
     policy: bool = False,
     remove_guidance: bool = False,
+    project: bool = False,
+    project_all: bool = False,
 ) -> int:
     """Run the init flow. Returns exit code (0 = success).
 
@@ -1452,6 +1496,10 @@ def run_init(
               else "Done. Restart your MCP client(s) to load the change.")
         print()
         return 0
+    if project or project_all:
+        return _run_init_project(
+            all_files=project_all, policy=policy, dry_run=dry_run, backup=backup
+        )
     # P1.7: --minimal forces all channels beyond MCP server registration to
     # OFF and turns off interactive prompts. Combined with --yes (which is
     # how `install <agent>` calls into run_init) this becomes a clean

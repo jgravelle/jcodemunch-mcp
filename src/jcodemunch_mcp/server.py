@@ -10223,6 +10223,24 @@ def main(argv: Optional[list[str]] = None):
             "and the server registration. Does nothing else."
         ),
     )
+    init_parser.add_argument(
+        "--project",
+        action="store_true",
+        dest="project",
+        help=(
+            "Write MCP config files for a team to commit, at the git repository "
+            "root: .mcp.json, .cursor/mcp.json, .vscode/mcp.json, plus the Junie, "
+            "Gemini, opencode and Devin files when the repo already uses that "
+            "client. Merges into existing files. Writes nothing under your home "
+            "folder."
+        ),
+    )
+    init_parser.add_argument(
+        "--project-all",
+        action="store_true",
+        dest="project_all",
+        help="Like --project, and writes every client's file whether the repo uses it or not.",
+    )
 
     # --- install (per-agent sugar over init) ---
     install_parser = subparsers.add_parser(
@@ -11078,6 +11096,8 @@ def main(argv: Optional[list[str]] = None):
             guidance=getattr(args, "guidance", False),
             policy=getattr(args, "policy", False),
             remove_guidance=getattr(args, "remove_guidance", False),
+            project=getattr(args, "project", False),
+            project_all=getattr(args, "project_all", False),
         ))
 
     if args.command == "install":
