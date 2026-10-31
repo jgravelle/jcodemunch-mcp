@@ -170,3 +170,18 @@ def test_a_named_target_cut_by_the_limit_is_not_called_a_scoring_loss(rows):
     assert r["outcome"] == "ranked_below_cutoff", r
     assert r["beaten_by"].get("named") is True
     assert "order named" in r["experiment"]
+
+
+def test_an_unnamed_target_behind_named_tools_keeps_the_scoring_text(rows):
+    """Review round 3: the order-named text fired for a target the query never
+    named, which lost on score."""
+    from jcodemunch_mcp.investigator.retrieval_counterfactual import explain_route
+
+    r = explain_route(
+        "search_symbols get_file_outline",
+        "get_symbol_source",
+        catalog_rows=rows,
+        limit=2,
+    )
+    assert r["outcome"] == "ranked_below_cutoff", r
+    assert "order named" not in r["experiment"]

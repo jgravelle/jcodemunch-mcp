@@ -266,9 +266,11 @@ def explain_route(
                 "contributions": _token_contributions(qt, winner, weights),
             },
         )
-        if winner["action"] in pinned:
-            # The query named the winner, so order named plus the limit cut
-            # this target, not its score; ranking work cannot move it.
+        if expected_action in pinned:
+            # The query named this target too, behind `limit` other names: the
+            # order named plus the limit cut it, not its score. An UNNAMED
+            # target behind a named winner lost on score and keeps the default
+            # text (review round 3).
             out["experiment"] = (
                 "The query named the tools ahead of this one; it was cut by the "
                 "order named and the limit, not by its score. Name it earlier "
