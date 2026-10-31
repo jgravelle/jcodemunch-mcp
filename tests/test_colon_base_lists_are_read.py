@@ -20,59 +20,63 @@ from jcodemunch_mcp.tools.get_class_hierarchy import _parse_bases
 
 
 @pytest.mark.parametrize(
-    "signature, expected",
+    "signature, expected, language",
     [
-        ("public class Circle : IShape", ["IShape"]),
+        ("public class Circle : IShape", ["IShape"], "csharp"),
         (
             "[Transaction(TransactionMode.Manual)]\npublic class Cmd : Base<int>, IExternalCommand where T : new()",
             ["Base", "IExternalCommand"],
+            "csharp",
         ),
-        ("public struct S : IA, IB<T>", ["IA", "IB"]),
-        ("public interface I : J", ["J"]),
-        ("public record R(int X) : Q;", ["Q"]),
+        ("public struct S : IA, IB<T>", ["IA", "IB"], "csharp"),
+        ("public interface I : J", ["J"], "csharp"),
+        ("public record R(int X) : Q;", ["Q"], "csharp"),
         (
             "public sealed partial class P<T> : Dictionary<string, List<T>>, IDisposable",
             ["Dictionary", "IDisposable"],
+            "csharp",
         ),
-        ("open class A : B()", ["B"]),
-        ("object O : B", ["B"]),
-        ("class C(val x: Int) : A(), B", ["A", "B"]),
-        ("data class D(val m: Map<String, Int>) : Base(m.size)", ["Base"]),
-        ("protocol P: Q", ["Q"]),
-        ("class A: B, Q", ["B", "Q"]),
-        ("struct S: Q", ["Q"]),
-        ("class A : public B, private virtual C<int>", ["B", "C"]),
-        ("struct S : B", ["B"]),
-        ("trait T: Base + Clone", ["Base", "Clone"]),
-        ("class A < B\nend", ["B"]),
-        ("class M < Foo::Bar\nend", ["Foo::Bar"]),
-        ("class A extends B with T", ["B", "T"]),
-        ("class A extends B with M implements I", ["B", "M", "I"]),
+        ("open class A : B()", ["B"], "kotlin"),
+        ("object O : B", ["B"], "kotlin"),
+        ("class C(val x: Int) : A(), B", ["A", "B"], "kotlin"),
+        ("data class D(val m: Map<String, Int>) : Base(m.size)", ["Base"], "kotlin"),
+        ("protocol P: Q", ["Q"], "swift"),
+        ("class A: B, Q", ["B", "Q"], "swift"),
+        ("struct S: Q", ["Q"], "swift"),
+        ("class A : public B, private virtual C<int>", ["B", "C"], "cpp"),
+        ("struct S : B", ["B"], "cpp"),
+        ("trait T: Base + Clone", ["Base", "Clone"], "rust"),
+        ("class A < B\nend", ["B"], "ruby"),
+        ("class M < Foo::Bar\nend", ["Foo::Bar"], "ruby"),
+        ("class A extends B with T", ["B", "T"], "scala"),
+        ("class A extends B with M implements I", ["B", "M", "I"], "dart"),
         # Round 2 of review: stored shapes the first fix missed.
-        ("public record struct RS(int X) : I;", ["I"]),
-        ("enum class E(val v: Int) : I", ["I"]),
-        ("public class W\n    : Base, IFoo", ["Base", "IFoo"]),
-        ("public class M\n    : Base,\n      IFoo", ["Base", "IFoo"]),
-        ("class P private constructor(x: Int) : B(x)", ["B"]),
-        ("class Q @Inject constructor(x: Int) : B(x)", ["B"]),
-        ("class A final : public B", ["B"]),
-        ("struct N::S : C", ["C"]),
-        ("class G : public ::ns::B", ["ns::B"]),
-        ("enum Raw: String, Codable", ["Codable"]),
-        ("class A extends B<int> with M", ["B", "M"]),
-        ("class A extends B[T] with M", ["B", "M"]),
+        ("public record struct RS(int X) : I;", ["I"], "csharp"),
+        ("enum class E(val v: Int) : I", ["I"], "kotlin"),
+        ("public class W\n    : Base, IFoo", ["Base", "IFoo"], "csharp"),
+        ("public class M\n    : Base,\n      IFoo", ["Base", "IFoo"], "csharp"),
+        ("class P private constructor(x: Int) : B(x)", ["B"], "kotlin"),
+        ("class Q @Inject constructor(x: Int) : B(x)", ["B"], "kotlin"),
+        ("class A final : public B", ["B"], "cpp"),
+        ("struct N::S : C", ["C"], "cpp"),
+        ("class G : public ::ns::B", ["ns::B"], "cpp"),
+        ("enum Raw: String, Codable", ["Codable"], "swift"),
+        ("class A extends B<int> with M", ["B", "M"], "dart"),
+        ("class A extends B[T] with M", ["B", "M"], "scala"),
         # Review round 3: C++ attributes before the name, a raw type Swift allows,
         # generic implements/extends lists, and an arrow inside type arguments.
-        ("struct alignas(16) V : B", ["B"]),
-        ("class __declspec(dllexport) D : public B", ["B"]),
-        ("class [[nodiscard]] R : public B", ["B"]),
-        ("class A implements I<T>, J", ["I", "J"]),
-        ("interface X extends B<T>, C<U>", ["B", "C"]),
-        ("class Z extends B<(x: number) => void>", ["B"]),
-        ("class K : Base<(Int) -> Unit>, I", ["Base", "I"]),
+        ("struct alignas(16) V : B", ["B"], "cpp"),
+        ("class __declspec(dllexport) D : public B", ["B"], "cpp"),
+        ("class [[nodiscard]] R : public B", ["B"], "cpp"),
+        ("class A implements I<T>, J", ["I", "J"], "java"),
+        ("interface X extends B<T>, C<U>", ["B", "C"], "typescript"),
+        ("class Z extends B<(x: number) => void>", ["B"], "typescript"),
+        ("class K : Base<(Int) -> Unit>, I", ["Base", "I"], "kotlin"),
     ],
 )
-def test_every_stored_spelling_yields_its_bases(signature, expected):
+def test_every_stored_spelling_yields_its_bases(signature, expected, language):
+    """Both with the language every production caller passes, and without one."""
+    assert _parse_bases(signature, language) == expected
     assert _parse_bases(signature) == expected
 
 
@@ -87,6 +91,38 @@ def test_every_stored_spelling_yields_its_bases(signature, expected):
 )
 def test_a_comment_in_a_base_list_is_not_a_base(signature, expected):
     assert _parse_bases(signature) == expected
+
+
+@pytest.mark.parametrize(
+    "signature, expected, language",
+    [
+        # Review round 3, stored by the extractors: a `#` or `//` inside an
+        # annotation's string argument is not a comment and hides nothing.
+        ('@SerialName("#tag") class Res : BaseRes()', ["BaseRes"], "kotlin"),
+        ('@Deprecated("see http://x") class Old : Base()', ["Base"], "kotlin"),
+        ('[DebuggerDisplay("#{Id}")] public class A : B', ["B"], "csharp"),
+        ('[Url("http://a/b")] public class U : V', ["V"], "csharp"),
+        ('class [[deprecated("use http://x")]] D : public B', ["B"], "cpp"),
+    ],
+)
+def test_a_comment_marker_inside_a_string_is_not_a_comment(
+    signature, expected, language
+):
+    assert _parse_bases(signature, language) == expected
+    assert _parse_bases(signature) == expected
+
+
+@pytest.mark.parametrize(
+    "signature",
+    [
+        # Stored Ruby spellings: the Rails `# :nodoc:` idiom and a trailing note.
+        "class C < D  # :nodoc:\r\nend",
+        "class C < D # legacy",
+    ],
+)
+def test_a_ruby_trailing_comment_does_not_hide_the_base(signature):
+    assert _parse_bases(signature, "ruby") == ["D"]
+    assert _parse_bases(signature) == ["D"]
 
 
 @pytest.mark.parametrize(

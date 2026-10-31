@@ -31,7 +31,14 @@ _DECL_HEAD_RE = re.compile(
     r'[\w$.]+(?:::[\w$.]+)*'
 )
 # Comments a signature can carry: `// ...`, `/* ... */`, and `# ...` to end of line.
-_COMMENT_RE = re.compile(r'/\*.*?\*/|//[^\n]*|#[^\n]*', re.DOTALL)
+# A double-quoted string is matched first and kept, so a `#` or `//` inside an
+# annotation argument (`@SerialName("#tag")`, `[Url("http://a")]`) is not a comment.
+_COMMENT_RE = re.compile(r'("(?:\\.|[^"\\\n])*")|/\*.*?\*/|//[^\n]*|#[^\n]*', re.DOTALL)
+
+
+def _strip_comments(text: str) -> str:
+    """Replace each comment with a space; strings are left as written."""
+    return _COMMENT_RE.sub(lambda m: m.group(1) or " ", text)
 # Languages whose `:` after the head opens a block, never a base list.
 _BLOCK_COLON_LANGUAGES = frozenset({"python"})
 # Words that may sit between a declaration's name and its `:` base list:
@@ -125,7 +132,7 @@ def _colon_bases(signature: str, language_known: bool = False) -> list[str]:
     When it is known, and not Python, the list may start on the next line
     (C# `class W :` then `Base, IFoo`).
     """
-    signature = _COMMENT_RE.sub(" ", signature)
+    signature = _strip_comments(signature)
     n = len(signature)
     for head in _DECL_HEAD_RE.finditer(signature):
         i = head.end()
@@ -216,9 +223,9 @@ def _parse_bases(signature: str, language: Optional[str] = None) -> list[str]:
     if not bases and (language or "").lower() not in _BLOCK_COLON_LANGUAGES:
         bases += _colon_bases(signature, language_known=bool(language))
 
-    # class Foo < Bar  - Ruby
+    # class Foo < Bar  - Ruby; a trailing `# :nodoc:` must not hide the base
     if not bases:
-        m = _RUBY_BASE_RE.search(signature)
+        m = _RUBY_BASE_RE.search(_strip_comments(signature))
         if m:
             bases.append(m.group(1))
 
