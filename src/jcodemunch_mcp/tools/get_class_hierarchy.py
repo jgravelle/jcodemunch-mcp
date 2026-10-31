@@ -25,8 +25,15 @@ _WITH_SPLIT_RE = re.compile(r',|\s+with\s+')
 # then the name, which may be qualified (`N::S`, `a.b.C`).
 _DECL_HEAD_RE = re.compile(
     r'\b(?P<kw>(?:class|struct|interface|record|object|protocol|trait|enum|extension)'
-    r'(?:\s+(?:class|struct))?)\s+[\w$.]+(?:::[\w$.]+)*'
+    r'(?:\s+(?:class|struct))?)\s+'
+    # C++ attributes that sit before the name: `alignas(16)`, `__declspec(...)`, `[[...]]`.
+    r'(?:(?:alignas|__declspec|__attribute__)\s*\((?:[^()]|\([^()]*\))*\)\s*|\[\[.*?\]\]\s*)*'
+    r'[\w$.]+(?:::[\w$.]+)*'
 )
+# Comments a signature can carry: `// ...`, `/* ... */`, and `# ...` to end of line.
+_COMMENT_RE = re.compile(r'/\*.*?\*/|//[^\n]*|#[^\n]*', re.DOTALL)
+# Languages whose `:` after the head opens a block, never a base list.
+_BLOCK_COLON_LANGUAGES = frozenset({"python"})
 # Words that may sit between a declaration's name and its `:` base list:
 # C++ `final`, Kotlin `private constructor` / `@Inject constructor`.
 _HEAD_SKIP_WORDS = frozenset({
@@ -48,7 +55,13 @@ _ENUM_RAW_TYPES = frozenset({
     "Int", "Int8", "Int16", "Int32", "Int64", "UInt", "UInt8", "UInt16", "UInt32",
     "UInt64", "String", "Character", "Double", "Float", "Float16", "Float80",
     "Byte", "SByte", "Short", "UShort", "Long", "ULong", "Bool",
+    "CGFloat", "Float32", "Float64",
 })
+
+
+def _is_arrow(text: str, j: int) -> bool:
+    """True when text[j] is the `>` of `=>` or `->`, which closes no group."""
+    return text[j] == ">" and j > 0 and text[j - 1] in "=-"
 
 
 def _skip_group(text: str, i: int, open_ch: str, close_ch: str) -> int:
@@ -57,7 +70,7 @@ def _skip_group(text: str, i: int, open_ch: str, close_ch: str) -> int:
     for j in range(i, len(text)):
         if text[j] == open_ch:
             depth += 1
-        elif text[j] == close_ch:
+        elif text[j] == close_ch and not _is_arrow(text, j):
             depth -= 1
             if depth == 0:
                 return j + 1
@@ -90,7 +103,7 @@ def _split_top_level(text: str, seps: str) -> list[str]:
     for j, ch in enumerate(text):
         if ch in "<([":
             depth += 1
-        elif ch in ">)]":
+        elif ch in ">)]" and not _is_arrow(text, j):
             depth = max(depth - 1, 0)
         elif depth == 0 and ch in seps:
             parts.append(text[start:j])
@@ -99,15 +112,20 @@ def _split_top_level(text: str, seps: str) -> list[str]:
     return parts
 
 
-def _colon_bases(signature: str) -> list[str]:
+def _colon_bases(signature: str, language_known: bool = False) -> list[str]:
     """`Head : A, B<T>` - C#, Kotlin, Swift, C++ and Rust supertraits (#1284).
 
     After the name, generics, a primary constructor, annotations, modifiers
     (`final`, `private constructor`) and line breaks are skipped, so a `:`
     inside them (`class C(val x: Int)`, `Box<T : Comparable<T>>`) is never
     read as a base. The list ends at the body, a `where` clause, `;` or `=`,
-    and may run across lines.
+    and may run across lines. Comments are removed first, so a comment line
+    never supplies a base. When the language is unknown, a `:` with nothing
+    after it on its line is taken as a block colon (Python's `class X:`).
+    When it is known, and not Python, the list may start on the next line
+    (C# `class W :` then `Base, IFoo`).
     """
+    signature = _COMMENT_RE.sub(" ", signature)
     n = len(signature)
     for head in _DECL_HEAD_RE.finditer(signature):
         i = head.end()
@@ -134,12 +152,15 @@ def _colon_bases(signature: str) -> list[str]:
         if i >= n or signature[i] != ":" or signature.startswith("::", i):
             continue
         rest = signature[i + 1:]
+        if not language_known and not rest.split("\n", 1)[0].strip():
+            # Language unknown and nothing after the colon on its line: a block colon.
+            return []
         cut = len(rest)
         depth = 0
         for j, ch in enumerate(rest):
             if ch in "<([":
                 depth += 1
-            elif ch in ">)]":
+            elif ch in ">)]" and not _is_arrow(rest, j):
                 depth = max(depth - 1, 0)
             elif depth == 0 and (ch in "{;=" or _WHERE_RE.match(rest, j)):
                 cut = j
@@ -163,8 +184,13 @@ def _colon_bases(signature: str) -> list[str]:
     return []
 
 
-def _parse_bases(signature: str) -> list[str]:
-    """Extract base class / interface names from a class signature."""
+def _parse_bases(signature: str, language: Optional[str] = None) -> list[str]:
+    """Extract base class / interface names from a class signature.
+
+    ``language`` is the symbol's language when the caller knows it. A Python
+    signature never takes the colon branch, because Python's `:` opens the
+    class body, and the stored signature can carry the comment lines under it.
+    """
     bases: list[str] = []
     flat = _strip_type_args(signature)
 
@@ -187,8 +213,8 @@ def _parse_bases(signature: str) -> list[str]:
             bases += [c for c in candidates if re.match(r'^[A-Z][\w.]*$', c)]
 
     # class Foo : Bar, Baz<T>  - C#, Kotlin, Swift, C++, Rust (#1284)
-    if not bases:
-        bases += _colon_bases(signature)
+    if not bases and (language or "").lower() not in _BLOCK_COLON_LANGUAGES:
+        bases += _colon_bases(signature, language_known=bool(language))
 
     # class Foo < Bar  - Ruby
     if not bases:
@@ -214,7 +240,7 @@ def _build_class_maps(symbols: list[dict]) -> tuple[dict[str, dict], dict[str, l
 
     children_of: dict[str, list[str]] = {}
     for sym in class_syms:
-        for base in _parse_bases(sym.get("signature", "")):
+        for base in _parse_bases(sym.get("signature", ""), sym.get("language")):
             if base in class_by_name:
                 children_of.setdefault(base, []).append(sym["name"])
 
@@ -275,7 +301,7 @@ def get_class_hierarchy(
     # Ancestors: walk up via _parse_bases, BFS
     ancestors: list[dict] = []
     visited_up: set[str] = {class_name}
-    queue: deque = deque(_parse_bases(target.get("signature", "")))
+    queue: deque = deque(_parse_bases(target.get("signature", ""), target.get("language")))
     while queue:
         base_name = queue.popleft()
         if base_name in visited_up:
@@ -284,7 +310,7 @@ def get_class_hierarchy(
         if base_name in class_by_name:
             sym = class_by_name[base_name]
             ancestors.append(_fmt(sym))
-            queue.extend(_parse_bases(sym.get("signature", "")))
+            queue.extend(_parse_bases(sym.get("signature", ""), sym.get("language")))
         else:
             # External base (not in index) — record name only
             ancestors.append({"name": base_name, "file": "(external)", "line": 0, "signature": ""})

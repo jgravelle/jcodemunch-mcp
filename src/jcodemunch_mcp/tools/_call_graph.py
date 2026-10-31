@@ -456,7 +456,7 @@ def constructors_as_their_classes(symbols, importers: dict[str, list[str]]) -> l
             continue
         classes_by_id[sym["id"]] = sym
         extends = (sym.get("signature") or "").split(" implements ", 1)[0]
-        for base in _parse_bases(extends):
+        for base in _parse_bases(extends, sym.get("language")):
             children.setdefault((base, sym.get("file") or ""), []).append(sym)
     if not classes_by_id:
         return []
