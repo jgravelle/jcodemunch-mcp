@@ -25,7 +25,8 @@ import pytest
 
 from jcodemunch_mcp import counter, server
 
-# Codex returns eight rows for a keyword tool search (R&D item 183).
+# Codex returns eight rows for a keyword tool search: R&D item 183, cited in
+# the HQ R&D note 2026-10-31-how-agents-phrase-tool-searches.md.
 HOST_ROWS = 8
 PREFIX = "mcp__jcodemunch__"
 
@@ -97,3 +98,48 @@ def test_the_server_name_alone_finds_the_guide(rows):
 def test_the_core_list_is_the_published_one(rows):
     names = set(_searchable(rows))
     assert _core() and [n for n in _core() if n not in names] == []
+
+
+def test_a_task_that_mentions_a_tool_is_not_pinned_to_it(rows):
+    """Review round 1: `route` dispatches its first row, so a tool mentioned
+    as context must not jump ahead of the tool the task wants."""
+    task = "compare two radar payloads from get_repo_health"
+    assert counter.named_rows(task, rows) == []
+    assert _ranked(rows, task, 1) == ["diff_health_radar"]
+
+
+def test_no_tool_summary_reads_as_name_shaped(rows):
+    """Two summaries name another tool in passing ("find_references +
+    search_text", "get_repo_health.radar"); prose is never a name query."""
+    shaped = {
+        r["action"]: [n["action"] for n in counter.named_rows(r["summary"], rows)]
+        for r in rows
+        if counter.named_rows(r["summary"], rows)
+    }
+    assert shaped == {}
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        "get_repo_health get_file_outline get_symbol_source diff_health_radar",
+        PREFIX + "index_repo",
+        "search_symbols, jcodemunch-mcp",
+        "compare two radar payloads from get_repo_health",
+    ],
+)
+def test_the_counterfactual_reads_the_same_order_as_search_catalog(rows, query):
+    """Review round 1: `explain_route` kept its own copy of the ordering and
+    reported a rank `route` never produced."""
+    from jcodemunch_mcp.investigator.retrieval_counterfactual import explain_route
+
+    top = _ranked(rows, query, 3)
+    for target in {*top, "diff_health_radar", "search_symbols"}:
+        r = explain_route(query, target, catalog_rows=rows, limit=3)
+        if "top" in r:
+            assert r["top"] == top, (query, target, r)
+        if target in top:
+            assert (
+                r.get("rank") == top.index(target) + 1
+                or r["outcome"] == "rule_preempted"
+            ), (query, target, r)

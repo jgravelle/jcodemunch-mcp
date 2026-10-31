@@ -215,6 +215,12 @@ def explain_route(
 
     # 4 -- anything to rank on?
     result["decision_path"].append("tokenize")
+    # The fallback strips host prefixes and pins a name-shaped query's tools
+    # first (R&D item 185); read the same rule, never a copy of it.
+    task = _counter._strip_host_prefixes(task)
+    pinned = [r["action"] for r in _counter.named_rows(task, rows)]
+    if pinned:
+        result["named"] = pinned
     qt = _counter._query_tokens(task)
     result["query_tokens"] = qt
     if not qt:
@@ -229,15 +235,15 @@ def explain_route(
     result["score"] = round(mine, 3)
 
     ranked = sorted(
-        [(s, r) for s, r in scored if s > 0],
+        [(s, r) for s, r in scored if s > 0 and r["action"] not in pinned],
         key=lambda x: (-x[0], x[1]["action"]),
     )
-    order = [r["action"] for _, r in ranked]
+    order = pinned + [r["action"] for _, r in ranked]
     row = next((r for r in rows if r["action"] == expected_action), None)
     if row is not None:
         result["contributions"] = _token_contributions(qt, row, weights)
 
-    if mine <= 0:
+    if mine <= 0 and expected_action not in pinned:
         return gate(
             NO_LEXICAL_OVERLAP,
             scored=True,
@@ -247,7 +253,7 @@ def explain_route(
 
     rank = order.index(expected_action) + 1
     if rank > limit:
-        winner = ranked[0][1]
+        winner = next(r for r in rows if r["action"] == order[0])
         return gate(
             RANKED_BELOW_CUTOFF,
             rank=rank,
@@ -255,7 +261,8 @@ def explain_route(
             top=order[:limit],
             beaten_by={
                 "action": winner["action"],
-                "score": round(ranked[0][0], 3),
+                "score": round(by_action.get(winner["action"], 0.0), 3),
+                **({"named": True} if winner["action"] in pinned else {}),
                 "contributions": _token_contributions(qt, winner, weights),
             },
         )

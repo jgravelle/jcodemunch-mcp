@@ -368,16 +368,7 @@ def search_catalog(
     if not query:
         return rows[:limit]
     query = _strip_host_prefixes(query)
-    # A term that IS a tool name ranks that tool first, in the order named
-    # (R&D item 185): word-by-word scoring gave an exact name no more credit
-    # than its words scattered over other tools, so naming six tools at once
-    # dropped two of them. A question names no tool and ranks as before.
-    by_name = {r["action"]: r for r in rows}
-    named: list[dict] = []
-    for term in _NAME_TERM.findall(query):
-        r = by_name.get(term)
-        if r is not None and r not in named:
-            named.append(r)
+    named = named_rows(query, rows)
     qt = _query_tokens(query)
     if not qt:  # query was all function words; ranking on it is noise
         return (named or rows)[:limit]
@@ -393,8 +384,35 @@ def search_catalog(
     return (named + [r for _, r in scored])[:limit]
 
 
-# A tool name as written in a query: identifier characters only.
-_NAME_TERM = re.compile(r"[A-Za-z0-9_]+")
+# Words a name-shaped query may carry beside the tool names: the server's own
+# name as hosts and agents write it.
+_SERVER_WORDS = frozenset({"jcodemunch", "jcodemunch-mcp", "jcodemunch_mcp", "mcp"})
+
+
+def named_rows(query: str, rows: list[dict]) -> list[dict]:
+    """The rows a NAME-SHAPED query names, in the order named; else ``[]``.
+
+    Agents search deferred tools by name, often several at once (R&D item 185),
+    and word-by-word scoring gave an exact name no more credit than its words
+    spread over other tools: naming the six core tools dropped two of them.
+    So a query made only of tool names (plus the server's name) returns those
+    tools first. ⚠ ONLY then: a task that MENTIONS a tool as context ("compare
+    two radar payloads from get_repo_health") wants a different tool, and
+    `route` dispatches its first row, so a pin there would run the wrong one.
+    ``query`` must already have its host prefixes stripped. One authority for
+    `search_catalog` and the retrieval counterfactual alike.
+    """
+    terms = [t for t in re.split(r"[\s,;]+", query.strip()) if t]
+    by_name = {r["action"]: r for r in rows}
+    named: list[dict] = []
+    for term in terms:
+        r = by_name.get(term)
+        if r is not None:
+            if r not in named:
+                named.append(r)
+        elif term.lower() not in _SERVER_WORDS:
+            return []
+    return named
 
 # A host's prefixed tool name, `mcp__<server>__<tool>` (Claude Code, Codex).
 # The server part matched our own tool `jcodemunch_guide` by its word
