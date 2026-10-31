@@ -1,0 +1,131 @@
+"""`jcodemunch-mcp storage` reports the index store's size (BACKLOG 61).
+
+A buyer who saw a code-graph server fill 53 GB asks how much disk an index
+uses. `diagnose` names no index and counts no total, so the user had to browse
+`~/.code-index` by hand. The report stats files and never opens a database:
+opening one could move its mtime, which keys the in-memory index cache.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+import pytest
+
+from jcodemunch_mcp.cli import storage_report as sr
+
+
+def _write(p: Path, n: int) -> None:
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_bytes(b"x" * n)
+
+
+@pytest.fixture
+def store(tmp_path: Path) -> Path:
+    base = tmp_path / "store"
+    _write(base / "pallets-flask.db", 1000)
+    _write(base / "pallets-flask.db-wal", 200)
+    _write(base / "pallets-flask.db-shm", 30)
+    _write(base / "pallets-flask.textfilter", 40)
+    _write(base / "pallets-flask" / "src" / "app.py", 500)
+    _write(base / "pallets-flask" / "README.md", 5)
+    _write(base / "local-tiny-ab12cd34.db", 100)
+    _write(base / "telemetry.db", 300)
+    _write(base / "packs" / "nodejs.tar.gz", 2000)
+    _write(base / "_savings.json", 7)
+    return base
+
+
+def test_the_total_is_every_file_and_each_index_is_its_own_files(store):
+    rep = sr.storage_report(str(store))
+    assert rep["exists"] is True
+    every = sum(p.stat().st_size for p in store.rglob("*") if p.is_file())
+    assert rep["total_bytes"] == every
+    flask = next(r for r in rep["indexes"] if r["name"] == "pallets-flask")
+    assert flask["db_bytes"] == 1000 + 200 + 30 + 40
+    assert flask["content_bytes"] == 505
+    assert flask["total_bytes"] == 1775
+    assert rep["indexes_bytes"] + rep["other_bytes"] == rep["total_bytes"]
+
+
+def test_rows_are_largest_first_and_other_entries_are_named(store):
+    rep = sr.storage_report(str(store))
+    assert [r["name"] for r in rep["indexes"]] == ["pallets-flask", "local-tiny-ab12cd34"]
+    names = [r["name"] for r in rep["other"]]
+    assert names[0] == "packs", names
+    assert "telemetry.db" in names, "a .db that isn't an index's is reported under other"
+    assert all(a["bytes"] >= b["bytes"] for a, b in zip(rep["other"], rep["other"][1:]))
+
+
+def test_no_database_is_opened(store):
+    before = {p: (p.stat().st_mtime_ns, p.stat().st_size) for p in store.rglob("*.db")}
+    sr.storage_report(str(store))
+    sr.main(["--json"], storage_path=str(store))
+    after = {p: (p.stat().st_mtime_ns, p.stat().st_size) for p in store.rglob("*.db")}
+    assert before == after
+    assert not (store / "local-tiny-ab12cd34.db-wal").exists()
+    assert not (store / "local-tiny-ab12cd34.db-shm").exists()
+
+
+def test_top_limits_rows_and_keeps_the_totals(store):
+    rep = sr.storage_report(str(store), top=1)
+    assert len(rep["indexes"]) == 1 and len(rep["other"]) == 1
+    assert rep["indexes_more"]["count"] == 1
+    assert rep["indexes_more"]["bytes"] == 100
+    shown = sum(r["total_bytes"] for r in rep["indexes"]) + rep["indexes_more"]["bytes"]
+    assert shown == rep["indexes_bytes"]
+    assert sum(r["bytes"] for r in rep["other"]) + rep["other_more"]["bytes"] == rep["other_bytes"]
+
+
+def test_a_missing_store_reports_zero_and_says_so(tmp_path):
+    rep = sr.storage_report(str(tmp_path / "nope"))
+    assert rep["exists"] is False and rep["total_bytes"] == 0
+    assert sr.main([], storage_path=str(tmp_path / "nope")) == 0
+
+
+def test_an_unstatable_file_is_counted_as_unreadable_not_zero(store, monkeypatch):
+    real = sr._size_of
+    target = store / "packs" / "nodejs.tar.gz"
+
+    def flaky(path):
+        if Path(path) == target:
+            raise PermissionError("denied")
+        return real(path)
+
+    monkeypatch.setattr(sr, "_size_of", flaky)
+    rep = sr.storage_report(str(store))
+    assert rep["unreadable"] == 1
+    assert rep["total_bytes"] == sum(p.stat().st_size for p in store.rglob("*") if p.is_file()) - 2000
+
+
+def test_a_symlink_out_of_the_store_is_not_followed(store, tmp_path):
+    outside = tmp_path / "outside"
+    _write(outside / "big.bin", 9999)
+    link = store / "pallets-flask" / "escape"
+    try:
+        os.symlink(outside, link, target_is_directory=True)
+    except (OSError, NotImplementedError):
+        pytest.skip("symlinks need privileges on this host")
+    rep = sr.storage_report(str(store))
+    assert rep["total_bytes"] < 9999
+
+
+def test_json_output_parses_and_text_output_names_the_path(store, capsys):
+    assert sr.main(["--json"], storage_path=str(store)) == 0
+    data = json.loads(capsys.readouterr().out)
+    assert data["total_bytes"] > 0 and data["path"]
+    assert sr.main([], storage_path=str(store)) == 0
+    out = capsys.readouterr().out
+    assert str(Path(store).resolve()) in out and "pallets-flask" in out
+
+
+def test_the_cli_dispatches_the_subcommand(store):
+    env = dict(os.environ, CODE_INDEX_PATH=str(store), PYTHONPATH=str(Path(__file__).resolve().parents[1] / "src"))
+    r = subprocess.run([sys.executable, "-m", "jcodemunch_mcp", "storage", "--json"],
+                       capture_output=True, text=True, env=env, timeout=120)
+    assert r.returncode == 0, r.stderr
+    assert json.loads(r.stdout)["indexes"][0]["name"] == "pallets-flask"

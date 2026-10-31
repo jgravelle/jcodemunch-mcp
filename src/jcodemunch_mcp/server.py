@@ -10320,6 +10320,15 @@ def main(argv: Optional[list[str]] = None):
         help="Emit JSON instead of pretty-printed output",
     )
 
+    # --- storage (read-only disk report) ---
+    storage_parser = subparsers.add_parser(
+        "storage",
+        help="Print how much disk the index store uses: the total, each index (largest first) and "
+             "everything else in the store. Stats files only; opens no database.",
+    )
+    from .cli import storage_report as _storage_report_cli
+    _storage_report_cli.add_arguments(storage_parser)
+
     # --- diagnose ---
     diagnose_parser = subparsers.add_parser(
         "diagnose",
@@ -10810,7 +10819,7 @@ def main(argv: Optional[list[str]] = None):
     if any(arg in top_level_flags for arg in raw_argv):
         args = parser.parse_args(raw_argv)
     else:
-        known_commands = {"serve", "watch", "hook-event", "hook-pretooluse", "hook-posttooluse", "hook-copilot-posttooluse", "hook-precompact", "hook-taskcomplete", "hook-subagent-start", "hook-sessionstart", "watch-claude", "watch-all", "watch-install", "watch-uninstall", "watch-status", "config", "list-repos", "delete-index", "org-report", "org-rollup", "license", "index", "index-file", "import-trace", "import-scip", "claude-md", "init", "install", "install-status", "uninstall", "install-pack", "download-model", "upgrade", "whatsnew", "receipt", "digest", "reflect", "delivery", "parity", "refresh", "health", "file-risk", "observatory", "keyring", "surface", "diagnose"}
+        known_commands = {"serve", "watch", "hook-event", "hook-pretooluse", "hook-posttooluse", "hook-copilot-posttooluse", "hook-precompact", "hook-taskcomplete", "hook-subagent-start", "hook-sessionstart", "watch-claude", "watch-all", "watch-install", "watch-uninstall", "watch-status", "config", "list-repos", "delete-index", "org-report", "org-rollup", "license", "index", "index-file", "import-trace", "import-scip", "claude-md", "init", "install", "install-status", "uninstall", "install-pack", "download-model", "upgrade", "whatsnew", "receipt", "digest", "reflect", "delivery", "parity", "refresh", "health", "file-risk", "observatory", "keyring", "surface", "diagnose", "storage"}
         # MCP-tool-name typos: route to the right CLI verb with a friendly hint.
         # `index_repo` and `index_folder` are MCP tools, not CLI subcommands.
         _CLI_ALIASES = {
@@ -11129,6 +11138,10 @@ def main(argv: Optional[list[str]] = None):
             share_savings=getattr(args, "share_savings", None),
             minimal=getattr(args, "minimal", False),
         ))
+
+    if args.command == "storage":
+        from .cli.storage_report import run as _storage_run
+        sys.exit(_storage_run(args))
 
     if args.command == "install-status":
         from .cli.init import install_status as _install_status, print_status as _print_status
