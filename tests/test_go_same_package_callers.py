@@ -8,6 +8,8 @@ considered: gin's who-calls found 1 of 4 callers on a real index.
 
 from __future__ import annotations
 
+import pytest
+
 from jcodemunch_mcp.tools.get_call_hierarchy import get_call_hierarchy
 from jcodemunch_mcp.tools.index_folder import index_folder
 
@@ -161,3 +163,30 @@ def test_a_wrapper_that_calls_the_target_is_still_a_caller(tmp_path):
     )
     h = _callers(repo, store, "gin/engine.go::Engine.Use#method")
     assert [c["file"] for c in h["callers"]] == ["gin/group.go"], h
+
+
+_ROOT_PACKAGE = {
+    "gin/a.go": "package gin\n\nfunc helper() int { return 1 }\n",
+    "gin/b.go": "package gin\n\nfunc Use() int { return helper() }\n",
+    "gin/c.go": "package gin\n\nfunc Other() int { return 2 }\n",
+}
+
+
+@pytest.mark.parametrize("call_depth", [0, 1])
+def test_blast_radius_counts_a_same_package_caller_as_a_dependent(tmp_path, call_depth):
+    """Review round 3: with call_depth=0 the importer walk said `absent` and
+    risk 0.0, and with call_depth=1 it said risk 0.0 beside a caller list
+    naming a dependent. A package nobody imports has no unresolved edge, so
+    nothing refused either answer."""
+    from jcodemunch_mcp.tools.get_blast_radius import get_blast_radius
+
+    repo, store = _index(tmp_path, _ROOT_PACKAGE)
+    r = get_blast_radius(
+        repo=repo, symbol="gin/a.go::helper#function", call_depth=call_depth,
+        storage_path=store,
+    )
+    assert [c["file"] for c in r["confirmed"]] == ["gin/b.go"], r
+    assert r["overall_risk_score"] > 0
+    assert r["_meta"]["verdict"]["state"] != "absent"
+    # A peer that never calls the symbol is not listed as a potential importer.
+    assert r["potential"] == [], r["potential"]

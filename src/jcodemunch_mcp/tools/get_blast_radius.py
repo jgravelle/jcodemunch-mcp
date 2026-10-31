@@ -17,7 +17,7 @@ from ..retrieval.verdict import (
 from ._dynamic_boundary import FILES_CAP as DYNAMIC_FILES_CAP, DynamicBoundary
 from ._utils import index_status_to_tool_error, resolve_repo, resolve_fqn
 from .package_registry import extract_root_package_from_specifier
-from ._call_graph import build_symbols_by_file, bfs_callers
+from ._call_graph import build_symbols_by_file, bfs_callers, find_direct_callers
 from ..word_rule import word_pattern
 from .find_dead_code import _is_test_file
 from .decision_context import resolve_decision_context
@@ -580,6 +580,27 @@ def get_blast_radius(
     # Build reverse adjacency (importer graph)
     source_files = frozenset(index.source_files)
     rev = _build_reverse_adjacency(index.imports, source_files, index.alias_map, getattr(index, "psr4_map", None))
+    # Go package peers call with no import (L-262). The callers pass reads every
+    # peer; the importer walk adds only the peers that call the symbol, so a
+    # same-package caller is a dependent and the rest of the package is not
+    # listed as a potential importer of a file it never names.
+    import_rev = rev
+    peer_rev = with_same_package_peers(rev, getattr(index, "file_languages", None))
+    if peer_rev is not rev:
+        imported_by = rev.get(sym_file, [])
+        peers = [p for p in peer_rev.get(sym_file, []) if p not in imported_by]
+        if peers:
+            calling = {
+                c["file"]
+                for c in find_direct_callers(
+                    index, store, owner, name, sym, {sym_file: peers},
+                    build_symbols_by_file(index),
+                )
+            }
+            calling_peers = [p for p in peers if p in calling]
+            if calling_peers:
+                rev = dict(rev)
+                rev[sym_file] = list(imported_by) + calling_peers
 
     # BFS to collect all importing files
     importer_files, files_by_depth = _bfs_importers(sym_file, rev, depth)
@@ -733,12 +754,8 @@ def get_blast_radius(
     callers: list[dict] = []
     if call_depth > 0:
         symbols_by_file = build_symbols_by_file(index)
-        # Go package peers call with no import (L-262). Only the callers
-        # pass sees them: importer counts and the risk score keep `rev`.
         callers, _ = bfs_callers(
-            index, store, owner, name, sym,
-            with_same_package_peers(rev, getattr(index, "file_languages", None)),
-            symbols_by_file, call_depth
+            index, store, owner, name, sym, peer_rev, symbols_by_file, call_depth
         )
 
     # An answer is "empty" only when every channel this call actually ran came
@@ -751,12 +768,15 @@ def get_blast_radius(
         and not callers
         and not cross_repo_confirmed
     )
-    # Same-package peers (L-262) can find callers while the importer graph
-    # still reaches nothing; the cross-package edges stay unresolved, so the
-    # package probe runs on the graph's answer, not on the callers pass.
-    graph_found_nothing = (
-        total == 0 and not confirmed and not potential and not cross_repo_confirmed
+    # Same-package peers (L-262) can find dependents while the import graph
+    # still reaches nothing. A cross-package caller stays behind an unresolved
+    # package edge, so the package probe runs whenever the IMPORT graph found
+    # nothing, whatever the peers added.
+    import_importers = (
+        importer_files if rev is import_rev
+        else _bfs_importers(sym_file, import_rev, depth)[0]
     )
+    graph_found_nothing = not import_importers and not cross_repo_confirmed
     verdict, unresolvable = blast_verdict(
         index,
         source_files,

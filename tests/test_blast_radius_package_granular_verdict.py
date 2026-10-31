@@ -130,11 +130,16 @@ def served_repo():
 
 class TestPackageGranularRefusal:
     def test_go_symbol_with_callers_refuses_the_zero(self, fixture_repo):
-        """The reported defect: 3 real call sites, reported as a confident 0."""
+        """#415: real callers were reported as a confident 0. Since L-262 the
+        same-package caller is found; the cross-package one still is not, and
+        the answer must keep saying so. (Name kept: renaming reads as a
+        deleted test.)"""
         repo, store = fixture_repo
         r = get_blast_radius(repo=repo, symbol="DeleteItem", call_depth=2,
                              storage_path=store)
-        assert r.get("confirmed_count") == 0, "precondition: the graph still finds nothing"
+        # Precondition: the IMPORT graph still finds nothing. The only file
+        # found is in the symbol's own package, reached with no import (L-262).
+        assert [c["file"] for c in r["confirmed"]] == ["repository/same_pkg_caller.go"]
         verdict = r["_meta"]["verdict"]
         # L-262: the same-package caller is found now, so the answer is no
         # longer a zero. The cross-package caller (pkg/pick_service.go) is
@@ -226,7 +231,9 @@ class TestReachesTheCaller:
             lambda k, *a, **kw: meta_fields if k == "meta_fields" else real_get(k, *a, **kw),
         )
         out = asyncio.run(
-            server.call_tool("get_blast_radius", {"repo": repo, "symbol": "DeleteItem"})
+            # `Record` has no same-package caller, so its only caller sits
+            # behind the unresolved package edge (L-262 found DeleteItem's).
+            server.call_tool("get_blast_radius", {"repo": repo, "symbol": "Record"})
         )
         # `call_tool` returns a plain list on success and a CallToolResult on
         # error. Asserting the type is not ceremony: without it an unresolvable
