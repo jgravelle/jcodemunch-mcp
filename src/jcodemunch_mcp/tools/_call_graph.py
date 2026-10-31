@@ -346,9 +346,14 @@ class _ContentCache:
 
     def content(self, file_path: str) -> Optional[str]:
         if file_path not in self._content:
-            self._content[file_path] = self._store.get_file_content(
-                self._owner, self._repo, file_path, self._index
-            )
+            if self._index is None:
+                self._content[file_path] = self._store.get_file_content(
+                    self._owner, self._repo, file_path
+                )
+            else:
+                self._content[file_path] = self._store.get_file_content(
+                    self._owner, self._repo, file_path, _index=self._index
+                )
         return self._content[file_path]
 
     def lines(self, file_path: str) -> list[str]:
