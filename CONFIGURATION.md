@@ -27,7 +27,9 @@ Settings are resolved from lowest to highest priority:
 5. CLI flags                   ← highest priority (serve/watch commands)
 ```
 
-**Why env vars are fallback, not override:** If env vars overrode project config, a global `JCODEMUNCH_MAX_FOLDER_FILES=10000` in your shell profile would silently break every project's tuned settings. With fallback semantics, config file values always win. Env vars only apply when the config key is absent.
+**Why env vars are fallback, not override:** If env vars overrode project config, a global `JCODEMUNCH_MAX_FOLDER_FILES=10000` in your shell profile would silently break every project's tuned settings. With fallback semantics, config file values win. Env vars only apply when the config key is absent.
+
+**One exception: `transport`, `host` and `port`.** `jcodemunch-mcp serve` reads `JCODEMUNCH_TRANSPORT`, `JCODEMUNCH_HOST` and `JCODEMUNCH_PORT` before the config file, so for these three keys the launching client's env var wins. An MCP client that starts the server with `JCODEMUNCH_PORT` set gets that port, whatever a shared config.jsonc says. A `--transport`, `--host` or `--port` flag beats both. `jcodemunch-mcp config` shows the endpoint `serve` will use and labels an env value `env`.
 
 Env vars are supported and log nothing when used.
 
@@ -404,7 +406,7 @@ Every `JCODEMUNCH_*` env var maps to a config key:
 4. Remove the env vars from your shell profile
 5. Verify with `jcodemunch-mcp config` — source column should show "config" instead of "env"
 
-Env vars keep working as a fallback: they fill in keys the config file doesn't set, and a config file value wins. They are supported, not deprecated, and nothing removes them. Moving to the config file is a convenience, not a requirement.
+Env vars keep working as a fallback: they fill in keys the config file doesn't set, and a config file value wins (except `transport`, `host` and `port`, where the env var wins; see the top of this guide). They are supported, not deprecated, and nothing removes them. Moving to the config file is a convenience, not a requirement.
 
 ## Keyring-loaded credentials
 
@@ -626,7 +628,7 @@ Call `get_layer_violations(rules=[...])` directly to pass rules inline — the c
 
 ### Env vars
 
-The following env vars work as a fallback for their config keys. Config file values take priority:
+The following env vars work as a fallback for their config keys. Config file values take priority, except for `JCODEMUNCH_TRANSPORT`, `JCODEMUNCH_HOST` and `JCODEMUNCH_PORT`, which win over the config file when `serve` starts:
 
 | Variable | Config key | Default |
 |----------|-----------|---------|

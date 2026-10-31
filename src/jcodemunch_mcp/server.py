@@ -8532,7 +8532,13 @@ def _resolve_serve_endpoint(args) -> "tuple[str, str, int]":
     a client-launched server could not be pointed at a configured endpoint via
     config alone. An explicit CLI flag or env var from the launching client
     still wins. The serve argparse defaults are None so an unset flag is
-    distinguishable from a deliberately-passed value."""
+    distinguishable from a deliberately-passed value.
+
+    ⚠ This is the OPPOSITE of the fallback rule every other key follows
+    (`rate_limit` moved onto that rule in #1252). It is deliberate and
+    documented in CONFIGURATION.md (L-258): a bind address that moved on
+    upgrade would be the worse failure. `tests/test_serve_endpoint_env_wins.py`
+    pins it."""
     from . import config as _cfg
 
     def _as_port(raw) -> "Optional[int]":
@@ -9176,11 +9182,21 @@ def _run_config(check: bool = False, init: bool = False, upgrade: bool = False) 
 
     # ── Transport ──────────────────────────────────────────────────────────
     section("Transport")
-    transport = _cfg.get("transport", "stdio")
-    row("transport", transport, _detect_source("transport", "stdio"))
+    # `serve` puts the launching client's env var ahead of the config file for
+    # these three keys (L-258, the opposite of every other key's fallback), so
+    # the rows show what `_resolve_serve_endpoint` will bind, not `_cfg.get`.
+    transport, host, port = _resolve_serve_endpoint(argparse.Namespace())
+
+    def _endpoint_source(key, env_var, default, used):
+        raw = os.environ.get(env_var)
+        if raw and str(used) == raw.strip():
+            return "env"
+        return _detect_source(key, default)
+
+    row("transport", transport, _endpoint_source("transport", "JCODEMUNCH_TRANSPORT", "stdio", transport))
     if transport != "stdio":
-        row("host", _cfg.get("host", "127.0.0.1"), _detect_source("host", "127.0.0.1"))
-        row("port", _cfg.get("port", 8901), _detect_source("port", 8901))
+        row("host", host, _endpoint_source("host", "JCODEMUNCH_HOST", "127.0.0.1", host))
+        row("port", port, _endpoint_source("port", "JCODEMUNCH_PORT", 8901, port))
         token = os.environ.get("JCODEMUNCH_HTTP_TOKEN", "")
         try:
             from . import credentials as _creds
