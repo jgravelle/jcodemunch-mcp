@@ -14,8 +14,8 @@ longer existed. Maintenance Practice 4 says never hand-type a benchmark number;
 this is the same failure one level up — the artifact itself went stale, and a
 number read out of it is as wrong as one typed by hand.
 
-Both harnesses run in about a second, so there is no reason for this to be
-checked by remembering.
+The four generators run in a few seconds, so there is no reason for this to
+be checked by remembering.
 
 Failure here means re-run and commit the artifact, NOT edit the expectation:
 
