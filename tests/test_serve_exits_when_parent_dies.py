@@ -158,6 +158,28 @@ def test_start_calls_back_once_the_parent_is_gone(monkeypatch):
     assert calls == [1]
 
 
+def test_a_parent_changed_since_import_is_gone(monkeypatch):
+    """Unix reparents an orphan; a parent other than the one recorded at
+    import means the client died before the watch started."""
+    monkeypatch.setattr(parent_watch, "ORIGIN_PPID", os.getppid() + 100000)
+    calls = []
+    t = parent_watch.start(lambda: calls.append(1), interval=0.05)
+    assert t is not None
+    t.join(timeout=5)
+    assert calls == [1]
+
+
+def test_the_disclosed_interval_is_the_default():
+    """SECURITY.md and CLI-AND-ENV.md quote the default; bind them to it."""
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+    n = f"{parent_watch.DEFAULT_SECONDS:g}"
+    assert f"every {n} seconds" in (root / "SECURITY.md").read_text(encoding="utf-8")
+    env_md = (root / "CLI-AND-ENV.md").read_text(encoding="utf-8")
+    assert f"| `{parent_watch.ENV}` | {n} |" in env_md
+
+
 # -- a real server ---------------------------------------------------------------
 
 # The parent starts the server with ITS OWN stdin, which is a pipe whose write
@@ -215,17 +237,50 @@ def _start_parent(tmp_path, interval: str):
     return parent, int(line)
 
 
+def _presence_files(tmp_path) -> list:
+    d = tmp_path / "index" / "_processes"
+    return sorted(d.glob("*.json")) if d.is_dir() else []
+
+
+def _err(tmp_path) -> str:
+    try:
+        return (tmp_path / "server.err").read_text()
+    except OSError:
+        return ""
+
+
 def test_a_server_whose_parent_is_killed_exits(tmp_path):
     parent, server = _start_parent(tmp_path, "0.5")
     try:
-        assert _wait_until(lambda: _is_pid_alive(server), 5), "server never started"
-        time.sleep(1.5)  # past import, into the stdio loop
-        assert _is_pid_alive(server), (tmp_path / "server.err").read_text()
+        # Ready: the server has registered its presence file, which happens
+        # after its imports and before the stdio loop. No fixed sleep.
+        assert _wait_until(lambda: _presence_files(tmp_path), 60), _err(tmp_path)
+        assert _is_pid_alive(server), _err(tmp_path)
         parent.kill()
         parent.wait(timeout=10)
         # parent.stdin is still open here: the server sees no EOF.
-        exited = _wait_until(lambda: not _is_pid_alive(server), 15)
+        exited = _wait_until(lambda: not _is_pid_alive(server), 20)
         assert exited, "the server outlived its parent with stdin still open"
+        # The exit ran the exit handlers: the presence file is gone.
+        assert _presence_files(tmp_path) == [], _err(tmp_path)
+    finally:
+        _kill(parent.pid)
+        _kill(server)
+        try:
+            parent.stdin.close()
+        except Exception:
+            pass
+
+
+def test_a_server_whose_parent_dies_during_its_startup_exits(tmp_path):
+    """Review round 1: on Unix the orphan is reparented before the watch
+    starts, so the watch must compare against the parent recorded at import."""
+    parent, server = _start_parent(tmp_path, "0.5")
+    try:
+        parent.kill()  # the server is still importing
+        parent.wait(timeout=10)
+        exited = _wait_until(lambda: not _is_pid_alive(server), 60)
+        assert exited, "a server whose client died during its startup lingered"
     finally:
         _kill(parent.pid)
         _kill(server)
@@ -238,9 +293,9 @@ def test_a_server_whose_parent_is_killed_exits(tmp_path):
 def test_a_server_whose_parent_lives_keeps_running(tmp_path):
     parent, server = _start_parent(tmp_path, "0.5")
     try:
-        assert _wait_until(lambda: _is_pid_alive(server), 5), "server never started"
+        assert _wait_until(lambda: _presence_files(tmp_path), 60), _err(tmp_path)
         time.sleep(3)  # six poll intervals
-        assert _is_pid_alive(server), (tmp_path / "server.err").read_text()
+        assert _is_pid_alive(server), _err(tmp_path)
     finally:
         _kill(server)
         _kill(parent.pid)

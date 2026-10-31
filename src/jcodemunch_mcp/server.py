@@ -16,6 +16,10 @@ import time
 from pathlib import Path
 from typing import IO, Any, Optional
 
+# Before anything slow: records the parent PID, so a client that dies while
+# this server is still importing is still seen as gone (BACKLOG row 64).
+from . import parent_watch as _parent_watch_origin  # noqa: F401,E402
+
 from mcp.server import Server
 from mcp.server.lowlevel.helper_types import ReadResourceContents
 from mcp.types import Tool, ToolAnnotations, TextContent, Resource, Prompt, PromptMessage, GetPromptResult, CallToolResult
@@ -8137,6 +8141,13 @@ async def run_stdio_server():
         if _main_task is not None:
             _loop.call_soon_threadsafe(_main_task.cancel)
         time.sleep(_PARENT_GONE_GRACE_SECONDS)
+        # Still here: the stdin read holds shutdown. Run the exit handlers
+        # (savings and perf flushes, session state, the presence file) before
+        # the hard exit, which would skip them all.
+        try:
+            atexit._run_exitfuncs()
+        except Exception:
+            logger.debug("exit handlers failed before the forced exit", exc_info=True)
         os._exit(0)
 
     _parent_watch.start(_on_parent_gone)

@@ -27,9 +27,28 @@ import sys
 import threading
 from typing import Callable, Optional
 
-from .storage.process_locks import _is_pid_alive, _process_create_time
-
 logger = logging.getLogger(__name__)
+
+# The parent as it was when this module was imported. `server.py` imports this
+# module before anything slow, so on Unix a client that dies while the server
+# is still importing shows up as a changed parent: by the time the watch
+# starts, the orphan has been reparented (to init or a subreaper), and the
+# PID it reports then is not the client's (row 64 review round 1).
+ORIGIN_PPID = os.getppid()
+
+
+# Liveness and creation time come from `storage.process_locks`, imported on
+# first use so this module costs nothing at import.
+def _is_pid_alive(pid: int) -> bool:
+    from .storage.process_locks import _is_pid_alive as impl
+
+    return impl(pid)
+
+
+def _process_create_time(pid: int) -> Optional[float]:
+    from .storage.process_locks import _process_create_time as impl
+
+    return impl(pid)
 
 DEFAULT_SECONDS = 5.0
 ENV = "JCODEMUNCH_PARENT_WATCH_SECONDS"
@@ -270,13 +289,19 @@ def start(
     seconds = interval_seconds() if interval is None else interval
     if seconds <= 0:
         return None
-    target = watched_parent()
-    watch = ParentWatch.of(target)
-    if watch is None:
-        return None
-    # The reparent check compares against our own parent, which is what
-    # getppid() reports; the target may be further up.
-    watch.started_ppid = os.getppid()
+    if ORIGIN_PPID > 1 and os.getppid() != ORIGIN_PPID:
+        # Reparented between import and now: the client is already gone.
+        watch: Optional[ParentWatch] = ParentWatch(ORIGIN_PPID, None, ORIGIN_PPID)
+        watch.gone_at_start = True
+        target = ORIGIN_PPID
+    else:
+        target = watched_parent()
+        watch = ParentWatch.of(target)
+        if watch is None:
+            return None
+        # The reparent check compares against our own parent, which is what
+        # getppid() reports; the target may be further up.
+        watch.started_ppid = os.getppid()
     logger.debug("parent watch on pid %s every %ss", target, seconds)
     stop = threading.Event()
 
