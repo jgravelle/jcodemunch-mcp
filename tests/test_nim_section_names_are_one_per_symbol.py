@@ -45,6 +45,8 @@ def _names(source: str) -> list[str]:
         ("const `type`* = 2\n", ["type"]),
         ("let (p, q) = t\n", ["p", "q"]),
         ("let (r*, s) = t\n", ["r", "s"]),
+        ("let (a, (b, c)) = t\n", ["a", "b", "c"]),  # nested unpacking
+        ("let (_, z) = t\n", ["z"]),  # a blank binds no name
     ],
 )
 def test_each_bound_name_is_its_own_symbol(source, names):
@@ -56,6 +58,15 @@ def test_a_name_from_a_list_is_found_by_its_own_name():
     assert syms["x"].qualified_name == "x"
     assert syms["y"].id != syms["x"].id
     assert syms["x"].signature.startswith("var ")
+
+
+def test_the_parser_generation_moved_for_the_new_ids():
+    """Ids move on unchanged content, so an existing index must re-parse.
+    Generation 27 is also claimed by other unmerged branches: whichever merges
+    later raises the constant and this assertion to the next number."""
+    from jcodemunch_mcp.storage.index_store import PARSER_GENERATION
+
+    assert PARSER_GENERATION >= 27
 
 
 def test_each_symbol_spans_its_declaration_line():
