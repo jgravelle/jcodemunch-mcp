@@ -686,7 +686,12 @@ INDEX_VERSION = 17
 #   bump does not rewrite a stored AI summary that already says GET: a
 #   re-parse keeps paid AI summaries (see 21), so those need
 #   `summarize_repo(force=true)`.
-PARSER_GENERATION = 26
+#
+# 27 (L-05): a Nim `var`/`let`/`const` binding publishes one symbol per name
+#   (`var x*, y: int` was one symbol named `x*, y`; a pragma, backticks and a
+#   tuple unpacking were kept in the name). ⚠⚠ Symbol ids MOVE on UNCHANGED
+#   content, so an existing index is re-parsed.
+PARSER_GENERATION = 27
 
 
 @dataclass(frozen=True)

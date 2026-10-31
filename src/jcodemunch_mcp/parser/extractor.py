@@ -18720,11 +18720,33 @@ def _parse_nim_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
             for child in node.children:
                 parse_budget.checkpoint()
                 if child.type == "variable_declaration":
+                    # (L-05) One symbol per bound name, each read through
+                    # `_declared_name`. The TEXT of the declaration list made
+                    # `var x*, y: int` one symbol named `x*, y`, kept a pragma
+                    # (`g* {.global.}`) and backticks in the name, and named a
+                    # tuple unpacking `(p, q)`, whose declarations sit one
+                    # level down under `tuple_deconstruct_declaration`.
                     sdl = _first_child_of_type(child, "symbol_declaration_list")
-                    ident = _first_child_of_type(child, "identifier")
-                    name_node = sdl or ident
-                    if name_node:
-                        name = _text(name_node).strip().rstrip("*")
+                    names: list[str] = []
+                    pending = list(sdl.children) if sdl is not None else []
+                    while pending:
+                        parse_budget.checkpoint()
+                        sd = pending.pop(0)
+                        if sd.type == "tuple_deconstruct_declaration":
+                            pending[:0] = list(sd.children)
+                        elif sd.type == "symbol_declaration":
+                            name_node = sd.child_by_field_name("name") or _first_child_of_type(
+                                sd, "exported_symbol", "identifier", "accent_quoted"
+                            )
+                            declared = _declared_name(name_node)
+                            if declared:
+                                names.append(declared)
+                    if sdl is None:
+                        declared = _declared_name(_first_child_of_type(child, "identifier"))
+                        if declared:
+                            names.append(declared)
+                    for name in names:
+                        parse_budget.checkpoint()
                         qualified = f"{scope}.{name}" if scope else name
                         sig = f"{section_kind} {_text(child).strip()}"[:120]
                         symbols.append(Symbol(
