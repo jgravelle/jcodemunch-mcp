@@ -50,6 +50,7 @@ def _process_create_time(pid: int) -> Optional[float]:
 
     return impl(pid)
 
+
 DEFAULT_SECONDS = 5.0
 ENV = "JCODEMUNCH_PARENT_WATCH_SECONDS"
 
@@ -116,7 +117,10 @@ class ParentWatch:
             if os.getppid() != self.started_ppid:
                 return True
             if not _is_pid_alive(self.pid):
-                return True
+                # A failed query (access denied, a transient OpenProcess
+                # failure) also reads "not alive" on Windows; only the OS
+                # saying no such process means gone (row 64 review round 2).
+                return _no_such_process(self.pid)
             if self.anchor is not None:
                 now = _process_create_time(self.pid)
                 if now is not None and abs(now - self.anchor) > 1.0:
@@ -192,7 +196,10 @@ def _win_image_path(pid: int) -> Optional[str]:
     kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
     kernel32.OpenProcess.restype = wintypes.HANDLE
     kernel32.QueryFullProcessImageNameW.argtypes = [
-        wintypes.HANDLE, wintypes.DWORD, wintypes.LPWSTR, ctypes.POINTER(wintypes.DWORD),
+        wintypes.HANDLE,
+        wintypes.DWORD,
+        wintypes.LPWSTR,
+        ctypes.POINTER(wintypes.DWORD),
     ]
     kernel32.QueryFullProcessImageNameW.restype = wintypes.BOOL
     kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
@@ -232,9 +239,15 @@ def _win_parent_pid(pid: int) -> Optional[int]:
     kernel32 = ctypes.windll.kernel32
     kernel32.CreateToolhelp32Snapshot.argtypes = [wintypes.DWORD, wintypes.DWORD]
     kernel32.CreateToolhelp32Snapshot.restype = wintypes.HANDLE
-    kernel32.Process32FirstW.argtypes = [wintypes.HANDLE, ctypes.POINTER(_PROCESSENTRY32W)]
+    kernel32.Process32FirstW.argtypes = [
+        wintypes.HANDLE,
+        ctypes.POINTER(_PROCESSENTRY32W),
+    ]
     kernel32.Process32FirstW.restype = wintypes.BOOL
-    kernel32.Process32NextW.argtypes = [wintypes.HANDLE, ctypes.POINTER(_PROCESSENTRY32W)]
+    kernel32.Process32NextW.argtypes = [
+        wintypes.HANDLE,
+        ctypes.POINTER(_PROCESSENTRY32W),
+    ]
     kernel32.Process32NextW.restype = wintypes.BOOL
     kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
     kernel32.CloseHandle.restype = wintypes.BOOL
@@ -268,7 +281,10 @@ def watched_parent() -> int:
             image = _win_image_path(pid)
             if image is None:
                 break
-            if _norm(image) not in launchers and os.path.basename(image).lower() not in _RUNNER_NAMES:
+            if (
+                _norm(image) not in launchers
+                and os.path.basename(image).lower() not in _RUNNER_NAMES
+            ):
                 break
             up = _win_parent_pid(pid)
             if not up or up <= 1:

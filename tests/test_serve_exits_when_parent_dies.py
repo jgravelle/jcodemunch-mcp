@@ -111,6 +111,106 @@ def test_an_unqueryable_parent_disables_the_watch(monkeypatch):
     assert parent_watch.ParentWatch.of(os.getppid()) is None
 
 
+def test_a_failed_liveness_poll_is_not_gone(monkeypatch):
+    """Review round 2: on Windows `_is_pid_alive` also reads False for access
+    denied or a failed OpenProcess. While polling, that is uncertainty, and
+    uncertainty never exits."""
+    w = parent_watch.ParentWatch.of(os.getppid())
+    assert w is not None
+    monkeypatch.setattr(parent_watch, "_is_pid_alive", lambda pid: False)
+    monkeypatch.setattr(parent_watch, "_no_such_process", lambda pid: False)
+    assert w.gone() is False
+
+
+class _Recorder:
+    def __init__(self):
+        self.exit_codes = []
+        self.handler_runs = 0
+        self.gates = []
+
+
+def _forced_exit_env(monkeypatch, rec):
+    import atexit
+
+    from jcodemunch_mcp import server
+
+    # Never touch the test process's real exit handlers.
+    monkeypatch.setattr(
+        atexit, "register", lambda fn, *a, **k: rec.gates.append(fn) or fn
+    )
+
+    def _run():
+        rec.handler_runs += 1
+        for gate in rec.gates:
+            gate()
+
+    monkeypatch.setattr(atexit, "_run_exitfuncs", _run)
+    return server
+
+
+class _NoLoop:
+    def call_soon_threadsafe(self, fn):
+        fn()
+
+
+class _Task:
+    cancelled = False
+
+    def cancel(self):
+        self.cancelled = True
+
+
+def test_a_broken_stderr_does_not_stop_the_exit(monkeypatch):
+    """Review round 2: the client that died may have held the read end of the
+    server's stderr. The notice then raises, and the watch thread swallowed
+    the raise, so the server never exited."""
+    import threading
+
+    rec = _Recorder()
+    server = _forced_exit_env(monkeypatch, rec)
+
+    class _Broken:
+        def write(self, s):
+            raise BrokenPipeError(32, "Broken pipe")
+
+        def flush(self):
+            raise BrokenPipeError(32, "Broken pipe")
+
+    monkeypatch.setattr(sys, "stderr", _Broken())
+    task, event = _Task(), threading.Event()
+    server._exit_for_gone_parent(
+        task, _NoLoop(), event, sleep=lambda s: None, hard_exit=rec.exit_codes.append
+    )
+    assert event.is_set() and task.cancelled
+    assert rec.exit_codes == [0]
+    assert rec.handler_runs == 1
+
+
+def test_the_exit_handlers_run_once_when_shutdown_races_the_forced_exit(monkeypatch):
+    """Review round 2: stdin EOF inside the grace sends the main thread into its
+    own shutdown, which runs the same handlers. The gate it reaches first
+    makes the forced path stand down."""
+    import threading
+
+    rec = _Recorder()
+    server = _forced_exit_env(monkeypatch, rec)
+
+    def _main_thread_shuts_down(_seconds):
+        t = threading.Thread(target=lambda: [g() for g in rec.gates])
+        t.start()
+        t.join(5)
+
+    server._exit_for_gone_parent(
+        None,
+        _NoLoop(),
+        threading.Event(),
+        sleep=_main_thread_shuts_down,
+        hard_exit=rec.exit_codes.append,
+    )
+    assert rec.handler_runs == 0
+    assert rec.exit_codes == []
+
+
 def test_the_launcher_walk_never_crosses_a_client(monkeypatch):
     """Only a console-script shim, a venv redirector or a pass-through runner
     is stepped over; a Python client running on the base interpreter is not."""
@@ -122,7 +222,8 @@ def test_the_launcher_walk_never_crosses_a_client(monkeypatch):
     monkeypatch.setattr(parent_watch, "_win_image_path", lambda pid: images.get(pid))
     monkeypatch.setattr(parent_watch, "_win_parent_pid", lambda pid: parents.get(pid))
     monkeypatch.setattr(
-        parent_watch, "_launcher_images",
+        parent_watch,
+        "_launcher_images",
         lambda: {parent_watch._norm(r"C:\venv\Scripts\jcodemunch-mcp.exe")},
     )
     assert parent_watch.watched_parent() == 9

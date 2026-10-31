@@ -8034,6 +8034,56 @@ async def _run_server_with_watcher(
 _PARENT_GONE_GRACE_SECONDS = 3.0
 
 
+def _exit_for_gone_parent(main_task, loop, gone_event, *, sleep=time.sleep, hard_exit=os._exit):
+    """End a stdio server whose parent is gone (BACKLOG row 64).
+
+    Cancels the run task so the normal cleanup runs, waits a short grace, and
+    if the process is still here (the stdin read sits on a worker thread that
+    cancellation cannot stop) runs the exit handlers and exits.
+
+    ⚠ Nothing here may raise before the exit: the watch thread swallows a
+    raise, and the server would then linger, which is the defect this exists
+    to fix. The notice goes to stderr, whose reader may be the client that
+    died, so a failed write is ignored (row 64 review round 2).
+    ⚠ The exit handlers run once. A gate registered now runs FIRST if the main
+    thread reaches its own shutdown (stdin EOF inside the grace): it takes the
+    lock and so the forced path stands down; if the forced path took it first,
+    the main thread blocks on it until the forced exit ends the process.
+    """
+    gone_event.set()
+    if main_task is not None:
+        try:
+            loop.call_soon_threadsafe(main_task.cancel)
+        except Exception:
+            logger.debug("could not cancel the run task", exc_info=True)
+    try:
+        sys.stderr.write(
+            "jcodemunch-mcp: the process that started this server is gone; "
+            "exiting (JCODEMUNCH_PARENT_WATCH_SECONDS=0 turns this off).\n"
+        )
+        sys.stderr.flush()
+    except Exception:
+        logger.debug("stderr notice failed (its reader may be gone)", exc_info=True)
+
+    lock = threading.Lock()
+    forced = threading.current_thread()
+
+    def _exit_gate() -> None:
+        if threading.current_thread() is forced:
+            return
+        lock.acquire()
+
+    atexit.register(_exit_gate)
+    sleep(_PARENT_GONE_GRACE_SECONDS)
+    if not lock.acquire(blocking=False):
+        return  # the main thread is shutting down and runs the handlers itself
+    try:
+        atexit._run_exitfuncs()
+    except Exception:
+        logger.debug("exit handlers failed before the forced exit", exc_info=True)
+    hard_exit(0)
+
+
 async def run_stdio_server():
     """Run the MCP server over stdio (default)."""
     import sys
@@ -8132,23 +8182,7 @@ async def run_stdio_server():
     _parent_gone = threading.Event()
 
     def _on_parent_gone() -> None:
-        _parent_gone.set()
-        sys.stderr.write(
-            "jcodemunch-mcp: the process that started this server is gone; "
-            "exiting (JCODEMUNCH_PARENT_WATCH_SECONDS=0 turns this off).\n"
-        )
-        sys.stderr.flush()
-        if _main_task is not None:
-            _loop.call_soon_threadsafe(_main_task.cancel)
-        time.sleep(_PARENT_GONE_GRACE_SECONDS)
-        # Still here: the stdin read holds shutdown. Run the exit handlers
-        # (savings and perf flushes, session state, the presence file) before
-        # the hard exit, which would skip them all.
-        try:
-            atexit._run_exitfuncs()
-        except Exception:
-            logger.debug("exit handlers failed before the forced exit", exc_info=True)
-        os._exit(0)
+        _exit_for_gone_parent(_main_task, _loop, _parent_gone)
 
     _parent_watch.start(_on_parent_gone)
 
