@@ -8025,6 +8025,11 @@ async def _run_server_with_watcher(
         IndexStore(base_path=watcher_kwargs.get("storage_path") or os.environ.get("CODE_INDEX_PATH")).close()
 
 
+# Seconds a stdio server whose parent is gone waits for its own cleanup before
+# the process exits regardless (BACKLOG row 64).
+_PARENT_GONE_GRACE_SECONDS = 3.0
+
+
 async def run_stdio_server():
     """Run the MCP server over stdio (default)."""
     import sys
@@ -8111,6 +8116,31 @@ async def run_stdio_server():
 
     _watchdog_task = asyncio.create_task(_handshake_watchdog())
 
+    # BACKLOG row 64: stdin EOF ends this server, but a client that dies while
+    # something else holds the pipe open sends no EOF. When the parent is gone
+    # the run task is cancelled so the cleanup below runs; the stdin read sits
+    # on a worker thread cancellation cannot stop, so the process exits after
+    # a short grace if it is still here.
+    from . import parent_watch as _parent_watch
+
+    _main_task = asyncio.current_task()
+    _loop = asyncio.get_running_loop()
+    _parent_gone = threading.Event()
+
+    def _on_parent_gone() -> None:
+        _parent_gone.set()
+        sys.stderr.write(
+            "jcodemunch-mcp: the process that started this server is gone; "
+            "exiting (JCODEMUNCH_PARENT_WATCH_SECONDS=0 turns this off).\n"
+        )
+        sys.stderr.flush()
+        if _main_task is not None:
+            _loop.call_soon_threadsafe(_main_task.cancel)
+        time.sleep(_PARENT_GONE_GRACE_SECONDS)
+        os._exit(0)
+
+    _parent_watch.start(_on_parent_gone)
+
     try:
         _stdout_arg = (
             anyio.wrap_file(_private_stdout) if _private_stdout is not None else None
@@ -8121,6 +8151,9 @@ async def run_stdio_server():
                 write_stream,
                 _initialization_options(indexed_files=_indexed_here()),
             )
+    except asyncio.CancelledError:
+        if not _parent_gone.is_set():
+            raise
     finally:
         if not _watchdog_task.done():
             _watchdog_task.cancel()
