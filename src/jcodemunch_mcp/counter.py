@@ -367,17 +367,43 @@ def search_catalog(
     rows = [r for r in catalog if r["action"] not in FRONT_DOOR]
     if not query:
         return rows[:limit]
+    query = _strip_host_prefixes(query)
+    # A term that IS a tool name ranks that tool first, in the order named
+    # (R&D item 185): word-by-word scoring gave an exact name no more credit
+    # than its words scattered over other tools, so naming six tools at once
+    # dropped two of them. A question names no tool and ranks as before.
+    by_name = {r["action"]: r for r in rows}
+    named: list[dict] = []
+    for term in _NAME_TERM.findall(query):
+        r = by_name.get(term)
+        if r is not None and r not in named:
+            named.append(r)
     qt = _query_tokens(query)
     if not qt:  # query was all function words; ranking on it is noise
-        return rows[:limit]
+        return (named or rows)[:limit]
     weights = _idf_weights(qt, rows)
     scored = []
     for r in rows:
+        if r in named:
+            continue
         s = score_action(qt, r["action"], r.get("_description", r["summary"]), weights)
         if s > 0:
             scored.append((s, r))
     scored.sort(key=lambda x: (-x[0], x[1]["action"]))
-    return [r for _, r in scored[:limit]]
+    return (named + [r for _, r in scored])[:limit]
+
+
+# A tool name as written in a query: identifier characters only.
+_NAME_TERM = re.compile(r"[A-Za-z0-9_]+")
+
+# A host's prefixed tool name, `mcp__<server>__<tool>` (Claude Code, Codex).
+# The server part matched our own tool `jcodemunch_guide` by its word
+# "jcodemunch" and outranked the tool actually named.
+_HOST_PREFIX = re.compile(r"\bmcp__[A-Za-z0-9_-]+?__(?=[A-Za-z0-9])")
+
+
+def _strip_host_prefixes(query: str) -> str:
+    return _HOST_PREFIX.sub("", query)
 
 
 # --- route: intent to action ----------------------------------------------- #

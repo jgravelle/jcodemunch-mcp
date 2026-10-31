@@ -1,0 +1,99 @@
+"""A query that names a tool finds that tool (R&D item 185).
+
+Agents searching for a deferred tool most often type its NAME, not a
+question: a bare name, the host's prefixed name (`mcp__<server>__<tool>`),
+or several names at once. Two public Codex issues quote exactly these and
+the miss that followed: a five-name query that dropped one of the five, and
+a prefixed name that returned nothing while the bare name worked. Smaller
+models read such a miss as "not installed" and stop.
+
+`counter.search_catalog` (the `menu` front door and `route`'s fallback)
+scored a query word by word over names and descriptions. A tool's exact name
+got no more credit than its words scattered across other tools, so naming
+the six core tools together dropped `resolve_repo` and `search_symbols` from
+the first eight rows, and the `mcp__jcodemunch__` prefix put
+`jcodemunch_guide` first on its own word "jcodemunch".
+
+The question-shaped queries live in `test_question_queries_find_core_tools.py`
+and `test_question_queries_find_analysis_tools.py`; that the server
+instructions name the core tools early is `test_instructions_first_512.py`.
+"""
+
+from __future__ import annotations
+
+import pytest
+
+from jcodemunch_mcp import counter, server
+
+# Codex returns eight rows for a keyword tool search (R&D item 183).
+HOST_ROWS = 8
+PREFIX = "mcp__jcodemunch__"
+
+
+@pytest.fixture(scope="module")
+def rows():
+    return server._catalog_rows()
+
+
+def _ranked(rows, query, limit):
+    return [r["action"] for r in counter.search_catalog(rows, query, limit)]
+
+
+def _searchable(rows):
+    return [r["action"] for r in counter.search_catalog(rows, None, len(rows))]
+
+
+def _core():
+    return list(server._instruction_tool_names("full"))
+
+
+def test_every_searchable_tool_ranks_first_for_its_bare_name(rows):
+    misses = {n: _ranked(rows, n, 3) for n in _searchable(rows)}
+    assert {n: r for n, r in misses.items() if r[:1] != [n]} == {}
+
+
+def test_every_searchable_tool_ranks_first_for_its_prefixed_name(rows):
+    misses = {n: _ranked(rows, PREFIX + n, 3) for n in _searchable(rows)}
+    assert {n: r for n, r in misses.items() if r[:1] != [n]} == {}
+
+
+@pytest.mark.parametrize(
+    "shape",
+    [
+        "{names}",
+        "{prefixed}",
+        "{names} jcodemunch",
+        "{names}, jcodemunch-mcp",
+    ],
+)
+def test_naming_the_core_tools_together_finds_every_one(rows, shape):
+    core = _core()
+    query = shape.format(
+        names=" ".join(core), prefixed=" ".join(PREFIX + n for n in core)
+    )
+    ranked = _ranked(rows, query, HOST_ROWS)
+    assert [n for n in core if n not in ranked] == [], (query, ranked)
+
+
+def test_named_tools_come_back_in_the_order_named(rows):
+    core = _core()
+    named = list(reversed(core))
+    assert _ranked(rows, " ".join(named), len(named)) == named
+
+
+def test_a_question_names_no_tool_and_ranks_as_before(rows):
+    """The name pin fires only on a term that IS a tool name."""
+    ranked = _ranked(rows, "who calls this function", 3)
+    assert "get_call_hierarchy" in ranked, ranked
+
+
+def test_the_server_name_alone_finds_the_guide(rows):
+    """Every tool carries the server name in a host index, so a server-name
+    query is arbitrary there; ours answers it with the guide, which says
+    where to start."""
+    assert _ranked(rows, "jcodemunch", 1) == ["jcodemunch_guide"]
+
+
+def test_the_core_list_is_the_published_one(rows):
+    names = set(_searchable(rows))
+    assert _core() and [n for n in _core() if n not in names] == []
