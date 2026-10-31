@@ -39,8 +39,8 @@ _HASH_COMMENT_RE = re.compile(r'("(?:\\.|[^"\\\n])*")|/\*.*?\*/|//[^\n]*|#[^\n]*
 # Languages where `#` starts a comment. In C#, Kotlin, Swift, C++ and Rust it does
 # not (`[Sep('#')]`, `#[derive]`, `#if`), so there it is left alone.
 _HASH_COMMENT_LANGUAGES = frozenset({
-    "python", "ruby", "crystal", "nim", "gdscript", "elixir", "julia", "r",
-    "perl", "coffeescript", "powershell", "bash", "shell",
+    "python", "ruby", "nim", "gdscript", "elixir", "julia", "r",
+    "perl", "powershell", "bash",
 })
 
 

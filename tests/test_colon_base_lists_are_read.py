@@ -271,3 +271,11 @@ def test_a_python_comment_naming_a_class_is_not_a_subclass(tmp_path):
     assert foo["ancestors"] == [], foo
     r = find_implementations(repo=repo, symbol="Bar", storage_path=store)
     assert "Foo" not in [i["name"] for i in r["implementations"]], r
+
+
+def test_every_hash_comment_language_is_a_stored_language_name():
+    """A name the index never stores would make that language a silent no-op."""
+    from jcodemunch_mcp.parser.languages import LANGUAGE_EXTENSIONS
+    from jcodemunch_mcp.tools.get_class_hierarchy import _HASH_COMMENT_LANGUAGES
+
+    assert _HASH_COMMENT_LANGUAGES <= set(LANGUAGE_EXTENSIONS.values())
