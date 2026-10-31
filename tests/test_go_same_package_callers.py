@@ -206,3 +206,24 @@ def test_a_same_package_go_test_gives_test_reach(tmp_path):
     r = get_blast_radius(repo=repo, symbol="gin/a.go::helper#function", storage_path=store)
     by_file = {c["file"]: c for c in r["confirmed"]}
     assert by_file["gin/b.go"]["has_test_reach"] is True, r["confirmed"]
+
+
+def test_blast_radius_finds_a_same_package_caller_two_hops_up(tmp_path):
+    """Review round 5: the peer prefilter keeps files that may name the
+    TARGET; a peer calling an intermediate caller names only that caller,
+    so the filter must not reach the depth-2 search."""
+    from jcodemunch_mcp.tools.get_blast_radius import get_blast_radius
+
+    repo, store = _index(
+        tmp_path,
+        {
+            "gin/a.go": "package gin\n\nfunc Target() int { return 1 }\n\nfunc Helper() int { return Target() }\n",
+            "gin/b.go": "package gin\n\nfunc Outer() int { return Helper() }\n",
+        },
+    )
+    r = get_blast_radius(
+        repo=repo, symbol="gin/a.go::Target#function", call_depth=2, storage_path=store
+    )
+    assert sorted((c["name"], c["depth"]) for c in r["callers"]) == [
+        ("Helper", 1), ("Outer", 2),
+    ], r["callers"]

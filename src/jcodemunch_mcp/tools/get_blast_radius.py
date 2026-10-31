@@ -596,6 +596,10 @@ def get_blast_radius(
         return _syms_by_file_memo[0]
 
     peer_rev = with_same_package_peers(rev, getattr(index, "file_languages", None))
+    # The callers pass at depth 1 needs only the peers that may name the
+    # symbol. Deeper levels look for callers of OTHER names in this file, so
+    # they read every peer (L-262 review round 5).
+    depth1_rev = peer_rev
     if peer_rev is not rev:
         imported_by = rev.get(sym_file, [])
         peers = [p for p in peer_rev.get(sym_file, []) if p not in imported_by]
@@ -606,9 +610,8 @@ def get_blast_radius(
             try:
                 _tf = _TextFilter(store._content_dir(owner, name), sym_name.lower())
                 peers = [p for p in peers if not _tf.rules_out(p)[0]]
-                # `peer_rev` is a fresh dict here; the callers pass reads the
-                # same filtered list for this file.
-                peer_rev[sym_file] = list(imported_by) + peers
+                depth1_rev = dict(peer_rev)
+                depth1_rev[sym_file] = list(imported_by) + peers
             except Exception:
                 import logging as _logging
                 _logging.getLogger(__name__).debug("peer prefilter failed", exc_info=True)
@@ -778,8 +781,9 @@ def get_blast_radius(
     callers: list[dict] = []
     if call_depth > 0:
         callers, _ = bfs_callers(
-            index, store, owner, name, sym, peer_rev, _symbols_by_file(),
-            call_depth, file_cache,
+            index, store, owner, name, sym,
+            depth1_rev if call_depth == 1 else peer_rev,
+            _symbols_by_file(), call_depth, file_cache,
         )
 
     # An answer is "empty" only when every channel this call actually ran came

@@ -321,3 +321,18 @@ class TestEvidenceHelper:
         assert out["match"] == "exact"
         # Both specifiers end in the target dir, so both are exact matches here.
         assert out["unresolved_edges"] == 2
+
+
+def test_the_compact_encoding_keeps_the_body_disclosures(fixture_repo):
+    """L-262: br2 dropped undeclared top-level dicts, so `incomplete` and
+    `dynamic_imports_unfollowed` vanished from a compact answer."""
+    from jcodemunch_mcp.encoding.schemas import get_blast_radius as br_schema
+
+    repo, store = fixture_repo
+    r = get_blast_radius(repo=repo, symbol="DeleteItem", storage_path=store)
+    assert r["incomplete"]["reason"] == "package_granular_imports"
+    payload, _enc = br_schema.encode("get_blast_radius", r)
+    decoded = br_schema.decode(payload)
+    assert decoded["incomplete"] == r["incomplete"]
+    assert br_schema.ENCODING_ID == "br3"
+    assert "br2" in br_schema.LEGACY_ENCODING_IDS
