@@ -95,8 +95,11 @@ def repo_root(start: Optional[Path] = None) -> Optional[Path]:
         out = subprocess.run(
             ["git", "rev-parse", "--show-toplevel"],
             cwd=str(cwd),
+            stdin=subprocess.DEVNULL,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=10,
         )
     except (OSError, subprocess.SubprocessError):
