@@ -2642,7 +2642,14 @@ def index_folder(
         #    upgrading see what happened.
         _merge_with_existing: Optional["CodeIndex"] = None  # noqa: F821
         _v195_legacy_rebuild = False
-        _existing_for_collision = store.load_index(owner, repo_name)
+        # Metadata only (`git_root`, `source_root`), so a selective view: it
+        # reads no symbol rows and promotes itself to a full load on the first
+        # corpus-wide read, so a later use loses speed, never correctness.
+        # A full load here cost 8 s of a 32 s no-change re-index of a
+        # 24k-file repo (BACKLOG 31). None means a legacy JSON index.
+        _existing_for_collision = store.open_selective(owner, repo_name)
+        if _existing_for_collision is None:
+            _existing_for_collision = store.load_index(owner, repo_name)
         if (
             _git_root
             and _existing_for_collision is not None
@@ -2740,8 +2747,11 @@ def index_folder(
         _is_branch_delta = False
         _base_branch: str = ""
 
-        # Always load the base index (branch="") to check if it exists
-        existing_index = store.load_index(owner, repo_name)
+        # Always load the base index (branch="") to check if it exists. A
+        # selective view, for the reason given at `_existing_for_collision`.
+        existing_index = store.open_selective(owner, repo_name)
+        if existing_index is None:
+            existing_index = store.load_index(owner, repo_name)
 
         if existing_index is not None and _current_branch:
             # Read stored base_branch from meta — defaults to "" (first indexed branch)
