@@ -136,9 +136,12 @@ class TestPackageGranularRefusal:
                              storage_path=store)
         assert r.get("confirmed_count") == 0, "precondition: the graph still finds nothing"
         verdict = r["_meta"]["verdict"]
-        assert verdict["state"] == "degraded"
-        assert verdict["absence_refused"] is True
+        # L-262: the same-package caller is found now, so the answer is no
+        # longer a zero. The cross-package caller (pkg/pick_service.go) is
+        # still unreached, and the verdict must keep saying so.
+        assert [c["file"] for c in r["callers"]] == ["repository/same_pkg_caller.go"]
         assert verdict["incomplete"]["reason"] == "package_granular_imports"
+        assert r["overall_risk_score"] is None
 
     def test_risk_score_is_withheld_not_zeroed(self, fixture_repo):
         """0.0 is a measurement. The bug was emitting one where none was made."""

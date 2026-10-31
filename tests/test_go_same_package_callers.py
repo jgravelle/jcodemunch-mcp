@@ -116,3 +116,48 @@ def test_impact_preview_sees_a_same_package_caller(tmp_path):
     assert "error" not in r, r
     names = sorted(s["name"] for s in r["affected_symbols"])
     assert names == ["Other", "Use"], r
+
+
+def test_blast_radius_call_depth_sees_a_same_package_caller(tmp_path):
+    """Review round 2: with call_depth, get_blast_radius reported no callers and
+    an `absent` verdict for a helper two same-package files call."""
+    from jcodemunch_mcp.tools.get_blast_radius import get_blast_radius
+
+    repo, store = _index(tmp_path, SAME_PACKAGE)
+    r = get_blast_radius(
+        repo=repo, symbol="gin/a.go::helper#function", call_depth=2, storage_path=store
+    )
+    assert "error" not in r, r
+    assert sorted(c["name"] for c in r["callers"]) == ["Other", "Use"], r
+    verdict = ((r.get("_meta") or {}).get("verdict") or {}).get("state")
+    assert verdict != "absent", r
+
+
+def test_an_interface_declaring_the_method_is_not_a_caller(tmp_path):
+    """Review round 2: Go interface methods are not symbols, so the text pass
+    read `type R interface { Delete() }` as a call to `Store.Delete`."""
+    repo, store = _index(
+        tmp_path,
+        {
+            "repo/iface.go": "package repo\n\ntype R interface {\n\tDelete() error\n}\n",
+            "repo/store.go": "package repo\n\ntype Store struct{}\n\nfunc (s *Store) Delete() error { return nil }\n",
+        },
+    )
+    h = _callers(repo, store, "repo/store.go::Store.Delete#method")
+    assert h["callers"] == [], h
+
+
+def test_a_wrapper_that_calls_the_target_is_still_a_caller(tmp_path):
+    """The declaration skip must not hide a real call from a same-named method."""
+    repo, store = _index(
+        tmp_path,
+        {
+            "gin/engine.go": "package gin\n\ntype Engine struct{}\n\nfunc (e *Engine) Use() {}\n",
+            "gin/group.go": (
+                "package gin\n\ntype RouterGroup struct{ engine *Engine }\n\n"
+                "func (g *RouterGroup) Use() {\n\tg.engine.Use()\n}\n"
+            ),
+        },
+    )
+    h = _callers(repo, store, "gin/engine.go::Engine.Use#method")
+    assert [c["file"] for c in h["callers"]] == ["gin/group.go"], h

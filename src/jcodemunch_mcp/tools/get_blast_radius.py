@@ -733,8 +733,12 @@ def get_blast_radius(
     callers: list[dict] = []
     if call_depth > 0:
         symbols_by_file = build_symbols_by_file(index)
+        # Go package peers call with no import (L-262). Only the callers
+        # pass sees them: importer counts and the risk score keep `rev`.
         callers, _ = bfs_callers(
-            index, store, owner, name, sym, rev, symbols_by_file, call_depth
+            index, store, owner, name, sym,
+            with_same_package_peers(rev, getattr(index, "file_languages", None)),
+            symbols_by_file, call_depth
         )
 
     # An answer is "empty" only when every channel this call actually ran came
@@ -747,12 +751,18 @@ def get_blast_radius(
         and not callers
         and not cross_repo_confirmed
     )
+    # Same-package peers (L-262) can find callers while the importer graph
+    # still reaches nothing; the cross-package edges stay unresolved, so the
+    # package probe runs on the graph's answer, not on the callers pass.
+    graph_found_nothing = (
+        total == 0 and not confirmed and not potential and not cross_repo_confirmed
+    )
     verdict, unresolvable = blast_verdict(
         index,
         source_files,
         sym_file,
         0 if answered_nothing else max(total, len(confirmed), len(callers)) + cross_count,
-        probe=answered_nothing,
+        probe=graph_found_nothing,
     )
 
     elapsed = (time.perf_counter() - start) * 1000

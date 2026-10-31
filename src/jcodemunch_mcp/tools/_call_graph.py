@@ -260,6 +260,42 @@ class FileWords:
         return found[0] < start or found[-1] >= end
 
 
+# Symbol kinds whose body holds declarations only, never a call, per language.
+# A Go `type X interface { DeleteItem(id string) error }` names a method it
+# declares; with its methods unindexed, the text pass read that as a call
+# once same-package peers made the interface's file a candidate (L-262).
+_NO_CODE_KINDS: dict[str, frozenset[str]] = {
+    "go": frozenset({"type", "interface", "struct"}),
+}
+
+
+def _same_named_declarations_removed(
+    file_lines: list[str], sym: dict, decl_lines: Optional[set], name: str
+) -> str:
+    """*sym*'s body with the first mention of *name* removed on every line
+    where a symbol called *name* is declared (L-262 review).
+
+    A declaration names itself: `func (g *Group) Use()` beside the target
+    `Engine.Use`, or an interface whose body declares `DeleteItem`, is not a
+    call. Only another mention can be one, so a wrapper whose body calls the
+    target is still found.
+    """
+    line = sym.get("line", 0)
+    if not line:
+        return ""
+    end_line = sym.get("end_line", line)
+    if not decl_lines:
+        return _symbol_body(file_lines, sym)
+    out: list[str] = []
+    pattern = re.compile(word_pattern(name))
+    for n in range(max(1, line), min(len(file_lines), end_line) + 1):
+        text = file_lines[n - 1]
+        if n in decl_lines:
+            text = pattern.sub(" ", text, count=1)
+        out.append(text)
+    return "\n".join(out)
+
+
 def _symbol_body(file_lines: list[str], sym: dict) -> str:
     """Slice *file_lines* to the lines covered by *sym* (1-indexed)."""
     line = sym.get("line", 0)
@@ -854,6 +890,12 @@ def find_direct_callers(
 
     callers: list[dict] = []
     seen_ids: set[str] = set(ast_caller_ids) | lsp_ids
+    # Lines where a symbol of the same name is DECLARED, per file (L-262).
+    decl_lines: dict[str, set[int]] = {}
+    for f in reverse_adj.get(sym_file, []):
+        lines = {s.get("line") for s in symbols_by_file.get(f, []) if s.get("name") == sym_name}
+        if lines:
+            decl_lines[f] = lines
 
     for imp_file in reverse_adj.get(sym_file, []):
         if content_cache is not None:
@@ -875,13 +917,11 @@ def find_direct_callers(
             cid = candidate.get("id", "")
             if not cid or cid in seen_ids or not candidate.get("line"):
                 continue
-            body = _symbol_body(file_lines, candidate)
-            if body and candidate.get("name") == sym_name:
-                # A same-named declaration names itself: `func (g *Group)
-                # Use()` beside the target `Engine.Use` is not a call.
-                # Only a SECOND mention can be one (L-262 review).
-                starts = _word_starts(body, sym_name)
-                body = body[starts[0] + len(sym_name):] if starts else body
+            if candidate.get("kind") in _NO_CODE_KINDS.get(candidate.get("language", ""), ()):
+                continue
+            body = _same_named_declarations_removed(
+                file_lines, candidate, decl_lines.get(imp_file), sym_name
+            )
             if body and _word_match(body, sym_name):
                 seen_ids.add(cid)
                 callers.append({
