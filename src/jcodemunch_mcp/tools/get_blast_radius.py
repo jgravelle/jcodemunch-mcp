@@ -125,6 +125,38 @@ def _build_reverse_adjacency(
     return {k: list(dict.fromkeys(v)) for k, v in rev.items()}
 
 
+# Languages whose package is a directory: every file in it sees its siblings'
+# names with no import statement (Go). A language fact, not a repo heuristic.
+PACKAGE_DIRECTORY_LANGUAGES = frozenset({"go"})
+
+
+def with_same_package_peers(
+    rev: dict[str, list[str]], file_languages: Optional[dict]
+) -> dict[str, list[str]]:
+    """Return a copy of ``rev`` where each file in a package-directory language
+    also lists its same-directory, same-language siblings as importers (L-262).
+
+    A Go file calls a function from another file of its package with no import,
+    so the import graph alone never links them, and a callers query gated on it
+    missed every same-package caller.
+    """
+    by_dir: dict[tuple[str, str], list[str]] = {}
+    for f, lang in (file_languages or {}).items():
+        if lang in PACKAGE_DIRECTORY_LANGUAGES:
+            d = posixpath.dirname(f.replace("\\", "/"))
+            by_dir.setdefault((d, lang), []).append(f)
+    if not by_dir:
+        return rev
+    out = {k: list(v) for k, v in rev.items()}
+    for files in by_dir.values():
+        if len(files) < 2:
+            continue
+        for f in files:
+            peers = [p for p in files if p != f]
+            out[f] = list(dict.fromkeys(out.get(f, []) + peers))
+    return out
+
+
 def _unresolved_package_edges(
     imports: dict,
     source_files: frozenset,
