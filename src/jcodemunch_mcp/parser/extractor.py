@@ -1515,6 +1515,19 @@ def _walk_tree(
         if var_func:
             symbols.append(var_func)
 
+    # `res.send = function () {}`, `exports.f = () => {}`, `Foo.prototype.m =
+    # function () {}` at module scope (L-263).
+    if (
+        node.type == "assignment_expression"
+        and parent_symbol is None
+        and language in ("javascript", "typescript", "tsx")
+    ):
+        member_func = _extract_member_assignment_function(
+            node, spec, source_bytes, filename, language
+        )
+        if member_func:
+            symbols.append(member_func)
+
     # Check for constant patterns (top-level assignments with UPPER_CASE names)
     #
     # ⚠⚠ **The `parent_symbol is None` gate is what keeps LOCALS out**, and it is
@@ -4625,6 +4638,118 @@ def _extract_variable_function(
         byte_offset=start_byte,
         byte_length=end_byte - start_byte,
         content_hash=c_hash,
+    )
+
+
+_JS_FUNCTION_SCOPE_TYPES = frozenset({
+    "function_declaration", "generator_function_declaration", "method_definition",
+    "arrow_function", "function_expression", "generator_function", "function",
+    "class_body",
+})
+
+
+def _js_is_iife(fn_node) -> bool:
+    """`(function () {...})()` / `(() => {...})()`: called where it is written."""
+    up = fn_node.parent
+    while up is not None and up.type == "parenthesized_expression":
+        up = up.parent
+    if up is None or up.type != "call_expression":
+        return False
+    callee = up.child_by_field_name("function")
+    while callee is not None and callee.type == "parenthesized_expression":
+        callee = callee.named_children[0] if callee.named_children else None
+    return callee is not None and (callee.start_byte, callee.end_byte) == (
+        fn_node.start_byte, fn_node.end_byte,
+    )
+
+
+def _js_at_module_scope(node) -> bool:
+    """True when no function encloses ``node`` except immediately-invoked ones,
+    the UMD and module-pattern wrappers whose body is module scope."""
+    up = node.parent
+    while up is not None:
+        parse_budget.checkpoint()
+        if up.type in _JS_FUNCTION_SCOPE_TYPES and not _js_is_iife(up):
+            return False
+        up = up.parent
+    return True
+
+
+def _extract_member_assignment_function(
+    node, spec: LanguageSpec, source_bytes: bytes, filename: str, language: str
+) -> Optional[Symbol]:
+    """A function assigned to a member at module scope (L-263).
+
+    CommonJS libraries define most of their API this way, and none of it was a
+    symbol: express's `res.send = function send() {}` left `send` resolving to
+    the npm import. Named as written, with `prototype` dropped:
+
+    - `exports.f = ...` and `module.exports.f = ...` -> function `f`, the
+      module's export;
+    - `Foo.prototype.m = ...` -> method `Foo.m`;
+    - `res.send = ...`, `a.b.c = ...` -> method `res.send`, `a.b.c`.
+
+    Only a function, arrow or generator value counts, with a plain dotted
+    key; `res['k'] = ...` and `o.h = make()` stay unnamed. A local inside a
+    function is not a module symbol and is skipped (an IIFE wrapper is module
+    scope). The span is the assignment statement, like `const f = () => {}`.
+    """
+    right = node.child_by_field_name("right")
+    left = node.child_by_field_name("left")
+    if right is None or right.type not in _VARIABLE_FUNCTION_TYPES:
+        return None
+    if left is None or left.type != "member_expression":
+        return None
+    parts: list[str] = []
+    cur = left
+    while cur is not None and cur.type == "member_expression":
+        prop = cur.child_by_field_name("property")
+        if prop is None or prop.type != "property_identifier":
+            return None
+        parts.append(source_bytes[prop.start_byte:prop.end_byte].decode("utf-8", "replace"))
+        cur = cur.child_by_field_name("object")
+    if cur is None or cur.type not in ("identifier", "this"):
+        return None
+    root = source_bytes[cur.start_byte:cur.end_byte].decode("utf-8", "replace")
+    if root == "this":
+        return None
+    path = [root] + parts[::-1]
+    if path == ["module", "exports"]:
+        return None  # the default export is not a member
+    if not _js_at_module_scope(node):
+        return None
+
+    if path[0] == "exports" and len(path) == 2:
+        path, kind = path[1:], "function"
+    elif path[:2] == ["module", "exports"] and len(path) == 3:
+        path, kind = path[2:], "function"
+    else:
+        path = [p for i, p in enumerate(path) if not (p == "prototype" and 0 < i < len(path) - 1)]
+        kind = "method"
+    if kind == "method" and len(path) < 2:
+        return None
+    name = path[-1]
+    qualified_name = ".".join(path)
+
+    stmt = node.parent if node.parent is not None and node.parent.type == "expression_statement" else node
+    signature = _build_signature(stmt, spec, source_bytes)
+    docstring = _extract_docstring(stmt, spec, source_bytes)
+    body = source_bytes[stmt.start_byte:stmt.end_byte]
+    return Symbol(
+        id=make_symbol_id(filename, qualified_name, kind),
+        file=filename,
+        name=name,
+        qualified_name=qualified_name,
+        kind=kind,
+        language=language,
+        signature=signature,
+        docstring=docstring,
+        parent=None,
+        line=stmt.start_point[0] + 1,
+        end_line=stmt.end_point[0] + 1,
+        byte_offset=stmt.start_byte,
+        byte_length=stmt.end_byte - stmt.start_byte,
+        content_hash=compute_content_hash(body),
     )
 
 

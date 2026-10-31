@@ -686,7 +686,11 @@ INDEX_VERSION = 17
 #   bump does not rewrite a stored AI summary that already says GET: a
 #   re-parse keeps paid AI summaries (see 21), so those need
 #   `summarize_repo(force=true)`.
-PARSER_GENERATION = 26
+#
+# 27 (L-263): a JS/TS function assigned to a member at module scope is a
+#   symbol (`res.send = function () {}`, `exports.f = ...`,
+#   `Foo.prototype.m = ...`). Symbols appear on UNCHANGED content.
+PARSER_GENERATION = 27
 
 
 @dataclass(frozen=True)
