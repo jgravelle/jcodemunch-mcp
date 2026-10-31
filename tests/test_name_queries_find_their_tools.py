@@ -65,12 +65,27 @@ def test_every_searchable_tool_ranks_first_for_its_prefixed_name(rows):
         "{prefixed}",
         "{names} jcodemunch",
         "{names}, jcodemunch-mcp",
+        # Review round 2: punctuated spellings fell back to word scoring.
+        "select:{prefixed_csv}",
+        "select:{csv}",
+        "{backticked}",
+        "{quoted_csv}",
+        "{names}.",
+        "{and_list}",
+        "{upper}",
     ],
 )
 def test_naming_the_core_tools_together_finds_every_one(rows, shape):
     core = _core()
     query = shape.format(
-        names=" ".join(core), prefixed=" ".join(PREFIX + n for n in core)
+        names=" ".join(core),
+        prefixed=" ".join(PREFIX + n for n in core),
+        prefixed_csv=",".join(PREFIX + n for n in core),
+        csv=",".join(core),
+        backticked=" ".join(f"`{n}`" for n in core),
+        quoted_csv=", ".join(f'"{n}"' for n in core),
+        and_list=", ".join(core[:-1]) + " and " + core[-1],
+        upper=" ".join(n.title() for n in core),
     )
     ranked = _ranked(rows, query, HOST_ROWS)
     assert [n for n in core if n not in ranked] == [], (query, ranked)
@@ -143,3 +158,15 @@ def test_the_counterfactual_reads_the_same_order_as_search_catalog(rows, query):
                 r.get("rank") == top.index(target) + 1
                 or r["outcome"] == "rule_preempted"
             ), (query, target, r)
+
+
+def test_a_named_target_cut_by_the_limit_is_not_called_a_scoring_loss(rows):
+    """Review round 2: the experiment text said ranking work would help, when
+    the order named and the limit cut the target."""
+    from jcodemunch_mcp.investigator.retrieval_counterfactual import explain_route
+
+    core = _core()
+    r = explain_route(" ".join(core), core[-1], catalog_rows=rows, limit=3)
+    assert r["outcome"] == "ranked_below_cutoff", r
+    assert r["beaten_by"].get("named") is True
+    assert "order named" in r["experiment"]

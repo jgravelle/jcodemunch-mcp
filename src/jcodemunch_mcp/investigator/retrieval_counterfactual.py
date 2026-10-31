@@ -223,7 +223,7 @@ def explain_route(
         result["named"] = pinned
     qt = _counter._query_tokens(task)
     result["query_tokens"] = qt
-    if not qt:
+    if not qt and not pinned:
         return gate(EMPTY_QUERY, raw_tokens=_counter._tokens(task))
 
     # 5/6/7 -- the lexical fallback.
@@ -254,7 +254,7 @@ def explain_route(
     rank = order.index(expected_action) + 1
     if rank > limit:
         winner = next(r for r in rows if r["action"] == order[0])
-        return gate(
+        out = gate(
             RANKED_BELOW_CUTOFF,
             rank=rank,
             cutoff=limit,
@@ -266,6 +266,15 @@ def explain_route(
                 "contributions": _token_contributions(qt, winner, weights),
             },
         )
+        if winner["action"] in pinned:
+            # The query named the winner, so order named plus the limit cut
+            # this target, not its score; ranking work cannot move it.
+            out["experiment"] = (
+                "The query named the tools ahead of this one; it was cut by the "
+                "order named and the limit, not by its score. Name it earlier "
+                "or raise the limit."
+            )
+        return out
     return gate(RETURNED, path="fallback", rank=rank, top=order[:limit])
 
 

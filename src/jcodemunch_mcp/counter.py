@@ -402,17 +402,28 @@ def named_rows(query: str, rows: list[dict]) -> list[dict]:
     ``query`` must already have its host prefixes stripped. One authority for
     `search_catalog` and the retrieval counterfactual alike.
     """
-    terms = [t for t in re.split(r"[\s,;]+", query.strip()) if t]
+    # Claude Code's ToolSearch form, which our own instructions hand out.
+    text = re.sub(r"^\s*select:", "", query.strip(), flags=re.I)
+    terms = [_NAME_PUNCT.sub("", t).lower() for t in re.split(r"[\s,;]+", text)]
     by_name = {r["action"]: r for r in rows}
     named: list[dict] = []
     for term in terms:
+        if not term:
+            continue
         r = by_name.get(term)
         if r is not None:
             if r not in named:
                 named.append(r)
-        elif term.lower() not in _SERVER_WORDS:
+        elif term not in _SERVER_WORDS and term not in _LIST_WORDS:
             return []
     return named
+
+
+# Wrapping and trailing marks around a written name: `name`, "name", name.
+_NAME_PUNCT = re.compile(r"^[`\"'(\[]+|[`\"')\].:!?]+$")
+
+# Joiners in a written list of names ("a, b and c").
+_LIST_WORDS = frozenset({"and", "or", "plus", "&"})
 
 # A host's prefixed tool name, `mcp__<server>__<tool>` (Claude Code, Codex).
 # The server part matched our own tool `jcodemunch_guide` by its word
