@@ -21,16 +21,34 @@ _PAREN_BASES_RE = re.compile(r'\bclass\s+\w[\w$]*\s*\(([^)]+)\)')
 # Scala / Dart: `extends B with M` names two bases.
 _WITH_SPLIT_RE = re.compile(r',|\s+with\s+')
 
-# A declaration head: keyword + name. What follows the name (generics,
-# a primary constructor) is skipped before looking for a `:` base list.
+# A declaration head: one keyword, or two (`record struct`, `enum class`),
+# then the name, which may be qualified (`N::S`, `a.b.C`).
 _DECL_HEAD_RE = re.compile(
-    r'\b(?:class|struct|interface|record|object|protocol|trait|enum|extension)\s+[\w$.]+'
+    r'\b(?P<kw>(?:class|struct|interface|record|object|protocol|trait|enum|extension)'
+    r'(?:\s+(?:class|struct))?)\s+[\w$.]+(?:::[\w$.]+)*'
 )
+# Words that may sit between a declaration's name and its `:` base list:
+# C++ `final`, Kotlin `private constructor` / `@Inject constructor`.
+_HEAD_SKIP_WORDS = frozenset({
+    "final", "sealed", "abstract", "open", "partial", "constructor",
+    "public", "private", "protected", "internal",
+})
+_WORD_RE = re.compile(r'[A-Za-z_]\w*')
+_ANNOTATION_RE = re.compile(r'@[\w.]+')
+_WHERE_RE = re.compile(r'\bwhere\b')
 # Ruby: class Foo < Bar   (one base; `< T>` generics never end the line)
 _RUBY_BASE_RE = re.compile(r'\bclass\s+[\w:]+\s+<\s+([A-Z][\w:]*)\s*(?:$|\n|;)')
 # Words before a base name that are not part of it (C++ access, Swift/C# modifiers).
 _BASE_PREFIX_WORDS = frozenset({"public", "private", "protected", "internal", "virtual"})
-_BASE_NAME_RE = re.compile(r'[A-Za-z_$][\w$.]*(?:::[A-Za-z_$][\w$.]*)*')
+_BASE_NAME_RE = re.compile(r'(?:::)?[A-Za-z_$][\w$.]*(?:::[A-Za-z_$][\w$.]*)*')
+# After an `enum` head, the `:` names an underlying or raw type, not a base:
+# C# `enum E : byte`, C++ `enum class E : uint8_t`, Swift `enum E: Int`.
+# Kotlin's `enum class E : I` names an interface, which stays a base.
+_ENUM_RAW_TYPES = frozenset({
+    "Int", "Int8", "Int16", "Int32", "Int64", "UInt", "UInt8", "UInt16", "UInt32",
+    "UInt64", "String", "Character", "Double", "Float", "Float16", "Float80",
+    "Byte", "SByte", "Short", "UShort", "Long", "ULong", "Bool",
+})
 
 
 def _skip_group(text: str, i: int, open_ch: str, close_ch: str) -> int:
@@ -44,6 +62,26 @@ def _skip_group(text: str, i: int, open_ch: str, close_ch: str) -> int:
             if depth == 0:
                 return j + 1
     return -1
+
+
+def _strip_type_args(text: str) -> str:
+    """`B<int>` -> `B`, `B[T]` -> `B`: drop balanced <...> and [...] groups.
+
+    `extends` / `implements` stop at `<`, so a generic first base hid the
+    `with` mixin after it (`extends B<int> with M`). An unbalanced `<` is kept.
+    """
+    out: list[str] = []
+    i = 0
+    while i < len(text):
+        ch = text[i]
+        if ch in "<[":
+            end = _skip_group(text, i, ch, ">" if ch == "<" else "]")
+            if end > 0:
+                i = end
+                continue
+        out.append(ch)
+        i += 1
+    return "".join(out)
 
 
 def _split_top_level(text: str, seps: str) -> list[str]:
@@ -62,28 +100,40 @@ def _split_top_level(text: str, seps: str) -> list[str]:
 
 
 def _colon_bases(signature: str) -> list[str]:
-    """`Head : A, B<T>` — C#, Kotlin, Swift, C++ and Rust supertraits (#1284).
+    """`Head : A, B<T>` - C#, Kotlin, Swift, C++ and Rust supertraits (#1284).
 
-    The list ends at the body, a `where` clause, `;` or `=`. A `:` inside the
-    name's generics or primary constructor (`class C(val x: Int)`, `Box<T :
-    Comparable<T>>`) is skipped with the group, so it is never read as a base.
+    After the name, generics, a primary constructor, annotations, modifiers
+    (`final`, `private constructor`) and line breaks are skipped, so a `:`
+    inside them (`class C(val x: Int)`, `Box<T : Comparable<T>>`) is never
+    read as a base. The list ends at the body, a `where` clause, `;` or `=`,
+    and may run across lines.
     """
+    n = len(signature)
     for head in _DECL_HEAD_RE.finditer(signature):
         i = head.end()
-        while True:
-            while i < len(signature) and signature[i] in " \t":
+        while i < n:
+            ch = signature[i]
+            if ch in " \t\r\n":
                 i += 1
-            if i < len(signature) and signature[i] in "<(":
-                close = ">" if signature[i] == "<" else ")"
-                i = _skip_group(signature, i, signature[i], close)
+                continue
+            if ch in "<(":
+                i = _skip_group(signature, i, ch, ">" if ch == "<" else ")")
                 if i < 0:
                     return []
                 continue
+            if ch == "@":
+                m = _ANNOTATION_RE.match(signature, i)
+                if m:
+                    i = m.end()
+                    continue
+            m = _WORD_RE.match(signature, i)
+            if m and m.group(0) in _HEAD_SKIP_WORDS:
+                i = m.end()
+                continue
             break
-        if i >= len(signature) or signature[i] != ":" or signature.startswith("::", i):
+        if i >= n or signature[i] != ":" or signature.startswith("::", i):
             continue
         rest = signature[i + 1:]
-        # The base list stops at the first top-level terminator.
         cut = len(rest)
         depth = 0
         for j, ch in enumerate(rest):
@@ -91,17 +141,24 @@ def _colon_bases(signature: str) -> list[str]:
                 depth += 1
             elif ch in ">)]":
                 depth = max(depth - 1, 0)
-            elif depth == 0 and (ch in "{;=\n" or rest.startswith(" where ", j)):
+            elif depth == 0 and (ch in "{;=" or _WHERE_RE.match(rest, j)):
                 cut = j
                 break
+        is_enum = head.group("kw").startswith("enum")
         bases: list[str] = []
         for part in _split_top_level(rest[:cut], ",+"):
             words = part.split()
             while words and words[0] in _BASE_PREFIX_WORDS:
                 words.pop(0)
             m = _BASE_NAME_RE.match(" ".join(words))
-            if m:
-                bases.append(m.group(0))
+            if not m:
+                continue
+            name = m.group(0).lstrip(":")
+            if is_enum:
+                last = re.split(r'::|\.', name)[-1]
+                if last[:1].islower() or last in _ENUM_RAW_TYPES:
+                    continue
+            bases.append(name)
         return bases
     return []
 
@@ -109,22 +166,19 @@ def _colon_bases(signature: str) -> list[str]:
 def _parse_bases(signature: str) -> list[str]:
     """Extract base class / interface names from a class signature."""
     bases: list[str] = []
+    flat = _strip_type_args(signature)
 
     # extends Foo, Bar   (Scala/Dart: extends Foo with Bar)
-    m = _EXTENDS_RE.search(signature)
+    m = _EXTENDS_RE.search(flat)
     if m:
         bases += [n.strip() for n in _WITH_SPLIT_RE.split(m.group(1)) if n.strip()]
 
     # implements Foo, Bar
-    m = _IMPLEMENTS_RE.search(signature)
+    m = _IMPLEMENTS_RE.search(flat)
     if m:
         bases += [n.strip() for n in m.group(1).split(",") if n.strip()]
 
-    # class Foo : Bar, Baz<T>  — C#, Kotlin, Swift, C++, Rust (#1284)
-    if not bases:
-        bases += _colon_bases(signature)
-
-    # class Foo(Bar, Baz)  — Python
+    # class Foo(Bar, Baz)  - Python
     if not bases:
         m = _PAREN_BASES_RE.search(signature)
         if m:
@@ -132,7 +186,11 @@ def _parse_bases(signature: str) -> list[str]:
             # Filter out obviously non-class args (e.g. Generic[T], *args)
             bases += [c for c in candidates if re.match(r'^[A-Z][\w.]*$', c)]
 
-    # class Foo < Bar  — Ruby
+    # class Foo : Bar, Baz<T>  - C#, Kotlin, Swift, C++, Rust (#1284)
+    if not bases:
+        bases += _colon_bases(signature)
+
+    # class Foo < Bar  - Ruby
     if not bases:
         m = _RUBY_BASE_RE.search(signature)
         if m:

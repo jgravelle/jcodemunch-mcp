@@ -47,6 +47,19 @@ from jcodemunch_mcp.tools.get_class_hierarchy import _parse_bases
         ("class M < Foo::Bar\nend", ["Foo::Bar"]),
         ("class A extends B with T", ["B", "T"]),
         ("class A extends B with M implements I", ["B", "M", "I"]),
+        # Round 2 of review: stored shapes the first fix missed.
+        ("public record struct RS(int X) : I;", ["I"]),
+        ("enum class E(val v: Int) : I", ["I"]),
+        ("public class W\n    : Base, IFoo", ["Base", "IFoo"]),
+        ("public class M\n    : Base,\n      IFoo", ["Base", "IFoo"]),
+        ("class P private constructor(x: Int) : B(x)", ["B"]),
+        ("class Q @Inject constructor(x: Int) : B(x)", ["B"]),
+        ("class A final : public B", ["B"]),
+        ("struct N::S : C", ["C"]),
+        ("class G : public ::ns::B", ["ns::B"]),
+        ("enum Raw: String, Codable", ["Codable"]),
+        ("class A extends B<int> with M", ["B", "M"]),
+        ("class A extends B[T] with M", ["B", "M"]),
     ],
 )
 def test_every_stored_spelling_yields_its_bases(signature, expected):
@@ -64,22 +77,26 @@ def test_every_stored_spelling_yields_its_bases(signature, expected):
         "trait Base",
         "class B\nend",
         "def f(x: int) -> int",
-        "class A(B)",  # Python stays on its own branch
         "class Box<T : Comparable<T>>",  # a Kotlin bound inside <...> is not a base
+        # An enum's `:` names its underlying or raw type, not a base.
+        "public enum E : byte",
+        "enum class E : uint8_t",
+        "enum E : unsigned int",
+        "enum Raw: Int",
     ],
 )
 def test_no_base_list_means_no_bases(signature):
-    got = _parse_bases(signature)
-    if signature == "class A(B)":
-        assert got == ["B"]
-    else:
-        assert got == [], got
+    assert _parse_bases(signature) == [], signature
 
 
 @pytest.mark.parametrize(
     "signature, expected",
     [
         ("class Dog(Animal)", ["Animal"]),
+        ("class A(B)", ["B"]),
+        # Python's own `:` is read by the paren branch first, never as a list.
+        ("class Foo(Bar): pass", ["Bar"]),
+        ("class A<T extends X> extends B<T> implements C", ["B", "C"]),
         ("class Dog extends Animal implements IMovable", ["Animal", "IMovable"]),
         ("class Dog implements IAnimal, IMovable", ["IAnimal", "IMovable"]),
     ],
