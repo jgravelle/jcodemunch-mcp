@@ -166,3 +166,11 @@ def test_an_existing_declaration_keeps_its_id():
     syms = _symbols(src)
     assert ("function", "send") in syms
     assert syms[("function", "send")].id.endswith("::send#function")
+
+
+def test_the_parser_generation_names_the_new_symbols():
+    """Existing JS/TS indexes re-parse only when PARSER_GENERATION moves
+    (Standing lesson 08-05). `>=` so a renumber at merge time still passes."""
+    from jcodemunch_mcp.storage.index_store import PARSER_GENERATION
+
+    assert PARSER_GENERATION >= 27

@@ -1523,7 +1523,7 @@ def _walk_tree(
     if (
         node.type == "assignment_expression"
         and parent_symbol is None
-        and language in ("javascript", "typescript", "tsx")
+        and language in _JS_BINDING_LANGUAGES  # the set settling reads
     ):
         member_func = _extract_member_assignment_function(
             node, spec, source_bytes, filename, language
