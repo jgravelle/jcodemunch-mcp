@@ -4,7 +4,7 @@ import bisect
 import dataclasses
 import logging
 import re
-from dataclasses import replace
+from dataclasses import fields, replace
 from typing import Any, Callable, Optional
 from . import parse_budget
 from .grammar_pack import get_parser  # #608: records a grammar failure, then re-raises
@@ -995,6 +995,9 @@ def _parse_file_within_budget(content: str, filename: str, language: str, source
     # arrived. BEFORE disambiguation, or two `_` leave `~1`/`~2` ordinals behind.
     if language in _BLANK_IDENTIFIER_LANGUAGES:
         symbols = [s for s in symbols if not _is_discard_name(s.name, language)]
+
+    if language in _JS_BINDING_LANGUAGES:
+        symbols = _settle_assigned_members(symbols)
 
     # Disambiguate overloaded symbols + compute complexity in a single pass
     symbols = _disambiguate_and_compute_complexity(symbols, source_bytes)
@@ -4677,6 +4680,35 @@ def _js_at_module_scope(node) -> bool:
     return True
 
 
+class _AssignedMember(Symbol):
+    """A symbol `_extract_member_assignment_function` made, until
+    `_settle_assigned_members` decides whether it stays (L-263)."""
+
+
+def _settle_assigned_members(symbols: list[Symbol]) -> list[Symbol]:
+    """Drop an assignment symbol whose id a declaration already holds, and
+    every repeat of one, then return plain symbols.
+
+    `class Foo { bar(){} }` plus `Foo.prototype.bar = function(){}` would
+    otherwise share `Foo.bar#method`, and disambiguation would renumber the
+    declaration to `~1`: an existing id must never move because a later
+    assignment names it. A repeat (`if (x) o.f = ...; else o.f = ...`) keeps
+    the first, so no ordinal appears either.
+    """
+    taken = {s.id for s in symbols if not isinstance(s, _AssignedMember)}
+    out: list[Symbol] = []
+    for s in symbols:
+        parse_budget.checkpoint()
+        if not isinstance(s, _AssignedMember):
+            out.append(s)
+            continue
+        if s.id in taken:
+            continue
+        taken.add(s.id)
+        out.append(Symbol(**{f.name: getattr(s, f.name) for f in fields(Symbol)}))
+    return out
+
+
 def _extract_member_assignment_function(
     node, spec: LanguageSpec, source_bytes: bytes, filename: str, language: str
 ) -> Optional[Symbol]:
@@ -4738,7 +4770,7 @@ def _extract_member_assignment_function(
     signature = _build_signature(stmt, spec, source_bytes)
     docstring = _extract_docstring(stmt, spec, source_bytes)
     body = source_bytes[stmt.start_byte:stmt.end_byte]
-    return Symbol(
+    return _AssignedMember(
         id=make_symbol_id(filename, qualified_name, kind),
         file=filename,
         name=name,

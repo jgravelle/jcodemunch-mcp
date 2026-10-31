@@ -115,6 +115,51 @@ def test_an_assignment_inside_a_non_iife_function_is_not_a_symbol(src):
     assert not [k for k in syms if k[1] in ("res.locals.fmt", "o.run")], sorted(syms)
 
 
+@pytest.mark.parametrize(
+    "src, kept_id",
+    [
+        # Review round 1: an assignment naming an existing declaration's id
+        # renumbered the declaration to `~1`.
+        (
+            "class Foo { bar(){} }\nFoo.prototype.bar = function(){};\n",
+            "Foo.bar#method",
+        ),
+        ("class Foo { static bar(){} }\nFoo.bar = function(){};\n", "Foo.bar#method"),
+        (
+            "function f(){ return 1 }\nexports.f = function f(){ return 2 };\n",
+            "f#function",
+        ),
+        # The assignment first, the declaration after it.
+        (
+            "Foo.prototype.bar = function(){};\nclass Foo { bar(){} }\n",
+            "Foo.bar#method",
+        ),
+    ],
+)
+def test_an_assignment_never_moves_a_declarations_id(src, kept_id):
+    syms = parse_file(src, "lib/a.js", "javascript")
+    ids = [s.id for s in syms]
+    assert f"lib/a.js::{kept_id}" in ids, ids
+    assert not [i for i in ids if "~" in i], ids
+
+
+def test_a_repeated_assignment_keeps_the_first_and_no_ordinal():
+    src = "var o = {};\nif (x) {\n  o.f = function () { return 1; };\n} else {\n  o.f = () => 2;\n}\n"
+    syms = [
+        s
+        for s in parse_file(src, "lib/a.js", "javascript")
+        if s.qualified_name == "o.f"
+    ]
+    assert [(s.id, s.line) for s in syms] == [("lib/a.js::o.f#method", 3)], syms
+
+
+def test_a_settled_assignment_is_a_plain_symbol():
+    from jcodemunch_mcp.parser.symbols import Symbol
+
+    syms = parse_file("var o = {};\no.f = () => 1;\n", "lib/a.js", "javascript")
+    assert {type(s) for s in syms} == {Symbol}
+
+
 def test_an_existing_declaration_keeps_its_id():
     """`function send() {}` plus `res.send = send` must not move the function's id."""
     src = "function send(b) { return b; }\nvar res = {};\nres.send = send;\n"
