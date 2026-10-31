@@ -1,107 +1,11 @@
 {
- "explained": 12,
+ "explained": 13,
  "by_gate": {
-  "ranked_below_cutoff": 11,
+  "ranked_below_cutoff": 9,
+  "rule_preempted": 3,
   "no_lexical_overlap": 1
  },
  "explanations": [
-  {
-   "task": "which file contains the message connection refused",
-   "expected_action": "search_text",
-   "decision_path": [
-    "catalog",
-    "intent_rules",
-    "tokenize",
-    "lexical_fallback"
-   ],
-   "rule_matches": [],
-   "query_tokens": [
-    "file",
-    "contains",
-    "message",
-    "connection",
-    "refused"
-   ],
-   "score": 1.184,
-   "contributions": [
-    {
-     "token": "file",
-     "idf": 1.184,
-     "channel": "description",
-     "points": 1.184
-    },
-    {
-     "token": "contains",
-     "idf": 4.822,
-     "channel": "none",
-     "points": 0.0
-    },
-    {
-     "token": "message",
-     "idf": 4.822,
-     "channel": "none",
-     "points": 0.0
-    },
-    {
-     "token": "connection",
-     "idf": 4.822,
-     "channel": "none",
-     "points": 0.0
-    },
-    {
-     "token": "refused",
-     "idf": 4.822,
-     "channel": "none",
-     "points": 0.0
-    }
-   ],
-   "outcome": "ranked_below_cutoff",
-   "first_excluding_gate": "ranked_below_cutoff",
-   "experiment": "It scored but lost. This is the one gate where ranking work helps: compare the per-token contributions against the winner below.",
-   "rank": 36,
-   "cutoff": 3,
-   "top": [
-    "get_file_content",
-    "get_file_outline",
-    "get_file_risk"
-   ],
-   "beaten_by": {
-    "action": "get_file_content",
-    "score": 5.921,
-    "contributions": [
-     {
-      "token": "file",
-      "idf": 1.184,
-      "channel": "name_word+description",
-      "points": 5.921
-     },
-     {
-      "token": "contains",
-      "idf": 4.822,
-      "channel": "none",
-      "points": 0.0
-     },
-     {
-      "token": "message",
-      "idf": 4.822,
-      "channel": "none",
-      "points": 0.0
-     },
-     {
-      "token": "connection",
-      "idf": 4.822,
-      "channel": "none",
-      "points": 0.0
-     },
-     {
-      "token": "refused",
-      "idf": 4.822,
-      "channel": "none",
-      "points": 0.0
-     }
-    ]
-   }
-  },
   {
    "task": "list functions longer than 50 lines with deep nesting in the parser",
    "expected_action": "search_ast",
@@ -145,13 +49,13 @@
     },
     {
      "token": "than",
-     "idf": 3.03,
+     "idf": 2.742,
      "channel": "none",
      "points": 0.0
     },
     {
      "token": "50",
-     "idf": 4.822,
+     "idf": 4.129,
      "channel": "none",
      "points": 0.0
     },
@@ -214,13 +118,13 @@
      },
      {
       "token": "than",
-      "idf": 3.03,
+      "idf": 2.742,
       "channel": "none",
       "points": 0.0
      },
      {
       "token": "50",
-      "idf": 4.822,
+      "idf": 4.129,
       "channel": "none",
       "points": 0.0
      },
@@ -294,13 +198,13 @@
     },
     {
      "token": "than",
-     "idf": 3.03,
+     "idf": 2.742,
      "channel": "none",
      "points": 0.0
     },
     {
      "token": "50",
-     "idf": 4.822,
+     "idf": 4.129,
      "channel": "none",
      "points": 0.0
     },
@@ -332,7 +236,7 @@
    "outcome": "ranked_below_cutoff",
    "first_excluding_gate": "ranked_below_cutoff",
    "experiment": "It scored but lost. This is the one gate where ranking work helps: compare the per-token contributions against the winner below.",
-   "rank": 7,
+   "rank": 6,
    "cutoff": 3,
    "top": [
     "list_repos",
@@ -363,13 +267,13 @@
      },
      {
       "token": "than",
-      "idf": 3.03,
+      "idf": 2.742,
       "channel": "none",
       "points": 0.0
      },
      {
       "token": "50",
-      "idf": 4.822,
+      "idf": 4.129,
       "channel": "none",
       "points": 0.0
      },
@@ -421,19 +325,19 @@
    "contributions": [
     {
      "token": "need",
-     "idf": 3.435,
+     "idf": 3.723,
      "channel": "none",
      "points": 0.0
     },
     {
      "token": "function",
-     "idf": 3.03,
+     "idf": 2.519,
      "channel": "none",
      "points": 0.0
     },
     {
      "token": "plus",
-     "idf": 2.876,
+     "idf": 2.625,
      "channel": "none",
      "points": 0.0
     },
@@ -453,32 +357,32 @@
    "outcome": "ranked_below_cutoff",
    "first_excluding_gate": "ranked_below_cutoff",
    "experiment": "It scored but lost. This is the one gate where ranking work helps: compare the per-token contributions against the winner below.",
-   "rank": 14,
+   "rank": 16,
    "cutoff": 3,
    "top": [
     "get_parity_map",
     "search_ast",
-    "get_file_risk"
+    "check_references"
    ],
    "beaten_by": {
     "action": "get_parity_map",
-    "score": 6.466,
+    "score": 6.242,
     "contributions": [
      {
       "token": "need",
-      "idf": 3.435,
+      "idf": 3.723,
       "channel": "description",
-      "points": 3.435
+      "points": 3.723
      },
      {
       "token": "function",
-      "idf": 3.03,
+      "idf": 2.519,
       "channel": "description",
-      "points": 3.03
+      "points": 2.519
      },
      {
       "token": "plus",
-      "idf": 2.876,
+      "idf": 2.625,
       "channel": "none",
       "points": 0.0
      },
@@ -502,255 +406,48 @@
    "expected_action": "check_delete_safe",
    "decision_path": [
     "catalog",
-    "intent_rules",
-    "tokenize",
-    "lexical_fallback"
+    "intent_rules"
    ],
-   "rule_matches": [],
-   "query_tokens": [
-    "name",
-    "used",
-    "anywhere",
-    "all",
-    "drop"
+   "rule_matches": [
+    "search_text"
    ],
-   "score": 0.0,
-   "contributions": [
-    {
-     "token": "name",
-     "idf": 1.989,
-     "channel": "none",
-     "points": 0.0
-    },
-    {
-     "token": "used",
-     "idf": 4.129,
-     "channel": "none",
-     "points": 0.0
-    },
-    {
-     "token": "anywhere",
-     "idf": 4.129,
-     "channel": "none",
-     "points": 0.0
-    },
-    {
-     "token": "all",
-     "idf": 1.931,
-     "channel": "none",
-     "points": 0.0
-    },
-    {
-     "token": "drop",
-     "idf": 4.129,
-     "channel": "none",
-     "points": 0.0
-    }
-   ],
-   "outcome": "no_lexical_overlap",
-   "first_excluding_gate": "no_lexical_overlap",
-   "experiment": "The query shares no token with this action's name or description, so no reweighting can rescue it -- the score is structurally zero. Add the user's vocabulary to the description, or add a curated rule. This is the no-stemming residual disclosed in v1.108.213.",
-   "scored": true,
-   "rank": null,
-   "top": [
-    "find_unused_paths",
-    "get_group_contracts",
-    "get_parity_map"
-   ]
+   "outcome": "rule_preempted",
+   "first_excluding_gate": "rule_preempted",
+   "experiment": "A curated rule fired, and `route` runs the lexical fallback only when NO rule matches. This action was never scored. Do not tune weights for this miss -- either add a rule for the intent, or narrow the pattern that claimed it.",
+   "preempted_by": "search_text",
+   "scored": false
   },
   {
    "task": "is this name used anywhere at all or can I drop it",
    "expected_action": "check_references",
    "decision_path": [
     "catalog",
-    "intent_rules",
-    "tokenize",
-    "lexical_fallback"
+    "intent_rules"
    ],
-   "rule_matches": [],
-   "query_tokens": [
-    "name",
-    "used",
-    "anywhere",
-    "all",
-    "drop"
+   "rule_matches": [
+    "search_text"
    ],
-   "score": 4.129,
-   "contributions": [
-    {
-     "token": "name",
-     "idf": 1.989,
-     "channel": "none",
-     "points": 0.0
-    },
-    {
-     "token": "used",
-     "idf": 4.129,
-     "channel": "none",
-     "points": 0.0
-    },
-    {
-     "token": "anywhere",
-     "idf": 4.129,
-     "channel": "description",
-     "points": 4.129
-    },
-    {
-     "token": "all",
-     "idf": 1.931,
-     "channel": "none",
-     "points": 0.0
-    },
-    {
-     "token": "drop",
-     "idf": 4.129,
-     "channel": "none",
-     "points": 0.0
-    }
-   ],
-   "outcome": "ranked_below_cutoff",
-   "first_excluding_gate": "ranked_below_cutoff",
-   "experiment": "It scored but lost. This is the one gate where ranking work helps: compare the per-token contributions against the winner below.",
-   "rank": 5,
-   "cutoff": 3,
-   "top": [
-    "find_unused_paths",
-    "get_group_contracts",
-    "get_parity_map"
-   ],
-   "beaten_by": {
-    "action": "find_unused_paths",
-    "score": 6.193,
-    "contributions": [
-     {
-      "token": "name",
-      "idf": 1.989,
-      "channel": "none",
-      "points": 0.0
-     },
-     {
-      "token": "used",
-      "idf": 4.129,
-      "channel": "name_fragment",
-      "points": 6.193
-     },
-     {
-      "token": "anywhere",
-      "idf": 4.129,
-      "channel": "none",
-      "points": 0.0
-     },
-     {
-      "token": "all",
-      "idf": 1.931,
-      "channel": "none",
-      "points": 0.0
-     },
-     {
-      "token": "drop",
-      "idf": 4.129,
-      "channel": "none",
-      "points": 0.0
-     }
-    ]
-   }
+   "outcome": "rule_preempted",
+   "first_excluding_gate": "rule_preempted",
+   "experiment": "A curated rule fired, and `route` runs the lexical fallback only when NO rule matches. This action was never scored. Do not tune weights for this miss -- either add a rule for the intent, or narrow the pattern that claimed it.",
+   "preempted_by": "search_text",
+   "scored": false
   },
   {
    "task": "is this name used anywhere at all or can I drop it",
    "expected_action": "find_references",
    "decision_path": [
     "catalog",
-    "intent_rules",
-    "tokenize",
-    "lexical_fallback"
+    "intent_rules"
    ],
-   "rule_matches": [],
-   "query_tokens": [
-    "name",
-    "used",
-    "anywhere",
-    "all",
-    "drop"
+   "rule_matches": [
+    "search_text"
    ],
-   "score": 1.931,
-   "contributions": [
-    {
-     "token": "name",
-     "idf": 1.989,
-     "channel": "none",
-     "points": 0.0
-    },
-    {
-     "token": "used",
-     "idf": 4.129,
-     "channel": "none",
-     "points": 0.0
-    },
-    {
-     "token": "anywhere",
-     "idf": 4.129,
-     "channel": "none",
-     "points": 0.0
-    },
-    {
-     "token": "all",
-     "idf": 1.931,
-     "channel": "description",
-     "points": 1.931
-    },
-    {
-     "token": "drop",
-     "idf": 4.129,
-     "channel": "none",
-     "points": 0.0
-    }
-   ],
-   "outcome": "ranked_below_cutoff",
-   "first_excluding_gate": "ranked_below_cutoff",
-   "experiment": "It scored but lost. This is the one gate where ranking work helps: compare the per-token contributions against the winner below.",
-   "rank": 22,
-   "cutoff": 3,
-   "top": [
-    "find_unused_paths",
-    "get_group_contracts",
-    "get_parity_map"
-   ],
-   "beaten_by": {
-    "action": "find_unused_paths",
-    "score": 6.193,
-    "contributions": [
-     {
-      "token": "name",
-      "idf": 1.989,
-      "channel": "none",
-      "points": 0.0
-     },
-     {
-      "token": "used",
-      "idf": 4.129,
-      "channel": "name_fragment",
-      "points": 6.193
-     },
-     {
-      "token": "anywhere",
-      "idf": 4.129,
-      "channel": "none",
-      "points": 0.0
-     },
-     {
-      "token": "all",
-      "idf": 1.931,
-      "channel": "none",
-      "points": 0.0
-     },
-     {
-      "token": "drop",
-      "idf": 4.129,
-      "channel": "none",
-      "points": 0.0
-     }
-    ]
-   }
+   "outcome": "rule_preempted",
+   "first_excluding_gate": "rule_preempted",
+   "experiment": "A curated rule fired, and `route` runs the lexical fallback only when NO rule matches. This action was never scored. Do not tune weights for this miss -- either add a rule for the intent, or narrow the pattern that claimed it.",
+   "preempted_by": "search_text",
+   "scored": false
   },
   {
    "task": "what is the import chain from this file outward",
@@ -768,13 +465,13 @@
     "file",
     "outward"
    ],
-   "score": 3.116,
+   "score": 2.864,
    "contributions": [
     {
      "token": "import",
-     "idf": 1.931,
+     "idf": 1.731,
      "channel": "description",
-     "points": 1.931
+     "points": 1.731
     },
     {
      "token": "chain",
@@ -784,9 +481,9 @@
     },
     {
      "token": "file",
-     "idf": 1.184,
+     "idf": 1.133,
      "channel": "description",
-     "points": 1.184
+     "points": 1.133
     },
     {
      "token": "outward",
@@ -798,7 +495,7 @@
    "outcome": "ranked_below_cutoff",
    "first_excluding_gate": "ranked_below_cutoff",
    "experiment": "It scored but lost. This is the one gate where ranking work helps: compare the per-token contributions against the winner below.",
-   "rank": 16,
+   "rank": 19,
    "cutoff": 3,
    "top": [
     "get_signal_chains",
@@ -807,13 +504,13 @@
    ],
    "beaten_by": {
     "action": "get_signal_chains",
-    "score": 9.506,
+    "score": 9.306,
     "contributions": [
      {
       "token": "import",
-      "idf": 1.931,
+      "idf": 1.731,
       "channel": "description",
-      "points": 1.931
+      "points": 1.731
      },
      {
       "token": "chain",
@@ -823,7 +520,7 @@
      },
      {
       "token": "file",
-      "idf": 1.184,
+      "idf": 1.133,
       "channel": "none",
       "points": 0.0
      },
@@ -852,7 +549,7 @@
     "get",
     "touched"
    ],
-   "score": 4.37,
+   "score": 4.391,
    "contributions": [
     {
      "token": "often",
@@ -862,15 +559,15 @@
     },
     {
      "token": "file",
-     "idf": 1.184,
+     "idf": 1.133,
      "channel": "description",
-     "points": 1.184
+     "points": 1.133
     },
     {
      "token": "get",
-     "idf": 0.796,
+     "idf": 0.814,
      "channel": "name_word",
-     "points": 3.186
+     "points": 3.258
     },
     {
      "token": "touched",
@@ -891,7 +588,7 @@
    ],
    "beaten_by": {
     "action": "get_file_content",
-    "score": 9.903,
+    "score": 9.737,
     "contributions": [
      {
       "token": "often",
@@ -901,21 +598,159 @@
      },
      {
       "token": "file",
-      "idf": 1.184,
+      "idf": 1.133,
       "channel": "name_word+description",
-      "points": 5.921
+      "points": 5.665
      },
      {
       "token": "get",
-      "idf": 0.796,
+      "idf": 0.814,
       "channel": "name_word+description",
-      "points": 3.982
+      "points": 4.072
      },
      {
       "token": "touched",
       "idf": 3.723,
       "channel": "none",
       "points": 0.0
+     }
+    ]
+   }
+  },
+  {
+   "task": "which modules are too tangled together",
+   "expected_action": "get_architecture_metrics",
+   "decision_path": [
+    "catalog",
+    "intent_rules",
+    "tokenize",
+    "lexical_fallback"
+   ],
+   "rule_matches": [],
+   "query_tokens": [
+    "modules",
+    "too",
+    "tangled",
+    "together"
+   ],
+   "score": 0.0,
+   "contributions": [
+    {
+     "token": "modules",
+     "idf": 3.435,
+     "channel": "none",
+     "points": 0.0
+    },
+    {
+     "token": "too",
+     "idf": 3.435,
+     "channel": "none",
+     "points": 0.0
+    },
+    {
+     "token": "tangled",
+     "idf": 4.822,
+     "channel": "none",
+     "points": 0.0
+    },
+    {
+     "token": "together",
+     "idf": 4.129,
+     "channel": "none",
+     "points": 0.0
+    }
+   ],
+   "outcome": "no_lexical_overlap",
+   "first_excluding_gate": "no_lexical_overlap",
+   "experiment": "The query shares no token with this action's name or description, so no reweighting can rescue it -- the score is structurally zero. Add the user's vocabulary to the description, or add a curated rule. This is the no-stemming residual disclosed in v1.108.213.",
+   "scored": true,
+   "rank": null,
+   "top": [
+    "get_decorator_census",
+    "check_delete_safe",
+    "check_edit_safe"
+   ]
+  },
+  {
+   "task": "which modules are too tangled together",
+   "expected_action": "get_coupling_metrics",
+   "decision_path": [
+    "catalog",
+    "intent_rules",
+    "tokenize",
+    "lexical_fallback"
+   ],
+   "rule_matches": [],
+   "query_tokens": [
+    "modules",
+    "too",
+    "tangled",
+    "together"
+   ],
+   "score": 3.435,
+   "contributions": [
+    {
+     "token": "modules",
+     "idf": 3.435,
+     "channel": "description",
+     "points": 3.435
+    },
+    {
+     "token": "too",
+     "idf": 3.435,
+     "channel": "none",
+     "points": 0.0
+    },
+    {
+     "token": "tangled",
+     "idf": 4.822,
+     "channel": "none",
+     "points": 0.0
+    },
+    {
+     "token": "together",
+     "idf": 4.129,
+     "channel": "none",
+     "points": 0.0
+    }
+   ],
+   "outcome": "ranked_below_cutoff",
+   "first_excluding_gate": "ranked_below_cutoff",
+   "experiment": "It scored but lost. This is the one gate where ranking work helps: compare the per-token contributions against the winner below.",
+   "rank": 5,
+   "cutoff": 3,
+   "top": [
+    "get_decorator_census",
+    "check_delete_safe",
+    "check_edit_safe"
+   ],
+   "beaten_by": {
+    "action": "get_decorator_census",
+    "score": 4.129,
+    "contributions": [
+     {
+      "token": "modules",
+      "idf": 3.435,
+      "channel": "none",
+      "points": 0.0
+     },
+     {
+      "token": "too",
+      "idf": 3.435,
+      "channel": "none",
+      "points": 0.0
+     },
+     {
+      "token": "tangled",
+      "idf": 4.822,
+      "channel": "none",
+      "points": 0.0
+     },
+     {
+      "token": "together",
+      "idf": 4.129,
+      "channel": "description",
+      "points": 4.129
      }
     ]
    }
@@ -1032,7 +867,7 @@
     "file",
     "refresh"
    ],
-   "score": 5.921,
+   "score": 5.665,
    "contributions": [
     {
      "token": "edited",
@@ -1042,9 +877,9 @@
     },
     {
      "token": "file",
-     "idf": 1.184,
+     "idf": 1.133,
      "channel": "name_word+description",
-     "points": 5.921
+     "points": 5.665
     },
     {
      "token": "refresh",
@@ -1065,7 +900,7 @@
    ],
    "beaten_by": {
     "action": "get_file_risk",
-    "score": 10.05,
+    "score": 9.793,
     "contributions": [
      {
       "token": "edited",
@@ -1075,9 +910,9 @@
      },
      {
       "token": "file",
-      "idf": 1.184,
+      "idf": 1.133,
       "channel": "name_word+description",
-      "points": 5.921
+      "points": 5.665
      },
      {
       "token": "refresh",
@@ -1103,7 +938,7 @@
     "file",
     "refresh"
    ],
-   "score": 1.184,
+   "score": 1.133,
    "contributions": [
     {
      "token": "edited",
@@ -1113,9 +948,9 @@
     },
     {
      "token": "file",
-     "idf": 1.184,
+     "idf": 1.133,
      "channel": "description",
-     "points": 1.184
+     "points": 1.133
     },
     {
      "token": "refresh",
@@ -1127,7 +962,7 @@
    "outcome": "ranked_below_cutoff",
    "first_excluding_gate": "ranked_below_cutoff",
    "experiment": "It scored but lost. This is the one gate where ranking work helps: compare the per-token contributions against the winner below.",
-   "rank": 33,
+   "rank": 35,
    "cutoff": 3,
    "top": [
     "get_file_risk",
@@ -1136,7 +971,7 @@
    ],
    "beaten_by": {
     "action": "get_file_risk",
-    "score": 10.05,
+    "score": 9.793,
     "contributions": [
      {
       "token": "edited",
@@ -1146,9 +981,9 @@
      },
      {
       "token": "file",
-      "idf": 1.184,
+      "idf": 1.133,
       "channel": "name_word+description",
-      "points": 5.921
+      "points": 5.665
      },
      {
       "token": "refresh",

@@ -21,6 +21,7 @@ Failure here means re-run and commit the artifact, NOT edit the expectation:
 
     PYTHONPATH=src python benchmarks/route_recall/run_route_recall.py --write
     PYTHONPATH=src python benchmarks/route_recall/run_emitted_task.py --write
+    PYTHONPATH=src python benchmarks/route_recall/explain_misses.py --write
 
 ⚠ A red here on a PR that only touched tool descriptions is the signal working.
 Descriptions are the router's input; changing them changes routing, and the
@@ -67,19 +68,57 @@ def _diff(fresh: dict, committed: dict) -> list[str]:
     return out
 
 
+def _row_drift(fresh: dict, committed: dict) -> list[str]:
+    """Every key beside the summary, row by row (LEDGER L-266).
+
+    ⚠⚠ The summary alone let two artifacts go stale: `emitted_task_results.json`
+    moved 30 of 40 rows and `explanations.json` moved its gate counts while every
+    summary check here stayed green, because a row can change without moving an
+    aggregate. A failure names the key and the first rows that differ.
+    """
+    out = []
+    for key in sorted(set(fresh) | set(committed)):
+        if key == "summary":
+            continue
+        a, b = committed.get(key, "<absent>"), fresh.get(key, "<absent>")
+        if a == b:
+            continue
+        if isinstance(a, list) and isinstance(b, list):
+            moved = [i for i in range(max(len(a), len(b)))
+                     if i >= len(a) or i >= len(b) or a[i] != b[i]]
+            out.append(
+                f"  {key}: {len(moved)} of {max(len(a), len(b))} rows differ "
+                f"(first: {moved[:5]}; committed {len(a)} rows, fresh {len(b)})"
+            )
+        else:
+            out.append(f"  {key}:\n      committed {a}\n      fresh     {b}")
+    return out
+
+
+def _assert_fresh(out: Path, name: str, rerun: str) -> None:
+    fresh = json.loads(out.read_text(encoding="utf-8"))
+    path = BENCH / name
+    if not path.is_file():
+        pytest.skip(f"{name} not present (sdist checkout)")
+    committed = json.loads(path.read_text(encoding="utf-8"))
+    drift = []
+    if "summary" in committed or "summary" in fresh:
+        drift += _diff(fresh.get("summary", {}), committed.get("summary", {}))
+    drift += _row_drift(fresh, committed)
+    assert not drift, (
+        f"benchmarks/route_recall/{name} is stale: the harness and the "
+        f"committed artifact disagree. Re-run it, do not edit this test:\n"
+        f"    {rerun}\n" + "\n".join(drift)
+    )
+
+
 def test_the_human_corpus_artifact_is_fresh(tmp_path, monkeypatch, capsys):
     module = _load("run_route_recall.py")
     out = tmp_path / "results.json"
     monkeypatch.setattr(sys, "argv", ["run_route_recall.py", "--write", "--out", str(out)])
     assert module.main() == 0
     capsys.readouterr()
-    fresh = json.loads(out.read_text(encoding="utf-8"))["summary"]
-    drift = _diff(fresh, _committed("results.json"))
-    assert not drift, (
-        "benchmarks/route_recall/results.json is stale — the harness and the "
-        "committed artifact disagree. Re-run it, do not edit this test:\n"
-        + "\n".join(drift)
-    )
+    _assert_fresh(out, "results.json", "run_route_recall.py --write")
 
 
 def test_the_holdout_artifact_is_fresh(tmp_path, monkeypatch, capsys):
@@ -107,12 +146,11 @@ def test_the_holdout_artifact_is_fresh(tmp_path, monkeypatch, capsys):
     ])
     assert module.main() == 0
     capsys.readouterr()
-    fresh = json.loads(out.read_text(encoding="utf-8"))["summary"]
-    drift = _diff(fresh, _committed("holdout_results.json"))
-    assert not drift, (
-        "benchmarks/route_recall/holdout_results.json is stale — the harness "
-        "and the committed artifact disagree. Re-run it, do not edit this "
-        "test:\n" + "\n".join(drift)
+    _assert_fresh(
+        out,
+        "holdout_results.json",
+        "run_route_recall.py --write --corpus benchmarks/route_recall/holdout.json "
+        "--out benchmarks/route_recall/holdout_results.json",
     )
 
 
@@ -123,13 +161,22 @@ def test_the_emitted_task_artifact_is_fresh(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(sys, "argv", ["run_emitted_task.py", "--write"])
     assert module.main() == 0
     capsys.readouterr()
-    fresh = json.loads(out.read_text(encoding="utf-8"))["summary"]
-    drift = _diff(fresh, _committed("emitted_task_results.json"))
-    assert not drift, (
-        "benchmarks/route_recall/emitted_task_results.json is stale — the "
-        "harness and the committed artifact disagree. Re-run it, do not edit "
-        "this test:\n" + "\n".join(drift)
+    _assert_fresh(out, "emitted_task_results.json", "run_emitted_task.py --write")
+
+
+def test_the_explanations_artifact_is_fresh(tmp_path, monkeypatch, capsys):
+    """`explanations.json` was gated by nothing (LEDGER L-266): its gate counts
+    moved under description edits while every other artifact here was checked.
+    It explains the committed `results.json`, which the test above keeps fresh."""
+    module = _load("explain_misses.py")
+    out = tmp_path / "explanations.json"
+    monkeypatch.setattr(module, "OUT", out)
+    monkeypatch.setattr(
+        sys, "argv", ["explain_misses.py", "--write", "--results", str(BENCH / "results.json")]
     )
+    assert module.main() == 0
+    capsys.readouterr()
+    _assert_fresh(out, "explanations.json", "explain_misses.py --write")
 
 
 def test_every_reported_recall_has_a_k_matched_floor():
