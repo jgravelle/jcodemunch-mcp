@@ -4,7 +4,7 @@ import bisect
 import dataclasses
 import logging
 import re
-from dataclasses import fields, replace
+from dataclasses import replace
 from typing import Any, Callable, Optional
 from . import parse_budget
 from .grammar_pack import get_parser  # #608: records a grammar failure, then re-raises
@@ -4705,7 +4705,11 @@ def _settle_assigned_members(symbols: list[Symbol]) -> list[Symbol]:
         if s.id in taken:
             continue
         taken.add(s.id)
-        out.append(Symbol(**{f.name: getattr(s, f.name) for f in fields(Symbol)}))
+        # `_AssignedMember` adds no fields, so the object becomes a plain
+        # Symbol in place: no copy, and no attribute read by a computed name
+        # for the parser's unread-field scan to lose track of (#757).
+        s.__class__ = Symbol
+        out.append(s)
     return out
 
 
