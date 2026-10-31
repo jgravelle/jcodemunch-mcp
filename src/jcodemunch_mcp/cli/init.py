@@ -621,13 +621,25 @@ def with_scoped_config(fn):
     """
     @functools.wraps(fn)
     def _wrapped(*args, **kwargs):
-        with config_loaded_for_init():
+        with config_loaded_for_init(create_missing=not _repo_only(kwargs)):
             return fn(*args, **kwargs)
     return _wrapped
 
 
+def _repo_only(kwargs: dict) -> bool:
+    """True for `init --project` without `--policy`: it writes only the repo.
+
+    Such a run must not create `config.jsonc` in the storage folder, so the
+    config is read if it exists and never created. `--policy` still loads it
+    normally: the policy text depends on the user's tool surface (#397).
+    """
+    return bool(kwargs.get("project") or kwargs.get("project_all")) and not kwargs.get(
+        "policy"
+    )
+
+
 @contextlib.contextmanager
-def config_loaded_for_init():
+def config_loaded_for_init(*, create_missing: bool = True):
     """Load the config for the duration of a block, then put it back.
 
     ``load_config`` replaces process-global state. ``init`` is normally a
@@ -645,7 +657,7 @@ def config_loaded_for_init():
     saved = dict(_cfg._GLOBAL_CONFIG)
     saved_projects = dict(_cfg._PROJECT_CONFIGS)
     try:
-        ensure_config_loaded()
+        ensure_config_loaded(create_missing=create_missing)
         yield
     finally:
         _cfg._GLOBAL_CONFIG.clear()
@@ -654,7 +666,7 @@ def config_loaded_for_init():
         _cfg._PROJECT_CONFIGS.update(saved_projects)
 
 
-def ensure_config_loaded() -> None:
+def ensure_config_loaded(*, create_missing: bool = True) -> None:
     """Materialise and load the global config before generating any guidance.
 
     ``init`` used to read config values without ever calling ``load_config``, so
@@ -674,7 +686,7 @@ def ensure_config_loaded() -> None:
     """
     try:
         from ..config import load_config
-        load_config(os.environ.get("CODE_INDEX_PATH"))
+        load_config(os.environ.get("CODE_INDEX_PATH"), create_missing=create_missing)
     except Exception:
         logger.debug("could not load config before generating policy", exc_info=True)
 
@@ -1388,8 +1400,6 @@ def _licence_key_configured() -> bool:
 UPGRADE_REFRESH_ENV = "_JCODEMUNCH_UPGRADE_REFRESH"
 
 
-@with_scoped_config
-
 def _run_init_project(
     *, all_files: bool, policy: bool, dry_run: bool, backup: bool
 ) -> int:
@@ -1431,6 +1441,7 @@ def _run_init_project(
     return 2 if result.refused else 0
 
 
+@with_scoped_config
 def run_init(
     *,
     clients: Optional[list[str]] = None,
@@ -1486,6 +1497,10 @@ def run_init(
     backup = not no_backup
     interactive = not yes and sys.stdin.isatty()
     hooks = bool(hooks)
+
+    if (project or project_all) and remove_guidance:
+        print("--project writes only the repository; run --remove-guidance on its own.")
+        return 2
 
     if remove_guidance:
         print("\njCodeMunch init -- removing model-facing hooks and policy blocks\n")

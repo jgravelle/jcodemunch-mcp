@@ -360,7 +360,9 @@ repository root: `.mcp.json` (Claude Code, VS Code, Copilot CLI),
 the repo already uses that client (`--project-all` writes them all). It
 merges into existing files, keeps an existing `jcodemunch` entry as
 written, writes nothing under your home folder, and prints the `git add`
-line. Each entry runs `uvx jcodemunch-mcp`, unpinned; pin a version by
+line. A changed file's backup (`<file>.bak`) sits beside it; leave it out of
+the commit. Add `--policy` to also write the project CLAUDE.md, which reads
+your jcodemunch config and creates it on a first install. Each entry runs `uvx jcodemunch-mcp`, unpinned; pin a version by
 editing one line. Codex is not covered: it needs a path to the installed
 binary, which differs per machine. Committing these files means each
 teammate's client may start the server when they open the repo; most

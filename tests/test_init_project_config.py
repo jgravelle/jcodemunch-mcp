@@ -179,18 +179,92 @@ def test_init_project_refuses_outside_a_repo(tmp_path, monkeypatch, capsys):
     assert not (lone / ".mcp.json").exists()
 
 
-def test_init_project_writes_only_the_repo(repo, tmp_path, monkeypatch, capsys):
-    """Nothing under home: no client registration, hooks or policy."""
-    from jcodemunch_mcp.cli import init
-
+def _fake_home(tmp_path, monkeypatch):
     home = tmp_path / "home"
     home.mkdir()
     monkeypatch.setenv("HOME", str(home))
     monkeypatch.setenv("USERPROFILE", str(home))
     monkeypatch.setattr(Path, "home", classmethod(lambda cls: home))
+    # The storage folder must sit inside the home the test inspects, or a
+    # config.jsonc written there escapes the check (review round 1).
+    monkeypatch.setenv("CODE_INDEX_PATH", str(home / ".code-index"))
+    return home
+
+
+def test_init_project_writes_only_the_repo(repo, tmp_path, monkeypatch, capsys):
+    """Nothing under home: no client registration, hooks, policy or config."""
+    from jcodemunch_mcp.cli import init
+
+    home = _fake_home(tmp_path, monkeypatch)
     monkeypatch.chdir(repo)
     assert init.run_init(project=True, yes=True, no_backup=True) == 0
     assert list(home.rglob("*")) == []
     assert (repo / ".mcp.json").is_file()
     out = capsys.readouterr().out
     assert "git add" in out and ".mcp.json" in out
+
+
+def test_plain_init_still_loads_its_config():
+    """`run_init` keeps the scoped config load that #397 added; inserting
+    the project helper above it once moved the decorator off it."""
+    from jcodemunch_mcp.cli import init
+
+    assert hasattr(init.run_init, "__wrapped__")
+    assert not hasattr(init._run_init_project, "__wrapped__")
+
+
+def test_plain_init_creates_the_config_and_project_does_not(
+    repo, tmp_path, monkeypatch
+):
+    """The behavioral half of the test above: only a repo-only run reads the
+    config without creating it."""
+    from jcodemunch_mcp.cli import init
+
+    _fake_home(tmp_path, monkeypatch)
+    calls = []
+    real = init.ensure_config_loaded
+    monkeypatch.setattr(
+        init,
+        "ensure_config_loaded",
+        lambda **kw: calls.append(kw.get("create_missing", True)) or real(**kw),
+    )
+    monkeypatch.chdir(repo)
+    init.run_init(project=True, yes=True, dry_run=True)
+    init.run_init(clients=[], yes=True, dry_run=True, claude_md="skip")
+    assert calls == [False, True]
+
+
+def test_project_and_remove_guidance_together_are_refused(repo, monkeypatch):
+    from jcodemunch_mcp.cli import init
+
+    monkeypatch.chdir(repo)
+    called = []
+    monkeypatch.setattr(init, "remove_guidance_lines", lambda **kw: called.append(1) or [])
+    assert init.run_init(project=True, remove_guidance=True, yes=True) != 0
+    assert called == [] and not (repo / ".mcp.json").exists()
+
+
+def test_no_written_file_carries_an_environment_variable(repo):
+    _install(repo, all_files=True)
+    for path in repo.rglob("*"):
+        if path.is_file() and ".git" not in path.parts:
+            text = path.read_text(encoding="utf-8")
+            for token in ("$", "%", "{env:"):
+                assert token not in text, (path, token)
+
+
+def test_a_file_saved_with_a_byte_order_mark_is_merged(repo):
+    (repo / ".mcp.json").write_bytes(b"\xef\xbb\xbf" + b'{"mcpServers": {"x": {}}}')
+    result = _install(repo)
+    assert ".mcp.json" in result.changed
+    assert set(_read(repo, ".mcp.json")["mcpServers"]) == {"x", "jcodemunch"}
+
+
+def test_the_report_names_the_backups_and_leaves_them_out_of_git_add(repo):
+    (repo / ".mcp.json").write_text("{}", encoding="utf-8")
+    result = _install(repo)
+    assert result.backups == [".mcp.json.bak"]
+    lines = pc.report_lines(result)
+    add = next(line for line in lines if "git add" in line)
+    assert ".bak" not in add
+    assert any(".mcp.json.bak" in line and "not for commit" in line for line in lines)

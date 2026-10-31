@@ -86,6 +86,7 @@ class ProjectResult:
     skipped: list[str] = field(default_factory=list)  # client not used here
     refused: list[str] = field(default_factory=list)  # file does not parse
     manual: list[str] = field(default_factory=list)  # JSONC: add by hand
+    backups: list[str] = field(default_factory=list)  # <file>.bak written
 
 
 def repo_root(start: Optional[Path] = None) -> Optional[Path]:
@@ -116,7 +117,7 @@ def _load(path: Path) -> tuple[Optional[dict], str]:
     if not path.exists():
         return {}, "missing"
     try:
-        text = path.read_text(encoding="utf-8")
+        text = path.read_text(encoding="utf-8-sig")
     except OSError:
         logger.debug("cannot read %s", path, exc_info=True)
         return None, "bad"
@@ -186,6 +187,7 @@ def install_project_config(
         new[spec.key] = {**servers, SERVER_NAME: dict(spec.entry)}
         if backup and path.exists():
             shutil.copy2(path, backup_path(path))
+            result.backups.append(backup_path(path).relative_to(root).as_posix())
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(new, indent=2) + "\n", encoding="utf-8")
     return result
@@ -207,6 +209,11 @@ def report_lines(result: ProjectResult, *, dry_run: bool = False) -> list[str]:
         lines.append(
             "  Not written (the repo does not use the client; --project-all writes them): "
             + ", ".join(result.skipped)
+        )
+    if result.backups:
+        lines.append(
+            "  Backups of the files changed (not for commit): "
+            + ", ".join(result.backups)
         )
     if result.changed and not dry_run:
         lines.append("")
