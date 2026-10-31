@@ -108,7 +108,9 @@ def verify_package_integrity() -> None:
 
 # --- Path Traversal & Symlink Protection ---
 
-def validate_path(root: Path, target: Path) -> bool:
+def validate_path(
+    root: Path, target: Path, *, root_resolved: Optional[str] = None
+) -> bool:
     """Check that target path resolves within root directory.
 
     Prevents path traversal attacks (e.g., ../../etc/passwd) and
@@ -118,13 +120,17 @@ def validate_path(root: Path, target: Path) -> bool:
     Args:
         root: The trusted root directory (must already be resolved).
         target: The path to validate.
+        root_resolved: ``str(root.resolve())`` when the caller already has
+            it. A caller checking every file of a walk passes its cached
+            value, the way ``resolve_within`` takes ``base_resolved``. The
+            target is still resolved on every call, so the rule is unchanged.
 
     Returns:
         True if target is inside root, False otherwise.
     """
     try:
         resolved = target.resolve()
-        resolved_root = root.resolve()
+        resolved_root = root_resolved if root_resolved is not None else str(root.resolve())
         # Use os.path for reliable prefix check (handles trailing sep)
         return os.path.commonpath([resolved_root, resolved]) == str(resolved_root)
     except (OSError, ValueError):

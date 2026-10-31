@@ -2893,8 +2893,12 @@ def index_folder(
         def _drop(reason: str) -> None:
             post_discovery_drops[reason] = post_discovery_drops.get(reason, 0) + 1
 
+        # The root resolved once for the whole loop. `validate_path` resolved
+        # it again per file: 24k redundant system calls on a large repo
+        # (BACKLOG 31). Each file is still resolved and checked.
+        _folder_resolved = str(folder_path.resolve())
         for file_path in source_files:
-            if not validate_path(folder_path, file_path):
+            if not validate_path(folder_path, file_path, root_resolved=_folder_resolved):
                 _drop("outside_root")
                 continue
             try:
