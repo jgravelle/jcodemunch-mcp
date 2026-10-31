@@ -339,7 +339,7 @@ class _ContentCache:
         self._owner = owner
         self._repo = repo_name
         # With the index, a read checks the file against it instead of opening
-        # a SQLite connection per file (L-262 review: 299 reads cost 0.62 s).
+        # a SQLite connection per file (L-262 review round 4 measured that as most of the call).
         self._index = index
         self._content: dict[str, Optional[str]] = {}
         self._lines: dict[str, list[str]] = {}
