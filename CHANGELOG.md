@@ -2,6 +2,21 @@
 
 ## [Unreleased]
 
+### Changed - the first search on a large index spends half as long tokenizing
+
+The first `search_symbols` call in a process builds the BM25 table, which
+tokenizes the name, signature, summary and docstring of every symbol. Each
+occurrence of a word re-ran its stem, its abbreviation lookup and its CJK check,
+although the result depends on the word alone. On a 50,373-symbol index the stem
+function ran 922,862 times for 9,633 distinct words, and the cold first search
+took 4.2 s. Each word's expansion is now computed once per process and kept in a
+bounded cache, and the same first search takes 2.2 s. The tokenizer's output is
+unchanged token for token: a test compares it against a frozen copy of the old
+code, and full rankings for 12 queries over two repositories are identical
+before and after.
+
+## [1.108.403] - 2026-10-30 - a file pattern means the same thing in every tool, and the rate_limit config key turns the limit on
+
 ### Fixed - the CLI's license link points at the current site
 
 When a team feature needed a license, the CLI and the `get_license` field of
@@ -94,19 +109,6 @@ also removes the first-run download. Its `uvx` example sets
 default (Codex's MCP docs). Measured on 2026-10-28 (Windows, home
 broadband, `uvx` alone rather than inside Codex): a cold run filled 251 MB of
 uv cache and replied in 7.0 s; cached runs replied in 2.6 s and 2.5 s.
-
-### Changed - the first search on a large index spends half as long tokenizing
-
-The first `search_symbols` call in a process builds the BM25 table, which
-tokenizes the name, signature, summary and docstring of every symbol. Each
-occurrence of a word re-ran its stem, its abbreviation lookup and its CJK check,
-although the result depends on the word alone. On a 50,373-symbol index the stem
-function ran 922,862 times for 9,633 distinct words, and the cold first search
-took 4.2 s. Each word's expansion is now computed once per process and kept in a
-bounded cache, and the same first search takes 2.2 s. The tokenizer's output is
-unchanged token for token: a test compares it against a frozen copy of the old
-code, and full rankings for 12 queries over two repositories are identical
-before and after.
 
 ## [1.108.402] - 2026-10-28 - the server instructions name the tools in the first 512 characters, and tool names hold across 1.x
 
