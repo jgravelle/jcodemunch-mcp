@@ -46,6 +46,8 @@ measure rose from 0.388 to 0.429 (held-out: 0.313 to 0.322). Four individual
 queries, two in each corpus, drop one place. `route` ranks are unchanged in
 both.
 
+## [1.108.403] - 2026-10-30 - a file pattern means the same thing in every tool, and the rate_limit config key turns the limit on
+
 ### Fixed - the CLI's license link points at the current site
 
 When a team feature needed a license, the CLI and the `get_license` field of
