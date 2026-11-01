@@ -60,7 +60,7 @@ Measured with `tiktoken cl100k_base` across three public repos pinned to upstrea
 | expressjs/express | 186 | 989 | 15,724 avg | 990 avg | **15.9x** | 156.1x |
 | fastapi/fastapi | 1,186 | 13,699 | 85,296 avg | 2,556 avg | **33.4x** | 322.9x |
 | gin-gonic/gin | 98 | 1,822 | 31,975 avg | 1,481 avg | **21.6x** | 102.5x |
-| **Grand total (15 task-runs)** | | | **664,975** | **25,132** | **26.5x** | 225.2x |
+| **Grand total, pooled (15 task-runs)** | | | **664,975** | **25,132** | 26.5x | 225.2x |
 
 **Against a grep-and-read agent: 94.5% fewer tokens per lookup on average.** No single multiple describes every query; the per-repo rows above are the spread. Against read-all the figure is 99.6%, but nobody pays that ceiling. Compact [MUNCH](SPEC_MUNCH.md) wire encoding then trims a median 45.5% more bytes off responses.
 

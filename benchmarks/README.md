@@ -52,7 +52,7 @@ Full per-task tables are in [`results.md`](results.md).
 | expressjs/express | 186 | 15,724 avg | 154,569 | 990 avg | **15.9x** | 156.1x |
 | fastapi/fastapi | 1,186 | 85,296 avg | 825,326 | 2,556 avg | **33.4x** | 322.9x |
 | gin-gonic/gin | 98 | 31,975 avg | 151,842 | 1,481 avg | **21.6x** | 102.5x |
-| **Grand total (15 task-runs)** | — | **664,975** | **5,658,685** | **25,132** | **26.5x** | **225.2x** |
+| **Grand total, pooled (15 task-runs)** | — | **664,975** | **5,658,685** | **25,132** | 26.5x | 225.2x |
 
 **94.5% fewer tokens per lookup on average** against grep-and-read. The grand total
 row pools all 15 lookups, so its 26.5x weighs the largest grep baselines most;

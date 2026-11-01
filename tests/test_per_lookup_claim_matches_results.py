@@ -50,6 +50,23 @@ def _mean_and_pooled():
     return text, rows, mean, pooled
 
 
+def _pooled_ratio():
+    _, rows = _lookups()
+    return sum(g for g, _ in rows) / sum(j for _, j in rows)
+
+
+def _pooled_headlines(text, pooled, ratio):
+    """Pooled figures stated as a headline: percent or ratio, prose or table."""
+    flat = re.sub(r"\s+", " ", text.replace("**", ""))
+    p, r = f"{pooled:.1f}%", f"{ratio:.1f}x"
+    found = [h for h in (f"{p} average", f"{p} fewer", f"{p} reduction", f"{r} fewer", f"{r} less")
+             if h in flat]
+    for line in text.splitlines():
+        if line.startswith("|") and (p in line or r in line) and "pooled" not in line.lower():
+            found.append(line.strip())
+    return found
+
+
 def test_results_md_holds_fifteen_lookups():
     _, rows = _lookups()
     assert len(rows) == 15, len(rows)
@@ -73,10 +90,19 @@ def test_every_quoted_claim_equals_the_mean(page):
     quoted = _CLAIM.findall(text)
     assert quoted, f"{page.name} no longer states the per-lookup claim"
     assert set(quoted) == {f"{mean:.1f}"}, quoted
-    flat = re.sub(r"\s+", " ", text)
-    p = f"{pooled:.1f}%"
-    for headline in (f"{p} average", f"{p} fewer", f"{p} reduction"):
-        assert headline not in flat, f"{page.name} quotes the pooled figure as a headline: {headline!r}"
+    found = _pooled_headlines(text, pooled, _pooled_ratio())
+    assert not found, f"{page.name} states the pooled figure unlabelled: {found}"
+
+
+def test_the_pooled_guard_catches_each_form():
+    _, _, _, pooled = _mean_and_pooled()
+    ratio = _pooled_ratio()
+    p, r = f"{pooled:.1f}%", f"{ratio:.1f}x"
+    for bad in (f"**{r} fewer tokens** than grep", f"{p} fewer tokens", f"a {p} reduction",
+                f"| **Grand total (15 task-runs)** | 1 | 2 | **{r}** |"):
+        assert _pooled_headlines(bad, pooled, ratio), bad
+    for ok in (f"| Grand total, pooled | 1 | {r} |", f"the totals are 1 -> 2 tokens ({p}, {r}); pooled"):
+        assert not _pooled_headlines(ok, pooled, ratio), ok
 
 
 @pytest.mark.skipif(find_spec("tiktoken") is None, reason="tiktoken not installed")
