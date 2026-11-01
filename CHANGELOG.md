@@ -2,6 +2,27 @@
 
 ## [Unreleased]
 
+### Fixed - agents sharing one index no longer make each other reload it
+
+A running server keeps the loaded index, and the embedding matrix, in memory,
+keyed by a stamp over the index file and its SQLite sidecars, so that a write
+made by another process is noticed. Opening the database creates an empty
+`-wal` file when none exists, and every read writes the `-shm` file. Both
+stamps counted those as writes. So a second server, a sub-agent or the
+`watch-all` service that only read the index made every other process reload
+all of it, and their reloads did the same back. Measured with 2 to 8 processes
+searching one 34,225-symbol index and nothing writing to it, every search took
+3.0 to 3.7 s (median); one process alone answered in 0.5 ms.
+
+A `-wal` file now counts only when it holds a commit, by size and modification
+time, and `-shm` never counts. One helper holds that rule for both stamps.
+Eight processes on the same index went from 48 searches in 20 seconds to
+36,867 (median 2.4 ms). A real write is still noticed;
+`tests/test_a_reader_does_not_invalidate_other_processes.py` checks both
+directions.
+
+## [1.108.403] - 2026-10-30 - a file pattern means the same thing in every tool, and the rate_limit config key turns the limit on
+
 ### Fixed - the CLI's license link points at the current site
 
 When a team feature needed a license, the CLI and the `get_license` field of
@@ -94,25 +115,6 @@ also removes the first-run download. Its `uvx` example sets
 default (Codex's MCP docs). Measured on 2026-10-28 (Windows, home
 broadband, `uvx` alone rather than inside Codex): a cold run filled 251 MB of
 uv cache and replied in 7.0 s; cached runs replied in 2.6 s and 2.5 s.
-
-### Fixed - agents sharing one index no longer make each other reload it
-
-A running server keeps the loaded index, and the embedding matrix, in memory,
-keyed by a stamp over the index file and its SQLite sidecars, so that a write
-made by another process is noticed. Opening the database creates an empty
-`-wal` file when none exists, and every read writes the `-shm` file. Both
-stamps counted those as writes. So a second server, a sub-agent or the
-`watch-all` service that only read the index made every other process reload
-all of it, and their reloads did the same back. Measured with 2 to 8 processes
-searching one 34,225-symbol index and nothing writing to it, every search took
-3.0 to 3.7 s (median); one process alone answered in 0.5 ms.
-
-A `-wal` file now counts only when it holds a commit, by size and modification
-time, and `-shm` never counts. One helper holds that rule for both stamps.
-Eight processes on the same index went from 48 searches in 20 seconds to
-36,867 (median 2.4 ms). A real write is still noticed;
-`tests/test_a_reader_does_not_invalidate_other_processes.py` checks both
-directions.
 
 ## [1.108.402] - 2026-10-28 - the server instructions name the tools in the first 512 characters, and tool names hold across 1.x
 
