@@ -3136,7 +3136,7 @@ def _build_tools_list(
                     },
                     "all_time": {
                         "type": "boolean",
-                        "description": "Ignore the window and analyze the full ledger.",
+                        "description": "Analyze the whole ledger instead of only the last window_days days.",
                         "default": False,
                     },
                     "apply_weights": {
