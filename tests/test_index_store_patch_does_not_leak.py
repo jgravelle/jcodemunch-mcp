@@ -102,6 +102,9 @@ def test_a_repair_that_meets_a_live_patch_hands_out_the_real_class(
         assert home.IndexStore is REAL
     finally:
         sys.modules.pop(_PROBE, None)
+        # A broken repair can write the fake onto the home module with plain
+        # setattr; put it back so a failure here cannot fail later tests.
+        home.IndexStore = REAL
 
 
 def test_the_reported_sequence_passes_in_one_process():
