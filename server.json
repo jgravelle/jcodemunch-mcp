@@ -4,13 +4,13 @@
   "title": "jCodeMunch MCP",
   "description": "Gives AI coding agents the function they asked for, not the whole file. Runs locally, 70+ languages.",
   "websiteUrl": "https://jcodemunch.com",
-  "version": "1.108.402",
+  "version": "1.108.403",
   "packages": [
     {
       "registryType": "pypi",
       "identifier": "jcodemunch-mcp",
       "runtimeHint": "uvx",
-      "version": "1.108.402",
+      "version": "1.108.403",
       "transport": {
         "type": "stdio"
       }
