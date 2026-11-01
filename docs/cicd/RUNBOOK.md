@@ -91,7 +91,7 @@ uvx --from twine twine upload dist-ci\jcodemunch_mcp-X.Y.Z*
 ```
 
 then the post-publish smoke from PyPI in a fresh venv
-(`scripts\handshake.py --expect-version X.Y.Z --command <venv>\Scripts\jcodemunch-mcp.exe --fixture testsixtures\pkg_smoke`),
+(`scripts\handshake.py --expect-version X.Y.Z --command <venv>\Scripts\jcodemunch-mcp.exe --fixture tests\fixtures\pkg_smoke`),
 `gh release create vX.Y.Z dist-ci\* --title ... --notes-file notes.md` with the
 notes rendered by `python scripts\release_notes.py X.Y.Z <tool_count> > notes.md`
 (never the block pasted by hand: GitHub refuses a body over 125,000
@@ -144,6 +144,8 @@ PyPI has the version and cannot be re-uploaded. Do not yank from a script.
    and ship X.Y.Z+1 through the pipeline (policy 2: nothing waits). If the
    check was wrong, fix the check in a PR and close the issue with the run
    link. Either way the issue records the decision.
+
+Every script under `scripts/` writes UTF-8 to stdout and stderr, whatever the console's codepage (LEDGER L-145). A file it writes through `>` (the release notes above) or a captured log is UTF-8, and a CHANGELOG character outside cp1252 no longer stops `release_notes.py`. Read such a file as UTF-8.
 
 ## 3a. The registry job failed (a `release` issue was opened)
 

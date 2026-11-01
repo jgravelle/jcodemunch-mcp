@@ -64,10 +64,21 @@ def _reconfigured_streams(block: ast.If) -> set[str]:
 
 
 def _missing(source: str) -> set[str]:
+    """Streams the __main__ block does not set to UTF-8 before anything else
+    runs. No block, or a call after another statement, counts as missing."""
     block = _main_block(ast.parse(source))
     if block is None:
-        return set()
-    return {"stdout", "stderr"} - _reconfigured_streams(block)
+        return {"stdout", "stderr"}
+    leading = []
+    for stmt in block.body:
+        if isinstance(stmt, ast.Expr) and _reconfigured_streams(stmt):
+            leading.append(stmt)
+            continue
+        break
+    found = set()
+    for stmt in leading:
+        found |= _reconfigured_streams(stmt)
+    return {"stdout", "stderr"} - found
 
 
 def test_the_scripts_are_found():
@@ -97,6 +108,16 @@ def test_the_check_refuses_a_main_block_without_the_call():
         '    sys.stderr.reconfigure(errors="replace")\n'
     )
     assert _missing(wrong) == {"stdout", "stderr"}
+    late = (
+        'import sys\nif __name__ == "__main__":\n'
+        '    rc = main()\n'
+        '    sys.stdout.reconfigure(encoding="utf-8")\n'
+        '    sys.stderr.reconfigure(encoding="utf-8")\n'
+    )
+    assert _missing(late) == {"stdout", "stderr"}, "a call after main() runs does not count"
+    assert _missing('import sys\nprint("top level")\n') == {"stdout", "stderr"}, (
+        "a script with no __main__ block cannot be checked, so it fails"
+    )
 
 
 def test_release_notes_write_a_non_cp1252_block_through_a_cp1252_stdout():
