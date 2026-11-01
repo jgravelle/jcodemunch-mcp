@@ -41,7 +41,7 @@ logger = logging.getLogger(__name__)
 
 VALIDATE_URL = "https://j.gravelle.us/jCodeMunch/validate.php"
 PRODUCT = "jcodemunch"
-GET_LICENSE_URL = "https://j.gravelle.us/jCodeMunch/#pricing"
+GET_LICENSE_URL = "https://jcodemunch.com/?utm_source=cli&utm_medium=license&utm_campaign=get-license#pricing"
 
 RECHECK_SECONDS = 7 * 24 * 60 * 60   # re-confirm a still-valid key at most this often
 GRACE_SECONDS = 14 * 24 * 60 * 60    # evaluation window for a never-licensed org

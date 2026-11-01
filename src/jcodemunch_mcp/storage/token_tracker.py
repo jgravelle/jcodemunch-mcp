@@ -7,7 +7,7 @@ Stored in ~/.code-index/_savings.json — a single small JSON file.
 No API calls, no file reads — only os.stat for file sizes.
 
 Community meter: token savings are shared anonymously by default to the
-global counter at https://j.gravelle.us. Only {"delta": N, "total": M,
+global counter at https://j.gravelle.us/APIs/savings/post.php. Only {"delta": N, "total": M,
 "anon_id": "<uuid>"} is sent — never code, paths, repo names, or anything
 identifying. `total` is the absolute lifetime savings; the server sets the
 stored value to GREATEST(stored, total), so a dropped/failed POST self-heals
