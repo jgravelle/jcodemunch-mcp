@@ -654,7 +654,7 @@ DELEGATED = {
     "ci.skips_ubuntu": "this runner / pr-gate.yml full tier, pytest summary",
     "ci.skips_windows": "this runner / pr-gate.yml full tier, pytest summary",
     "suite.full_seconds_ci_windows": "harness full tier on a GitHub windows runner",
-    "suite.full_seconds_ci_ubuntu_py310": "harness full tier on the GitHub ubuntu runner under Python 3.10",
+    "suite.full_seconds_ci_ubuntu_ctrace": "harness full tier on a GitHub ubuntu runner where coverage runs its C tracer",
     "suite.fast_skips_max": "harness fast tier, pytest summary",
 }
 
@@ -741,20 +741,61 @@ def _skips_floor_id() -> str:
     return "ci.skips_windows" if sys.platform.startswith("win") else "ci.skips_ubuntu"
 
 
+def _coverage_core_env() -> dict:
+    """The coverage core the full tier asks pytest for (see `tier_full`)."""
+    return {"COVERAGE_CORE": os.environ.get("COVERAGE_CORE", "sysmon")}
+
+
+def _coverage_core() -> str | None:
+    """The core coverage will actually run under the full tier, or None if unknown.
+
+    Asks coverage's own `Core` with the environment `tier_full` passes, so the
+    answer is coverage's decision (sysmon, or its fallback where
+    `sys.monitoring` is not usable), not a copy of it keyed on the Python
+    version.
+    """
+    try:
+        from coverage.config import read_coverage_config
+        from coverage.core import Core
+
+        def quiet(*_a, **_k):
+            return None
+
+        cfg = read_coverage_config(config_file=False, warn=quiet)
+        cfg.core = _coverage_core_env()["COVERAGE_CORE"]
+        core = Core(
+            warn=quiet, debug=None, config=cfg, dynamic_contexts=False, metacov=False
+        )
+        return {
+            "SysMonitor": "sysmon",
+            "CTracer": "ctrace",
+            "PyTracer": "pytrace",
+        }.get(core.tracer_class.__name__)
+    except Exception as exc:
+        # UNKNOWN: the caller keeps the tighter Floor. Said on stderr so a
+        # surprising Floor choice has a visible cause.
+        print(
+            f"   coverage core: unknown ({type(exc).__name__}: {exc})", file=sys.stderr
+        )
+        return None
+
+
 def _full_wall_floor_id() -> str:
     """Which full-tier wall Floor this runner is judged by.
 
     A GitHub-hosted windows runner is ~3x this box on the full tier
-    (docs/cicd/FINDINGS.md C-9). The ubuntu Python 3.10 leg has its own Floor
-    (L-232): its median sat just under the shared one and tripped it with every
-    test passing. Every other ubuntu leg and every non-CI run keeps
-    `suite.full_seconds`.
+    (docs/cicd/FINDINGS.md C-9). An ubuntu leg where coverage runs its C tracer
+    (Python 3.10 and 3.11, where `sys.monitoring` is not usable) has its own
+    Floor (L-232): the 3.10 leg's median sat just under the shared one and
+    tripped it with every test passing, and the 3.11 leg runs the same tracer.
+    A sysmon ubuntu leg and every non-CI run keep `suite.full_seconds`. An
+    unknown core keeps the shared Floor, the tighter of the two.
     """
     if os.environ.get("GITHUB_ACTIONS"):
         if sys.platform.startswith("win"):
             return "suite.full_seconds_ci_windows"
-        if sys.platform.startswith("linux") and sys.version_info[:2] == (3, 10):
-            return "suite.full_seconds_ci_ubuntu_py310"
+        if sys.platform.startswith("linux") and _coverage_core() == "ctrace":
+            return "suite.full_seconds_ci_ubuntu_ctrace"
     return "suite.full_seconds"
 
 
@@ -850,7 +891,7 @@ def tier_full(result: dict) -> bool:
     # ⚠ `setdefault`, so `COVERAGE_CORE=ctrace ... -m harness full` still forces
     # the old tracer -- the comparison above has to stay reproducible by whoever
     # doubts it.
-    cov_env = {"COVERAGE_CORE": os.environ.get("COVERAGE_CORE", "sysmon")}
+    cov_env = _coverage_core_env()
     rc, out, secs = _run(
         [
             PY,
