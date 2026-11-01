@@ -2,6 +2,36 @@
 
 ## [Unreleased]
 
+### Fixed - the Windows sign-in watcher opens no console window
+
+`watch-install` registered the `jcodemunch-watch` logon task with the running
+interpreter, `python.exe`. That is a console program, so a console window
+opened at every sign-in and stayed open while the watcher ran. The task now
+starts `pythonw.exe` when it sits beside the interpreter, and keeps
+`python.exe` when it does not, since a visible window is better than a task
+that cannot start. It passes `--log-file <log dir>/watch-all.log`, because a
+windowless process has no stderr.
+
+Starting `pythonw.exe` alone was not enough. A process with no console gives
+every console program it starts a new, visible window, so the `git` that runs
+on each re-index would have flashed one on every save. Under pythonw,
+`watch-all` now re-runs itself in `python.exe` with no window. Everything that
+process starts shares its window-less console, and its stdout and stderr go to
+the log file, so the watcher's warning lines are kept. A job object ties it to
+the task, so ending the task ends the watcher. Two Windows tests start a real
+pythonw: one asks Windows whether the watcher's child has a visible window,
+and one kills the pythonw process and waits for the watcher to exit. Each fails
+with its half removed (the no-window flag, the job object).
+
+An existing task changes only when you run `watch-install` again. Until then,
+`watch-status` (and the `get_watch_status` tool's `service` block) warns that
+the task starts `python.exe` and names that repair, and a new `service.command`
+key reports the program the task starts. An action that cannot be read warns
+nothing. systemd and launchd are unchanged. The log file is appended to and
+not rotated.
+
+## [1.108.403] - 2026-10-30 - a file pattern means the same thing in every tool, and the rate_limit config key turns the limit on
+
 ### Fixed - the CLI's license link points at the current site
 
 When a team feature needed a license, the CLI and the `get_license` field of
@@ -94,34 +124,6 @@ also removes the first-run download. Its `uvx` example sets
 default (Codex's MCP docs). Measured on 2026-10-28 (Windows, home
 broadband, `uvx` alone rather than inside Codex): a cold run filled 251 MB of
 uv cache and replied in 7.0 s; cached runs replied in 2.6 s and 2.5 s.
-
-### Fixed - the Windows sign-in watcher opens no console window
-
-`watch-install` registered the `jcodemunch-watch` logon task with the running
-interpreter, `python.exe`. That is a console program, so a console window
-opened at every sign-in and stayed open while the watcher ran. The task now
-starts `pythonw.exe` when it sits beside the interpreter, and keeps
-`python.exe` when it does not, since a visible window is better than a task
-that cannot start. It passes `--log-file <log dir>/watch-all.log`, because a
-windowless process has no stderr.
-
-Starting `pythonw.exe` alone was not enough. A process with no console gives
-every console program it starts a new, visible window, so the `git` that runs
-on each re-index would have flashed one on every save. Under pythonw,
-`watch-all` now re-runs itself in `python.exe` with no window. Everything that
-process starts shares its window-less console, and its stdout and stderr go to
-the log file, so the watcher's warning lines are kept. A job object ties it to
-the task, so ending the task ends the watcher. Two Windows tests start a real
-pythonw: one asks Windows whether the watcher's child has a visible window,
-and one kills the pythonw process and waits for the watcher to exit. Each fails
-with its half removed (the no-window flag, the job object).
-
-An existing task changes only when you run `watch-install` again. Until then,
-`watch-status` (and the `get_watch_status` tool's `service` block) warns that
-the task starts `python.exe` and names that repair, and a new `service.command`
-key reports the program the task starts. An action that cannot be read warns
-nothing. systemd and launchd are unchanged. The log file is appended to and
-not rotated.
 
 ## [1.108.402] - 2026-10-28 - the server instructions name the tools in the first 512 characters, and tool names hold across 1.x
 
