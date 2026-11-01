@@ -197,6 +197,13 @@
       "replacement": "tests/test_plugin_manifest_sync.py::test_plugin_description_is_set",
       "commit": "#1244",
       "date": "2026-10-28"
+    },
+    {
+      "path": "tests/test_search_text_braces_and_more_files.py::test_a_brace_pattern_also_matches_at_depth_like_any_pattern",
+      "lesson": "It required `{a,c}/mod.py` to match `pkg/a/mod.py`, i.e. a pattern containing `/` to match below the root. That was the defect, not a property: search_text tried every pattern again as `*/` + pattern, and fnmatch's `*` crosses `/`, so `homeassistant/**` also returned `tests/homeassistant/`. The rule now lives in path_glob: a pattern with `/` is anchored at the root, a bare one matches at any depth. What the old test was for, that a brace expansion obeys the same rule as any other pattern, is still asserted.",
+      "replacement": "tests/test_search_text_braces_and_more_files.py::test_a_brace_pattern_with_a_slash_is_anchored_like_any_pattern",
+      "commit": "fix/file-pattern-anchored",
+      "date": "2026-10-29"
     }
   ]
 }
