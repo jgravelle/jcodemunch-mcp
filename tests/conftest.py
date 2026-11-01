@@ -211,8 +211,11 @@ def _restore_real_index_store():
 
 @pytest.fixture(autouse=True)
 def _no_leaked_index_store():
-    """Runs after the test's own ``monkeypatch`` undo, so a live patch is
-    never touched; only what outlived its test is repaired."""
+    """Reads the real class from its defining module, so the repair is
+    correct whether it runs before or after the test's ``monkeypatch`` undo.
+    It runs BEFORE it today: the autouse ``_fresh_session`` requests
+    ``monkeypatch`` first, so that teardown comes last and puts back every
+    original it saved."""
     yield
     _restore_real_index_store()
 

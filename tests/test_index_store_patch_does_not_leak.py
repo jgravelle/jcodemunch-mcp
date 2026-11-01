@@ -78,6 +78,18 @@ def test_a_patched_home_module_is_never_spread(monkeypatch, restore):
     assert storage.IndexStore is REAL
 
 
+def test_a_repair_while_a_patch_is_live_still_ends_on_the_real_class(
+    monkeypatch, restore,
+):
+    """The repair runs before monkeypatch's undo (fixture order), so it
+    meets live patches. The end state after undo is what must be right."""
+    fake = type("MockStore", (), {})
+    with monkeypatch.context() as mp:
+        mp.setattr(storage, "IndexStore", fake)
+        restore()
+    assert storage.IndexStore is REAL
+
+
 def test_the_reported_sequence_passes_in_one_process():
     """L-259 as reported: the hook test that leaks, then the victim, in ONE
     process. The full tier's worker split hid it, so run it unsplit."""
