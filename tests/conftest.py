@@ -182,6 +182,41 @@ def _clear_index_cache():
         pass
 
 
+_INDEX_STORE_HOME = "jcodemunch_mcp.storage.index_store"
+
+
+def _restore_real_index_store():
+    """Give every loaded module the real ``IndexStore`` back (L-259).
+
+    A tool module imported for the first time while a test has
+    ``jcodemunch_mcp.storage.IndexStore`` patched binds the fake through
+    ``from ..storage import IndexStore``. ``monkeypatch`` undoes only what it
+    set, so that module kept the fake for the rest of the process and a later
+    test in the same worker failed on a method the fake never had. Imports
+    nothing: a module that is not loaded cannot hold a fake.
+    """
+    home = sys.modules.get(_INDEX_STORE_HOME)
+    if home is None:
+        return
+    real = vars(home).get("IndexStore")
+    if not (isinstance(real, type) and real.__module__ == _INDEX_STORE_HOME):
+        return
+    for name, mod in list(sys.modules.items()):
+        if mod is None or not name.startswith("jcodemunch_mcp"):
+            continue
+        held = vars(mod).get("IndexStore")
+        if held is not None and held is not real:
+            setattr(mod, "IndexStore", real)
+
+
+@pytest.fixture(autouse=True)
+def _no_leaked_index_store():
+    """Runs after the test's own ``monkeypatch`` undo, so a live patch is
+    never touched; only what outlived its test is repaired."""
+    yield
+    _restore_real_index_store()
+
+
 @pytest.fixture(autouse=True)
 def _reset_global_config():
     """Reset the global config state between tests.
