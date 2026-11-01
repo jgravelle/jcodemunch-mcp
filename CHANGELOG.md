@@ -2,6 +2,20 @@
 
 ## [Unreleased]
 
+### Fixed - a refused pack download no longer shows a key holder where to buy a license
+
+When the starter-pack server refuses a download, it attaches a pricing link
+whether or not the request carried a license key, and `install-pack` printed
+it. A paying user whose key was sent read "Get a license" right under the line
+saying their key had been sent. The link now appears only when no key was sent,
+from `--license` or from the config. The `--list` view and the `license` command
+already followed this rule; the refused download was the one path that did not.
+`tests/test_install_pack.py` checks both directions, and that the key
+`install-pack` resolves (from `--license`, the environment or the config) is
+the one that decides.
+
+## [1.108.403] - 2026-10-30 - a file pattern means the same thing in every tool, and the rate_limit config key turns the limit on
+
 ### Fixed - the CLI's license link points at the current site
 
 When a team feature needed a license, the CLI and the `get_license` field of
@@ -94,18 +108,6 @@ also removes the first-run download. Its `uvx` example sets
 default (Codex's MCP docs). Measured on 2026-10-28 (Windows, home
 broadband, `uvx` alone rather than inside Codex): a cold run filled 251 MB of
 uv cache and replied in 7.0 s; cached runs replied in 2.6 s and 2.5 s.
-
-### Fixed - a refused pack download no longer shows a key holder where to buy a license
-
-When the starter-pack server refuses a download, it attaches a pricing link
-whether or not the request carried a license key, and `install-pack` printed
-it. A paying user whose key was sent read "Get a license" right under the line
-saying their key had been sent. The link now appears only when no key was sent,
-from `--license` or from the config. The `--list` view and the `license` command
-already followed this rule; the refused download was the one path that did not.
-`tests/test_install_pack.py` checks both directions, and that the key
-`install-pack` resolves (from `--license`, the environment or the config) is
-the one that decides.
 
 ## [1.108.402] - 2026-10-28 - the server instructions name the tools in the first 512 characters, and tool names hold across 1.x
 
