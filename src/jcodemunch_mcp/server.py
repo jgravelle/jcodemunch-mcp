@@ -345,6 +345,16 @@ _INSTRUCTION_TOOLS_COUNTER: tuple = (
 )
 
 
+def _bench_switch(name: str) -> bool:
+    """A benchmark-only switch, on only when the env var reads exactly ``1``.
+
+    For the alwaysLoad measurement build (benchmark arms A and F). This branch
+    is installed into a benchmark venv and is not released; both switches are
+    off unless set.
+    """
+    return os.environ.get(name) == "1"
+
+
 def _instruction_tool_names(surface: str) -> list:
     """Tool names named in the instructions for `surface`, in reach-for order."""
     rows = _INSTRUCTION_TOOLS_COUNTER if surface == "counter" else _INSTRUCTION_TOOLS_FULL
@@ -447,6 +457,9 @@ def _mcp_instructions(
         "repo or an open question. On a small repository, a known name or a file "
         "you are editing, built-in Grep and Read are often as cheap."
     )
+    if surface != "counter" and _bench_switch("JCODEMUNCH_BENCH_SHORT_INSTRUCTIONS"):
+        # Benchmark arm F: the opening and the tool bullets only.
+        return "\n".join([opening, ""] + ["- %s: %s" % (name, why) for name, why in rows])
     lines = [opening, routes]
     if surface == "counter":
         # A bug report usually names its code, and the line above already says
@@ -1773,6 +1786,8 @@ def _apply_always_load(tools: list[Tool], surface: str) -> list[Tool]:
     and the loaded tools cannot disagree. Marks only tools already published:
     it never re-adds one a filter or `disabled_tools` removed. Returns copies.
     """
+    if _bench_switch("JCODEMUNCH_BENCH_NO_ALWAYS_LOAD"):
+        return tools
     wanted = set(_instruction_tool_names(surface))
     out: list[Tool] = []
     for tool in tools:
