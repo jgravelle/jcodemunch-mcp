@@ -6,7 +6,7 @@ by file rank under the token budget.
 """
 
 import time
-from fnmatch import fnmatch
+from ..path_glob import matches as _glob_match
 from typing import Optional
 
 from ..parser.symbols import REPRESENTATIVE_KIND_RANK
@@ -83,7 +83,7 @@ def get_repo_map(
         scope_prefix = scope.rstrip("/") + "/"
         source_files = [
             f for f in source_files
-            if fnmatch(f, scope) or f.startswith(scope_prefix) or fnmatch(f, scope + "/**")
+            if _glob_match(f, scope) or f.startswith(scope_prefix) or _glob_match(f, scope + "/**")
         ]
 
     if not source_files:
