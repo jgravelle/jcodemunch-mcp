@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+### Changed - the published token figure is the mean saving per lookup
+
+The README and the benchmark pages quoted 96.2% (26.5x) fewer tokens than a grep-and-read agent. That figure pools all 15 benchmark lookups: total grep tokens against total jCodeMunch tokens. Pooled, the two fastapi lookups with the largest grep baselines carry the most weight, so the figure read higher than a typical lookup. The headline is now the mean of the 15 per-lookup reductions, 94.5% fewer tokens per lookup on average, with the per-lookup range beside it. This is a change of basis, not a new measurement: the measurements in `benchmarks/results.md` are the same, and the pooled figure stays in tables labelled as pooled.
+
+`run_benchmark.py` writes the mean row into the Grand Summary. `tests/test_per_lookup_claim_matches_results.py` recomputes both figures from `results.md` and fails if any page quotes another number, or states the pooled figure as a headline or in an unlabelled row.
+
 ## [1.108.403] - 2026-10-30 - a file pattern means the same thing in every tool, and the rate_limit config key turns the limit on
 
 ### Fixed - the CLI's license link points at the current site
