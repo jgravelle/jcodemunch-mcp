@@ -94,6 +94,46 @@ def _load_corpus():
 
 DEFAULT_REPOS, TASKS, PINNED_SHAS = _load_corpus()
 
+
+def load_task_file(path: Path) -> list:
+    """Queries from a caller's own task file, for `--tasks`.
+
+    Takes the `tasks.json` shape (`{"tasks": [{"query": ...}]}`) or a plain
+    list of query strings. Refuses an empty or malformed file rather than
+    measuring nothing and reporting it.
+    """
+    data = json.loads(Path(path).read_text(encoding="utf-8"))
+    rows = data.get("tasks") if isinstance(data, dict) else data
+    if not isinstance(rows, list):
+        raise ValueError(f"{path}: expected a list of queries or {{\"tasks\": [...]}}")
+    queries = []
+    for row in rows:
+        query = row.get("query") if isinstance(row, dict) else row
+        if not isinstance(query, str) or not query.strip():
+            raise ValueError(f"{path}: every task needs a non-empty query, got {row!r}")
+        queries.append(query.strip())
+    if not queries:
+        raise ValueError(f"{path}: no tasks")
+    return queries
+
+
+def resolve_repo_arg(repo_arg: str) -> str:
+    """A repo argument as the store names it.
+
+    An existing local folder resolves through `resolve_repo`, the same rule the
+    server uses, so `run_benchmark.py C:/src/myapp` measures that folder's
+    index. Anything else is taken as an `owner/repo` id, as before. A folder
+    that is not indexed comes back unchanged and fails as "Not indexed".
+    """
+    if not os.path.isdir(repo_arg):
+        return repo_arg
+    from jcodemunch_mcp.tools.resolve_repo import resolve_repo
+
+    resolved = resolve_repo(os.path.abspath(repo_arg))
+    if resolved.get("indexed") and resolved.get("repo"):
+        return resolved["repo"]
+    return repo_arg
+
 SEARCH_MAX_RESULTS = 5
 SYMBOLS_FETCHED = 3        # get_symbol calls per query in the jMunch workflow
 
@@ -299,7 +339,7 @@ def _signature_diff(first, second, path: str = "", _out=None) -> list[str]:
     return out
 
 
-def _measure_in_subprocess(repos: list[str]) -> Optional[list[dict]]:
+def _measure_in_subprocess(repos: list[str], tasks_file: Optional[str] = None) -> Optional[list[dict]]:
     """Re-measure `repos` in a fresh interpreter and return the raw results.
 
     ⚠ The second pass has to be a new PROCESS, not a second loop in this one.
@@ -322,7 +362,8 @@ def _measure_in_subprocess(repos: list[str]) -> Optional[list[dict]]:
     with tempfile.TemporaryDirectory() as tmp:
         out = Path(tmp) / "second.json"
         proc = subprocess.run(
-            [sys.executable, str(Path(__file__).resolve()), *repos, "--json", str(out)],
+            [sys.executable, str(Path(__file__).resolve()), *repos, "--json", str(out)]
+            + (["--tasks", tasks_file] if tasks_file else []),
             capture_output=True,
             text=True,
             encoding="utf-8",
@@ -556,6 +597,8 @@ def benchmark_repo(repo_str: str) -> dict:
                 break
 
     if matched is None:
+        if os.path.isdir(repo_str):
+            return {"error": f"Not indexed: {repo_str}. Run: jcodemunch-mcp index {repo_str}"}
         return {"error": f"Not indexed: {repo_str}. Run: jcodemunch index_repo {repo_str}"}
 
     actual_repo = matched["repo"]
@@ -957,7 +1000,19 @@ def main():
     # 2026-10-13). An explicit setting in the environment is kept.
     os.environ.setdefault("JCODEMUNCH_SHARE_SAVINGS", "0")
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("repos", nargs="*", help="owner/repo to benchmark (default: all 3 canonical repos)")
+    parser.add_argument(
+        "repos",
+        nargs="*",
+        help="owner/repo, or the path of an indexed local folder, to benchmark "
+             "(default: all 3 canonical repos)",
+    )
+    parser.add_argument(
+        "--tasks",
+        metavar="FILE",
+        help="measure these queries instead of benchmarks/tasks.json: a JSON list of "
+             "strings, or {\"tasks\": [{\"query\": ...}]}. Not allowed with "
+             "--reference or --floor, which judge the published corpus only.",
+    )
     parser.add_argument("--out", metavar="FILE", help="write markdown results to FILE")
     parser.add_argument("--json", metavar="FILE", dest="json_out", help="write raw JSON results to FILE")
     parser.add_argument(
@@ -1006,7 +1061,20 @@ def main():
               file=sys.stderr)
         return 2
 
-    repos = args.repos or DEFAULT_REPOS
+    if args.tasks:
+        if args.reference or args.floor:
+            # The reference and the Floors describe the published corpus; a run
+            # over someone's own queries must never replace or gate them.
+            print("--tasks cannot be combined with --reference or --floor", file=sys.stderr)
+            return 2
+        global TASKS
+        try:
+            TASKS = load_task_file(Path(args.tasks))
+        except (OSError, ValueError) as e:
+            print(f"--tasks: {e}", file=sys.stderr)
+            return 2
+
+    repos = [resolve_repo_arg(r) for r in (args.repos or DEFAULT_REPOS)]
 
     print(f"jcodemunch-mcp benchmark harness  |  tokenizer: {TOKENIZER}", flush=True)
     print(f"Repos: {', '.join(repos)}", flush=True)
@@ -1029,7 +1097,7 @@ def main():
 
     if args.verify_determinism:
         print("\n  re-measuring in a fresh process ...", end=" ", flush=True)
-        second = _measure_in_subprocess(repos)
+        second = _measure_in_subprocess(repos, args.tasks)
         if second is None:
             print("FAILED to run")
             return 1
@@ -1125,6 +1193,14 @@ def main():
                 "(benchmarks/results.md, benchmarks/METHODOLOGY.md, README.md) "
                 "or tests/test_provenance.py will fail."
             )
+    # A repo the caller named that could not be measured fails the run, after
+    # the report is written. The default corpus keeps exit 0 on a missing repo,
+    # as it always has, so nothing that runs the canonical set changes.
+    failed = [r.get("error") for r in results if args.repos and "error" in r]
+    if failed:
+        for err in failed:
+            print(f"not measured: {err}", file=sys.stderr)
+        return 3
     return 0
 
 
