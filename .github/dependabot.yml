@@ -56,3 +56,33 @@ updates:
         applies-to: version-updates
         patterns:
           - "*"
+
+  # vscode-extension/ (npm): the same two postures as uv above. Security PRs
+  # grouped; monthly minor and patch in one PR; majors stay manual. Its PRs run
+  # vscode-extension.yml, which builds and packages the extension.
+  - package-ecosystem: "npm"
+    directory: "/vscode-extension"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 0
+    groups:
+      npm-security-updates:
+        applies-to: security-updates
+        patterns:
+          - "*"
+  - package-ecosystem: "npm"
+    directory: "/vscode-extension"
+    schedule:
+      interval: "monthly"
+    open-pull-requests-limit: 1
+    groups:
+      npm-minor-patch:
+        applies-to: version-updates
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
