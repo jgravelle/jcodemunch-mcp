@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+### Added - the plugin listing and the MCP registry show the jCodeMunch icon
+
+Neither manifest named an icon, so the plugin directory and the registry had none to show beside the name. `plugin/jcodemunch/icon.svg` is the icon: curly braces around one orange symbol, in the site's colors. `plugin.json` names it as `./icon.svg`, the relative path the plugin directory reads. `server.json` names its raw URL on `main` with `image/svg+xml`, the form the registry schema takes, so the next registry publish carries it.
+
+The icon is an SVG because the plugin folder holds text files only, and SVG is text. `tests/test_plugin_icon.py` holds both manifests to the same file, so the two listings cannot show different icons.
+
+## [1.108.403] - 2026-10-30 - a file pattern means the same thing in every tool, and the rate_limit config key turns the limit on
+
 ### Fixed - the CLI's license link points at the current site
 
 When a team feature needed a license, the CLI and the `get_license` field of
@@ -94,12 +102,6 @@ also removes the first-run download. Its `uvx` example sets
 default (Codex's MCP docs). Measured on 2026-10-28 (Windows, home
 broadband, `uvx` alone rather than inside Codex): a cold run filled 251 MB of
 uv cache and replied in 7.0 s; cached runs replied in 2.6 s and 2.5 s.
-
-### Added - the plugin listing and the MCP registry show the jCodeMunch icon
-
-Neither manifest named an icon, so the plugin directory and the registry had none to show beside the name. `plugin/jcodemunch/icon.svg` is the icon: curly braces around one orange symbol, in the site's colors. `plugin.json` names it as `./icon.svg`, the relative path the plugin directory reads. `server.json` names its raw URL on `main` with `image/svg+xml`, the form the registry schema takes, so the next registry publish carries it.
-
-The icon is an SVG because the plugin folder holds text files only, and SVG is text. `tests/test_plugin_icon.py` holds both manifests to the same file, so the two listings cannot show different icons.
 
 ## [1.108.402] - 2026-10-28 - the server instructions name the tools in the first 512 characters, and tool names hold across 1.x
 
