@@ -74,20 +74,34 @@ def test_a_patched_home_module_is_never_spread(monkeypatch, restore):
 
     fake = type("MockStore", (), {})
     monkeypatch.setattr(home, "IndexStore", fake)
-    restore()
-    assert storage.IndexStore is REAL
+    try:
+        restore()
+        assert storage.IndexStore is REAL
+    finally:
+        # A broken repair writes with plain setattr, which monkeypatch never
+        # undoes; put it back so a failure here cannot fail the next arm.
+        storage.IndexStore = REAL
 
 
-def test_a_repair_while_a_patch_is_live_still_ends_on_the_real_class(
+def test_a_repair_that_meets_a_live_patch_hands_out_the_real_class(
     monkeypatch, restore,
 ):
-    """The repair runs before monkeypatch's undo (fixture order), so it
-    meets live patches. The end state after undo is what must be right."""
+    """The repair runs BEFORE monkeypatch's undo (fixture order), so the
+    package attribute is still the fake when it runs. It must take the class
+    from its defining module, or a module first imported under the patch
+    keeps the fake after the undo."""
+    import jcodemunch_mcp.storage.index_store as home
+
     fake = type("MockStore", (), {})
-    with monkeypatch.context() as mp:
-        mp.setattr(storage, "IndexStore", fake)
-        restore()
-    assert storage.IndexStore is REAL
+    try:
+        with monkeypatch.context() as mp:
+            mp.setattr(storage, "IndexStore", fake)
+            probe = _load_probe_copy()
+            restore()
+        assert probe.IndexStore is REAL
+        assert home.IndexStore is REAL
+    finally:
+        sys.modules.pop(_PROBE, None)
 
 
 def test_the_reported_sequence_passes_in_one_process():
