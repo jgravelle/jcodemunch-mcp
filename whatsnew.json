@@ -1,6 +1,12 @@
 {
-  "current": "1.108.402",
+  "current": "1.108.403",
   "entries": [
+    {
+      "version": "1.108.403",
+      "date": "2026-10-30",
+      "title": "a file pattern means the same thing in every tool, and the rate_limit config key turns the limit on",
+      "summary": "A file_pattern with a slash is anchored at the repo root and a bare one matches at any depth, the same way in search_text, the index store and every scope check. The rate_limit key in config.jsonc now turns on the HTTP rate limit, in the documented order. On Windows, init writes Codex's entry as the bare command name when PATH finds the same install. The CLI's license link points at the current site."
+    },
     {
       "version": "1.108.402",
       "date": "2026-10-28",
