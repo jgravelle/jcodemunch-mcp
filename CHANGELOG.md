@@ -2,6 +2,26 @@
 
 ## [Unreleased]
 
+### Fixed - `watch` and `watch-all` exit when they cannot watch
+
+On an install without the optional `watchfiles` package, `jcodemunch-mcp watch`
+printed FATAL for each folder, from inside that folder's task, after the
+watcher had started. The process then kept running with nothing watched. A
+user who did not read the console believed the index was being kept fresh,
+while every change went unindexed until a manual re-index.
+
+Both commands now check once, before starting anything. With `watchfiles`
+missing they print one line with the install command for the way jCodeMunch
+was installed (pip, pipx, uv or uvx) and exit 1. The server's `--watcher`
+flag already exited 1 but always printed the pip line; it now prints the same
+install line. `watch-install` refuses the same way before registering a service:
+the service runs `watch-all` and restarts it on failure, so it would
+otherwise exit and restart forever. `watch --once` does not need `watchfiles` and is unchanged.
+The server's own config-enabled watcher still only warns, because the server
+must keep answering without it.
+
+## [1.108.403] - 2026-10-30 - a file pattern means the same thing in every tool, and the rate_limit config key turns the limit on
+
 ### Fixed - the CLI's license link points at the current site
 
 When a team feature needed a license, the CLI and the `get_license` field of
@@ -94,24 +114,6 @@ also removes the first-run download. Its `uvx` example sets
 default (Codex's MCP docs). Measured on 2026-10-28 (Windows, home
 broadband, `uvx` alone rather than inside Codex): a cold run filled 251 MB of
 uv cache and replied in 7.0 s; cached runs replied in 2.6 s and 2.5 s.
-
-### Fixed - `watch` and `watch-all` exit when they cannot watch
-
-On an install without the optional `watchfiles` package, `jcodemunch-mcp watch`
-printed FATAL for each folder, from inside that folder's task, after the
-watcher had started. The process then kept running with nothing watched. A
-user who did not read the console believed the index was being kept fresh,
-while every change went unindexed until a manual re-index.
-
-Both commands now check once, before starting anything. With `watchfiles`
-missing they print one line with the install command for the way jCodeMunch
-was installed (pip, pipx, uv or uvx) and exit 1. The server's `--watcher`
-flag already exited 1 but always printed the pip line; it now prints the same
-install line. `watch-install` refuses the same way before registering a service:
-the service runs `watch-all` and restarts it on failure, so it would
-otherwise exit and restart forever. `watch --once` does not need `watchfiles` and is unchanged.
-The server's own config-enabled watcher still only warns, because the server
-must keep answering without it.
 
 ## [1.108.402] - 2026-10-28 - the server instructions name the tools in the first 512 characters, and tool names hold across 1.x
 
