@@ -1,6 +1,5 @@
 """Full-text search across indexed file contents."""
 
-import fnmatch as _fnmatch
 import itertools
 import logging
 import re
@@ -294,9 +293,8 @@ def search_text(
     files = index.source_files
     scope_patterns = _file_patterns(file_pattern) if file_pattern else []
     if file_pattern:
-        pat_re = re.compile("|".join(
-            _fnmatch.translate(p) + "|" + _fnmatch.translate(f"*/{p}") for p in scope_patterns
-        ))
+        from .. import path_glob
+        pat_re = path_glob.compile_patterns(scope_patterns)
         files = [f for f in files if pat_re.match(f)]
 
     # #377 item 6: identity before the scan, compared after it. search_text
