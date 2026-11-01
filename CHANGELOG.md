@@ -6,7 +6,9 @@
 
 `suggest_corrections` described its `all_time` flag as "Ignore the window and analyze the full ledger." The flag does exactly that, but every description reaches the agent inside the tool schema, and a sentence that opens with "Ignore" has the shape of a prompt-injection override. An automated security scan of the repository flagged it as one. The description now reads "Analyze the whole ledger instead of only the last window_days days."
 
-`tests/test_tool_descriptions_never_tell_the_agent_to_ignore.py` reads every tool and parameter description the `full` and `counter` surfaces publish and fails on a sentence that opens with ignore, disregard or forget. A passive form such as "ignored when token_budget is set" states behavior and still passes.
+`tests/test_tool_descriptions_never_tell_the_agent_to_ignore.py` reads every tool and parameter description the `full` and `counter` surfaces publish and fails on a sentence that opens with ignore, disregard or forget. A passive form such as "ignored when token_budget is set" states behavior and still passes. It also reads the server instructions on both surfaces, catches "Ignores", "Ignoring", a bullet or parenthesis opener, and "ignore previous instructions" anywhere in a sentence.
+
+The new description is 5 tokens longer. `benchmarks/schema_baseline.json` moves on the four profiles that publish `suggest_corrections`: standard_compact 20084 to 20089, standard_full 22592 to 22597, full_compact 21512 to 21517, full_full 24020 to 24025. The core and counter surfaces are unchanged. A client on the standard or full profile pays one cache write for its tool block on the first request after upgrading.
 
 ## [1.108.403] - 2026-10-30 - a file pattern means the same thing in every tool, and the rate_limit config key turns the limit on
 
