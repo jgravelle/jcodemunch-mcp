@@ -2,6 +2,21 @@
 
 ## [Unreleased]
 
+### Fixed - the CLI says when the file cap left files out of an index
+
+`jcodemunch-mcp index` prints its result as JSON. When the `max_folder_files`
+cap dropped files, that JSON said `truncated: true` with the counts and a
+warning, but the run still reported success, exited 0 and wrote nothing to
+stderr. A person skimming the output, or a script checking the exit code, saw a
+complete index. Under the default cap of 2,000, a repository many times that
+size was indexed as 2,000 files this way. The CLI now writes one line to stderr giving the files
+indexed and discovered, how many were left out, and the key to raise. A GitHub
+index that hits `max_index_files` gets the same line, naming that cap. Stdout and
+the exit code don't change, because a capped index still works; it just lacks
+files.
+
+## [1.108.403] - 2026-10-30 - a file pattern means the same thing in every tool, and the rate_limit config key turns the limit on
+
 ### Fixed - the CLI's license link points at the current site
 
 When a team feature needed a license, the CLI and the `get_license` field of
@@ -94,19 +109,6 @@ also removes the first-run download. Its `uvx` example sets
 default (Codex's MCP docs). Measured on 2026-10-28 (Windows, home
 broadband, `uvx` alone rather than inside Codex): a cold run filled 251 MB of
 uv cache and replied in 7.0 s; cached runs replied in 2.6 s and 2.5 s.
-
-### Fixed - the CLI says when the file cap left files out of an index
-
-`jcodemunch-mcp index` prints its result as JSON. When the `max_folder_files`
-cap dropped files, that JSON said `truncated: true` with the counts and a
-warning, but the run still reported success, exited 0 and wrote nothing to
-stderr. A person skimming the output, or a script checking the exit code, saw a
-complete index. Under the default cap of 2,000, a repository many times that
-size was indexed as 2,000 files this way. The CLI now writes one line to stderr giving the files
-indexed and discovered, how many were left out, and the key to raise. A GitHub
-index that hits `max_index_files` gets the same line, naming that cap. Stdout and
-the exit code don't change, because a capped index still works; it just lacks
-files.
 
 ## [1.108.402] - 2026-10-28 - the server instructions name the tools in the first 512 characters, and tool names hold across 1.x
 
