@@ -236,6 +236,37 @@ def substitution_note() -> Optional[str]:
     )
 
 
+def _bare_name_platform() -> bool:
+    """True where a client was seen starting a server named by its bare command."""
+    return sys.platform == "win32"
+
+
+def bare_name_if_path_finds(exe: str) -> str:
+    """`jcodemunch-mcp` when PATH's first match is ``exe`` itself, else ``exe``.
+
+    For a server entry the client starts through PATH: the bare name survives
+    the install moving, and is written only when it would start this same
+    install. It is judged against THIS process's PATH; a client launched with
+    a different PATH sees what its own PATH holds.
+
+    Windows only: that is where Codex was seen starting a bare name. Elsewhere
+    a client started from a GUI or a non-login shell can have a narrower PATH
+    than `init`, and a bare name would turn a working absolute entry into one
+    that starts nothing. PATH is read through `_first_lasting_on_path`, which
+    refuses a current-directory hit and uv's cache.
+    """
+    if not _bare_name_platform():
+        return exe
+    on_path = _first_lasting_on_path()
+    if not on_path:
+        return exe
+
+    def norm(p: str) -> str:
+        return os.path.normcase(os.path.realpath(p))
+
+    return _EXECUTABLE_NAME if norm(on_path) == norm(exe) else exe
+
+
 def executable_for_commands() -> Optional[str]:
     """What a written hook or server entry should run: this install, else PATH's.
 
