@@ -133,7 +133,7 @@ Then tell the agent to prefer the tools. This matters more than people think; in
 Call the jcodemunch_guide tool and strictly follow its instructions.
 ```
 
-Using Cursor, Windsurf, Codex CLI, Antigravity, Gemini CLI, Qwen Code, Kiro, Cline, Zed, Goose, Hermes, Odysseus, or Paperclip? Every tested client configuration lives in **[CLIENTS.md](CLIENTS.md)**. Optional extras (local semantic search, AI summaries per provider) are in [QUICKSTART.md](QUICKSTART.md); the system surfaces each extra pulls in are documented in [SECURITY.md](SECURITY.md#optional-extras--system-surfaces-each-pulls-in).
+Using Cursor, Windsurf, Codex CLI, JetBrains AI Assistant, Junie, Antigravity, Gemini CLI, Qwen Code, Kiro, Cline, Zed, Goose, Hermes, Odysseus, or Paperclip? Every tested client configuration lives in **[CLIENTS.md](CLIENTS.md)**, along with [fewer approval prompts](CLIENTS.md#fewer-approval-prompts), [a committed `.mcp.json` for your team](CLIENTS.md#share-it-with-your-team) and [a shared HTTP server](CLIENTS.md#run-it-as-a-shared-http-server). Optional extras (local semantic search, AI summaries per provider) are in [QUICKSTART.md](QUICKSTART.md); the system surfaces each extra pulls in are documented in [SECURITY.md](SECURITY.md#optional-extras--system-surfaces-each-pulls-in).
 
 ---
 
@@ -147,6 +147,22 @@ Full walkthrough: **[QUICKSTART.md](QUICKSTART.md)**. The two-minute version, in
 The agent should answer via `search_symbols` and `get_symbol_source`, returning tens of lines instead of whole files. Confirm with `get_session_stats`: it reports tokens served and savings for the session. That is where the numbers on the meter come from.
 
 Want to skip initial indexing for popular frameworks? Pre-built **starter packs**: `jcodemunch-mcp install-pack --list` (free packs need no license).
+
+### See it on Express (free)
+
+1. Install and set up your client:
+   `uv tool install jcodemunch-mcp`, then `jcodemunch-mcp init`
+2. Load the free starter pack **Node.js Essentials** (Node, Express, Fastify, Koa): `jcodemunch-mcp install-pack nodejs`. Free packs need no license.
+3. Ask your agent: *"Using jCodeMunch, find where Express registers a route handler and show me that function."*
+
+What that lookup costs, from our benchmark on Express at commit `1faf2289`, counted with cl100k:
+
+| | Tokens |
+|---|---:|
+| Grep-and-read: search `router route handler`, open the top 3 matching files whole | 9,890 |
+| jCodeMunch: one symbol search, then the source of the top 3 matches | 1,074 |
+
+That's one of the 15 lookups in the benchmark (5 each on express, fastapi and gin at pinned commits). jCodeMunch used 96.2% fewer tokens per lookup than grep-and-read on our 15-lookup benchmark. The pack is built from Express 4.x, while the benchmark pins commit `1faf2289` on upstream main, so your count can differ. To rerun the benchmark at the pinned commits, follow [`benchmarks/REPRODUCING.md`](benchmarks/REPRODUCING.md); raw data is in [`benchmarks/`](benchmarks/).
 
 ---
 
