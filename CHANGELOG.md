@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+### Fixed - no tool description tells the agent to ignore something
+
+`suggest_corrections` described its `all_time` flag as "Ignore the window and analyze the full ledger." The flag does exactly that, but every description reaches the agent inside the tool schema, and a sentence that opens with "Ignore" has the shape of a prompt-injection override. An automated security scan of the repository flagged it as one. The description now reads "Analyze the whole ledger instead of only the last window_days days."
+
+`tests/test_tool_descriptions_never_tell_the_agent_to_ignore.py` reads every tool and parameter description the `full` and `counter` surfaces publish and fails on a sentence that opens with ignore, disregard or forget. A passive form such as "ignored when token_budget is set" states behavior and still passes.
+
 ## [1.108.403] - 2026-10-30 - a file pattern means the same thing in every tool, and the rate_limit config key turns the limit on
 
 ### Fixed - the CLI's license link points at the current site
