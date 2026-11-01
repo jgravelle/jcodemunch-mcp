@@ -363,6 +363,8 @@ Place a `.jcodemunch.jsonc` file in your project root. It merges over the global
 
 Project config is loaded automatically when a repo is indexed. It uses hash-based caching — the file is only re-parsed when its content changes, not on every watcher cycle.
 
+A license key is not read from a project file. `license_key` comes from the `JCODEMUNCH_LICENSE_KEY` environment variable or the global `config.jsonc` only; a `license_key` in `.jcodemunch.jsonc` is ignored. `tests/test_license_key_paths.py` pins this.
+
 ## Migrating from environment variables
 
 Every `JCODEMUNCH_*` env var maps to a config key:

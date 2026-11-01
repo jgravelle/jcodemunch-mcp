@@ -7,10 +7,11 @@ key refused for a pack download) and #58 (a placeholder buy link).
 ⚠⚠ The existing gate tests (`test_org_license.py`) patch `_license_key`, the
 function that decides WHERE the key comes from. #364 was a defect in exactly
 that resolution, so a test that replaces the resolver cannot see it again.
-This file patches only the two network edges, validate.php
-(`org.license._check_server`) and the pack API (`install_pack.httpx.get`), and
-drives the real CLI entry point for each consumer, so key resolution, the
-cache and the gate all run as a customer's install runs them.
+This file patches only network edges, validate.php
+(`org.license._check_server`) and the pack API (`install_pack.httpx.get` and
+`install_pack._catalog_version`), plus the file writers of a real `init` run,
+and drives the real entry point for each consumer, so key resolution, the
+config load, the cache and the gate all run as a customer's install runs them.
 
 The key is made up. The fake server answers valid for it and invalid for
 anything else, so no real key exists anywhere in this file.
@@ -116,6 +117,7 @@ def test_license_command_reads_the_key_from(source, server, capsys, monkeypatch,
     assert server == [TEST_KEY]
     assert payload["key_status"] == "valid"
     assert payload["mode"] == "licensed"
+    assert payload["tier"] == "studio"
     assert payload["get_license"] is None  # a key holder is never shown a sales link
 
 
@@ -201,28 +203,136 @@ def test_install_pack_without_a_key_sends_none(pack_api, capsys):
 
 
 # --------------------------------------------------------------------------- #
-# The three sales surfaces: a configured key silences them, and none of them
-# sends the key anywhere (presence is read locally, never validated)
+# A project's `.jcodemunch.jsonc` is not a key source
 # --------------------------------------------------------------------------- #
 
+def test_a_key_in_project_config_is_not_read(server, capsys, monkeypatch, tmp_path):
+    """Records today's answer: `_license_key` reads `config.get("license_key")`
+    with no repo, so only the env var and the GLOBAL config.jsonc supply a key.
+    CONFIGURATION.md says so. If project config should become a source, change
+    the code, CONFIGURATION.md and this cell together."""
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / ".jcodemunch.jsonc").write_text(json.dumps({"license_key": TEST_KEY}), encoding="utf-8")
+    monkeypatch.chdir(project)
+    payload = json.loads(_run(capsys, ["license", "--json"]).out)
+    assert server == []
+    assert payload["key_status"] == "absent"
+
+
+# --------------------------------------------------------------------------- #
+# The sales surfaces, through their entry points: a key in config.jsonc
+# silences each one, and none of them sends the key anywhere
+# --------------------------------------------------------------------------- #
+
+_INIT_MARKERS = ("descriptions.php", "guarantee.php", "Using jCodeMunch at work?")
+
+
+@pytest.fixture
+def quiet_init(monkeypatch):
+    """A real, non-dry-run `init` with every file writer replaced by a spy
+    (the same shape as `test_init_licence_line.py`). The config load is NOT
+    replaced: that load is the thing under test."""
+    from unittest.mock import MagicMock
+
+    from jcodemunch_mcp.cli import init as init_module
+
+    for name in ("install_claude_md", "install_cursor_rules", "install_windsurf_rules", "install_agents_md",
+                 "install_hooks", "install_enforcement_hooks", "install_copilot_hooks", "run_index"):
+        monkeypatch.setattr(init_module, name, MagicMock(return_value="  (spy)"))
+    monkeypatch.setattr(init_module, "run_audit", MagicMock(return_value=iter([])))
+    client = MagicMock()
+    client.name = "Claude Code"
+    client.config_path = None
+    monkeypatch.setattr(init_module, "_detect_clients", lambda: [client])
+    monkeypatch.setattr(init_module, "configure_client", MagicMock(return_value="  (spy)"))
+
+    def _run_init(capsys):
+        rc = init_module.run_init(clients=None, hooks=False, index=False, audit=False, yes=True,
+                                  minimal=True, dry_run=False)
+        assert rc == 0
+        return capsys.readouterr().out
+
+    return _run_init
+
+
+def test_init_prints_no_license_line_for_a_key_in_config(quiet_init, server, capsys, _isolated):
+    _key_in_config(_isolated, TEST_KEY)
+    out = quiet_init(capsys)
+    assert "Done." in out
+    assert not any(m in out for m in _INIT_MARKERS), out
+    assert server == []  # presence is read locally, never validated
+
+
+def test_init_prints_the_license_line_with_no_key(quiet_init, capsys):
+    """The control: without it, the cell above passes on an `init` that never
+    prints the line at all."""
+    out = quiet_init(capsys)
+    assert "Using jCodeMunch at work?" in out
+
+
+@pytest.fixture
+def catalog(monkeypatch):
+    """The pack catalog with one licensed pack, so `--list` reaches its footer."""
+    class _Resp:
+        status_code = 200
+        headers = {"content-type": "application/json"}
+
+        def json(self):
+            return {"packs": [{"id": "fastapi", "name": "FastAPI", "free": False}]}
+
+    monkeypatch.setattr(install_pack.httpx, "get", lambda url, **kw: _Resp())
+
+
+@pytest.fixture
+def fresh_process(monkeypatch):
+    """Config as a new CLI process has it: not loaded yet.
+
+    conftest marks config loaded (defaults only) before every test. The
+    `--list` path reads the key through `config.get`'s lazy load, which fires
+    only when nothing was loaded, so under conftest's state the list path never
+    sees config.jsonc. A real `install-pack --list` starts unloaded and does
+    see it (checked in a subprocess, 2026-11-01). The download path loads
+    explicitly instead (`resolve_effective_license_key`); the list path's
+    reliance on the lazy load is LEDGER L-267.
+    """
+    monkeypatch.setattr(config_module, "_CONFIG_LOADED", False)
+    monkeypatch.setattr(config_module, "_GLOBAL_CONFIG", {})  # `_ensure_loaded` needs both
+
+
+def test_install_pack_list_hides_the_sales_line_for_a_key_in_config(catalog, fresh_process, server, capsys, _isolated):
+    _key_in_config(_isolated, TEST_KEY)
+    out = _run(capsys, ["install-pack", "--list"]).out
+    assert "fastapi" in out
+    assert "Get a license" not in out
+    assert server == []
+
+
+def test_install_pack_list_shows_a_real_sales_link_with_no_key(catalog, fresh_process, capsys):
+    out = _run(capsys, ["install-pack", "--list"]).out
+    links = [ln for ln in out.splitlines() if "Get a license" in ln]
+    assert len(links) == 1
+    assert "https://jcodemunch.com/" in links[0]  # #58: never a placeholder
+
+
 @pytest.mark.parametrize("source", ["env", "config"])
-def test_sales_surfaces_stay_quiet_for_a_key_from(source, server, monkeypatch, _isolated):
+def test_the_first_answer_notice_is_skipped_for_a_key_from(source, server, monkeypatch, _isolated):
+    """The server loads config.jsonc at startup, before any tool answer, so
+    this cell loads it the same way. It is the one library-level cell here: a
+    test that starts the MCP server for one notice would cost more than the
+    notice. The two cells above drive real entry points for the same rule."""
     from jcodemunch_mcp import license_notice
-    from jcodemunch_mcp.cli import init
 
     if source == "env":
         _key_in_env(monkeypatch, TEST_KEY)
     else:
         _key_in_config(_isolated, TEST_KEY, load=True)
-    assert init._licence_key_configured() is True
-    assert lic.licence_key_configured() is True
     assert license_notice.skip_reason(env={}) == "licensed"
-    assert server == []  # presence checks never call validate.php
+    assert server == []
 
 
-def test_sales_surfaces_speak_with_no_key(monkeypatch):
+def test_with_no_key_nothing_counts_as_licensed():
     from jcodemunch_mcp import license_notice
-    from jcodemunch_mcp.cli import init
 
-    assert init._licence_key_configured() is False
-    assert license_notice.skip_reason(env={}) in (None, "already_shown")
+    assert lic.licence_key_configured() is False
+    assert license_notice.skip_reason(env={}) is None
