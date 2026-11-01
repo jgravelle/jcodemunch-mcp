@@ -1,6 +1,6 @@
 # jcodemunch-mcp — Token Efficiency Benchmark
 
-**Result: 96.2% average token reduction (26.5x) vs a grep-and-read agent · tiktoken cl100k_base · 15 task-runs · 3 repos**
+**Result: 94.5% fewer tokens per lookup on average vs a grep-and-read agent · tiktoken cl100k_base · 15 task-runs · 3 repos**
 
 ## What this measures
 
@@ -54,8 +54,9 @@ Full per-task tables are in [`results.md`](results.md).
 | gin-gonic/gin | 98 | 31,975 avg | 151,842 | 1,481 avg | **21.6x** | 102.5x |
 | **Grand total (15 task-runs)** | — | **664,975** | **5,658,685** | **25,132** | **26.5x** | **225.2x** |
 
-**96.2% average token reduction · 26.5x** against grep-and-read; 99.6% · 225.2x
-against read-all. tiktoken cl100k_base.
+**94.5% fewer tokens per lookup on average** against grep-and-read. The grand total
+row pools all 15 lookups, so its 26.5x weighs the largest grep baselines most;
+against read-all the pooled figure is 99.6% · 225.2x. tiktoken cl100k_base.
 
 ⚠ **This table was stale until 2026-08-03** — it carried a pre-v1.108.222 corpus
 (165/951/98 files, 5,122,105 tokens, 263.9x) that no other artifact had matched
