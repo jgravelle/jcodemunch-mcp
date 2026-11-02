@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+### Fixed - a query that names a tool finds that tool
+
+Agents look up deferred tools by name: a bare name, the host's `mcp__jcodemunch__` prefixed form, or several names in one query. The Counter's catalog search (`menu`, and `route` when no rule matches) scored those queries word by word, like a question. Naming the six core tools together pushed `resolve_repo` and `search_symbols` below tools whose descriptions shared more words, and a prefixed name ranked `jcodemunch_guide` first because the prefix itself matched its name.
+
+`counter.search_catalog` now strips a host prefix before scoring and puts every tool the query names exactly at the top, in the order named. A query that names no tool, or only mentions one inside a task, ranks as before: the route-recall main and holdout results are byte-identical. `explain_route` reads the same rule, so its explanation for a named tool says the order named and the limit cut it, never its score. `tests/test_name_queries_find_their_tools.py` holds every searchable tool to rank first for its bare and prefixed name.
+=======
 ### Added - a stdio server exits when the process that started it is gone
 
 A stdio server stopped only when its stdin reached end of file. That covers a client that closes its pipe, and misses one that dies while something else keeps the pipe open, such as a proxy in between or a handle a sibling process inherited. The server then ran on with nobody to answer, holding its index cache in memory.
