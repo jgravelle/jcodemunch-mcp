@@ -2998,3 +2998,13 @@ The 1.108.400 entry, verbatim as it stood in `CLAUDE.md`:
 The `Tests:` line's 1.108.400 count, verbatim:
 
 - ⚠ Prior (1.108.400): 18715 passed, 24 skipped, **0 failed** (18739 total).
+
+## Current State rotation (2026-11-01, release 1.108.404)
+
+The 1.108.401 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.401):** **a redirected Grep can carry the index's answer, and a substring search opens only the files that can match** (#1240): `cli/hooks/grep_answer.answer_enabled` is an allowlist (`1`/`true`/`yes`/`on`) on `JCODEMUNCH_HOOK_GREP_ANSWER`, default OFF; once per session and Grep arguments, never over a stale index or a cut page. `storage/text_filter.py` keeps a trigram bitmap per cached file in `<repo>.textfilter`, a sidecar so a repaired row never moves the `.db` mtime that keys the index cache; a bitmap may say maybe, never no. Full text: `CHANGELOG.md`.
+
+The `Tests:` line's 1.108.401 count, verbatim:
+
+- ⚠ Prior (1.108.401): 18773 passed, 24 skipped, **0 failed** (18797 total).

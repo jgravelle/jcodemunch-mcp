@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.404] - 2026-11-01 - a base list after a colon is read, and a failed summarizer keeps the summaries it had
+
 ### Changed - 17 tool descriptions open with the question an agent asks
 
 A host that defers tool schemas (Claude Code, Codex) shows the model bare
