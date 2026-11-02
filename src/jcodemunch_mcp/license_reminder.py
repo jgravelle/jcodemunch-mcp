@@ -104,7 +104,12 @@ def _licence_key_configured() -> bool:
 
 
 def _config_silenced() -> bool:
-    """True when config sets `license_reminder` to false (global or project)."""
+    """True when the GLOBAL config sets `license_reminder` to false.
+
+    ⚠ Global only, deliberately: the reminder is about the machine, not a repo,
+    and a CLI command or a server's first answer has no one repo to read a
+    project `.jcodemunch.jsonc` from. `config set` writes the global file.
+    """
     from . import config
 
     return config.get(CONFIG_KEY, True) is False

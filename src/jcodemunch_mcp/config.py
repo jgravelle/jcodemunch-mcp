@@ -2643,6 +2643,7 @@ def generate_template() -> str:
   //   at most every 30 days, on stderr after a CLI command and on the first
   //   tool answer of a process. Never shown with a license key set. false
   //   silences it for good: jcodemunch-mcp config set license_reminder false
+  //   (global config only; a project .jcodemunch.jsonc does not set it).
 
   // === Watcher ===
   // "watch": false,

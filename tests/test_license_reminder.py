@@ -128,14 +128,15 @@ def test_a_license_key_silences_it_and_is_never_sent(store, monkeypatch):
     assert lr.skip_reason(now=NOW) == "licensed"
 
 
-def test_the_real_key_check_reads_config_and_env_locally(store, monkeypatch):
-    monkeypatch.undo()  # back to the real key check
-    monkeypatch.setenv("CODE_INDEX_PATH", str(store))
+def test_the_real_key_check_reads_config_and_env_locally(tmp_path, monkeypatch):
+    """No patched key check here: the real one, fed by the env var, read locally."""
+    monkeypatch.setenv("CODE_INDEX_PATH", str(tmp_path))
     monkeypatch.setattr(lr, "_config_silenced", lambda: False)
     for name in ("CI", "CLAUDE_CODE_REMOTE", lr.ENV_VAR, "JCODEMUNCH_LICENSE_NOTICE"):
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setenv("JCODEMUNCH_LICENSE_KEY", "JCM-TEST-KEY")
-    _seed(store, first_days_ago=60)
+    (tmp_path / "owner-repo.db").write_bytes(b"")
+    _seed(tmp_path, first_days_ago=60)
     assert lr.skip_reason(now=NOW) == "licensed"
 
 
@@ -145,13 +146,15 @@ def test_config_set_false_silences_it_for_good(store, monkeypatch):
     assert lr.skip_reason(now=NOW) == "silenced"
 
 
-def test_the_config_key_is_read_from_config(store, monkeypatch):
+def test_the_config_key_is_read_from_global_config(monkeypatch):
+    """The real `_config_silenced`, over `config.get` with no repo: global config only."""
     from jcodemunch_mcp import config
 
-    monkeypatch.undo()
+    seen = []
     monkeypatch.setattr(config, "get", lambda key, default=None, repo=None:
-                        False if key == lr.CONFIG_KEY else default)
+                        seen.append(repo) or (False if key == lr.CONFIG_KEY else default))
     assert lr._config_silenced() is True
+    assert seen == [None]
     monkeypatch.setattr(config, "get", lambda key, default=None, repo=None: default)
     assert lr._config_silenced() is False
 
@@ -286,11 +289,17 @@ def test_the_dispatcher_puts_it_in_the_license_notice_field(store, fresh_process
     assert "license_notice" not in _call()
 
 
-def test_config_set_false_also_silences_the_one_time_notice(store, monkeypatch):
-    from jcodemunch_mcp import license_notice
+def test_config_set_false_also_silences_the_one_time_notice(tmp_path, monkeypatch):
+    """End to end: config.get answers false, nothing in between is patched."""
+    from jcodemunch_mcp import config, license_notice
 
-    monkeypatch.setattr(license_notice, "_reminder_silenced", lambda: True)
+    monkeypatch.setenv("CODE_INDEX_PATH", str(tmp_path))
+    monkeypatch.setattr(config, "get", lambda key, default=None, repo=None:
+                        False if key == lr.CONFIG_KEY else default)
     assert license_notice.skip_reason(env={}) == "silenced"
+    monkeypatch.setattr(config, "get", lambda key, default=None, repo=None:
+                        "" if key == "license_key" else default)
+    assert license_notice.skip_reason(env={}) is None
 
 
 def test_the_reminder_is_disclosed_with_every_switch():

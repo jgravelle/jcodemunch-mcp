@@ -271,7 +271,7 @@ Anything else that reaches the network is something you run or turn on yourself,
 
 ## Security, privacy, and background behavior
 
-An install that never runs `init` (a `uvx` or plugin install) gets one `license_notice` line in its first tool answer, once per machine; it is skipped with a license key configured, after an `init` that printed the license line, on CI or remote runners (`CI=true`, `CLAUDE_CODE_REMOTE=true`), or with `JCODEMUNCH_LICENSE_NOTICE=0`.
+An install that never runs `init` (a `uvx` or plugin install) gets one `license_notice` line in its first tool answer, once per machine; it is skipped with a license key configured, after `jcodemunch-mcp config set license_reminder false`, after an `init` that printed the license line, on CI or remote runners (`CI=true`, `CLAUDE_CODE_REMOTE=true`), or with `JCODEMUNCH_LICENSE_NOTICE=0`.
 
 A short work-license reminder follows, 7 days after a machine's first index and then at most every 30 days: on stderr after a CLI command a person runs (only at a terminal, never with `--json`), and as `license_notice` on the first tool answer of a server process when due. Its state is `~/.code-index/license_reminder_state.json` (three fields: first index seen, last shown, count). It is never shown with a license key configured, on CI or remote runners, or after `jcodemunch-mcp config set license_reminder false`; `JCODEMUNCH_LICENSE_REMINDER=0` also silences it. Nothing is sent.
 
