@@ -145,13 +145,13 @@ the runbook has the order.
   workflow, and on dispatch: `npm ci` from the lockfile, `tsc` compile, then
   `vsce package`. The `.vsix` is uploaded as an artifact; the job never
   publishes. Publishing is the maintainer's, with his marketplace account,
-  from that artifact.
+  and only from the artifact of a run on `main` (a push to main or a
+  dispatch on main), never from a pull-request run: a fork PR builds an
+  artifact of the same name from contributor code.
 - INFORMS: not a required check. Making it one is a branch-protection change
   (RUNBOOK §8).
 - Dependabot covers `/vscode-extension` (npm) with the same two postures as
   `uv`: security PRs grouped weekly, minor and patch monthly, majors manual.
-- `tests/test_vscode_extension_reads_file_risk_keys.py` (Python, in the full
-  tier) checks the other side: every key the gutter reads from `file-risk`.
 
 ## 6. Concurrency, caching, budget
 
