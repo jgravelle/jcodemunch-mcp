@@ -109,6 +109,12 @@ def test_v2_has_nothing_to_decide_for_a_schema_or_build_item(build_items_repo):
     imports reaches the undecided set. The call site acts on `.ascx`/`.master`
     (`tests/test_aspx_review_guards.py`). If XML-family files ever gain a
     function or an import edge, this fails, and the cap starts to matter here.
+
+    One did (LEDGER L-202): a XAML view with `x:Class` imports its code-behind,
+    so the cap now reaches `Ctl.xaml.cs`. That is the intended reading, because
+    the build loads a view's code-behind with it; the code-behind's
+    `unreachable_file` signal is undecided and its other signals still vote.
+    The schema, resource and MSBuild files still import nothing.
     """
     from jcodemunch_mcp.storage.index_store import IndexStore
     from jcodemunch_mcp.tools.get_dead_code_v2 import get_dead_code_v2
@@ -123,9 +129,16 @@ def test_v2_has_nothing_to_decide_for_a_schema_or_build_item(build_items_repo):
     }, capped
     functions = [s for s in index.symbols if s.get("file") in capped and s.get("kind") in ("function", "method")]
     assert functions == [], functions
-    imported = {i["specifier"] for f in capped for i in (index.imports or {}).get(f, [])}
-    assert imported == set(), imported
+    imported = {
+        (f, i["specifier"]) for f in capped for i in (index.imports or {}).get(f, [])
+    }
+    assert imported == {("App/Ctl.xaml", "Ctl.xaml.cs")}, imported
 
     out = get_dead_code_v2(repo, min_confidence=0.0, storage_path=storage)
-    assert "unseen_consumer_boundary" not in out, out.get("unseen_consumer_boundary")
+    boundary = out.get("unseen_consumer_boundary") or {}
+    assert boundary.get("files") == 1, boundary
     assert not [d for d in out.get("dead_symbols", []) if d.get("file") in capped]
+    behind = [d for d in out.get("dead_symbols", []) if d.get("file") == "App/Ctl.xaml.cs"]
+    assert behind, out.get("dead_symbols")  # `Helper` is still judged
+    assert all("unreachable_file" not in (d.get("counted_signals") or d.get("signals", []))
+               for d in behind), behind
