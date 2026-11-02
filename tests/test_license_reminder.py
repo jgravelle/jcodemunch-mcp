@@ -74,6 +74,11 @@ def test_each_copy_of_the_buy_link_names_where_it_was_shown():
     The terminal copy and the tool-answer copy carry different `utm_medium` values.
     The whole query is pinned, so no install id, version or count can join it: the
     link is the same on every machine."""
+    base = "https://jcodemunch.com/buying.php?utm_source=cli&utm_campaign=license-reminder"
+    assert lr.CLI_BUY_URL == base.replace("cli&", "cli&utm_medium=reminder&")
+    assert lr.TOOL_BUY_URL == base.replace("cli&", "cli&utm_medium=tool&")
+    # No punctuation follows a link into its campaign value.
+    assert lr.CLI_BUY_URL + " " in lr.CLI_TEXT and lr.TOOL_TEXT.endswith(lr.TOOL_BUY_URL)
     cli, tool = _query(lr.CLI_TEXT), _query(lr.TOOL_TEXT)
     assert cli == {"utm_source": ["cli"], "utm_medium": ["reminder"], "utm_campaign": ["license-reminder"]}
     assert tool == {"utm_source": ["cli"], "utm_medium": ["tool"], "utm_campaign": ["license-reminder"]}

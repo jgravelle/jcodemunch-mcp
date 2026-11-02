@@ -54,9 +54,10 @@ CLI_TEXT = (
     f"Personal use stays free. Using jCodeMunch for work needs a license: {CLI_BUY_URL} "
     f"(silence: {SILENCE_COMMAND})"
 )
+# The URL ends the text, so no period follows it into the link's campaign value.
 TOOL_TEXT = (
-    f"Personal use stays free. Using jCodeMunch for work needs a license: {TOOL_BUY_URL}. "
-    f"A person can turn these reminders off with: {SILENCE_COMMAND}"
+    f"Personal use stays free. A person can turn these reminders off with: {SILENCE_COMMAND}. "
+    f"Using jCodeMunch for work needs a license: {TOOL_BUY_URL}"
 )
 ENV_VAR = "JCODEMUNCH_LICENSE_REMINDER"
 NOTICE_ENV_VAR = "JCODEMUNCH_LICENSE_NOTICE"
