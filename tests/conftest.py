@@ -146,6 +146,10 @@ def _fresh_session(monkeypatch):
     from jcodemunch_mcp import license_notice
 
     monkeypatch.setitem(license_notice.NOTICE_STATE, "checked", True)
+    # Same for the work-license reminder's tool-answer copy (item 650).
+    from jcodemunch_mcp import license_reminder
+
+    monkeypatch.setitem(license_reminder.REMINDER_STATE, "checked", True)
     # The per-tool counters hold counts not yet on disk and write every 20
     # calls: carried across tests, a write would arrive in whichever test made
     # the twentieth call. A fresh state per test, as a fresh process has.
