@@ -1,6 +1,24 @@
 {
-  "current": "1.108.402",
+  "current": "1.108.405",
   "entries": [
+    {
+      "version": "1.108.405",
+      "date": "2026-11-01",
+      "title": "get_class_hierarchy and find_implementations read a base list written after a colon",
+      "summary": "For a C# class Circle : IShape, get_class_hierarchy names IShape as an ancestor and find_implementations(\"IShape\") returns Circle. The same holds for Kotlin, Swift, C++ and Rust base lists, Ruby's class A < B, and Scala and Dart's extends B with T. An enum's underlying type (enum E : byte) is not read as a base. No re-index is needed."
+    },
+    {
+      "version": "1.108.404",
+      "date": "2026-11-01",
+      "title": "a failed summarizer keeps the summaries it had, and tool descriptions open with the agent's question",
+      "summary": "summarize_repo(force=true) keeps each stored summary when the provider fails for that symbol, and reports provider_fallbacks and previous_summaries_kept. Seventeen tool descriptions open with the question an agent asks, so a host that searches descriptions finds them. The plugin listing and the MCP registry show the jCodeMunch icon."
+    },
+    {
+      "version": "1.108.403",
+      "date": "2026-10-30",
+      "title": "a file pattern means the same thing in every tool, and the rate_limit config key turns the limit on",
+      "summary": "A file_pattern with a slash is anchored at the repo root and a bare one matches at any depth, the same way in search_text, the index store and every scope check. The rate_limit key in config.jsonc now turns on the HTTP rate limit, in the documented order. On Windows, init writes Codex's entry as the bare command name when PATH finds the same install. The CLI's license link points at the current site."
+    },
     {
       "version": "1.108.402",
       "date": "2026-10-28",

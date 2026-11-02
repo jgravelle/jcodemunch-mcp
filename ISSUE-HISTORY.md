@@ -2988,3 +2988,33 @@ The 1.108.399 entry, verbatim as it stood in `CLAUDE.md`:
 The `Tests:` line's 1.108.399 count, verbatim:
 
 - ⚠ Prior (1.108.399): 18696 passed, 24 skipped, **0 failed** (18720 total).
+
+## Current State rotation (2026-10-30, release 1.108.403)
+
+The 1.108.400 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.400):** **a text search returns the code it found, and a retired tool name says what replaced it** (#1237, #1236): `search_text` attaches `sources` when matches sit in at most `SOURCE_MAX_SYMBOLS` symbols within `SOURCE_MAX_LINES`/`SOURCE_MAX_BYTES`, disclosing `sources_omitted_reason`; encoding `st5`. `counter.RETIRED_TOOL_NAMES` maps `get_symbol`/`get_symbols` to `get_symbol_source` for the unknown-tool error and `order`. Full text: `CHANGELOG.md`.
+
+The `Tests:` line's 1.108.400 count, verbatim:
+
+- ⚠ Prior (1.108.400): 18715 passed, 24 skipped, **0 failed** (18739 total).
+
+## Current State rotation (2026-11-01, release 1.108.404)
+
+The 1.108.401 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.401):** **a redirected Grep can carry the index's answer, and a substring search opens only the files that can match** (#1240): `cli/hooks/grep_answer.answer_enabled` is an allowlist (`1`/`true`/`yes`/`on`) on `JCODEMUNCH_HOOK_GREP_ANSWER`, default OFF; once per session and Grep arguments, never over a stale index or a cut page. `storage/text_filter.py` keeps a trigram bitmap per cached file in `<repo>.textfilter`, a sidecar so a repaired row never moves the `.db` mtime that keys the index cache; a bitmap may say maybe, never no. Full text: `CHANGELOG.md`.
+
+The `Tests:` line's 1.108.401 count, verbatim:
+
+- ⚠ Prior (1.108.401): 18773 passed, 24 skipped, **0 failed** (18797 total).
+
+## Current State rotation (2026-11-01, release 1.108.405)
+
+The 1.108.402 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.402):** **the server instructions name the tools in the first 512 characters, and tool names hold across 1.x** (#1248, #1247, #1246): ToolSearch follows the tool bullets; `tests/fixtures/tool_names_1x.json` freezes the names, and a rename keeps an alias for `counter.ALIAS_MIN_DAYS`; a modified folder no longer re-walks a watched repo (L-256); `license_notice` shows the license terms once. Full text: `CHANGELOG.md`.
+
+The `Tests:` line's 1.108.402 count, verbatim:
+
+- ⚠ Prior (1.108.402): 18839 passed, 24 skipped, **0 failed** (18863 total).

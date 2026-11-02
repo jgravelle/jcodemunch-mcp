@@ -2,6 +2,94 @@
 
 ## [Unreleased]
 
+## [1.108.405] - 2026-11-01 - get_class_hierarchy and find_implementations read a base list written after a colon
+
+### Fixed - `get_class_hierarchy` and `find_implementations` read a base list written after a colon (#1284)
+
+Reported by @skibadubskiybadubs: for a C# `public class Circle : IShape`, `get_class_hierarchy("Circle")` returned no ancestors and `find_implementations("IShape")` returned nothing. The base-list parser read only `extends`, `implements` and parenthesized bases, so the colon spelling shared by C#, Kotlin, Swift, C++ and Rust, and Ruby's `class A < B`, never produced a base. Scala and Dart's `extends B with T` was read as one base named "B with T", so neither joined.
+
+Both tools now read every base-list spelling the extractors store: attributes, generic arguments, `where` constraints, C++ access specifiers, Kotlin constructor calls and Rust `+` bounds are stripped, and `with` splits a list. An enum's underlying or raw type (C# `enum E : byte`, Swift `enum Raw: Int`) is never a base, and neither is a Python block colon or a comment. `#` starts a comment only in a language where it does, and a comment marker inside a string is kept. `tests/test_colon_base_lists_are_read.py` covers each language's stored spelling and ties the `#`-comment languages to the names the index stores.
+
+## [1.108.404] - 2026-11-01 - a failed summarizer keeps the summaries it had, and tool descriptions open with the agent's question
+
+### Changed - 17 tool descriptions open with the question an agent asks
+
+A host that defers tool schemas (Claude Code, Codex) shows the model bare
+names and lets it search names and descriptions for the rest. An audit of the
+whole catalog found 22 tools, four of them in the core tier, whose
+descriptions opened with internal terms, such as "Composite preflight",
+"Task-aware single-call orchestrator" and "Mine the ranking telemetry
+ledger", and carried none of the words an agent types when it needs them.
+"How risky is this pull request" did not put `get_pr_risk_profile` in the
+top three of the catalog search.
+
+Seventeen of them now open with their question: `check_delete_safe`,
+`check_edit_safe`, `assemble_task_context`, `digest`, `get_delivery_metrics`,
+`get_decorator_census`, `get_architecture_metrics`, `check_embedding_drift`,
+`tune_weights`, `suggest_corrections`, `get_tectonic_map`,
+`get_group_contracts`, `get_pr_risk_profile`, `get_hotspots`,
+`get_coupling_metrics`, `summarize_repo` and `get_file_content`. Three others
+(`get_repo_map`, `get_parity_map`, `analyze_perf`) already answered their
+question. `set_tool_tier` and `announce_model` are left as they are: they sit
+on the byte-pinned `counter` surface, where any rewording is a full-rate
+cache write for every user.
+
+`tests/test_question_queries_find_analysis_tools.py` fails if a question loses
+a word from its tool's description, or if the Counter's catalog search stops
+ranking the tool in its top three; two paraphrases are held to rank only.
+
+The rewording is a one-time cache write for clients on the `core`,
+`standard` and `full` profiles (`counter` is unchanged). From
+`benchmarks/schema_baseline.json`: `core_compact` 3980 to 3984 tokens (+4,
+under its 4,000 ceiling), `standard_compact` 20084 to 20174 (+90),
+`full_compact` 21512 to 21602 (+90).
+
+Descriptions are the router's input, so `benchmarks/route_recall/` was re-run.
+On the held-out corpus, frozen before any routing fix, `menu` recall holds at
+@1 and @3 and rises at @5 (40.9 to 43.2) and @10 (50.0 to 52.3). At @3 one
+query left the top three and another entered, and the @5 and @10 gains are
+that one query. On the main corpus recall rises at every cutoff (@3 from 69.5
+to 72.9, @10 from 81.4 to 86.4), but part of that gain is the corpus's own
+wording now in a description: "how risky is this pull request" is now the
+`get_pr_risk_profile` opener, and the benchmark's description-overlap
+measure rose from 0.388 to 0.429 (held-out: 0.313 to 0.322). Four individual
+queries, two in each corpus, drop one place. `route` ranks are unchanged in
+both.
+
+### Added - the plugin listing and the MCP registry show the jCodeMunch icon
+
+Neither manifest named an icon, so the plugin directory and the registry had none to show beside the name. `plugin/jcodemunch/icon.svg` is the icon: curly braces around one orange symbol, in the site's colors. `plugin.json` names it as `./icon.svg`, the relative path the plugin directory reads. `server.json` names its raw URL on `main` with `image/svg+xml`, the form the registry schema takes, so the next registry publish carries it.
+
+The icon is an SVG because the plugin folder holds text files only, and SVG is text. `tests/test_plugin_icon.py` holds both manifests to the same file, so the two listings cannot show different icons.
+
+### Fixed - a forced summary refresh keeps the summaries it had when the AI provider fails
+
+`summarize_repo(force=true)`, the refresh the docs recommend, cleared every
+summary before calling the AI provider. When the provider failed (a 429, a 200
+response carrying an error body, or three failed batches in a row tripping the
+circuit breaker), each remaining symbol got its signature fallback, and that
+fallback was saved over the AI summary it replaced. The result was
+`success: true` with `updated` equal to the symbol count, the same as a healthy
+run, so the only sign was a warning in the server log. A later plain
+`summarize_repo` then found nothing to do, and the summaries came back only
+with a second forced run, paid for again. Reported by @swf1996120 in #1282,
+with an exact reproduction against a local endpoint.
+
+The summarizer now names the symbols it sent to the provider and got no
+summary back for (a failed or rate-limited request, the circuit breaker, or a
+blank answer), and each of those keeps the summary it had. The result carries
+`provider_fallbacks` (how many symbols the provider did not summarize) and
+`previous_summaries_kept` with a reason, so a failed run no longer reads like a
+healthy one and says to run the forced refresh again once the provider
+answers. `updated` now counts summaries that differ from what was stored, not
+from the blank the forced run had just set. A fallback the provider was never
+asked for is written as before: with no provider configured, with a provider
+whose client could not be built, and for a docstring symbol when
+`summarize_from_docstrings` is off, a forced run still resets the summary to
+its fallback.
+
+## [1.108.403] - 2026-10-30 - a file pattern means the same thing in every tool, and the rate_limit config key turns the limit on
+
 ### Fixed - the CLI's license link points at the current site
 
 When a team feature needed a license, the CLI and the `get_license` field of
