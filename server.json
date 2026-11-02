@@ -4,13 +4,22 @@
   "title": "jCodeMunch MCP",
   "description": "Retrieves code by symbol via tree-sitter, so an agent reads the function it needs, not the file.",
   "websiteUrl": "https://jcodemunch.com",
-  "version": "1.108.402",
+  "icons": [
+    {
+      "src": "https://raw.githubusercontent.com/jgravelle/jcodemunch-mcp/main/plugin/jcodemunch/icon.svg",
+      "mimeType": "image/svg+xml",
+      "sizes": [
+        "any"
+      ]
+    }
+  ],
+  "version": "1.108.405",
   "packages": [
     {
       "registryType": "pypi",
       "identifier": "jcodemunch-mcp",
       "runtimeHint": "uvx",
-      "version": "1.108.402",
+      "version": "1.108.405",
       "transport": {
         "type": "stdio"
       }
