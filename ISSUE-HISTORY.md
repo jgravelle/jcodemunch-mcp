@@ -3008,3 +3008,13 @@ The 1.108.401 entry, verbatim as it stood in `CLAUDE.md`:
 The `Tests:` line's 1.108.401 count, verbatim:
 
 - ⚠ Prior (1.108.401): 18773 passed, 24 skipped, **0 failed** (18797 total).
+
+## Current State rotation (2026-11-01, release 1.108.405)
+
+The 1.108.402 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.402):** **the server instructions name the tools in the first 512 characters, and tool names hold across 1.x** (#1248, #1247, #1246): ToolSearch follows the tool bullets; `tests/fixtures/tool_names_1x.json` freezes the names, and a rename keeps an alias for `counter.ALIAS_MIN_DAYS`; a modified folder no longer re-walks a watched repo (L-256); `license_notice` shows the license terms once. Full text: `CHANGELOG.md`.
+
+The `Tests:` line's 1.108.402 count, verbatim:
+
+- ⚠ Prior (1.108.402): 18839 passed, 24 skipped, **0 failed** (18863 total).
