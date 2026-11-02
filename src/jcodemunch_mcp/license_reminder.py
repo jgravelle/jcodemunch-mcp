@@ -43,13 +43,19 @@ from typing import Mapping, Optional, Sequence, TextIO
 logger = logging.getLogger(__name__)
 
 BUY_URL = "https://jcodemunch.com/buying.php"
+#: A fixed source tag per copy, so a sale through the reminder can be told from
+#: other sales. The same on every machine: nothing about the install is in it,
+#: and nothing is sent unless a person opens the link.
+_TAG = "?utm_source=cli&utm_medium={medium}&utm_campaign=license-reminder"
+CLI_BUY_URL = BUY_URL + _TAG.format(medium="reminder")
+TOOL_BUY_URL = BUY_URL + _TAG.format(medium="tool")
 SILENCE_COMMAND = "jcodemunch-mcp config set license_reminder false"
 CLI_TEXT = (
-    f"Personal use stays free. Using jCodeMunch for work needs a license: {BUY_URL} "
+    f"Personal use stays free. Using jCodeMunch for work needs a license: {CLI_BUY_URL} "
     f"(silence: {SILENCE_COMMAND})"
 )
 TOOL_TEXT = (
-    f"Personal use stays free. Using jCodeMunch for work needs a license: {BUY_URL}. "
+    f"Personal use stays free. Using jCodeMunch for work needs a license: {TOOL_BUY_URL}. "
     f"A person can turn these reminders off with: {SILENCE_COMMAND}"
 )
 ENV_VAR = "JCODEMUNCH_LICENSE_REMINDER"

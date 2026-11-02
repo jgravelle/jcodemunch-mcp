@@ -61,6 +61,24 @@ def test_every_text_names_the_silencing_command_and_the_buy_page():
         assert "Personal use stays free" in text
 
 
+def _query(text):
+    from urllib.parse import parse_qs, urlsplit
+
+    url = next(w for w in text.split() if w.startswith("https://jcodemunch.com/buying.php"))
+    return parse_qs(urlsplit(url.rstrip(".")).query)
+
+
+def test_each_copy_of_the_buy_link_names_where_it_was_shown():
+    """A sale that came through the reminder can be told apart from other sales.
+
+    The terminal copy and the tool-answer copy carry different `utm_medium` values.
+    The whole query is pinned, so no install id, version or count can join it: the
+    link is the same on every machine."""
+    cli, tool = _query(lr.CLI_TEXT), _query(lr.TOOL_TEXT)
+    assert cli == {"utm_source": ["cli"], "utm_medium": ["reminder"], "utm_campaign": ["license-reminder"]}
+    assert tool == {"utm_source": ["cli"], "utm_medium": ["tool"], "utm_campaign": ["license-reminder"]}
+
+
 def test_the_tool_text_is_a_statement_not_an_instruction_to_the_model():
     lowered = lr.TOOL_TEXT.lower()
     for relay in ("tell the user", "let the user know", "inform the user", "mention this",

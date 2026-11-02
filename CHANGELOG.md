@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added - the work-license reminder's buy link says where it was shown
+
+The reminder added in 1.108.408 linked to the plain buy page, so a sale that came through it looked like any other sale and there was no way to tell whether the reminder sells. Each copy of the link now carries a fixed source tag: `utm_source=cli&utm_medium=reminder&utm_campaign=license-reminder` on the terminal copy, and `utm_medium=tool` on the tool-answer copy. The tag is the same on every machine and holds nothing about the install, and jcodemunch.com sees it only if a person opens the link; nothing is sent by the reminder itself. A test pins the whole query, so an install id, version or count cannot join it unnoticed. SECURITY.md and README say so.
+
 ## [1.108.408] - 2026-11-02 - a rare work-license reminder, never shown to a license holder
 
 ### Added - a rare work-license reminder, never shown to a license holder
