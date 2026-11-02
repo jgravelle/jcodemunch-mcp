@@ -17,7 +17,7 @@ from ..retrieval.verdict import (
 from ._dynamic_boundary import FILES_CAP as DYNAMIC_FILES_CAP, DynamicBoundary
 from ._utils import index_status_to_tool_error, resolve_repo, resolve_fqn
 from .package_registry import extract_root_package_from_specifier
-from ._call_graph import build_symbols_by_file, bfs_callers
+from ._call_graph import build_symbols_by_file, bfs_callers, label_row_depths
 from ..word_rule import word_pattern
 from .find_dead_code import _is_test_file
 from .decision_context import resolve_decision_context
@@ -474,7 +474,8 @@ def get_blast_radius(
 
     Returns:
         Dict with symbol info, confirmed/potential affected files, counts, and _meta.
-        When call_depth > 0: also includes ``callers`` and ``caller_count``.
+        When call_depth > 0: also includes ``callers``, ``caller_count`` (every
+        depth), ``direct_caller_count`` and ``callers_by_depth``.
     """
     # FQN resolution: translate PHP FQN → symbol name/id
     if fqn:
@@ -767,7 +768,12 @@ def get_blast_radius(
     if verdict.get("dynamic_imports_unfollowed"):
         result["dynamic_imports_unfollowed"] = verdict["dynamic_imports_unfollowed"]
     if call_depth > 0:
+        # `caller_count` stays the total over every depth; the direct and
+        # per-depth counts come from the rule get_call_hierarchy uses (L-240).
+        by_depth = label_row_depths(callers)
         result["caller_count"] = len(callers)
+        result["direct_caller_count"] = by_depth.get("1", 0)
+        result["callers_by_depth"] = by_depth
         result["callers"] = callers
     if cross_repo and cross_repo_confirmed:
         result["cross_repo_confirmed"] = cross_repo_confirmed
