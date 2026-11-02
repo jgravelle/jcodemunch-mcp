@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+### Fixed - `get_class_hierarchy` and `find_implementations` read a base list written after a colon (#1284)
+
+Reported by @skibadubskiybadubs: for a C# `public class Circle : IShape`, `get_class_hierarchy("Circle")` returned no ancestors and `find_implementations("IShape")` returned nothing. The base-list parser read only `extends`, `implements` and parenthesized bases, so the colon spelling shared by C#, Kotlin, Swift, C++ and Rust, and Ruby's `class A < B`, never produced a base. Scala and Dart's `extends B with T` was read as one base named "B with T", so neither joined.
+
+Both tools now read every base-list spelling the extractors store: attributes, generic arguments, `where` constraints, C++ access specifiers, Kotlin constructor calls and Rust `+` bounds are stripped, and `with` splits a list. An enum's underlying or raw type (C# `enum E : byte`, Swift `enum Raw: Int`) is never a base, and neither is a Python block colon or a comment. `#` starts a comment only in a language where it does, and a comment marker inside a string is kept. `tests/test_colon_base_lists_are_read.py` covers each language's stored spelling and ties the `#`-comment languages to the names the index stores.
+
 ## [1.108.404] - 2026-11-01 - a base list after a colon is read, and a failed summarizer keeps the summaries it had
 
 ### Changed - 17 tool descriptions open with the question an agent asks
