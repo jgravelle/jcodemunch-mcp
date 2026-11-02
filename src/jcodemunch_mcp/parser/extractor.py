@@ -10226,8 +10226,9 @@ def _erb_fill_table(fill: int) -> bytes:
 
 
 _ERB_BLANK = _erb_fill_table(0x20)
-# An output tag in host text becomes a token of its own length: `X`, a code of
-# four characters unique to the tag, then X's (`<%= name %>` -> `X0000XXXXXX`).
+# Each line of an output tag in host text becomes a token of its own length:
+# `X`, a code of four characters no other token shares, then X's
+# (`<%= name %>` -> `X0000XXXXXX`; a line too short for one is blanked).
 # That is a name in JavaScript, YAML and Java, and a constant in Ruby, so
 # `class <%= name %>Report` stays a class. No two tags fill alike, so a filled
 # name maps back to its tags by lookup, wherever the parser put it, and two
@@ -10413,9 +10414,9 @@ def _erb_adopt(
     A name the host copy filled from an output tag (``X0000XXXXXXReport``) is
     named by the tag's own text instead (``<%= class_name %>Report``), in the
     symbol, its qualified name, id, signature, docstring, decorators and call
-    references. Every tag fills to a token of its own (``_ERB_HOLE``'s
-    comment), so the restore is a lookup and reads the same wherever a parser
-    copied, quoted or re-parented the name.
+    references. Each line of an output tag fills to a token no other shares
+    (``_ERB_HOLE``'s comment), so the restore is a lookup and reads the same
+    wherever a parser copied, quoted or re-parented the name.
     """
 
     def _restore(text: str) -> str:
