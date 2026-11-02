@@ -14,6 +14,10 @@ Every write that carries a call now records `last_flush_at` (UTC) and `measured_
 
 `receipt` (text and `--export` JSON), `diagnose` and `get_session_stats` (and `session_stats.json`) now carry `lifetime_status` (`current`, `stale`, `unknown`, or `absent` in `diagnose`), `lifetime_measured_through` and `lifetime_stale_since` beside the lifetime total. A tool answer whose `_meta` carries `total_tokens_saved` gains `_meta.lifetime_meter` with the same three fields whenever the meter is not current; it is attached after the `meta_fields` filter and every compact encoder keeps it, so a frozen total is never served unlabeled. A healthy meter's answers are unchanged. ⚠ An older server running alongside still counts but writes no stamp, so while only older servers are writing the label can read stale. A total whose last stamp is older than the last write of `_tool_counters.json`, or a file with no stamp at all, reads "unmeasured since <date>"; a file that cannot be read reads unknown, never current. A file written before this release has no stamp, so it reads as stale until the first write from this version. SECURITY.md's "Background behavior" list names the new fields, the lock and the temp file. Tests: `tests/test_savings_meter_safe_write_and_heartbeat.py`.
 
+### Added - the work-license reminder's buy link says where it was shown
+
+The reminder added in 1.108.408 linked to the plain buy page, so a sale that came through it looked like any other sale and there was no way to tell whether the reminder sells. Each copy of the link now carries a fixed source tag: `utm_source=cli&utm_medium=reminder&utm_campaign=license-reminder` on the terminal copy, and `utm_medium=tool` on the tool-answer copy. The tag is the same on every machine and holds nothing about the install, and jcodemunch.com sees it only if the link is opened; nothing is sent by the reminder itself. A test pins the whole query, so an install id, version or count cannot join it unnoticed. SECURITY.md and README say so.
+
 ## [1.108.408] - 2026-11-02 - a rare work-license reminder, never shown to a license holder
 
 ### Added - a rare work-license reminder, never shown to a license holder
