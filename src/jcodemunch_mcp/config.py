@@ -520,6 +520,7 @@ DEFAULTS = {
     "runtime_ingest_enabled": False,
     "org_ingest_enabled": False,
     "license_key": "",  # jCodeMunch license key; gates the org-rollup (team SKU) feature only
+    "license_reminder": True,  # work-license reminder; false silences it for good (item 650)
     "runtime_ingest_max_body_bytes": 5_242_880,  # 5 MB
     "summarizer_concurrency": 4,
     "summarizer_max_failures": 3,
@@ -629,6 +630,7 @@ CONFIG_TYPES = {
     "runtime_ingest_enabled": bool,
     "org_ingest_enabled": bool,
     "license_key": str,
+    "license_reminder": bool,
     "runtime_ingest_max_body_bytes": int,
     "summarizer_concurrency": int,
     "summarizer_max_failures": int,
@@ -2636,6 +2638,12 @@ def generate_template() -> str:
   //   online against the licensing backend (sticky-offline; 14-day grace
   //   for a new org). Also settable via JCODEMUNCH_LICENSE_KEY. Check
   //   status with the `license` CLI.
+  // "license_reminder": true,
+  //   A short work-license reminder, 7 days after the first index and then
+  //   at most every 30 days, on stderr after a CLI command and on the first
+  //   tool answer of a process. Never shown with a license key set. false
+  //   silences it for good: jcodemunch-mcp config set license_reminder false
+  //   (global config only; a project .jcodemunch.jsonc does not set it).
 
   // === Watcher ===
   // "watch": false,
