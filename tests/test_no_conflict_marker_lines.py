@@ -21,9 +21,15 @@ import pytest
 ROOT = Path(__file__).resolve().parent.parent
 
 # Built from repetition so this file never holds a marker line itself.
-_MARKERS = ("<" * 7, "|" * 7, "=" * 7, ">" * 7)
+# Git writes a label after the three side markers, never after the separator.
+_LABELLED = ("<" * 7, "|" * 7, ">" * 7)
+_SEPARATOR = "=" * 7
 _MARKER_LINE = re.compile(
-    r"^(?:" + "|".join(re.escape(m) for m in _MARKERS) + r")(?: .*)?$"
+    r"^(?:(?:"
+    + "|".join(re.escape(m) for m in _LABELLED)
+    + r")(?: .*)?|"
+    + re.escape(_SEPARATOR)
+    + r")$"
 )
 
 
@@ -45,6 +51,9 @@ def _tracked_files() -> list[Path]:
             check=True,
         ).stdout
     except (OSError, subprocess.CalledProcessError):
+        # A checkout whose git cannot run must fail, not read as a skip.
+        if (ROOT / ".git").exists():
+            raise
         pytest.skip("not a git checkout")
     return [ROOT / p for p in out.decode("utf-8", "replace").split("\0") if p]
 
@@ -70,6 +79,8 @@ def test_marker_lines_are_found(text, expected):
         "=" * 6 + "\n",
         "x " + "=" * 7 + "\n",
         "<" * 7 + "HEAD\n",  # git always writes a space before the label
+        "=" * 7
+        + " x\n",  # git never labels the separator; a pytest banner can start this way
         "",
     ],
 )
