@@ -5,8 +5,8 @@
     "menu_recall": {
       "@1": 13.6,
       "@3": 29.5,
-      "@5": 40.9,
-      "@10": 50.0
+      "@5": 43.2,
+      "@10": 52.3
     },
     "route_recall": {
       "@1": 65.9,
@@ -57,7 +57,6 @@
       "make similarity lookups work here",
       "give me the running total of context I did not have to send",
       "print out what this function actually does line by line",
-      "what are the real subsystems here as opposed to the folder layout",
       "group this codebase into the parts that actually belong together",
       "how many layers deep do the dependencies go",
       "which files should I be most careful editing",
@@ -76,7 +75,7 @@
     ],
     "leakage": {
       "mean_name_overlap": 0.057,
-      "mean_desc_overlap": 0.313,
+      "mean_desc_overlap": 0.322,
       "queries_containing_target_name_token": 7,
       "high_leak_queries": [
         "clone and analyse a repo from github"
@@ -132,7 +131,7 @@
       "targets": [
         "get_endpoint_impact"
       ],
-      "menu_rank": 6,
+      "menu_rank": 7,
       "route_rank": 1,
       "route_path": "rule",
       "menu_top3": [
@@ -234,19 +233,19 @@
         "check_edit_safe",
         "get_impact_preview"
       ],
-      "menu_rank": 3,
+      "menu_rank": 4,
       "route_rank": 1,
       "route_path": "rule",
       "menu_top3": [
         "import_runtime_signal",
-        "check_delete_safe",
-        "check_edit_safe"
+        "get_changed_symbols",
+        "check_delete_safe"
       ],
       "route_proposed": [
         "check_edit_safe"
       ],
       "leak_name": 0.0,
-      "leak_desc": 0.6
+      "leak_desc": 0.5
     },
     {
       "query": "make similarity lookups work here",
@@ -320,9 +319,9 @@
       "route_rank": 1,
       "route_path": "rule",
       "menu_top3": [
+        "assemble_task_context",
         "get_ranked_context",
-        "get_session_context",
-        "assemble_task_context"
+        "get_session_context"
       ],
       "route_proposed": [
         "get_session_stats"
@@ -342,12 +341,12 @@
       "menu_top3": [
         "get_file_outline",
         "get_repo_outline",
-        "import_runtime_signal"
+        "check_delete_safe"
       ],
       "route_proposed": [
         "get_file_outline",
         "get_repo_outline",
-        "import_runtime_signal"
+        "check_delete_safe"
       ],
       "leak_name": 0.0,
       "leak_desc": 0.111
@@ -392,7 +391,7 @@
         "get_call_hierarchy"
       ],
       "leak_name": 0.0,
-      "leak_desc": 0.625
+      "leak_desc": 0.5
     },
     {
       "query": "what are the real subsystems here as opposed to the folder layout",
@@ -400,19 +399,19 @@
       "targets": [
         "get_tectonic_map"
       ],
-      "menu_rank": null,
+      "menu_rank": 2,
       "route_rank": 1,
       "route_path": "rule",
       "menu_top3": [
         "index_folder",
-        "diff_health_radar",
-        "get_repo_map"
+        "get_tectonic_map",
+        "diff_health_radar"
       ],
       "route_proposed": [
         "get_tectonic_map"
       ],
       "leak_name": 0.0,
-      "leak_desc": 0.273
+      "leak_desc": 0.455
     },
     {
       "query": "group this codebase into the parts that actually belong together",
@@ -432,7 +431,7 @@
         "get_tectonic_map"
       ],
       "leak_name": 0.0,
-      "leak_desc": 0.2
+      "leak_desc": 0.3
     },
     {
       "query": "is most of this code piled into a few files or spread out evenly",
@@ -452,7 +451,7 @@
         "get_architecture_metrics"
       ],
       "leak_name": 0.0,
-      "leak_desc": 0.429
+      "leak_desc": 0.5
     },
     {
       "query": "how many layers deep do the dependencies go",
@@ -473,7 +472,7 @@
         "get_dependency_graph"
       ],
       "leak_name": 0.0,
-      "leak_desc": 0.125
+      "leak_desc": 0.25
     },
     {
       "query": "which files should I be most careful editing",
@@ -515,7 +514,7 @@
         "get_pr_risk_profile"
       ],
       "leak_name": 0.0,
-      "leak_desc": 0.25
+      "leak_desc": 0.375
     },
     {
       "query": "how hairy is this method",
@@ -651,14 +650,14 @@
       "route_rank": null,
       "route_path": "fallback",
       "menu_top3": [
+        "get_pr_risk_profile",
         "get_file_content",
-        "get_file_outline",
-        "get_file_risk"
+        "get_file_outline"
       ],
       "route_proposed": [
+        "get_pr_risk_profile",
         "get_file_content",
-        "get_file_outline",
-        "get_file_risk"
+        "get_file_outline"
       ],
       "leak_name": 0.0,
       "leak_desc": 0.5
@@ -741,12 +740,12 @@
       "menu_top3": [
         "get_class_hierarchy",
         "assemble_task_context",
-        "check_references"
+        "check_delete_safe"
       ],
       "route_proposed": [
         "get_class_hierarchy",
         "assemble_task_context",
-        "check_references"
+        "check_delete_safe"
       ],
       "leak_name": 0.333,
       "leak_desc": 0.2
