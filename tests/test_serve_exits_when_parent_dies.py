@@ -213,9 +213,11 @@ def test_the_exit_handlers_run_once_when_shutdown_races_the_forced_exit(monkeypa
 
 def test_the_launcher_walk_never_crosses_a_client(monkeypatch):
     """Only a console-script shim, a venv redirector or a pass-through runner
-    is stepped over; a Python client running on the base interpreter is not."""
-    if sys.platform != "win32":
-        pytest.skip("launchers exec in place outside Windows")
+    is stepped over; a Python client running on the base interpreter is not.
+
+    The walk runs only on Windows; every Windows call is faked here, so the
+    Windows path runs on every platform rather than skipping (a skip counts
+    against the CI skip ceiling)."""
     images = {10: r"C:\venv\Scripts\jcodemunch-mcp.exe", 9: r"C:\Python\python.exe"}
     parents = {10: 9, 9: 8}
     monkeypatch.setattr(parent_watch.os, "getppid", lambda: 10)
@@ -226,7 +228,10 @@ def test_the_launcher_walk_never_crosses_a_client(monkeypatch):
         "_launcher_images",
         lambda: {parent_watch._norm(r"C:\venv\Scripts\jcodemunch-mcp.exe")},
     )
-    assert parent_watch.watched_parent() == 9
+    with monkeypatch.context() as m:
+        m.setattr(sys, "platform", "win32")
+        walked = parent_watch.watched_parent()
+    assert walked == 9
 
 
 def test_a_check_that_cannot_be_made_counts_as_alive(monkeypatch):
@@ -375,10 +380,17 @@ def test_a_server_whose_parent_is_killed_exits(tmp_path):
 
 def test_a_server_whose_parent_dies_during_its_startup_exits(tmp_path):
     """Review round 1: on Unix the orphan is reparented before the watch
-    starts, so the watch must compare against the parent recorded at import."""
+    starts, so the watch must compare against the parent recorded at import.
+
+    The parent dies once the server has written its presence file: the server
+    has imported `parent_watch` (so it has recorded its parent) and may not
+    have started the watch yet. Killing it any earlier races the interpreter's
+    own startup, before any of our code runs, and on Linux the orphan then
+    belongs to init or a subreaper before there is anything to record."""
     parent, server = _start_parent(tmp_path, "0.5")
     try:
-        parent.kill()  # the server is still importing
+        assert _wait_until(lambda: _presence_files(tmp_path), 60), _err(tmp_path)
+        parent.kill()
         parent.wait(timeout=10)
         exited = _wait_until(lambda: not _is_pid_alive(server), 60)
         assert exited, "a server whose client died during its startup lingered"
