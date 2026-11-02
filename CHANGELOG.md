@@ -323,6 +323,45 @@ The content search stops after `max_content_results` files (default 20), and `co
 
 `org.license.sales_link` is now the one place that decides, and `license`, `license --json` and `org-rollup` all read it. `tests/test_org_rollup_shows_no_sales_link_to_a_key_holder.py` runs `org-rollup` for every key state, refused and in evaluation, text and JSON.
 
+### Fixed - `get_changed_symbols` diffs a renamed file against its old path
+
+A file moved between the two commits had its "before" side read at its new
+path, which does not exist at `since_sha`. So every symbol in a moved file was
+reported as `added`, none was reported as removed where it used to live, and
+`symbol_diff_complete` still read true. A pure `git mv` showed up as the whole
+file being new code, and `get_pr_risk_profile` and `digest` read that added
+list.
+
+The diff already carried the old path and the tool discarded it. Now the
+before side is read and parsed at the old path: a moved symbol whose body did
+not change is no change, an edited one is `modified`, and one deleted in the
+move is `removed` at its old path, with that path's importers as its blast
+radius. If the old side cannot be read the file is
+listed as `unreadable` rather than published as all-new. Rename detection is
+requested explicitly, so a repository with `diff.renames=false` gets the same
+answer. A new `renamed_files` list names each move as `{from, to}`, one row
+per renamed file in `changed_files`.
+
+`renamed_files` has no cap of its own: it holds one row per renamed file in
+`changed_files`, so any future cap on `changed_files` bounds it too. On this
+repository's largest rename commit it came to 1849 bytes for 18 moves, beside
+1097 bytes of `changed_files`; before this fix the same moves also published
+every symbol in each moved file as added.
+
+### Changed - the published token figure is the mean saving per lookup
+
+The README and the benchmark pages quoted 96.2% (26.5x) fewer tokens than a grep-and-read agent. That figure pools all 15 benchmark lookups: total grep tokens against total jCodeMunch tokens. Pooled, the two fastapi lookups with the largest grep baselines carry the most weight, so the figure read higher than a typical lookup. The headline is now the mean of the 15 per-lookup reductions, 94.5% fewer tokens per lookup on average, with the per-lookup range beside it. This is a change of basis, not a new measurement: the measurements in `benchmarks/results.md` are the same, and the pooled figure stays in tables labelled as pooled.
+
+`run_benchmark.py` writes the mean row into the Grand Summary. `tests/test_per_lookup_claim_matches_results.py` recomputes both figures from `results.md` and fails if any page quotes another number, or states the pooled figure as a headline or in an unlabelled row.
+
+### Fixed - no tool description tells the agent to ignore something
+
+`suggest_corrections` described its `all_time` flag as "Ignore the window and analyze the full ledger." The flag does exactly that, but every description reaches the agent inside the tool schema, and a sentence that opens with "Ignore" has the shape of a prompt-injection override. An automated security scan of the repository flagged it as one. The description now reads "Analyze the whole ledger instead of only the last window_days days."
+
+`tests/test_tool_descriptions_never_tell_the_agent_to_ignore.py` reads every tool and parameter description the `full` and `counter` surfaces publish and fails on a sentence that opens with ignore, disregard or forget. A passive form such as "ignored when token_budget is set" states behavior and still passes. It also reads the server instructions on both surfaces, catches "Ignores", "Ignoring", a bullet or parenthesis opener, and "ignore previous instructions" anywhere in a sentence.
+
+The new description is 5 tokens longer. `benchmarks/schema_baseline.json` moves on the four profiles that publish `suggest_corrections`: standard_compact 20084 to 20089, standard_full 22592 to 22597, full_compact 21512 to 21517, full_full 24020 to 24025. The core and counter surfaces are unchanged. A client on the standard or full profile pays one cache write for its tool block on the first request after upgrading.
+
 ## [1.108.405] - 2026-11-01 - get_class_hierarchy and find_implementations read a base list written after a colon
 
 ### Fixed - `get_class_hierarchy` and `find_implementations` read a base list written after a colon (#1284)
