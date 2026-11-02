@@ -95,8 +95,11 @@ Grand total across 15 task-runs, both baselines measured in the same run:
 
 | Baseline | Tokens | jCodeMunch | Reduction | Ratio |
 |---|--:|--:|--:|--:|
-| **Grep-top-3** (quote this) | **664,975** | 25,132 | **96.2%** | **26.5x** |
+| **Grep-top-3, pooled** | **664,975** | 25,132 | 96.2% | 26.5x |
 | Read-all (ceiling) | 5,658,685 | 25,132 | 99.6% | 225.2x |
+
+This table pools the totals. The figure to quote is 94.5% fewer tokens per
+lookup on average against grep-top-3, from the Grand Summary of `results.md`.
 
 Small differences in `file_count` are expected across installations and are not
 a bug in either run: what a machine can index depends on its grammar pack and

@@ -367,17 +367,72 @@ def search_catalog(
     rows = [r for r in catalog if r["action"] not in FRONT_DOOR]
     if not query:
         return rows[:limit]
+    query = _strip_host_prefixes(query)
+    named = named_rows(query, rows)
     qt = _query_tokens(query)
     if not qt:  # query was all function words; ranking on it is noise
-        return rows[:limit]
+        return (named or rows)[:limit]
     weights = _idf_weights(qt, rows)
     scored = []
     for r in rows:
+        if r in named:
+            continue
         s = score_action(qt, r["action"], r.get("_description", r["summary"]), weights)
         if s > 0:
             scored.append((s, r))
     scored.sort(key=lambda x: (-x[0], x[1]["action"]))
-    return [r for _, r in scored[:limit]]
+    return (named + [r for _, r in scored])[:limit]
+
+
+# Words a name-shaped query may carry beside the tool names: the server's own
+# name as hosts and agents write it.
+_SERVER_WORDS = frozenset({"jcodemunch", "jcodemunch-mcp", "jcodemunch_mcp", "mcp"})
+
+
+def named_rows(query: str, rows: list[dict]) -> list[dict]:
+    """The rows a NAME-SHAPED query names, in the order named; else ``[]``.
+
+    Agents search deferred tools by name, often several at once (R&D item 185),
+    and word-by-word scoring gave an exact name no more credit than its words
+    spread over other tools: naming the six core tools dropped two of them.
+    So a query made only of tool names (plus the server's name) returns those
+    tools first. ⚠ ONLY then: a task that MENTIONS a tool as context ("compare
+    two radar payloads from get_repo_health") wants a different tool, and
+    `route` dispatches its first row, so a pin there would run the wrong one.
+    ``query`` must already have its host prefixes stripped. One authority for
+    `search_catalog` and the retrieval counterfactual alike.
+    """
+    # Claude Code's ToolSearch form, which our own instructions hand out.
+    text = re.sub(r"^\s*select:", "", query.strip(), flags=re.I)
+    terms = [_NAME_PUNCT.sub("", t).lower() for t in re.split(r"[\s,;]+", text)]
+    by_name = {r["action"]: r for r in rows}
+    named: list[dict] = []
+    for term in terms:
+        if not term:
+            continue
+        r = by_name.get(term)
+        if r is not None:
+            if r not in named:
+                named.append(r)
+        elif term not in _SERVER_WORDS and term not in _LIST_WORDS:
+            return []
+    return named
+
+
+# Wrapping and trailing marks around a written name: `name`, "name", name.
+_NAME_PUNCT = re.compile(r"^[`\"'(\[]+|[`\"')\].:!?]+$")
+
+# Joiners in a written list of names ("a, b and c").
+_LIST_WORDS = frozenset({"and", "or", "plus", "&"})
+
+# A host's prefixed tool name, `mcp__<server>__<tool>` (Claude Code, Codex).
+# The server part matched our own tool `jcodemunch_guide` by its word
+# "jcodemunch" and outranked the tool actually named.
+_HOST_PREFIX = re.compile(r"\bmcp__[A-Za-z0-9_-]+?__(?=[A-Za-z0-9])")
+
+
+def _strip_host_prefixes(query: str) -> str:
+    return _HOST_PREFIX.sub("", query)
 
 
 # --- route: intent to action ----------------------------------------------- #

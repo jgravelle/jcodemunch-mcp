@@ -20,6 +20,7 @@ entry appears in both, or in neither.
 ```
 src/jcodemunch_mcp/
   watcher.py           # WatcherManager class (dynamic folder watching); watch_folders() wrapper
+  parent_watch.py      # (BACKLOG row 64) Stops a stdio server whose client process is gone even when stdin stays open: ParentWatch (PID + creation time), watched_parent() (steps past Windows launchers), start() (daemon poll thread). The rules it keeps are in its docstring
   redact.py            # Response-level secret redaction; regex patterns for AWS/GCP/Azure/JWT/GitHub/Slack/PEM/API keys/private IPs; redact_dict() post-processor
   config.py            # JSONC config: global + per-project layering, env var fallback, language/tool gating
   agent_selector.py    # Complexity scoring + model routing (off/manual/auto); default provider batting orders
