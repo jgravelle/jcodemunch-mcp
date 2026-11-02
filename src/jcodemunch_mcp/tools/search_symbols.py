@@ -159,6 +159,66 @@ def _attach_index_truncation(meta: Optional[dict], index) -> None:
         meta["index_truncated"] = block
 
 
+def _attach_no_exact_match(
+    result: dict,
+    query: str,
+    index,
+    exact_in_index: Optional[int] = None,
+) -> None:
+    """Mark, in the BODY, an identifier query that no symbol is named.
+
+    ⚠⚠ `_meta.exact_match` already says this (v1.108.173), and `meta_fields: []`
+    is the shipped default, which strips `_meta`: a default install got ten
+    ranked rows and no marker. A reason placed in `_meta` is deleted on a default
+    install, so this one rides the channel the zero-row case already uses --
+    `negative_evidence` and the `⚠ warning` key, which every compact encoder
+    carries (`schema_driven.UNIVERSAL_BODY_JSON`).
+
+    Every exit that returns rows calls this: lexical, semantic and fusion. Rows
+    and their order are not touched.
+
+    ⚠ The warning claims the INDEX has no symbol of that name, so the page is
+    not enough: a filter (`kind=`, `file_pattern=`, ...) or a similarity ranking
+    can leave the named symbol off the page. `exact_in_index` is the caller's
+    count over the whole index when it has one (the unfiltered lexical scan);
+    otherwise the index is scanned here, which runs only on this rare path.
+
+    ⚠ NOT an absence. Rows were returned, the verdict state stays
+    `low_confidence`, and `session_journal._ABSENCE_VERDICTS` does not list
+    `no_exact_match`, so nothing downstream may cite it as proof.
+    """
+    rows = result.get("results") or []
+    if not rows:
+        return
+    from ..retrieval.query_shape import exact_match_report as _exact_match_report
+
+    report = _exact_match_report(query, rows)
+    if report is None or report["found"] or report["exact"] or report["prefix"]:
+        return
+    if exact_in_index is None:
+        needles = _exact_needles(query)
+        if needles is None:
+            return
+        needle, leaf = needles
+        if any(is_exact_row(sym, needle, leaf) for sym in index.symbols):
+            return
+    elif exact_in_index:
+        return
+
+    queried = report["queried"]
+    marker = {"verdict": "no_exact_match", "queried": queried, "exact": 0, "prefix": 0}
+    prior = result.get("negative_evidence")
+    if isinstance(prior, dict):
+        # A weak-score `low_confidence_matches` block already said "verify";
+        # this says why. Its scan counts and suggestions are kept.
+        marker.update({k: v for k, v in prior.items() if k not in marker})
+    result["negative_evidence"] = marker
+    result["⚠ warning"] = (
+        f"No symbol named '{queried[:80]}' is in this index; "
+        f"these results share words with it only."
+    )
+
+
 def _get_cache_max() -> int:
     try:
         from .. import config as _cfg
@@ -1360,6 +1420,10 @@ def search_symbols(
                 f"(best score: {negative_evidence['best_match_score']}). "
                 f"Verify before claiming this feature exists."
             )
+    # `exact_scanned` counts the whole index only when no filter narrowed the scan.
+    _attach_no_exact_match(
+        result, query, index, exact_in_index=None if has_filters else exact_scanned
+    )
 
     # Feature 5: Cache the result if cacheable
     if _cacheable and _cache_key is not None:
@@ -1928,6 +1992,8 @@ def _search_symbols_semantic(
                 f"(best score: {negative_evidence['best_match_score']}). "
                 f"Verify before claiming this feature exists."
             )
+    # A similarity ranking can leave the named symbol off the page: scan the index.
+    _attach_no_exact_match(result, query, index)
 
     _attach_index_truncation(result.get("_meta"), index)
     return result
@@ -2355,6 +2421,8 @@ def _search_symbols_fusion(
                 f"(best score: {_vres['negative_evidence']['best_match_score']}). "
                 f"Verify before claiming this feature exists."
             )
+    # Before the cache put, so a replay carries the marker too.
+    _attach_no_exact_match(result, query, index)
 
     _attach_index_truncation(result.get("_meta"), index)
     # A failed channel is not cached: the key holds neither provider nor library
