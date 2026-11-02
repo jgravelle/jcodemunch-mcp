@@ -193,6 +193,24 @@ class BaseSummarizer:
         default_factory=threading.Lock, init=False, repr=False
     )
     _body_block_said: bool = field(default=False, init=False, repr=False)
+    # (#1282) Ids of the symbols sent to the provider that came back with no
+    # summary: a failed request, the circuit breaker, or a blank answer.
+    _failed_ids: set = field(default_factory=set, init=False, repr=False)
+
+    def failed_ids(self) -> set:
+        """Ids of the symbols the provider was asked for and did not summarize."""
+        with self._failure_lock:
+            return set(self._failed_ids)
+
+    def _fallback_failed(self, batch: list[Symbol]) -> None:
+        """Give each unsummarized symbol of a failed batch its signature fallback."""
+        failed = []
+        for sym in batch:
+            if not sym.summary:
+                sym.summary = signature_fallback(sym)
+                failed.append(sym.id)
+        with self._failure_lock:
+            self._failed_ids.update(failed)
 
     def _apply_summaries(self, batch: list[Symbol], summaries: list[str]) -> None:
         """Assign parsed summaries to symbols; signature-fallback the blanks.
@@ -206,6 +224,7 @@ class BaseSummarizer:
         """
         ai = 0
         fallback = 0
+        failed = []
         for sym, summary in zip(batch, summaries):
             if summary:
                 sym.summary = summary
@@ -213,7 +232,9 @@ class BaseSummarizer:
             else:
                 sym.summary = signature_fallback(sym)
                 fallback += 1
+                failed.append(sym.id)
         with self._failure_lock:
+            self._failed_ids.update(failed)
             self._ai_summary_count += ai
             self._post_response_fallbacks += fallback
 
@@ -332,9 +353,7 @@ class BaseSummarizer:
     def _run_batch(self, batch: list[Symbol]) -> None:
         """Run a single batch with circuit breaker check."""
         if self._circuit_broken:
-            for sym in batch:
-                if not sym.summary:
-                    sym.summary = signature_fallback(sym)
+            self._fallback_failed(batch)
             return
         self._summarize_one_batch(batch)
 
@@ -525,9 +544,7 @@ class BatchSummarizer(BaseSummarizer):
         except Exception as e:
             logger.warning("AI summarization failed, falling back to signature: %s", e)
             self._record_failure()
-            for sym in batch:
-                if not sym.summary:
-                    sym.summary = signature_fallback(sym)
+            self._fallback_failed(batch)
 
 
 @dataclass
@@ -576,9 +593,7 @@ class GeminiBatchSummarizer(BaseSummarizer):
         except Exception as e:
             logger.warning("AI summarization failed, falling back to signature: %s", e)
             self._record_failure()
-            for sym in batch:
-                if not sym.summary:
-                    sym.summary = signature_fallback(sym)
+            self._fallback_failed(batch)
 
 
 @dataclass
@@ -787,9 +802,7 @@ class OpenAIBatchSummarizer(BaseSummarizer):
         except Exception as e:
             logger.warning("AI summarization failed, falling back to signature: %s", e)
             self._record_failure()
-            for sym in batch:
-                if not sym.summary:
-                    sym.summary = signature_fallback(sym)
+            self._fallback_failed(batch)
 
 
 def get_model_name(repo: Optional[str] = None) -> Optional[str]:
@@ -999,6 +1012,7 @@ def summarize_symbols(
     use_ai: bool = True,
     repo: Optional[str] = None,
     source_for: Optional[Callable[[str], Optional[str]]] = None,
+    report: Optional[dict] = None,
 ) -> list[Symbol]:
     """Full three-tier summarization.
 
@@ -1023,6 +1037,11 @@ def summarize_symbols(
 
     `source_for` maps a rel path to the text the index holds for that file; it is
     what `summarizer_body_chars` sends. Without it no symbol body is sent.
+
+    `report`, when given, receives `provider_failed`: the ids of the symbols
+    the provider was asked to summarize and did not (#1282). It is empty when
+    no provider was called, so a signature fallback outside it is the
+    pipeline's answer, never a provider failure.
     """
     # Tier 1: Extract from docstrings (gated by summarize_from_docstrings, P1.5)
     if _docstring_summaries_enabled(repo=repo):
@@ -1036,6 +1055,8 @@ def summarize_symbols(
         if summarizer:
             summarizer.source_for = source_for
             symbols = summarizer.summarize_batch(symbols)
+            if report is not None:
+                report["provider_failed"] = summarizer.failed_ids()
 
     # Tier 3: Signature fallback for any still missing
     for sym in symbols:

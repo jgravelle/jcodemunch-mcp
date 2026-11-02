@@ -52,6 +52,32 @@ Neither manifest named an icon, so the plugin directory and the registry had non
 
 The icon is an SVG because the plugin folder holds text files only, and SVG is text. `tests/test_plugin_icon.py` holds both manifests to the same file, so the two listings cannot show different icons.
 
+### Fixed - a forced summary refresh keeps the summaries it had when the AI provider fails
+
+`summarize_repo(force=true)`, the refresh the docs recommend, cleared every
+summary before calling the AI provider. When the provider failed (a 429, a 200
+response carrying an error body, or three failed batches in a row tripping the
+circuit breaker), each remaining symbol got its signature fallback, and that
+fallback was saved over the AI summary it replaced. The result was
+`success: true` with `updated` equal to the symbol count, the same as a healthy
+run, so the only sign was a warning in the server log. A later plain
+`summarize_repo` then found nothing to do, and the summaries came back only
+with a second forced run, paid for again. Reported by @swf1996120 in #1282,
+with an exact reproduction against a local endpoint.
+
+The summarizer now names the symbols it sent to the provider and got no
+summary back for (a failed or rate-limited request, the circuit breaker, or a
+blank answer), and each of those keeps the summary it had. The result carries
+`provider_fallbacks` (how many symbols the provider did not summarize) and
+`previous_summaries_kept` with a reason, so a failed run no longer reads like a
+healthy one and says to run the forced refresh again once the provider
+answers. `updated` now counts summaries that differ from what was stored, not
+from the blank the forced run had just set. A fallback the provider was never
+asked for is written as before: with no provider configured, with a provider
+whose client could not be built, and for a docstring symbol when
+`summarize_from_docstrings` is off, a forced run still resets the summary to
+its fallback.
+
 ## [1.108.403] - 2026-10-30 - a file pattern means the same thing in every tool, and the rate_limit config key turns the limit on
 
 ### Fixed - the CLI's license link points at the current site
