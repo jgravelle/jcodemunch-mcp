@@ -16,6 +16,7 @@ Fixtures and their licences: `tests/fixtures/erb/SOURCES.md`.
 
 from __future__ import annotations
 
+import re
 import shutil
 from pathlib import Path
 
@@ -360,25 +361,112 @@ def test_a_name_built_by_a_tag_is_named_by_the_tag_never_by_the_filler():
     assert not [s for s in symbols if "XXX" in s.name or "XXX" in s.qualified_name]
 
 
+# Filler as the host copy writes it: a run of X, or a per-tag token (`X` and a
+# four-character code). No symbol field may show either.
+_FILLER = re.compile(r"XXXXX|X[0-9a-z]{4}")
+
+
+def _leaked(symbols):
+    return [
+        (s.name, s.qualified_name, s.id, s.signature)
+        for s in symbols
+        if _FILLER.search(s.name + s.qualified_name + s.id + s.signature)
+    ]
+
+
 # YAML and XML hosts give a child no parent link to its tag-built owner, so a
-# restore that walks parent links never reaches the owner's segment.
+# restore that walks parent links never reaches the owner's segment. Equal-length
+# tags, adjacent tags, a tag beside a literal X, a merge key's copy and a span
+# that starts before the name are the shapes a positional restore got wrong.
 _UNLINKED_OWNER_SOURCES = [
     ("config/x.yml.erb", "<%= Rails.env %>:\n  adapter: pg\n"),
     ("config/database.yml.erb", "<%= env %>:\n  <%= k1 %>: <%= v %>\n"),
     ("config/database.yml.erb", "production:\n  database: app_<%= Rails.env %>\n"),
     ("app/views/a/feed.xml.erb", '<feed>\n<<%= tag %> id="a"></<%= tag %>>\n</feed>\n'),
+    ("config/a.yml.erb", "<%= env %>:\n  <%= key %>: x\n  adapter: pg\n"),
+    ("config/a.yml.erb", "production:\n  database: <%= pre %><%= env %>\n"),
+    ("config/a.yml.erb", "production:\n  database: X<%= env %>\n"),
+    ("config/a.yml.erb", "defaults: &d\n  adapter: <%= aa %>x\ndev:\n  <<: *d\n  db: <%= bb %>y\n"),
+    ("config/a.yml.erb", "en:\n  <%= k1 %>: one\n  <%= k2 %>: two\n"),
+    ("lib/t/m.java.erb", "class A {\n  @Named(<%= aa %>) void <%= bb %>() {}\n}\n"),
 ]
 
 
 @pytest.mark.parametrize("path, source", _UNLINKED_OWNER_SOURCES)
 def test_no_field_of_any_symbol_shows_the_filler(path, source):
-    symbols = parse_file(source, path, "erb")
-    leaked = [
-        (s.name, s.qualified_name, s.id, s.signature)
-        for s in symbols
-        if "XXXXX" in s.name + s.qualified_name + s.id + s.signature
-    ]
-    assert not leaked
+    assert not _leaked(parse_file(source, path, "erb"))
+
+
+def test_each_output_tag_fills_to_its_own_identifier():
+    source = b"<%= a %>, <%= b %>, <%=%>\n<%= multi\n line %>"
+    _, host = extractor._erb_masks(source)
+    first, second, shortest = host[0:8], host[10:18], host[20:25]
+    assert len({first, second}) == 2
+    for token in (first, second, shortest):
+        assert re.fullmatch(rb"X[0-9a-z]{4}X*", token)
+
+
+def test_a_filler_code_written_in_the_file_is_never_used_for_a_tag():
+    # The first code is `0000`; the file already spells `X0000`, so the tag
+    # takes another and the literal name is left alone.
+    source = "var n = <%= abcd %>;\nfunction X0000XXXXXXReady() { return n; }\n"
+    symbols = parse_file(source, "app/views/a/show.js.erb", "erb")
+    assert _named(symbols, "X0000XXXXXXReady", "javascript").qualified_name == "show.X0000XXXXXXReady"
+
+
+def test_a_token_cut_short_is_left_as_written_never_read_past():
+    from jcodemunch_mcp.parser.symbols import Symbol
+
+    def sym(name):
+        return Symbol(id=name, file="f", name=name, qualified_name=name, kind="function",
+                      language="javascript", signature=name, byte_length=1)
+
+    tokens = {"0000": ("X0000XXX", "<%= a %>")}
+    adopted = extractor._erb_adopt([sym("X0000XXab"), sym("X0000XXXab")], "f.js.erb", sym("v"), b"x", tokens)
+    assert [s.name for s in adopted] == ["X0000XXab", "<%= a %>ab"]
+
+
+def test_a_child_is_qualified_by_its_owner_never_by_an_equal_length_sibling():
+    source = "<%= env %>:\n  <%= key %>: x\n  adapter: pg\n"
+    symbols = parse_file(source, "config/a.yml.erb", "erb")
+    assert _named(symbols, "adapter", "yaml").qualified_name == "a.<%= env %>.adapter"
+    source = "<%= env %>:\n  <%= key %>:\n    deep: 1\n  adapter: pg\n"
+    symbols = parse_file(source, "config/a.yml.erb", "erb")
+    assert _named(symbols, "adapter", "yaml").qualified_name == "a.<%= env %>.adapter"
+    assert _named(symbols, "deep", "yaml").qualified_name == "a.<%= env %>.<%= key %>.deep"
+
+
+def test_equal_length_yaml_keys_are_two_keys():
+    symbols = parse_file("en:\n  <%= k1 %>: one\n  <%= k2 %>: two\n", "config/a.yml.erb", "erb")
+    assert "'one'" in _named(symbols, "<%= k1 %>", "yaml").signature
+    assert "'two'" in _named(symbols, "<%= k2 %>", "yaml").signature
+    symbols = parse_file("<%= aa %>:\n  x: 1\n<%= bb %>:\n  y: 1\n", "config/a.yml.erb", "erb")
+    assert _named(symbols, "x", "yaml").qualified_name == "a.<%= aa %>.x"
+    assert _named(symbols, "y", "yaml").qualified_name == "a.<%= bb %>.y"
+
+
+def test_a_rewritten_signature_shows_adjacent_tags_and_literal_text_as_written():
+    def database(source):
+        return _named(parse_file(source, "config/a.yml.erb", "erb"), "database", "yaml").signature
+
+    assert "<%= pre %><%= env %>" in database("production:\n  database: <%= pre %><%= env %>\n")
+    assert "X<%= env %>" in database("production:\n  database: X<%= env %>\n")
+    literal = "app_<%= Rails.env %> XXXXXXXXXXXXXXXX"
+    assert literal in database(f"production:\n  database: {literal}\n")
+
+
+def test_a_merge_key_copy_shows_the_anchor_s_tag():
+    source = "defaults: &d\n  adapter: <%= aa %>x\ndev:\n  <<: *d\n  db: <%= bb %>y\n"
+    symbols = parse_file(source, "config/a.yml.erb", "erb")
+    adapters = [s for s in symbols if s.name == "adapter"]
+    assert adapters and all("<%= aa %>x" in s.signature for s in adapters)
+
+
+def test_a_name_is_its_own_tag_when_the_span_starts_before_it():
+    source = "class A {\n  @Named(<%= aa %>) void <%= bb %>() {}\n}\n"
+    symbols = parse_file(source, "lib/t/m.java.erb", "erb")
+    method = _named(symbols, "<%= bb %>", "java")
+    assert method.qualified_name == "m.A.<%= bb %>"
 
 
 def test_a_child_of_a_tag_built_yaml_key_is_qualified_by_the_tag():
@@ -409,8 +497,8 @@ def test_a_signature_the_yaml_parser_rewrote_shows_the_tag():
 @pytest.mark.parametrize("name", ALL_FIXTURES)
 def test_no_fixture_symbol_shows_the_filler(name):
     source, symbols = _parse(name)
-    assert b"XXXXX" not in source
-    assert not [s.id for s in symbols if "XXXXX" in s.name + s.qualified_name + s.id + s.signature]
+    assert not _FILLER.search(source.decode("utf-8", errors="replace"))
+    assert not _leaked(symbols)
 
 
 def test_a_signature_read_from_the_file_shows_the_tag_never_the_filler():

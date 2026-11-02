@@ -10226,16 +10226,20 @@ def _erb_fill_table(fill: int) -> bytes:
 
 
 _ERB_BLANK = _erb_fill_table(0x20)
-# An output tag in host text becomes X's: an identifier in JavaScript, YAML and
-# Ruby, and a constant in Ruby, so `class <%= name %>Report` stays a class.
+# An output tag in host text becomes a token of its own length: `X`, a code of
+# four characters unique to the tag, then X's (`<%= name %>` -> `X0000XXXXXX`).
+# That is a name in JavaScript, YAML and Java, and a constant in Ruby, so
+# `class <%= name %>Report` stays a class. No two tags fill alike, so a filled
+# name maps back to its tags by lookup, wherever the parser put it, and two
+# tag-built YAML keys stay two keys.
 _ERB_HOLE = _erb_fill_table(ord("X"))
+_ERB_TOKEN_DIGITS = b"0123456789abcdefghijklmnopqrstuvwxyz"
+_ERB_TOKEN_CODE = re.compile(r"X([0-9a-z]{4})")
+_ERB_TOKEN_CODE_IN_FILE = re.compile(rb"X([0-9a-z]{4})")
+# A line of a tag shorter than `<%=%>` has no room for a code; it stays X's.
+_ERB_TOKEN_PIECE = re.compile(rb"[^\r\n]{5,}")
 _ERB_ID_RE = re.compile(rb"""(?<![\w:-])id\s*=\s*["']([^"'<>]+)["']""", re.IGNORECASE)
 _ERB_SLOT_RE = re.compile(rb"\b(content_for|provide|yield)(?:[ \t]+|[ \t]*\([ \t]*):([A-Za-z_]\w*)")
-# How the nested parsers join a qualified name; filler never contains these.
-_ERB_QUALIFIED_SPLIT = re.compile(r"(\.|::|#)")
-# The shortest output tag, `<%=%>`, fills to five X's.
-_ERB_FILLER_RUN = re.compile(r"X{5,}")
-_ERB_WORD_BYTE = [chr(b).isalnum() or b == ord("_") for b in range(128)] + [True] * 128
 
 
 def _erb_tags(source: bytes) -> list[tuple[int, int, int, int, str]]:
@@ -10284,23 +10288,59 @@ def _erb_masks(source: bytes, tags: Optional[list] = None) -> tuple[bytes, bytes
     ``ruby`` keeps only the code inside ``<% %>`` and ``<%= %>`` tags and ends
     each tag with ``;``, so adjacent tags and a block opened in one tag and
     closed in another stay valid Ruby. ``host`` keeps the template text, fills
-    each output tag with ``X`` and blanks statement and comment tags.
+    each line of an output tag with its own token (``_ERB_HOLE``'s comment)
+    and blanks statement and comment tags. A code the file already writes
+    after an ``X`` is never handed out, so no literal name reads as a token.
     ⚠ A Ruby ``#`` comment inside a tag runs to the line's end in the copy, so
     a later tag on the SAME line is commented out with it.
     """
     if tags is None:
         tags = _erb_tags(source)
+    taken = {m.group(1) for m in _ERB_TOKEN_CODE_IN_FILE.finditer(source)}
+    ordinal = 0
     ruby = bytearray(source.translate(_ERB_BLANK))
     host = bytearray(source)
     for start, code_start, code_end, end, kind in tags:
         parse_budget.checkpoint()
-        host[start:end] = source[start:end].translate(_ERB_HOLE if kind == "output" else _ERB_BLANK)
+        if kind == "output":
+            host[start:end] = source[start:end].translate(_ERB_HOLE)
+            for piece in _ERB_TOKEN_PIECE.finditer(host, start, end):
+                parse_budget.checkpoint()
+                code = b""
+                while ordinal < 36 ** 4:
+                    parse_budget.checkpoint()
+                    code = bytes(_ERB_TOKEN_DIGITS[ordinal // 36 ** i % 36] for i in (3, 2, 1, 0))
+                    ordinal += 1
+                    if code not in taken:
+                        break
+                    code = b""
+                if code:
+                    host[piece.start() + 1:piece.start() + 5] = code
+        else:
+            host[start:end] = source[start:end].translate(_ERB_BLANK)
         if kind == "comment":
             continue
         ruby[code_start:code_end] = source[code_start:code_end]
         if code_end < end:
             ruby[code_end] = 0x3B  # `;`
     return bytes(ruby), bytes(host)
+
+
+def _erb_tokens(source: bytes, host: bytes, tags: list) -> dict[str, tuple[str, str]]:
+    """``code -> (token, tag text)`` for each token ``_erb_masks`` wrote."""
+    tokens: dict[str, tuple[str, str]] = {}
+    for start, _, _, end, kind in tags:
+        parse_budget.checkpoint()
+        if kind != "output":
+            continue
+        for piece in _ERB_TOKEN_PIECE.finditer(host, start, end):
+            parse_budget.checkpoint()
+            token = piece.group().decode("ascii")
+            match = _ERB_TOKEN_CODE.match(token)
+            if match:
+                text = source[piece.start():piece.end()].decode("utf-8", errors="replace")
+                tokens[match.group(1)] = (token, text)
+    return tokens
 
 
 def _erb_host_language(filename: str) -> Optional[str]:
@@ -10355,164 +10395,52 @@ def _erb_adopt(
     filename: str,
     view: Symbol,
     source: bytes,
-    masked: bytes,
-    holes: list[tuple[int, int]],
+    tokens: dict[str, tuple[str, str]],
 ) -> list[Symbol]:
     """Re-home one pass's symbols in the ERB file: its path, the view as owner
     (unless their own parse gave them one), a hash of the ORIGINAL bytes.
 
-    A name the host copy filled from an output tag (``XXXX…Report``) is named
-    by the tag's own text instead (``<%= class_name %>Report``), in the symbol,
-    its signature and its qualified name. Each name is read at its own
-    position: two tags of one length fill identically, so a rename keyed by
-    the filled name would give both symbols the same tag.
+    A name the host copy filled from an output tag (``X0000XXXXXXReport``) is
+    named by the tag's own text instead (``<%= class_name %>Report``), in the
+    symbol, its qualified name, its id and its signature. Every tag fills to a
+    token of its own (``_ERB_HOLE``'s comment), so the restore is a lookup and
+    reads the same wherever a parser copied, quoted or re-parented the name.
     """
-    hole_starts = [start for start, _ in holes]
 
-    def _in_hole(at: int, length: int) -> bool:
-        i = bisect.bisect_right(hole_starts, at + length - 1) - 1
-        return i >= 0 and holes[i][1] > at
-
-    def _tag_text(at: int, length: int) -> str:
-        return source[at:at + length].decode("utf-8", errors="replace")
-
-    texts_by_length: dict[int, set[str]] = {}
-
-    def _texts_of_length(length: int) -> set[str]:
-        if length not in texts_by_length:
-            found: set[str] = set()
-            for start, stop in holes:
-                parse_budget.checkpoint()
-                if stop - start == length:
-                    found.add(_tag_text(start, length))
-            texts_by_length[length] = found
-        return texts_by_length[length]
-
-    def _whole_token(at: int, length: int) -> bool:
-        after = at + length
-        return not (at and _ERB_WORD_BYTE[masked[at - 1]]) and not (
-            after < len(masked) and _ERB_WORD_BYTE[masked[after]]
-        )
-
-    def _token_before(segment: str, limit: int) -> int:
-        # The nearest whole-token occurrence of `segment` ending by `limit`,
-        # so a 9-X name is never found inside a 10-X one.
-        raw = segment.encode("utf-8")
-        end = limit
-        while end >= len(raw):
-            parse_budget.checkpoint()
-            at = masked.rfind(raw, 0, end)
-            if at < 0:
-                return -1
-            if _whole_token(at, len(raw)):
-                return at
-            end = at + len(raw) - 1
-        return -1
-
-    def _name_at(sym: Symbol) -> int:
-        # Where the symbol's own name is written: the first whole token of it
-        # inside its span, else the span's start.
-        raw = sym.name.encode("utf-8")
-        start, stop = sym.byte_offset, sym.byte_offset + max(sym.byte_length, len(raw))
-        while raw:
-            parse_budget.checkpoint()
-            at = masked.find(raw, start, stop)
-            if at < 0:
-                break
-            if _whole_token(at, len(raw)):
-                return at
-            start = at + 1
-        return sym.byte_offset
-
-    own: dict[str, tuple[str, str]] = {}  # nested id -> (filled name, tag text)
-    for sym in parsed:
-        parse_budget.checkpoint()
-        if not holes or "XXXXX" not in sym.name:
-            continue
-        at = _name_at(sym)
-        length = len(sym.name.encode("utf-8"))
-        if masked[at:at + length] == sym.name.encode("utf-8") and _in_hole(at, length):
-            own[sym.id] = (sym.name, _tag_text(at, length))
-    by_id = {sym.id: sym for sym in parsed}
-
-    def _qualified(sym: Symbol) -> str:
-        # Segments are read innermost first. A segment that names the next
-        # owner up the parent chain is that owner (its tag text when it was
-        # filled, its position bounding the next search). A segment with no
-        # linked owner (YAML and XML link none) is the nearest whole token
-        # before the last one found, restored only when that token is a tag.
-        text = sym.qualified_name
-        if not holes or "XXXXX" not in text:
+    def _restore(text: str) -> str:
+        # A code whose full token is not written here (a name cut short) is
+        # left as written, never read past.
+        if not tokens or "X" not in text:
             return text
-        parts = _ERB_QUALIFIED_SPLIT.split(text)
-        current: Optional[Symbol] = sym
-        limit = len(masked)
-        for index in range(len(parts) - 1, -1, -2):
-            parse_budget.checkpoint()
-            segment = parts[index]
-            if current is not None and current.name == segment:
-                if current.id in own:
-                    parts[index] = own[current.id][1]
-                limit = min(limit, _name_at(current))
-                current = by_id.get(current.parent) if current.parent else None
-                continue
-            current = None  # the chain no longer matches the segments
-            at = _token_before(segment, limit)
-            if at < 0:
-                continue
-            if "XXXXX" in segment and _in_hole(at, len(segment.encode("utf-8"))):
-                parts[index] = _tag_text(at, len(segment.encode("utf-8")))
-            limit = at
-        return "".join(parts)
-
-    def _signature(sym: Symbol) -> str:
-        # A signature copied from the host copy is shown as the original bytes
-        # it came from. In one the parser rewrote (YAML quotes values), each
-        # run of filler is the next tag of its length inside the symbol; a
-        # symbol with no such tag in its span (a YAML merge key's copy) takes
-        # the tag only when every tag of that length in the file reads alike.
-        if not holes or "XXXXX" not in sym.signature:
-            return sym.signature
-        raw = sym.signature.encode("utf-8")
-        at = masked.find(raw, sym.byte_offset, sym.byte_offset + max(sym.byte_length, len(raw)))
-        if at >= 0:
-            return source[at:at + len(raw)].decode("utf-8", errors="replace")
-        end = sym.byte_offset + sym.byte_length
-        j = bisect.bisect_left(hole_starts, sym.byte_offset)
         pieces: list[str] = []
-        pos = 0
-        for run in _ERB_FILLER_RUN.finditer(sym.signature):
+        kept = scan = 0
+        while True:
             parse_budget.checkpoint()
-            length = len(run.group())
-            while j < len(holes) and holes[j][0] < end and holes[j][1] - holes[j][0] != length:
-                parse_budget.checkpoint()
-                j += 1
-            if j < len(holes) and holes[j][0] < end:
-                tag = _tag_text(holes[j][0], length)
-                j += 1
-            else:
-                texts = _texts_of_length(length)
-                if len(texts) != 1:
-                    continue
-                tag = next(iter(texts))
-            pieces.append(sym.signature[pos:run.start()])
-            pieces.append(tag)
-            pos = run.end()
-        pieces.append(sym.signature[pos:])
+            match = _ERB_TOKEN_CODE.search(text, scan)
+            if match is None:
+                break
+            entry = tokens.get(match.group(1))
+            if entry is None or not text.startswith(entry[0], match.start()):
+                scan = match.start() + 1
+                continue
+            pieces.append(text[kept:match.start()])
+            pieces.append(entry[1])
+            kept = scan = match.start() + len(entry[0])
+        pieces.append(text[kept:])
         return "".join(pieces)
 
     pairs: list[tuple[Symbol, Symbol]] = []
     for sym in parsed:
         parse_budget.checkpoint()
-        qualified = f"{view.name}.{_qualified(sym)}"
+        qualified = f"{view.name}.{_restore(sym.qualified_name)}"
         piece = source[sym.byte_offset:sym.byte_offset + sym.byte_length]
         pairs.append((sym, replace(
             sym,
             id=make_symbol_id(filename, qualified, sym.kind),
             file=filename,
-            name=own[sym.id][1] if sym.id in own else sym.name,
+            name=_restore(sym.name),
             qualified_name=qualified,
-            signature=_signature(sym),
+            signature=_restore(sym.signature),
             parent=view.id,
             content_hash=compute_content_hash(piece),
         )))
@@ -10558,22 +10486,22 @@ def _parse_erb_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
 
     tags = _erb_tags(source)
     ruby, host = _erb_masks(source, tags)
-    holes = [(start, end) for start, _, _, end, kind in tags if kind == "output"]
+    tokens = _erb_tokens(source, host, tags)
 
-    def _nested(masked: bytes, suffix: str, language: str, with_holes: bool) -> None:
+    def _nested(masked: bytes, suffix: str, language: str, with_tokens: bool) -> None:
         if not masked.strip():
             return
         parsed = parse_file(
             masked.decode("utf-8", errors="replace"), f"{filename}#{suffix}", language, source_bytes=masked
         )
-        symbols.extend(_erb_adopt(parsed, filename, view, source, masked, holes if with_holes else []))
+        symbols.extend(_erb_adopt(parsed, filename, view, source, tokens if with_tokens else {}))
 
     if any(kind != "comment" for *_, kind in tags):
-        _nested(ruby, "erb.rb", "ruby", with_holes=False)
+        _nested(ruby, "erb.rb", "ruby", with_tokens=False)
 
     host_language = _erb_host_language(filename)
     if host_language is not None:
-        _nested(host, f"host.{host_language}", host_language, with_holes=True)
+        _nested(host, f"host.{host_language}", host_language, with_tokens=True)
     else:
         bodies = _erb_script_bodies(host)
         if bodies:
@@ -10581,7 +10509,7 @@ def _parse_erb_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
             for start, end in bodies:
                 parse_budget.checkpoint()
                 scripts[start:end] = host[start:end]
-            _nested(bytes(scripts), "script.js", "javascript", with_holes=True)
+            _nested(bytes(scripts), "script.js", "javascript", with_tokens=True)
 
         tag_starts = [t[0] for t in tags]
         seen_ids: set[str] = set()
