@@ -58,7 +58,8 @@ jobs:
       - name: Compile
         run: npm run compile
       - name: Package the .vsix
-        run: npx --yes @vscode/vsce@4.1.0 package --skip-license --out jcodemunch-mcp-vscode.vsix
+        # vsce is a locked devDependency, so npm ci installed the exact version.
+        run: npm exec --no -- vsce package --skip-license --out jcodemunch-mcp-vscode.vsix
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
         with:
           name: jcodemunch-mcp-vscode-vsix

@@ -54,10 +54,10 @@ Or via the Extensions panel — search for "jCodeMunch".
 
 ```bash
 cd vscode-extension
-npm install
+npm ci
 npm run compile
-npx @vscode/vsce package
-code --install-extension jcodemunch-mcp-vscode-0.1.0.vsix
+npm run package
+code --install-extension jcodemunch-mcp-vscode-0.2.1.vsix
 ```
 
 ## Issues
