@@ -7,6 +7,12 @@
 No command said how big the index store (`~/.code-index`, or `CODE_INDEX_PATH`) had grown or which indexes took the space. `diagnose` lists each index's size without its name and adds up no total, so a user wondering whether to delete something had to measure the folder by hand.
 
 `jcodemunch-mcp storage` prints the store's path and total, then each index by name, largest first, with its database (`<slug>.db` and its sidecars) and its content cache (`<slug>/`) apart, then every other entry in the store. `--top N` sets how many rows each list shows (default 10, `-1` for all), and `--json` prints the same report as JSON. It only stats files: it opens no database, so it can't move an index's cache key or create a `-wal`/`-shm` file, and it follows no symlink or Windows junction, so nothing outside the store is counted; each one it skips is reported in `links_not_followed`, so a link never reads as an empty entry. A file it can't stat is counted as not measured, never as 0 bytes.
+=======
+### Added - a stdio server exits when the process that started it is gone
+
+A stdio server stopped only when its stdin reached end of file. That covers a client that closes its pipe, and misses one that dies while something else keeps the pipe open, such as a proxy in between or a handle a sibling process inherited. The server then ran on with nobody to answer, holding its index cache in memory.
+
+On the stdio transport the server now records the process that started it and that process's start time, and one daemon thread checks every 5 seconds that it still exists. On Windows the check looks past the launchers that only start Python and wait: a pip console-script `.exe`, a venv's `python.exe` redirector, and `uv`, `uvx`, `py` or `pyw`. When the client is gone the server prints one line to stderr and exits. The start time keeps a reused process ID from reading as the old parent. A parent that cannot be checked is treated as alive, so uncertainty never stops a working server. `JCODEMUNCH_PARENT_WATCH_SECONDS` sets the interval, and `0` turns the watch off. SSE and streamable-http are not affected. The thread reads process IDs and start times only; on Windows the server also reads, once at start, the parent's executable path and a snapshot of the process list to find the client behind a launcher. It writes nothing and uses no network, and SECURITY.md's "Background behavior" list now names it.
 
 ## [1.108.406] - 2026-11-01 - watch-all leaves temp and idle indexes unwatched, and agents sharing an index stop reloading it
 

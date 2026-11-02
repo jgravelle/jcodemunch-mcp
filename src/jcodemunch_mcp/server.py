@@ -16,6 +16,10 @@ import time
 from pathlib import Path
 from typing import IO, Any, Optional
 
+# Before anything slow: records the parent PID, so a client that dies while
+# this server is still importing is still seen as gone (BACKLOG row 64).
+from . import parent_watch as _parent_watch_origin  # noqa: F401,E402
+
 from mcp.server import Server
 from mcp.server.lowlevel.helper_types import ReadResourceContents
 from mcp.types import Tool, ToolAnnotations, TextContent, Resource, Prompt, PromptMessage, GetPromptResult, CallToolResult
@@ -8050,6 +8054,61 @@ async def _run_server_with_watcher(
         IndexStore(base_path=watcher_kwargs.get("storage_path") or os.environ.get("CODE_INDEX_PATH")).close()
 
 
+# Seconds a stdio server whose parent is gone waits for its own cleanup before
+# the process exits regardless (BACKLOG row 64).
+_PARENT_GONE_GRACE_SECONDS = 3.0
+
+
+def _exit_for_gone_parent(main_task, loop, gone_event, *, sleep=time.sleep, hard_exit=os._exit):
+    """End a stdio server whose parent is gone (BACKLOG row 64).
+
+    Cancels the run task so the normal cleanup runs, waits a short grace, and
+    if the process is still here (the stdin read sits on a worker thread that
+    cancellation cannot stop) runs the exit handlers and exits.
+
+    ⚠ Nothing here may raise before the exit: the watch thread swallows a
+    raise, and the server would then linger, which is the defect this exists
+    to fix. The notice goes to stderr, whose reader may be the client that
+    died, so a failed write is ignored (row 64 review round 2).
+    ⚠ The exit handlers run once. A gate registered now runs FIRST if the main
+    thread reaches its own shutdown (stdin EOF inside the grace): it takes the
+    lock and so the forced path stands down; if the forced path took it first,
+    the main thread blocks on it until the forced exit ends the process.
+    """
+    gone_event.set()
+    if main_task is not None:
+        try:
+            loop.call_soon_threadsafe(main_task.cancel)
+        except Exception:
+            logger.debug("could not cancel the run task", exc_info=True)
+    try:
+        sys.stderr.write(
+            "jcodemunch-mcp: the process that started this server is gone; "
+            "exiting (JCODEMUNCH_PARENT_WATCH_SECONDS=0 turns this off).\n"
+        )
+        sys.stderr.flush()
+    except Exception:
+        logger.debug("stderr notice failed (its reader may be gone)", exc_info=True)
+
+    lock = threading.Lock()
+    forced = threading.current_thread()
+
+    def _exit_gate() -> None:
+        if threading.current_thread() is forced:
+            return
+        lock.acquire()
+
+    atexit.register(_exit_gate)
+    sleep(_PARENT_GONE_GRACE_SECONDS)
+    if not lock.acquire(blocking=False):
+        return  # the main thread is shutting down and runs the handlers itself
+    try:
+        atexit._run_exitfuncs()
+    except Exception:
+        logger.debug("exit handlers failed before the forced exit", exc_info=True)
+    hard_exit(0)
+
+
 async def run_stdio_server():
     """Run the MCP server over stdio (default)."""
     import sys
@@ -8136,6 +8195,22 @@ async def run_stdio_server():
 
     _watchdog_task = asyncio.create_task(_handshake_watchdog())
 
+    # BACKLOG row 64: stdin EOF ends this server, but a client that dies while
+    # something else holds the pipe open sends no EOF. When the parent is gone
+    # the run task is cancelled so the cleanup below runs; the stdin read sits
+    # on a worker thread cancellation cannot stop, so the process exits after
+    # a short grace if it is still here.
+    from . import parent_watch as _parent_watch
+
+    _main_task = asyncio.current_task()
+    _loop = asyncio.get_running_loop()
+    _parent_gone = threading.Event()
+
+    def _on_parent_gone() -> None:
+        _exit_for_gone_parent(_main_task, _loop, _parent_gone)
+
+    _parent_watch.start(_on_parent_gone)
+
     try:
         _stdout_arg = (
             anyio.wrap_file(_private_stdout) if _private_stdout is not None else None
@@ -8146,6 +8221,9 @@ async def run_stdio_server():
                 write_stream,
                 _initialization_options(indexed_files=_indexed_here()),
             )
+    except asyncio.CancelledError:
+        if not _parent_gone.is_set():
+            raise
     finally:
         if not _watchdog_task.done():
             _watchdog_task.cancel()
