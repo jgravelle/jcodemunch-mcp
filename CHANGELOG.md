@@ -46,6 +46,12 @@ measure rose from 0.388 to 0.429 (held-out: 0.313 to 0.322). Four individual
 queries, two in each corpus, drop one place. `route` ranks are unchanged in
 both.
 
+### Added - the plugin listing and the MCP registry show the jCodeMunch icon
+
+Neither manifest named an icon, so the plugin directory and the registry had none to show beside the name. `plugin/jcodemunch/icon.svg` is the icon: curly braces around one orange symbol, in the site's colors. `plugin.json` names it as `./icon.svg`, the relative path the plugin directory reads. `server.json` names its raw URL on `main` with `image/svg+xml`, the form the registry schema takes, so the next registry publish carries it.
+
+The icon is an SVG because the plugin folder holds text files only, and SVG is text. `tests/test_plugin_icon.py` holds both manifests to the same file, so the two listings cannot show different icons.
+
 ### Fixed - a forced summary refresh keeps the summaries it had when the AI provider fails
 
 `summarize_repo(force=true)`, the refresh the docs recommend, cleared every
