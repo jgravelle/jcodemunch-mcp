@@ -366,12 +366,13 @@ def test_a_name_built_by_a_tag_is_named_by_the_tag_never_by_the_filler():
 _FILLER = re.compile(r"XXXXX|X[0-9a-z]{4}")
 
 
+def _text_fields(s):
+    return [s.name, s.qualified_name, s.id, s.signature, s.docstring, s.summary,
+            *s.decorators, *s.keywords, *s.call_references]
+
+
 def _leaked(symbols):
-    return [
-        (s.name, s.qualified_name, s.id, s.signature)
-        for s in symbols
-        if _FILLER.search(s.name + s.qualified_name + s.id + s.signature)
-    ]
+    return [_text_fields(s) for s in symbols if any(_FILLER.search(f) for f in _text_fields(s))]
 
 
 # YAML and XML hosts give a child no parent link to its tag-built owner, so a
@@ -389,7 +390,40 @@ _UNLINKED_OWNER_SOURCES = [
     ("config/a.yml.erb", "defaults: &d\n  adapter: <%= aa %>x\ndev:\n  <<: *d\n  db: <%= bb %>y\n"),
     ("config/a.yml.erb", "en:\n  <%= k1 %>: one\n  <%= k2 %>: two\n"),
     ("lib/t/m.java.erb", "class A {\n  @Named(<%= aa %>) void <%= bb %>() {}\n}\n"),
+    ("lib/a.py.erb", "@<%= deco %>\ndef f():\n    '''<%= doc %>'''\n    <%= callee %>()\n"),
+    ("app/a.js.erb", "/** <%= doc %> */\nfunction f() {}\n"),
+    ("lib/a.py.erb", "<%= a\n%>0000 = 1\n"),
+    ("app/a.js.erb", "var v = <%= x %>;\nfunction f<%=\n  y\n%>0000() {}\n"),
 ]
+
+
+# A multi-line output tag: a line too short for a code, and a continuation
+# line's indentation, are blanked, so no name is a bare X run, none starts
+# with whitespace, and text after the tag is never read as another tag.
+_MULTI_LINE_TAG_SOURCES = [
+    ("lib/a.rb.erb", "class <%=\n  name\n%>Report\nend\n"),
+    ("config/a.yml.erb", "a:\n  k<%= x\n%>: v\n"),
+    ("lib/a.py.erb", "<%= a\n%>0000 = 1\n"),
+    ("app/a.js.erb", "var v = <%= x %>;\nfunction f<%=\n  y\n%>0000() {}\n"),
+    ("app/a.js.erb", "function <%=\n  name %>() {}\n"),
+]
+
+
+@pytest.mark.parametrize("path, source", _MULTI_LINE_TAG_SOURCES)
+def test_a_multi_line_tag_never_names_a_symbol_with_filler_or_whitespace(path, source):
+    for s in parse_file(source, path, "erb"):
+        for segment in re.split(r"[.:#]", s.qualified_name):
+            assert not re.fullmatch(r"X{1,4}", segment), s.qualified_name
+            assert segment == segment.strip(), s.qualified_name
+        assert "X<%= a" not in s.qualified_name
+
+
+def test_docstrings_decorators_and_calls_show_the_tag():
+    source = "@<%= deco %>\ndef f():\n    '''<%= doc %>'''\n    <%= callee %>()\n"
+    f = _named(parse_file(source, "lib/a.py.erb", "erb"), "f", "python")
+    assert f.decorators == ["@<%= deco %>"]
+    assert "<%= doc %>" in f.docstring
+    assert f.call_references == ["<%= callee %>"]
 
 
 @pytest.mark.parametrize("path, source", _UNLINKED_OWNER_SOURCES)
@@ -412,6 +446,14 @@ def test_a_filler_code_written_in_the_file_is_never_used_for_a_tag():
     source = "var n = <%= abcd %>;\nfunction X0000XXXXXXReady() { return n; }\n"
     symbols = parse_file(source, "app/views/a/show.js.erb", "erb")
     assert _named(symbols, "X0000XXXXXXReady", "javascript").qualified_name == "show.X0000XXXXXXReady"
+
+
+def test_a_code_spelled_after_a_tag_is_never_used_for_another_tag():
+    # `<%= a %>` fills to `X0000XXX`, and the text after it reads `X0001…`
+    # in the filled copy, so the next tag must not take `0001`.
+    _, host = extractor._erb_masks(b"<%= a %>0001XXXXX <%= bb %>")
+    assert host[:8] == b"X0000XXX"
+    assert host[18:27] != b"X0001XXXX" and re.fullmatch(rb"X[0-9a-z]{4}XXXX", host[18:27])
 
 
 def test_a_token_cut_short_is_left_as_written_never_read_past():

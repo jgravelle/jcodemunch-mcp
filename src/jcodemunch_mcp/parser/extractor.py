@@ -10236,8 +10236,10 @@ _ERB_HOLE = _erb_fill_table(ord("X"))
 _ERB_TOKEN_DIGITS = b"0123456789abcdefghijklmnopqrstuvwxyz"
 _ERB_TOKEN_CODE = re.compile(r"X([0-9a-z]{4})")
 _ERB_TOKEN_CODE_IN_FILE = re.compile(rb"X([0-9a-z]{4})")
-# A line of a tag shorter than `<%=%>` has no room for a code; it stays X's.
-_ERB_TOKEN_PIECE = re.compile(rb"[^\r\n]{5,}")
+# What a token covers: a line of an output tag, its indentation and trailing
+# blanks left out. A piece shorter than `<%=%>` has no room for a code and is
+# blanked with the indentation, so no name is a bare run of X's.
+_ERB_TOKEN_PIECE = re.compile(rb"[^\s](?:[^\r\n]*[^\s])?")
 _ERB_ID_RE = re.compile(rb"""(?<![\w:-])id\s*=\s*["']([^"'<>]+)["']""", re.IGNORECASE)
 _ERB_SLOT_RE = re.compile(rb"\b(content_for|provide|yield)(?:[ \t]+|[ \t]*\([ \t]*):([A-Za-z_]\w*)")
 
@@ -10288,24 +10290,34 @@ def _erb_masks(source: bytes, tags: Optional[list] = None) -> tuple[bytes, bytes
     ``ruby`` keeps only the code inside ``<% %>`` and ``<%= %>`` tags and ends
     each tag with ``;``, so adjacent tags and a block opened in one tag and
     closed in another stay valid Ruby. ``host`` keeps the template text, fills
-    each line of an output tag with its own token (``_ERB_HOLE``'s comment)
-    and blanks statement and comment tags. A code the file already writes
-    after an ``X`` is never handed out, so no literal name reads as a token.
+    each line of an output tag with its own token (``_ERB_HOLE``'s comment),
+    and blanks statement and comment tags and the rest of an output tag
+    (``_ERB_TOKEN_PIECE``). A code that follows an ``X`` anywhere in the file,
+    with its output tags filled by X's, is never handed out, so no literal
+    text, alone or after a tag, reads as a token.
     ⚠ A Ruby ``#`` comment inside a tag runs to the line's end in the copy, so
     a later tag on the SAME line is commented out with it.
     """
     if tags is None:
         tags = _erb_tags(source)
-    taken = {m.group(1) for m in _ERB_TOKEN_CODE_IN_FILE.finditer(source)}
+    filled = bytearray(source)
+    for start, _, _, end, kind in tags:
+        parse_budget.checkpoint()
+        if kind == "output":
+            filled[start:end] = source[start:end].translate(_ERB_HOLE)
+    taken = {m.group(1) for m in _ERB_TOKEN_CODE_IN_FILE.finditer(filled)}
     ordinal = 0
     ruby = bytearray(source.translate(_ERB_BLANK))
     host = bytearray(source)
     for start, code_start, code_end, end, kind in tags:
         parse_budget.checkpoint()
+        host[start:end] = source[start:end].translate(_ERB_BLANK)
         if kind == "output":
-            host[start:end] = source[start:end].translate(_ERB_HOLE)
-            for piece in _ERB_TOKEN_PIECE.finditer(host, start, end):
+            for piece in _ERB_TOKEN_PIECE.finditer(source, start, end):
                 parse_budget.checkpoint()
+                if piece.end() - piece.start() < 5:
+                    continue
+                host[piece.start():piece.end()] = piece.group().translate(_ERB_HOLE)
                 code = b""
                 while ordinal < 36 ** 4:
                     parse_budget.checkpoint()
@@ -10316,8 +10328,6 @@ def _erb_masks(source: bytes, tags: Optional[list] = None) -> tuple[bytes, bytes
                     code = b""
                 if code:
                     host[piece.start() + 1:piece.start() + 5] = code
-        else:
-            host[start:end] = source[start:end].translate(_ERB_BLANK)
         if kind == "comment":
             continue
         ruby[code_start:code_end] = source[code_start:code_end]
@@ -10333,9 +10343,9 @@ def _erb_tokens(source: bytes, host: bytes, tags: list) -> dict[str, tuple[str, 
         parse_budget.checkpoint()
         if kind != "output":
             continue
-        for piece in _ERB_TOKEN_PIECE.finditer(host, start, end):
+        for piece in _ERB_TOKEN_PIECE.finditer(source, start, end):
             parse_budget.checkpoint()
-            token = piece.group().decode("ascii")
+            token = host[piece.start():piece.end()].decode("ascii", errors="replace")
             match = _ERB_TOKEN_CODE.match(token)
             if match:
                 text = source[piece.start():piece.end()].decode("utf-8", errors="replace")
@@ -10402,9 +10412,10 @@ def _erb_adopt(
 
     A name the host copy filled from an output tag (``X0000XXXXXXReport``) is
     named by the tag's own text instead (``<%= class_name %>Report``), in the
-    symbol, its qualified name, its id and its signature. Every tag fills to a
-    token of its own (``_ERB_HOLE``'s comment), so the restore is a lookup and
-    reads the same wherever a parser copied, quoted or re-parented the name.
+    symbol, its qualified name, id, signature, docstring, decorators and call
+    references. Every tag fills to a token of its own (``_ERB_HOLE``'s
+    comment), so the restore is a lookup and reads the same wherever a parser
+    copied, quoted or re-parented the name.
     """
 
     def _restore(text: str) -> str:
@@ -10441,6 +10452,9 @@ def _erb_adopt(
             name=_restore(sym.name),
             qualified_name=qualified,
             signature=_restore(sym.signature),
+            docstring=_restore(sym.docstring),
+            decorators=[_restore(d) for d in sym.decorators],
+            call_references=[_restore(c) for c in sym.call_references],
             parent=view.id,
             content_hash=compute_content_hash(piece),
         )))

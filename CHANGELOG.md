@@ -27,12 +27,15 @@ file's and a non-ASCII character cannot move a slice:
 symbol keeps the language of the pass that found it, so
 `search_symbols(language="javascript")` finds a function in a `.js.erb`.
 A name built from a tag is named by the tag (`<%= class_name %>Report`),
-in the symbol's name, its qualified name, its id and its signature. The
-template text is parsed with each output tag filled by a token of its own
-length that no other tag shares, so every name maps back to its tag by
-lookup: two tags of one length keep their own names, two tag-built YAML keys
-stay two keys, and a child under a YAML key or XML element, or a value the
-YAML parser rewrote, shows the tags it was written with.
+in the symbol's name, qualified name, id, signature, docstring, decorators
+and call references. The template text is parsed with each output tag
+filled by a token of its own length that no other tag shares, so a name maps
+back to its tag by lookup: two tags of one length keep their own names, two
+tag-built YAML keys stay two keys, and a child under a YAML key or XML
+element, or a value the YAML parser rewrote, shows the tags it was written
+with. A tag spanning lines gets a token per line; a line too short to hold
+one (a lone `%>`) is blanked like the indentation, so it is left out of a
+name rather than shown as filler.
 The view is always the file's first symbol, which is what files it under
 `erb`: a function at byte 0 of a `.js.erb`, or a YAML merge key, would
 otherwise have filed the view as JavaScript or YAML.
