@@ -9772,7 +9772,7 @@ def _cli_license_reminder(argv: Optional[list[str]]) -> None:
 def cli(argv: Optional[list[str]] = None):
     """The console-script entry point: `main`, then the work-license reminder after a clean exit.
 
-    ⚠ A wrapper, not an edit to `main`: `main` returns from a hundred places, and
+    ⚠ A wrapper, not an edit to `main`: `main` leaves through many returns and exit calls, and
     several tests and the DoD checklist read `main` by name through its AST, so
     its body stays where it is. The reminder needs only the argv and a clean exit
     (a return, or exit code 0). `pyproject.toml`'s script and `__main__` call this.

@@ -294,6 +294,9 @@ def test_config_set_false_also_silences_the_one_time_notice(tmp_path, monkeypatc
     from jcodemunch_mcp import config, license_notice
 
     monkeypatch.setenv("CODE_INDEX_PATH", str(tmp_path))
+    # The key check reads this env var before config, so a host that sets it
+    # would answer "licensed" below whatever config says.
+    monkeypatch.delenv("JCODEMUNCH_LICENSE_KEY", raising=False)
     monkeypatch.setattr(config, "get", lambda key, default=None, repo=None:
                         False if key == lr.CONFIG_KEY else default)
     assert license_notice.skip_reason(env={}) == "silenced"
