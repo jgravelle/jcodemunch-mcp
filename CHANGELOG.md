@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.407] - 2026-11-02 - a stdio server exits when the process that started it is gone, and storage reports how much disk the index uses
+
 ### Added - `jcodemunch-mcp storage` reports how much disk the index store uses
 
 No command said how big the index store (`~/.code-index`, or `CODE_INDEX_PATH`) had grown or which indexes took the space. `diagnose` lists each index's size without its name and adds up no total, so a user wondering whether to delete something had to measure the folder by hand.
