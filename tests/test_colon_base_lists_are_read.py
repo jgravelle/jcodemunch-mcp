@@ -279,3 +279,18 @@ def test_every_hash_comment_language_is_a_stored_language_name():
     from jcodemunch_mcp.tools.get_class_hierarchy import _HASH_COMMENT_LANGUAGES
 
     assert _HASH_COMMENT_LANGUAGES <= set(LANGUAGE_EXTENSIONS.values())
+
+
+def test_two_attributes_before_the_name_are_both_skipped():
+    assert _parse_bases("class [[nodiscard]] [[deprecated]] R : public B", "cpp") == ["B"]
+
+
+def test_repeated_attribute_brackets_do_not_backtrack_exponentially():
+    # CodeQL py/redos on the head pattern: a lazy attribute body could swallow
+    # `]][[`, so each repetition split two ways. Forty repeats never finished.
+    import time
+
+    text = "class [[" + "]][[" * 40 + "x"
+    started = time.perf_counter()
+    _parse_bases(text, "cpp")
+    assert time.perf_counter() - started < 5

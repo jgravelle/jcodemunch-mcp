@@ -27,7 +27,10 @@ _DECL_HEAD_RE = re.compile(
     r'\b(?P<kw>(?:class|struct|interface|record|object|protocol|trait|enum|extension)'
     r'(?:\s+(?:class|struct))?)\s+'
     # C++ attributes that sit before the name: `alignas(16)`, `__declspec(...)`, `[[...]]`.
-    r'(?:(?:alignas|__declspec|__attribute__)\s*\((?:[^()]|\([^()]*\))*\)\s*|\[\[.*?\]\]\s*)*'
+    # An attribute's body never contains `]]`, so `[[a]] [[b]]` splits one way only;
+    # a lazy `.*?` let one repetition swallow `]][[` and backtracked exponentially.
+    r'(?:(?:alignas|__declspec|__attribute__)\s*\((?:[^()]|\([^()]*\))*\)\s*'
+    r'|\[\[(?:[^\]]|\](?!\]))*\]\]\s*)*'
     r'[\w$.]+(?:::[\w$.]+)*'
 )
 # Comments a signature can carry: `// ...` and `/* ... */`, plus `# ...` to end of
