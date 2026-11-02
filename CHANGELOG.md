@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.408] - 2026-11-02 - a rare work-license reminder, never shown to a license holder
+
 ### Added - a rare work-license reminder, never shown to a license holder
 
 The license terms were said once per machine (the one-time `license_notice`), so a machine that kept using jCodeMunch for work was never told again. Now a short line says it again, rarely: "Personal use stays free. Using jCodeMunch for work needs a license: https://jcodemunch.com/buying.php", followed by the command that silences it.
