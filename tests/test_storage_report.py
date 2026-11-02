@@ -158,17 +158,25 @@ def test_a_store_that_cannot_be_listed_reports_no_size(store, monkeypatch, capsy
     assert "Not measured" in out and "Total:" not in out
 
 
-@pytest.mark.skipif(
-    sys.platform != "win32", reason="junctions are a Windows reparse point"
-)
-def test_a_junction_out_of_the_store_is_not_followed(store, tmp_path):
-    import _winapi
+def _dir_link(target, link):
+    """A directory link that needs no privilege: a junction on Windows (the
+    reparse point `os.path.islink` misses), a symlink elsewhere. It runs on
+    every platform rather than skipping, since a skip counts against the
+    CI skip ceiling."""
+    if sys.platform == "win32":
+        import _winapi
 
+        _winapi.CreateJunction(str(target), str(link))
+    else:
+        os.symlink(target, link, target_is_directory=True)
+
+
+def test_a_directory_link_out_of_the_store_is_not_followed(store, tmp_path):
     outside = tmp_path / "outside"
     _write(outside / "big.bin", 99999)
     baseline = sr.storage_report(str(store))["total_bytes"]
-    _winapi.CreateJunction(str(outside), str(store / "pallets-flask" / "escape"))
-    _winapi.CreateJunction(str(outside), str(store / "escape-top"))
+    _dir_link(outside, store / "pallets-flask" / "escape")
+    _dir_link(outside, store / "escape-top")
     rep = sr.storage_report(str(store))
     assert rep["total_bytes"] == baseline
     assert "escape-top" in [r["name"] for r in rep["other"]]
