@@ -245,6 +245,22 @@ Deferred definitions are excluded from the system-prompt prefix and appended inl
 
 ---
 
+## Custom subagents
+
+A Claude Code subagent gets the session's MCP tools unless its definition has a `tools:` list. If yours does, the subagent can call only what that list names, so add the jcodemunch tools you want:
+
+```yaml
+---
+name: code-explorer
+description: Finds where code lives and what a change reaches.
+tools: Read, Grep, Glob, mcp__jcodemunch__route, mcp__jcodemunch__menu, mcp__jcodemunch__order
+---
+```
+
+Those three are the front door on the `counter` surface, which `init` sets on a first-ever install. On the `full` surface, name the tools themselves, for example `mcp__jcodemunch__search_symbols`. The first line of `jcodemunch-mcp surface` names the active surface. The `mcp__jcodemunch__` prefix assumes the server is registered as `jcodemunch`, the name `init` writes; a server registered under another name gets that name in the prefix.
+
+---
+
 ## Privacy Policy
 
 jCodeMunch runs on your machine. Your code, file paths and queries stay there: the index lives in `~/.code-index/`, and deleting that folder removes it.
