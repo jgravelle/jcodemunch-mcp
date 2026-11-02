@@ -63,6 +63,13 @@ def marker_path() -> Path:
     return notice_marker_path(MARKER_FILE)
 
 
+def _reminder_silenced() -> bool:
+    """`config set license_reminder false` silences this notice too (item 650)."""
+    from .license_reminder import _config_silenced
+
+    return _config_silenced()
+
+
 def skip_reason(env: Optional[Mapping[str, str]] = None) -> Optional[str]:
     """Why the notice is not said here, or None when it is due. Cheapest checks first."""
     env = os.environ if env is None else env
@@ -70,6 +77,8 @@ def skip_reason(env: Optional[Mapping[str, str]] = None) -> Optional[str]:
         return "disabled"
     if any((env.get(name) or "").strip().lower() in _ON for name in CI_MARKERS):
         return "ci"
+    if _reminder_silenced():
+        return "silenced"
     from .org.license import licence_key_configured
 
     if licence_key_configured():

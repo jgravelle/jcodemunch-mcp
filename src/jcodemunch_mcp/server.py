@@ -7834,6 +7834,17 @@ async def _call_tool_impl(name: str, arguments: dict) -> list[TextContent] | Cal
             if _license_notice:
                 result = {**result, "license_notice": _license_notice}
                 _requested_format = "json"
+            else:
+                # (2026-11-02, item 650 option T) The work-license reminder:
+                # checked on the first successful answer of a process, said
+                # 7 days after the first index and then at most every 30 days.
+                # Routine calls carry nothing. See `license_reminder`.
+                from .license_reminder import tool_reminder_for as _license_reminder_for
+
+                _license_reminder = _license_reminder_for(result)
+                if _license_reminder:
+                    result = {**result, "license_notice": _license_reminder}
+                    _requested_format = "json"
         except Exception:
             logger.debug("license notice attach failed", exc_info=True)
 
@@ -9746,6 +9757,35 @@ def _force_utf8_stdio() -> None:
             # A stream that refuses reconfiguration is not a reason to refuse to
             # run; the command simply keeps the behaviour it had before.
             logger.debug("Could not force UTF-8 on sys.%s", stream_name, exc_info=True)
+
+
+def _cli_license_reminder(argv: Optional[list[str]]) -> None:
+    """The work-license reminder after a CLI command (item 650). Never raises."""
+    try:
+        from .license_reminder import cli_reminder
+
+        cli_reminder(list(argv if argv is not None else sys.argv[1:]))
+    except Exception:
+        logger.debug("license reminder (cli) failed", exc_info=True)
+
+
+def cli(argv: Optional[list[str]] = None):
+    """The console-script entry point: `main`, then the work-license reminder after a clean exit.
+
+    ⚠ A wrapper, not an edit to `main`: `main` returns from a hundred places, and
+    several tests and the DoD checklist read `main` by name through its AST, so
+    its body stays where it is. The reminder needs only the argv and a clean exit
+    (a return, or exit code 0). `pyproject.toml`'s script and `__main__` call this.
+    """
+    try:
+        result = main(argv)
+    except SystemExit as exc:
+        if exc.code in (None, 0):
+            _cli_license_reminder(argv)
+        raise
+    if result in (None, 0):
+        _cli_license_reminder(argv)
+    return result
 
 
 def main(argv: Optional[list[str]] = None):
@@ -12037,4 +12077,4 @@ def main(argv: Optional[list[str]] = None):
 
 
 if __name__ == "__main__":
-    main()
+    cli()
