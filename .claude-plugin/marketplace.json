@@ -11,7 +11,7 @@
       "name": "jcodemunch",
       "source": "./plugin/jcodemunch",
       "displayName": "jCodeMunch",
-      "description": "Symbol-level code exploration via tree-sitter AST parsing. 70+ languages.",
+      "description": "Gives AI coding agents the function they asked for, not the whole file. Runs locally, 70+ languages.",
       "category": "development",
       "tags": [
         "code",

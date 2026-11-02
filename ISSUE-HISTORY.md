@@ -3018,3 +3018,13 @@ The 1.108.402 entry, verbatim as it stood in `CLAUDE.md`:
 The `Tests:` line's 1.108.402 count, verbatim:
 
 - ⚠ Prior (1.108.402): 18839 passed, 24 skipped, **0 failed** (18863 total).
+
+## Current State rotation (2026-11-01, release 1.108.406)
+
+The 1.108.403 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.403):** **a file pattern means the same thing in every tool, and the rate_limit config key turns the limit on** (#1255, #1254, #1252, #1251): `path_glob.py` is the one file_pattern rule for search_text, the index store and the scope checks; `rate_limit` reads through the config loader, so the limit `jcodemunch-mcp config` shows is the one enforced; Codex's Windows entry is the bare command name when PATH finds the same install. Full text: `CHANGELOG.md`.
+
+The `Tests:` line's 1.108.403 count, verbatim:
+
+- ⚠ Prior (1.108.403): 18949 passed, 24 skipped, **0 failed** (18973 total).
