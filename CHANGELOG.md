@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+### Fixed - a savings meter that stops measuring says so, and its write can no longer wipe or lose counts
+
+A long-time customer on 1.108.407 reported that `_savings.json` stopped taking new days on 2026-10-29 and its lifetime total froze, while `_tool_counters.json` and `_session_live.json` kept updating. The dashboard showed the frozen figure as current.
+
+The writer had two defects. A batch that earned 0 wrote nothing, so a meter that measured 0 and a meter that measured nothing left the same file. And the read-merge-write was unsafe: a file that could not be read was treated as empty, so the next write replaced the lifetime history with one batch; the file was truncated and rewritten in place, so a reader could see half of it; nothing stopped two servers from replacing each other's batches; and a failed write was logged at debug, so the file froze without a word. The path also ignored `CODE_INDEX_PATH`, which `receipt`, `diagnose` and the per-tool counters honor.
+
+Every write that carries a call now records `last_flush_at` (UTC) and `measured_days[day] = {"calls": n, "saved": m}`, so a 0 is a measurement and a missing day is not. `daily` and `total_tokens_saved` mean what they meant. The dispatcher counts each client call once, so a session of tools that save nothing still stamps the file. The write takes `_savings.lock` through the counters module's lock rule, goes through a temp file and `os.replace`, and runs in the storage directory in force when the meter was loaded. A file that exists and cannot be read or parsed is never overwritten: the batch stays in memory and the server warns. A failed write warns too, and keeps its batch. After a write, the in-memory total follows the file, so it includes what other servers wrote.
+
+`receipt` (text and `--export` JSON), `diagnose` and `get_session_stats` (and `session_stats.json`) now carry `lifetime_status` (`current`, `stale`, `unknown`, or `absent` in `diagnose`), `lifetime_measured_through` and `lifetime_stale_since` beside the lifetime total. A total whose last stamp is older than the last write of `_tool_counters.json`, or a file with no stamp at all, reads "unmeasured since <date>"; a file that cannot be read reads unknown, never current. A file written before this release has no stamp, so it reads as stale until the first write from this version. SECURITY.md's "Background behavior" list names the new fields, the lock and the temp file. Tests: `tests/test_savings_meter_safe_write_and_heartbeat.py`.
+
 ## [1.108.408] - 2026-11-02 - a rare work-license reminder, never shown to a license holder
 
 ### Added - a rare work-license reminder, never shown to a license holder

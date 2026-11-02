@@ -115,6 +115,10 @@ _TOOLS = {
     "counting_since": _matches(_DATE, none=True),
     "saved_since": _matches(_DATE, none=True),
     "tokens_saved_total": _count_or_none,
+    # Whether that total is still being measured (`storage/savings_meter.py`).
+    "lifetime_status": _one_of("current", "stale", "unknown", "absent"),
+    "lifetime_measured_through": _matches(_DATE + r"T\d{2}:\d{2}:\d{2}Z", none=True),
+    "lifetime_stale_since": _matches(_DATE, none=True),
     "by_tool": None,  # a block, checked row by row
 }
 _LEAVES = {
@@ -379,11 +383,18 @@ def _tools(root: Path, savings: Optional[dict], known: set) -> dict:
         row(str(name))["tokens_saved"] += _count(n)
     # No savings file is nothing saved; a total that is not a count is unknown.
     total = savings.get("total_tokens_saved", 0) if savings is not None else None
+    from .storage import savings_meter
+
+    # ⚠ A total whose meter stopped is labeled, never shown as current.
+    label = savings_meter.label_for_root(root, savings)
     return {
         "estimator": ESTIMATOR,
         "counting_since": _date(counters["since"]) if counters is not None else None,
         "saved_since": _date((savings or {}).get("by_tool_since")),
         "tokens_saved_total": total if _is_count(total) else None,
+        "lifetime_status": label[savings_meter.STATUS],
+        "lifetime_measured_through": label[savings_meter.MEASURED_THROUGH],
+        "lifetime_stale_since": label[savings_meter.STALE_SINCE],
         "by_tool": {k: by_tool[k] for k in sorted(by_tool)},
     }
 

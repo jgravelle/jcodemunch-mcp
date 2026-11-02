@@ -6074,6 +6074,12 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent] | CallToolR
         _count_tool_call(name, _counted_result, relayed=_count_frame["inner"])
         if _count_parent is not None:
             _count_parent["inner"] = True
+        else:
+            # The savings heartbeat counts each CLIENT call once (the outermost
+            # frame), whether or not the tool reached the meter, so a zero-credit
+            # session still stamps `_savings.json` as measured. Never raises.
+            from .storage.token_tracker import note_call as _note_savings_call
+            _note_savings_call()
         try:
             from .storage.token_tracker import record_tool_latency
             _duration_ms = (time.perf_counter() - _t0_dispatch) * 1000.0
