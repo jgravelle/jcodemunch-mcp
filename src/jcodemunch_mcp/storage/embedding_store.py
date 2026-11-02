@@ -361,7 +361,8 @@ class EmbeddingStore:
         absent, and ``_db_mtime_ns`` takes the max over the ``.db`` and the
         ``-wal`` — so the mtime moved anyway and the spurious `rebuilding`
         verdict came back. Measured: sidecars went None -> present across one
-        fusion search.
+        fusion search. (Since ``generation.committed_wal_stat``, an empty
+        ``-wal`` no longer moves the mtime; the read-only rule stays.)
 
         v1.108.185 answered that with an unconditional ``immutable=1`` and
         stated the trade-off it accepted: vectors in an un-checkpointed WAL go

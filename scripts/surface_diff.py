@@ -174,13 +174,23 @@ def report(
 def build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser()
     ap.add_argument("--base-ref", default="origin/main")
-    ap.add_argument("--summary")
+    ap.add_argument(
+        "--summary",
+        help="write the markdown report to this file (replaces its content)",
+    )
     ap.add_argument(
         "--descriptions",
         action="store_true",
         help="also diff each tool's description (listed, never a failure; FINDINGS W-1)",
     )
     return ap
+
+
+def write_summary(path: str, text: str) -> None:
+    """Write the report, replacing the file: an evidence file holds one report.
+    CI's $GITHUB_STEP_SUMMARY is a fresh file for each step, so replacing is right there too."""
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write(text)
 
 
 def main(argv=None) -> int:
@@ -199,8 +209,7 @@ def main(argv=None) -> int:
     for ln in lines:
         print(ln)
     if a.summary:
-        with open(a.summary, "a", encoding="utf-8") as fh:
-            fh.write(summary)
+        write_summary(a.summary, summary)
     if rc:
         print(
             "::error title=tool surface::the tool surface changed without the documentation Practice 1 requires"

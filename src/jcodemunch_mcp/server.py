@@ -1371,6 +1371,34 @@ def _index_target_is_local(target: str) -> bool:
     )
 
 
+def _warn_capped_index(result: object, *, local: bool) -> None:
+    """Tell the person at the terminal, on stderr, that the file cap dropped files.
+
+    The result JSON already says so, but a capped index still reports success
+    and exits 0, so the flag was easy to miss. Stdout and the exit code stay
+    as they are: a capped index works, it just lacks files.
+    """
+    if not isinstance(result, dict):
+        return
+    try:
+        skipped = int(result.get("files_skipped_cap") or 0)
+    except (TypeError, ValueError):
+        return
+    if skipped <= 0:
+        return
+    key, env = (
+        ("max_folder_files", "JCODEMUNCH_MAX_FOLDER_FILES")
+        if local
+        else ("max_index_files", "JCODEMUNCH_MAX_INDEX_FILES")
+    )
+    print(
+        f"jcodemunch-mcp: warning: the index holds {result.get('files_indexed')} of "
+        f"{result.get('files_discovered')} files; {skipped} were left out by the "
+        f"{key} cap. Raise {key} in config.jsonc (or set {env}) and index again.",
+        file=sys.stderr,
+    )
+
+
 def _load_index_paths_from_arg(paths_from: str) -> tuple[Optional[list], Optional[str]]:
     """Read explicit paths from a file or stdin for `jcodemunch-mcp index --paths-from`.
 
@@ -3136,7 +3164,7 @@ def _build_tools_list(
                     },
                     "all_time": {
                         "type": "boolean",
-                        "description": "Ignore the window and analyze the full ledger.",
+                        "description": "Analyze the whole ledger instead of only the last window_days days.",
                         "default": False,
                     },
                     "apply_weights": {
@@ -7933,14 +7961,11 @@ async def _run_server_with_watcher(
     global _watcher_manager
 
     if watch_folders is None or WatcherManager is None:
-        try:
-            from .cli.upgrade import watch_extra_install_command
+        from .watcher import watchfiles_install_command
 
-            cmd = watch_extra_install_command()
-        except Exception:
-            cmd = "pip install 'jcodemunch-mcp[watch]'"
         raise ImportError(
-            f"watchfiles is required for --watcher. Install with: {cmd}"
+            "watchfiles is required for --watcher. "
+            f"Install it with: {watchfiles_install_command()}"
         )
 
     import tempfile
@@ -10213,6 +10238,18 @@ def main(argv: Optional[list[str]] = None):
         ),
     )
     init_parser.add_argument(
+        "--git-hook",
+        action="store_true",
+        dest="git_hook",
+        help=(
+            "Write a git post-checkout hook into the repository in this directory. "
+            "On a branch checkout it re-indexes, in the background, only the files "
+            "that differ between the two commits, and only if the repository is "
+            "already indexed. An existing hook keeps its lines. Off by default; "
+            "`uninstall` removes it."
+        ),
+    )
+    init_parser.add_argument(
         "--remove-guidance",
         action="store_true",
         dest="remove_guidance",
@@ -10366,6 +10403,10 @@ def main(argv: Optional[list[str]] = None):
     uninstall_parser.add_argument(
         "--keep-hooks", action="store_true", dest="keep_hooks",
         help="Preserve jcodemunch hooks in ~/.claude/settings.json",
+    )
+    uninstall_parser.add_argument(
+        "--keep-git-hook", action="store_true", dest="keep_git_hook",
+        help="Preserve the jcodemunch block in this repository's git post-checkout hook",
     )
     uninstall_parser.add_argument(
         "--keep-copilot-hooks", action="store_true", dest="keep_copilot_hooks",
@@ -10656,6 +10697,15 @@ def main(argv: Optional[list[str]] = None):
         help="SubagentStart hook: inject condensed repo orientation for spawned agents (reads stdin)",
     )
 
+    # --- hook-post-checkout ---
+    pc_parser = subparsers.add_parser(
+        "hook-post-checkout",
+        help="git post-checkout hook (written by init --git-hook): re-index the files that differ between two commits",
+    )
+    pc_parser.add_argument("prev", help="commit before the checkout")
+    pc_parser.add_argument("new", help="commit after the checkout")
+    pc_parser.add_argument("flag", nargs="?", default="1", help="1 for a branch checkout, 0 for a file checkout")
+
     # --- hook-sessionstart ---
     subparsers.add_parser(
         "hook-sessionstart",
@@ -10810,7 +10860,7 @@ def main(argv: Optional[list[str]] = None):
     if any(arg in top_level_flags for arg in raw_argv):
         args = parser.parse_args(raw_argv)
     else:
-        known_commands = {"serve", "watch", "hook-event", "hook-pretooluse", "hook-posttooluse", "hook-copilot-posttooluse", "hook-precompact", "hook-taskcomplete", "hook-subagent-start", "hook-sessionstart", "watch-claude", "watch-all", "watch-install", "watch-uninstall", "watch-status", "config", "list-repos", "delete-index", "org-report", "org-rollup", "license", "index", "index-file", "import-trace", "import-scip", "claude-md", "init", "install", "install-status", "uninstall", "install-pack", "download-model", "upgrade", "whatsnew", "receipt", "digest", "reflect", "delivery", "parity", "refresh", "health", "file-risk", "observatory", "keyring", "surface", "diagnose"}
+        known_commands = {"serve", "watch", "hook-event", "hook-pretooluse", "hook-posttooluse", "hook-copilot-posttooluse", "hook-precompact", "hook-taskcomplete", "hook-subagent-start", "hook-sessionstart", "hook-post-checkout", "watch-claude", "watch-all", "watch-install", "watch-uninstall", "watch-status", "config", "list-repos", "delete-index", "org-report", "org-rollup", "license", "index", "index-file", "import-trace", "import-scip", "claude-md", "init", "install", "install-status", "uninstall", "install-pack", "download-model", "upgrade", "whatsnew", "receipt", "digest", "reflect", "delivery", "parity", "refresh", "health", "file-risk", "observatory", "keyring", "surface", "diagnose"}
         # MCP-tool-name typos: route to the right CLI verb with a friendly hint.
         # `index_repo` and `index_folder` are MCP tools, not CLI subcommands.
         _CLI_ALIASES = {
@@ -10916,7 +10966,7 @@ def main(argv: Optional[list[str]] = None):
 
     if args.command == "org-rollup":
         from .org.store import org_rollup
-        from .org.license import check_gate
+        from .org.license import check_gate, sales_link
         org = getattr(args, "org", None) or os.environ.get("JCODEMUNCH_ORG_ID", "")
         as_json = getattr(args, "json", False)
         if not org:
@@ -10930,19 +10980,23 @@ def main(argv: Optional[list[str]] = None):
         # license handler hit in #364.
         config_module.load_config()
         gate = check_gate()
+        # A key holder may be a paying customer and is never shown where to buy;
+        # the reason line still names the tier the feature needs.
+        link = sales_link(gate)
         if not gate["allowed"]:
             if as_json:
                 print(json.dumps({
                     "error": gate["reason"],
                     "license_mode": gate["mode"],
-                    "get_license": gate["get_license"],
+                    "get_license": link,
                 }, indent=2))
             else:
                 print(f"org-rollup is unavailable: {gate['reason']}", file=sys.stderr)
-                print(f"  Get a license: {gate['get_license']}", file=sys.stderr)
+                if link:
+                    print(f"  Get a license: {link}", file=sys.stderr)
             return
         if gate["mode"] == "grace":
-            print(f"note: {gate['reason']}  ({gate['get_license']})", file=sys.stderr)
+            print(f"note: {gate['reason']}" + (f"  ({link})" if link else ""), file=sys.stderr)
 
         data = org_rollup(org)
         data["_license"] = {
@@ -11078,6 +11132,7 @@ def main(argv: Optional[list[str]] = None):
             guidance=getattr(args, "guidance", False),
             policy=getattr(args, "policy", False),
             remove_guidance=getattr(args, "remove_guidance", False),
+            git_hook=getattr(args, "git_hook", False),
         ))
 
     if args.command == "install":
@@ -11175,6 +11230,7 @@ def main(argv: Optional[list[str]] = None):
             dry_run=getattr(args, "dry_run", False),
             no_backup=getattr(args, "no_backup", False),
             yes=getattr(args, "yes", False),
+            git_hook=not getattr(args, "keep_git_hook", False),
         ))
 
     if args.command == "keyring":
@@ -11439,6 +11495,10 @@ def main(argv: Optional[list[str]] = None):
         from .cli.hooks import run_sessionstart
         sys.exit(run_sessionstart())
 
+    if args.command == "hook-post-checkout":
+        from .cli.git_hook import run_post_checkout
+        sys.exit(run_post_checkout(args.prev, args.new, args.flag))
+
     # Apply config defaults for watcher keys: CLI args > config > env vars.
     # config.load_config() is called inside each subcommand handler, but we need
     # the values here to fill in None defaults from argparse.
@@ -11476,8 +11536,9 @@ def main(argv: Optional[list[str]] = None):
                 )
             )
         else:
-            from .watcher import watch_folders
+            from .watcher import exit_unless_watchfiles, watch_folders
 
+            exit_unless_watchfiles("watch")
             asyncio.run(
                 watch_folders(
                     paths=args.paths,
@@ -11495,7 +11556,17 @@ def main(argv: Optional[list[str]] = None):
 
         handle_hook_event(event_type=args.event_type)
     elif args.command == "watch-all":
+        # Under pythonw (the Windows sign-in task) the watcher runs in a
+        # console-less child, or every git it starts opens a window.
+        from .service_installer import _log_dir as _watch_log_dir
+        from .windowless import run_with_hidden_console
+        _code = run_with_hidden_console(raw_argv, _watch_log_dir() / "watch-all.log")
+        if _code is not None:
+            sys.exit(_code)
         from .watch_all import watch_all, DEFAULT_REDISCOVER_INTERVAL_S
+        from .watcher import exit_unless_watchfiles
+
+        exit_unless_watchfiles("watch-all")
         use_ai = not args.no_ai_summaries and _default_use_ai_summaries()
         asyncio.run(
             watch_all(
@@ -11511,6 +11582,11 @@ def main(argv: Optional[list[str]] = None):
     elif args.command == "watch-install":
         import json as _json
         from .service_installer import install_service, InstallerError
+        from .watcher import exit_unless_watchfiles
+
+        # The service runs watch-all with this interpreter and restarts it on
+        # failure, so without watchfiles it would exit 1 and restart forever.
+        exit_unless_watchfiles("watch-install")
         try:
             print(_json.dumps(install_service(), indent=2))
         except InstallerError as exc:
@@ -11597,6 +11673,7 @@ def main(argv: Optional[list[str]] = None):
                 storage_path=os.environ.get("CODE_INDEX_PATH"),
             ))
         print(_json.dumps(result, indent=2))
+        _warn_capped_index(result, local=is_local)
         if not result.get("success"):
             sys.exit(1)
     elif args.command == "index-file":
@@ -11733,18 +11810,21 @@ def main(argv: Optional[list[str]] = None):
             try:
                 import watchfiles  # noqa: F401
             except ImportError:
+                from .watcher import watchfiles_install_command
+
+                install = watchfiles_install_command()
                 if watcher_from_cli:
                     print(
                         "ERROR: --watcher requires watchfiles. "
-                        "Install with: pip install 'jcodemunch-mcp[watch]'",
+                        f"Install it with: {install}",
                         file=sys.stderr,
                     )
                     sys.exit(1)
                 logger.warning(
                     "watch is enabled in config but the 'watchfiles' "
                     "package is not installed; continuing without the "
-                    "file watcher. Install with: pip install "
-                    "'jcodemunch-mcp[watch]'"
+                    "file watcher. Install it with: %s",
+                    install,
                 )
                 watcher_enabled = False
 
