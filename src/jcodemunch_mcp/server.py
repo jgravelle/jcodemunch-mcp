@@ -10916,7 +10916,7 @@ def main(argv: Optional[list[str]] = None):
 
     if args.command == "org-rollup":
         from .org.store import org_rollup
-        from .org.license import check_gate
+        from .org.license import check_gate, sales_link
         org = getattr(args, "org", None) or os.environ.get("JCODEMUNCH_ORG_ID", "")
         as_json = getattr(args, "json", False)
         if not org:
@@ -10930,19 +10930,23 @@ def main(argv: Optional[list[str]] = None):
         # license handler hit in #364.
         config_module.load_config()
         gate = check_gate()
+        # A key holder may be a paying customer and is never shown where to buy;
+        # the reason line still names the tier the feature needs.
+        link = sales_link(gate)
         if not gate["allowed"]:
             if as_json:
                 print(json.dumps({
                     "error": gate["reason"],
                     "license_mode": gate["mode"],
-                    "get_license": gate["get_license"],
+                    "get_license": link,
                 }, indent=2))
             else:
                 print(f"org-rollup is unavailable: {gate['reason']}", file=sys.stderr)
-                print(f"  Get a license: {gate['get_license']}", file=sys.stderr)
+                if link:
+                    print(f"  Get a license: {link}", file=sys.stderr)
             return
         if gate["mode"] == "grace":
-            print(f"note: {gate['reason']}  ({gate['get_license']})", file=sys.stderr)
+            print(f"note: {gate['reason']}" + (f"  ({link})" if link else ""), file=sys.stderr)
 
         data = org_rollup(org)
         data["_license"] = {

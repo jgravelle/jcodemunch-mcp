@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+### Fixed - `org-rollup` never shows a license key holder where to buy
+
+`license` already showed the pricing link only to an install with no license key, because a key holder may be a paying customer (and #1272 brings `install-pack` under the same rule). `org-rollup` printed it on every refusal and every evaluation note, so a Builder key holder asking for the team rollup was handed the pricing URL, and `org-rollup --json` returned it in `get_license`. It now follows the same rule: a valid, unverified or rejected key gets no link and `get_license: null`, while the reason still names the tier the feature needs ("requires Studio or Platform"). An install with no key sees the link as before.
+
+`org.license.sales_link` is now the one place that decides, and `license`, `license --json` and `org-rollup` all read it. `tests/test_org_rollup_shows_no_sales_link_to_a_key_holder.py` runs `org-rollup` for every key state, refused and in evaluation, text and JSON.
+
 ## [1.108.403] - 2026-10-30 - a file pattern means the same thing in every tool, and the rate_limit config key turns the limit on
 
 ### Fixed - the CLI's license link points at the current site
