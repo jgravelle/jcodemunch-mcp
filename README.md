@@ -133,7 +133,7 @@ Then tell the agent to prefer the tools. This matters more than people think; in
 Call the jcodemunch_guide tool and strictly follow its instructions.
 ```
 
-Using Cursor, Windsurf, Codex CLI, Antigravity, Gemini CLI, Qwen Code, Kiro, Cline, Zed, Goose, Hermes, Odysseus, or Paperclip? Every tested client configuration lives in **[CLIENTS.md](CLIENTS.md)**. Optional extras (local semantic search, AI summaries per provider) are in [QUICKSTART.md](QUICKSTART.md); the system surfaces each extra pulls in are documented in [SECURITY.md](SECURITY.md#optional-extras--system-surfaces-each-pulls-in).
+Using Cursor, Windsurf, Codex CLI, JetBrains AI Assistant, Junie, Antigravity, Gemini CLI, Qwen Code, Kiro, Cline, Zed, Goose, Hermes, Odysseus, or Paperclip? Every tested client configuration lives in **[CLIENTS.md](CLIENTS.md)**, along with [fewer approval prompts](CLIENTS.md#fewer-approval-prompts), [a committed `.mcp.json` for your team](CLIENTS.md#share-it-with-your-team) and [a shared HTTP server](CLIENTS.md#run-it-as-a-shared-http-server). Optional extras (local semantic search, AI summaries per provider) are in [QUICKSTART.md](QUICKSTART.md); the system surfaces each extra pulls in are documented in [SECURITY.md](SECURITY.md#optional-extras--system-surfaces-each-pulls-in).
 
 ---
 
@@ -237,7 +237,7 @@ Send it with the beta header `mcp-client-2025-11-20`. **Both halves are required
 
 The `configs` block above follows Anthropic's own advice — keep your 3–5 most-used tools resident so common requests skip the search round trip — and per-tool `configs` overrides `default_config`.
 
-A deferred tool is found by searching its name and description, so the core descriptions open with the question each tool answers, in the words an agent uses: `search_symbols` "find where a function, class or method is defined", `get_symbol_source` "read or show the source code", `get_call_hierarchy` "who calls this function or method", `check_references` "where is a function, class or other identifier used".
+A deferred tool is found by searching its name and description, so the core descriptions open with the question each tool answers, in the words an agent uses: `search_symbols` "find where a function, class or method is defined", `get_symbol_source` "read or show the source code", `get_call_hierarchy` "who calls this function or method", `check_references` "where is a function, class or other identifier used". The analysis tools follow the same rule: `check_delete_safe` opens "is it safe to delete this function", `get_pr_risk_profile` "how risky is this pull request", `get_hotspots` "where is the riskiest code".
 
 Deferred definitions are excluded from the system-prompt prefix and appended inline as `tool_reference` blocks when Claude discovers them, **so prompt caching is preserved** — this is not the cache-invalidating kind of dynamic tool list. At least one tool in the request must stay non-deferred, or the API returns a 400.
 

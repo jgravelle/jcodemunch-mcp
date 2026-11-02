@@ -2,40 +2,55 @@
 
 ## [Unreleased]
 
-### Fixed - the `rate_limit` config key now turns on the HTTP rate limit
+### Changed - 17 tool descriptions open with the question an agent asks
 
-CONFIGURATION.md documents `rate_limit` (requests per minute per client IP in
-HTTP mode), and `jcodemunch-mcp config` shows the value set in config.jsonc.
-The limiter read only the `JCODEMUNCH_RATE_LIMIT` env var, so a server
-configured with the key alone ran with no limit while its config output said
-otherwise. The limiter now reads the key through the config loader, so it
-follows the documented order: a value in config.jsonc wins, and the env var
-fills the key only when the file leaves it unset. The limit the server enforces
-is now the one `config` shows, and an empty or unparseable env var can no
-longer switch off a limit set in the file.
+A host that defers tool schemas (Claude Code, Codex) shows the model bare
+names and lets it search names and descriptions for the rest. An audit of the
+whole catalog found 22 tools, four of them in the core tier, whose
+descriptions opened with internal terms, such as "Composite preflight",
+"Task-aware single-call orchestrator" and "Mine the ranking telemetry
+ledger", and carried none of the words an agent types when it needs them.
+"How risky is this pull request" did not put `get_pr_risk_profile` in the
+top three of the catalog search.
 
-### Changed - on Windows, `init` writes Codex's entry as the bare command name when PATH finds the same install
+Seventeen of them now open with their question: `check_delete_safe`,
+`check_edit_safe`, `assemble_task_context`, `digest`, `get_delivery_metrics`,
+`get_decorator_census`, `get_architecture_metrics`, `check_embedding_drift`,
+`tune_weights`, `suggest_corrections`, `get_tectonic_map`,
+`get_group_contracts`, `get_pr_risk_profile`, `get_hotspots`,
+`get_coupling_metrics`, `summarize_repo` and `get_file_content`. Three others
+(`get_repo_map`, `get_parity_map`, `analyze_perf`) already answered their
+question. `set_tool_tier` and `announce_model` are left as they are: they sit
+on the byte-pinned `counter` surface, where any rewording is a full-rate
+cache write for every user.
 
-`init` wrote Codex's `[mcp_servers.jcodemunch]` entry as an absolute path to
-the binary. That path breaks when a reinstall moves the binary. Codex starts a
-server named by its bare command through PATH, so on Windows `init` now
-writes `command = 'jcodemunch-mcp'` when, and only when, PATH's first
-`jcodemunch-mcp` is the executable it would otherwise have written. A
-current-directory hit and uv's cache don't count as PATH finding it. When PATH
-finds a different install, or none, the absolute path is written as before: a
-bare name there would start another version, or nothing. The comparison uses
-`init`'s own PATH, so a Codex launched with a different PATH can still find
-something else. Bare-name launch was tested on Windows only, so macOS and
-Linux keep the absolute path: there a Codex started from a GUI or a
-non-login shell can have a narrower PATH than `init`, and a bare name would
-turn a working entry into one that starts nothing.
+`tests/test_question_queries_find_analysis_tools.py` fails if a question loses
+a word from its tool's description, or if the Counter's catalog search stops
+ranking the tool in its top three; two paraphrases are held to rank only.
 
-CLIENTS.md now recommends `uv tool install jcodemunch-mcp` for Codex, which
-also removes the first-run download. Its `uvx` example sets
-`startup_timeout_sec = 30`: Codex waits 10 seconds for a server to start by
-default (Codex's MCP docs). Measured on 2026-10-28 (Windows, home
-broadband, `uvx` alone rather than inside Codex): a cold run filled 251 MB of
-uv cache and replied in 7.0 s; cached runs replied in 2.6 s and 2.5 s.
+The rewording is a one-time cache write for clients on the `core`,
+`standard` and `full` profiles (`counter` is unchanged). From
+`benchmarks/schema_baseline.json`: `core_compact` 3980 to 3984 tokens (+4,
+under its 4,000 ceiling), `standard_compact` 20084 to 20174 (+90),
+`full_compact` 21512 to 21602 (+90).
+
+Descriptions are the router's input, so `benchmarks/route_recall/` was re-run.
+On the held-out corpus, frozen before any routing fix, `menu` recall holds at
+@1 and @3 and rises at @5 (40.9 to 43.2) and @10 (50.0 to 52.3). At @3 one
+query left the top three and another entered, and the @5 and @10 gains are
+that one query. On the main corpus recall rises at every cutoff (@3 from 69.5
+to 72.9, @10 from 81.4 to 86.4), but part of that gain is the corpus's own
+wording now in a description: "how risky is this pull request" is now the
+`get_pr_risk_profile` opener, and the benchmark's description-overlap
+measure rose from 0.388 to 0.429 (held-out: 0.313 to 0.322). Four individual
+queries, two in each corpus, drop one place. `route` ranks are unchanged in
+both.
+
+### Added - the plugin listing and the MCP registry show the jCodeMunch icon
+
+Neither manifest named an icon, so the plugin directory and the registry had none to show beside the name. `plugin/jcodemunch/icon.svg` is the icon: curly braces around one orange symbol, in the site's colors. `plugin.json` names it as `./icon.svg`, the relative path the plugin directory reads. `server.json` names its raw URL on `main` with `image/svg+xml`, the form the registry schema takes, so the next registry publish carries it.
+
+The icon is an SVG because the plugin folder holds text files only, and SVG is text. `tests/test_plugin_icon.py` holds both manifests to the same file, so the two listings cannot show different icons.
 
 ### Added - Rails views are indexed: `.erb` is a language
 
@@ -84,6 +99,101 @@ pinned by commit in `tests/fixtures/erb/SOURCES.md` with the licence texts.
 (`benchmarks/schema_baseline.json`), and `core_compact` and the `counter`
 surface are unchanged. A changed tool block is written to the prompt cache
 once, at full rate, on the first request after upgrading.
+
+## [1.108.403] - 2026-10-30 - a file pattern means the same thing in every tool, and the rate_limit config key turns the limit on
+
+### Fixed - the CLI's license link points at the current site
+
+When a team feature needed a license, the CLI and the `get_license` field of
+its answers pointed at `https://j.gravelle.us/jCodeMunch/#pricing`, a page on
+the retired site that is no longer kept up. Every other sales link the CLI
+prints already went to jcodemunch.com and was tagged as coming from the CLI,
+so this one sent a buyer to an outdated page and was not counted.
+
+It now points at the pricing section of jcodemunch.com, tagged
+`utm_source=cli`. The license check and the savings counter stay on
+j.gravelle.us, where they are served. A test fails if any other link in the
+package's Python source points at that host, in any case, with or without
+`www.`, and with a scheme or a path. It cannot see a URL built at run time from a variable host.
+
+### Fixed - one rule for a path pattern: with `/` it is anchored at the repo root, and a bare one matches at any depth
+
+On a large repository, `search_text` with `file_pattern="homeassistant/**"`
+also returned files under `tests/homeassistant/`, and the agent spent steps
+filtering them out. `search_text`, the index store's symbol search and the
+working-tree scope check each tried the pattern and then `*/` + pattern, and
+fnmatch's `*` crosses `/`, so the second try matched an anchored pattern at
+every depth. `search_symbols`, `get_dead_code_v2`, `search_ast`,
+`get_ranked_context`'s `scope` and `winnow_symbols`' `file` axis used plain
+fnmatch, so a bare `route.ts` matched only at the root there, and
+`get_untested_symbols` had a third rule (full path or basename): the same
+argument meant different files depending on the tool.
+
+Every `file_pattern`, the `scope` of `get_ranked_context`,
+`find_similar_symbols`, `get_repo_map` and `get_symbol_importance`, and the
+`file` axis of `winnow_symbols` now ask `path_glob`:
+
+- A pattern containing `/` names a place in the tree and matches from the
+  root (`./` and a leading `/` mean the root too). A brace expansion follows
+  the same rule, so `{a,c}/mod.py` no longer reaches into `pkg/`; write
+  `pkg/{a,c}/mod.py`.
+- A bare pattern such as `*.py` or `route.ts` matches at any depth. As
+  before, fnmatch's `*` crosses `/`, so `*detached*` also matches a
+  directory name.
+- `**/` matches zero or more directories, so `src/**/*.py`, the example in
+  the tool schemas, now matches `src/a.py`; it used to require a
+  subdirectory. This holds for a whole-segment `**/` (at the start or after
+  a `/`), up to three per pattern; past three, each needs at least one
+  directory, as before.
+- A backslash reads as `/` in the pattern as well as the path, on every
+  platform.
+- Matching is case-sensitive on every platform. On Windows, every site that
+  used `fnmatch.fnmatch` folded case (all of the above except `search_text`),
+  so `PKG/*` used to match `pkg/` there and now does not. `get_ranked_context`
+  checks the working tree with the same rule as its scan, so the two can no
+  longer disagree about which files a scope covers.
+
+The three directory-prefix scopes keep matching a bare directory name
+(`scope="src"`). `find_dead_code`'s live-root patterns keep their own
+documented matcher. `tests/test_file_pattern_anchoring.py` lists every other
+glob call in `src/` with the reason it is not a path filter, and fails on a
+new one. Run against the previous tree, it finds the sixteen functions this
+change moved onto the one rule.
+
+### Fixed - the `rate_limit` config key now turns on the HTTP rate limit
+
+CONFIGURATION.md documents `rate_limit` (requests per minute per client IP in
+HTTP mode), and `jcodemunch-mcp config` shows the value set in config.jsonc.
+The limiter read only the `JCODEMUNCH_RATE_LIMIT` env var, so a server
+configured with the key alone ran with no limit while its config output said
+otherwise. The limiter now reads the key through the config loader, so it
+follows the documented order: a value in config.jsonc wins, and the env var
+fills the key only when the file leaves it unset. The limit the server enforces
+is now the one `config` shows, and an empty or unparseable env var can no
+longer switch off a limit set in the file.
+
+### Changed - on Windows, `init` writes Codex's entry as the bare command name when PATH finds the same install
+
+`init` wrote Codex's `[mcp_servers.jcodemunch]` entry as an absolute path to
+the binary. That path breaks when a reinstall moves the binary. Codex starts a
+server named by its bare command through PATH, so on Windows `init` now
+writes `command = 'jcodemunch-mcp'` when, and only when, PATH's first
+`jcodemunch-mcp` is the executable it would otherwise have written. A
+current-directory hit and uv's cache don't count as PATH finding it. When PATH
+finds a different install, or none, the absolute path is written as before: a
+bare name there would start another version, or nothing. The comparison uses
+`init`'s own PATH, so a Codex launched with a different PATH can still find
+something else. Bare-name launch was tested on Windows only, so macOS and
+Linux keep the absolute path: there a Codex started from a GUI or a
+non-login shell can have a narrower PATH than `init`, and a bare name would
+turn a working entry into one that starts nothing.
+
+CLIENTS.md now recommends `uv tool install jcodemunch-mcp` for Codex, which
+also removes the first-run download. Its `uvx` example sets
+`startup_timeout_sec = 30`: Codex waits 10 seconds for a server to start by
+default (Codex's MCP docs). Measured on 2026-10-28 (Windows, home
+broadband, `uvx` alone rather than inside Codex): a cold run filled 251 MB of
+uv cache and replied in 7.0 s; cached runs replied in 2.6 s and 2.5 s.
 
 ## [1.108.402] - 2026-10-28 - the server instructions name the tools in the first 512 characters, and tool names hold across 1.x
 
