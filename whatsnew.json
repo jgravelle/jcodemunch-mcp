@@ -1,6 +1,12 @@
 {
-  "current": "1.108.405",
+  "current": "1.108.406",
   "entries": [
+    {
+      "version": "1.108.406",
+      "date": "2026-11-01",
+      "title": "watch-all leaves temp and idle indexes unwatched, and agents sharing an index stop reloading it",
+      "summary": "watch-all skips indexes under a temp folder and ones idle for 14 days, and watch exits when it cannot watch. Agents sharing one index no longer make each other reload it, and the first search on a large index tokenizes faster. init --git-hook re-indexes the files a branch switch changed. A key holder is never shown where to buy a license."
+    },
     {
       "version": "1.108.405",
       "date": "2026-11-01",

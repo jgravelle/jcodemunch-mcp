@@ -14,12 +14,40 @@ What is pinned:
 """
 
 import json
+import threading
+import time
 from unittest import mock
 
 import pytest
 
 from jcodemunch_mcp.cli.hooks import _common, briefing, landmarks
 
+
+
+def _test_thread_clock(monkeypatch, module, values, then):
+    """A fake clock for this test's thread only.
+
+    ``module.time`` is the process-wide ``time`` module, so a plain fake also
+    feeds every other thread in the worker, and one that reads it first takes
+    the values the code under test needed. Other threads get the real clock.
+    """
+    real = time.monotonic
+    owner = threading.get_ident()
+    seq = iter(values)
+
+    def clock():
+        if threading.get_ident() != owner:
+            return real()
+        return next(seq, then)
+
+    monkeypatch.setattr(module.time, "monotonic", clock)
+
+
+def _read_the_clock_from_another_thread():
+    """Another thread in the test worker reads the clock while the fake is installed."""
+    t = threading.Thread(target=lambda: [time.monotonic() for _ in range(5)])
+    t.start()
+    t.join()
 
 def _ctx(*files):
     return {"files_edited": [{"file": f} for f in files], "files_accessed": []}
@@ -90,8 +118,8 @@ def test_no_index_is_started_once_the_budget_is_spent(store, monkeypatch):
         {"repo": "local/first", "symbol_count": 10},
         {"repo": "local/second", "symbol_count": 10},
     ])
-    clock = iter([0.0, 0.0, landmarks.BUDGET_SECONDS + 1.0])
-    monkeypatch.setattr(landmarks.time, "monotonic", lambda: next(clock, 10_000.0))
+    _test_thread_clock(monkeypatch, landmarks, [0.0, 0.0, landmarks.BUDGET_SECONDS + 1.0], 10_000.0)
+    _read_the_clock_from_another_thread()
     out = landmarks._build_landmark_section(context=_ctx("a.py"))
     assert store["loaded"] == ["first"]
     assert "local/second" in out and "time budget" in out

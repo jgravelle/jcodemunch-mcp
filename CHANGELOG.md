@@ -2,6 +2,327 @@
 
 ## [Unreleased]
 
+## [1.108.406] - 2026-11-01 - watch-all leaves temp and idle indexes unwatched, and agents sharing an index stop reloading it
+
+### Fixed - two packages never share an `index_dependency` snapshot
+
+`index_dependency` copies a package into the store's `deps/` folder and indexes the copy. The folder name was a cleanup of the package name, and the cleanup sent different packages to one folder: `@a/b` and `a__b` both became `a__b@<version>`, names that differ only in case are one folder on Windows and macOS, and an npm and a PyPI package with the same name and version shared a folder too. The second package deleted the first one's snapshot and rebuilt it as itself, so the first package's index answered with the wrong package's code, and nothing reported it.
+
+The folder name now ends in a digest of the exact ecosystem, name and version, so two different packages always get two folders, and the readable name and version stay in front. A re-run of the same package still finds and rebuilds its own folder. A snapshot written under the old name is cleared on the next run, as any earlier snapshot already was, because it may hold files the current copy rules would not copy. Each new snapshot carries a `.jcodemunch-snapshot.json` marker, and that cleanup never touches a folder holding one: the version comes from the package's own metadata, so a crafted version could otherwise make an old name equal another package's current folder. ⚠ An `indexed_repo` id from an earlier run names the old folder. After the next run that folder is gone, but the old index is still listed, and its freshness reads `unknown`; use the new id the run returns.
+
+### Changed - the first search on a large index spends half as long tokenizing
+
+The first `search_symbols` call in a process builds the BM25 table, which
+tokenizes the name, signature, summary and docstring of every symbol. Each
+occurrence of a word re-ran its stem, its abbreviation lookup and its CJK check,
+although the result depends on the word alone. On a 50,373-symbol index the stem
+function ran 922,862 times for 9,633 distinct words, and the cold first search
+took 4.2 s. Each word's expansion is now computed once per process and kept in a
+bounded cache, and the same first search takes 2.2 s. The tokenizer's output is
+unchanged token for token: a test compares it against a frozen copy of the old
+code, and full rankings for 12 queries over two repositories are identical
+before and after.
+
+### Fixed - the CLI says when the file cap left files out of an index
+
+`jcodemunch-mcp index` prints its result as JSON. When the `max_folder_files`
+cap dropped files, that JSON said `truncated: true` with the counts and a
+warning, but the run still reported success, exited 0 and wrote nothing to
+stderr. A person skimming the output, or a script checking the exit code, saw a
+complete index. Under the default cap of 2,000, a repository many times that
+size was indexed as 2,000 files this way. The CLI now writes one line to stderr giving the files
+indexed and discovered, how many were left out, and the key to raise. A GitHub
+index that hits `max_index_files` gets the same line, naming that cap. Stdout and
+the exit code don't change, because a capped index still works; it just lacks
+files.
+
+### Changed - a cold text search reads the matched files' symbols, not every symbol
+
+The Grep redirect hook runs in a new process for every Grep, so it never has a
+warm index to reuse. Its answer path loaded the full index, every symbol row,
+to check that no indexed file had changed. Then `search_text` read the index
+again, although the scan needs only the file list and the enclosing-symbol step
+needs only the symbols of the files that matched. After a reboot that read
+comes from disk, and the first hooked Greps could run past the answer budget
+and fall back to a plain Grep with no answer. The hook now opens the selective
+view, which reads the index metadata and the files table and no symbol rows,
+and asks `search_text` for the same through a new keyword-only
+`selective_load` argument. `search_text` then reads only the matched files'
+symbol rows, and uses them only when that read saw the same `indexed_at` and
+database mtime as the first; otherwise it loads the full index. A warm cached
+index is used as is. A server doesn't pass `selective_load`, so its first
+search still loads and caches the full index and later ones answer from
+memory; it is not an MCP argument. Warm, in a fresh process on a
+24,416-symbol index, the hook's freshness check and search took a median of
+0.305 s against 0.529 s before (three runs each; one run before the change took
+0.778 s). The answer budget is unchanged. The hook now logs each stage's time at
+debug level, so the next slow answer shows where its time went.
+
+### Changed - every place the package describes itself says what it does for an agent
+
+The MCP registry listing, the PyPI summary, the plugin marketplace entry and
+the package's own docstring described jCodeMunch by its parsing method, and the
+docstring still carried an old name, `github-codemunch-mcp`, and described a
+tool for GitHub source exploration. Directories that copy these fields kept
+showing that. All four now lead with the job: the agent gets the function or
+class it asked for, not the whole file, on the user's machine, in 70+ languages.
+
+### Added - `init --git-hook`: a branch switch re-indexes the files it changed
+
+After `git switch` the index still described the branch you left, until a
+watcher, an edit hook or a manual `index` caught up, so the first answers on
+the new branch could name functions that were no longer there. `init
+--git-hook` (or a yes to the new offer in an interactive `init`, default no)
+writes a git post-checkout hook into the repository in the current directory,
+in the hooks directory git itself names, so `core.hooksPath` and linked
+worktrees are honored. On a branch checkout it starts `jcodemunch-mcp
+hook-post-checkout <old> <new>` in the background, which re-indexes only the
+files `git diff --name-only --no-renames` lists between the two commits.
+`--no-renames` matters: with rename detection the old name is not listed, and
+a renamed file would have stayed in the index under its old path. The command
+does nothing on a repository with no index, because a partial path list
+handed to the indexer there would publish a few files as the whole corpus. It
+does nothing on a file checkout or an empty diff, and it always exits 0, so it
+never changes a checkout's exit status.
+
+An existing hook keeps every line and its line endings. The block goes at the
+top, after the shebang when there is one, because a hook that ends in `exit`
+would skip a block appended at the end; a hook with no shebang gets none added,
+and a hook written in another language (python, node) is left alone with a
+message. `uninstall` takes the block out of the repository it runs in and gives
+back the file as it was, deleting it only when jcodemunch created it;
+`--keep-git-hook` keeps it. Nothing records which repositories have the hook,
+so removal is per repository, and SECURITY.md says so. The executable path is
+`shlex`-quoted, because sh reads it, and a path with a `$` or a quote in it
+would otherwise break. A plain `init`,
+`init --yes` and `init --minimal` write no git hook. SECURITY.md "Background
+behavior, fully disclosed" lists what the hook runs and reads.
+`tests/test_git_post_checkout_hook.py` runs a real `git checkout` against the
+installed hook.
+
+### Fixed - a search after another process writes the index no longer re-tokenizes every symbol
+
+A running server keeps its loaded index keyed by the index file's modification
+time. When another process wrote the index (the `watch-all` service, a second
+server, an edit hook), the next search in the first server reloaded every row,
+then rebuilt the search tokens of every symbol, though almost none had changed.
+Measured on a 34,225-symbol index, the first search after such a write took
+3.0 to 3.2 s against 0.7 ms warm. Re-tokenizing that index from scratch takes
+about 1.8 s, and 7 ms when the tokens are kept. A write made in the same
+process already kept them; one made by another process did not.
+
+The reload now keeps the tokens of every symbol whose name, keywords,
+signature, summary, docstring and source are all unchanged. The same measurement
+reads 1.07 to 1.22 s on that index, and 1.11 to 1.23 s, down from 4.3 to 4.4 s,
+on a 50,320-symbol one. The rest is the reload of the rows itself.
+
+A save this process makes after another process's write rebuilt from rows the
+same way, and keeps the tokens now too. The match compares every input a
+symbol's tokens are built from, not only the source hash, because a summary
+can change while the source does not; a changed one is tokenized again.
+`tests/test_reload_carries_search_tokens.py` checks both routes and both
+directions.
+
+### Fixed - a refused pack download no longer shows a key holder where to buy a license
+
+When the starter-pack server refuses a download, it attaches a pricing link
+whether or not the request carried a license key, and `install-pack` printed
+it. A paying user whose key was sent read "Get a license" right under the line
+saying their key had been sent. The link now appears only when no key was sent,
+from `--license` or from the config. The `--list` view and the `license` command
+already followed this rule; the refused download was the one path that did not.
+`tests/test_install_pack.py` checks both directions, and that the key
+`install-pack` resolves (from `--license`, the environment or the config) is
+the one that decides.
+
+### Fixed - agents sharing one index no longer make each other reload it
+
+A running server keeps the loaded index, and the embedding matrix, in memory,
+keyed by a stamp over the index file and its SQLite sidecars, so that a write
+made by another process is noticed. Opening the database creates an empty
+`-wal` file when none exists, and every read writes the `-shm` file. Both
+stamps counted those as writes. So a second server, a sub-agent or the
+`watch-all` service that only read the index made every other process reload
+all of it, and their reloads did the same back. Measured with 2 to 8 processes
+searching one 34,225-symbol index and nothing writing to it, every search took
+3.0 to 3.7 s (median); one process alone answered in 0.5 ms.
+
+A `-wal` file now counts only when it holds a commit, by size and modification
+time, and `-shm` never counts. One helper holds that rule for both stamps.
+Eight processes on the same index went from 48 searches in 20 seconds to
+36,867 (median 2.4 ms). A real write is still noticed;
+`tests/test_a_reader_does_not_invalidate_other_processes.py` checks both
+directions.
+
+### Fixed - the Windows sign-in watcher opens no console window
+
+`watch-install` registered the `jcodemunch-watch` logon task with the running
+interpreter, `python.exe`. That is a console program, so a console window
+opened at every sign-in and stayed open while the watcher ran. The task now
+starts `pythonw.exe` when it sits beside the interpreter, and keeps
+`python.exe` when it does not, since a visible window is better than a task
+that cannot start. It passes `--log-file <log dir>/watch-all.log`, because a
+windowless process has no stderr.
+
+Starting `pythonw.exe` alone was not enough. A process with no console gives
+every console program it starts a new, visible window, so the `git` that runs
+on each re-index would have flashed one on every save. Under pythonw,
+`watch-all` now re-runs itself in `python.exe` with no window. Everything that
+process starts shares its window-less console, and its stdout and stderr go to
+the log file, so the watcher's warning lines are kept. A job object ties it to
+the task, so ending the task ends the watcher. Two Windows tests start a real
+pythonw: one asks Windows whether the watcher's child has a visible window,
+and one kills the pythonw process and waits for the watcher to exit. Each fails
+with its half removed (the no-window flag, the job object).
+
+An existing task changes only when you run `watch-install` again. Until then,
+`watch-status` (and the `get_watch_status` tool's `service` block) warns that
+the task starts `python.exe` and names that repair, and a new `service.command`
+key reports the program the task starts. An action that cannot be read warns
+nothing. systemd and launchd are unchanged. The log file is appended to and
+not rotated.
+
+### Changed - watch-all leaves temp and idle indexes unwatched
+
+`watch-all`, and the login service that runs it, watched every local index for
+as long as the index existed. That included throwaway ones: an index of a folder
+under the system temp directory, or of a checkout nobody has touched in months,
+kept its watcher, a full re-index at every sign-in, and its share of idle CPU.
+Two settings now narrow it, both on by default:
+
+- `watch_all_skip_temp` (`true`) skips a repo under the system temp directory
+  or a top-level `tmp`/`temp` folder (`C:\tmp`, `/tmp`, `/var/tmp`).
+- `watch_all_max_idle_days` (`14`; `0` watches every repo) skips a repo whose
+  newest indexed file and last indexed commit are both older than that.
+
+The index's `indexed_at` is not the idle signal, because the watcher's own
+startup pass re-indexes every watched repo at sign-in and rewrites it. The
+signals are the newest file time the index stored and the date of the commit it
+stored, which move only when the code does.
+
+Those signals don't move while a repo is unwatched, so a skip decided from the
+index alone would never end. Before calling a repo idle, `watch-all` also checks
+the tree. The checkout must still be at the commit the index stored, and no
+file the index holds, and no folder holding one, may be newer than the index.
+That check runs again at most every 10 minutes per repo. So editing, deleting,
+adding a file beside an indexed one, or committing in a skipped repo gets it
+watched again within that time. A change in a folder that holds no indexed file
+is not seen. A signal that cannot be read keeps the repo watched. That covers an
+unreadable index, a commit git cannot date, and a git repo whose index stored no
+commit. A wrong skip leaves an index stale with nothing to show for it, so that
+is the error this avoids.
+
+A skipped repo's index stays searchable, and any explicit re-index still works.
+`watch-all` prints what it skipped at startup and which setting to change. It
+also prints a line when it stops watching a repo mid-run. `watch-status` and the
+`get_watch_status` tool mark each such repo with `watch_all_skipped` (`temp`,
+`idle`, or `unknown` when the scope could not be read). Both settings also read
+`JCODEMUNCH_WATCH_ALL_SKIP_TEMP` and `JCODEMUNCH_WATCH_ALL_MAX_IDLE_DAYS`. A
+typo in the first keeps temp folders skipped. One consequence: an index you
+just built of a checkout whose files and last commit are both older than 14
+days counts as idle and is not watched. Set `watch_all_max_idle_days` to `0` to
+watch it.
+
+### Fixed - `watch` and `watch-all` exit when they cannot watch
+
+On an install without the optional `watchfiles` package, `jcodemunch-mcp watch`
+printed FATAL for each folder, from inside that folder's task, after the
+watcher had started. The process then kept running with nothing watched. A
+user who did not read the console believed the index was being kept fresh,
+while every change went unindexed until a manual re-index.
+
+Both commands now check once, before starting anything. With `watchfiles`
+missing they print one line with the install command for the way jCodeMunch
+was installed (pip, pipx, uv or uvx) and exit 1. The server's `--watcher`
+flag already exited 1 but always printed the pip line; it now prints the same
+install line. `watch-install` refuses the same way before registering a service:
+the service runs `watch-all` and restarts it on failure, so it would
+otherwise exit and restart forever. `watch --once` does not need `watchfiles` and is unchanged.
+The server's own config-enabled watcher still only warns, because the server
+must keep answering without it.
+
+### Fixed - a XAML view's markup-wired event handlers are no longer reported dead
+
+A WPF, UWP, Avalonia or MAUI view wires its handlers in markup
+(`<Button Click="Ok_Click"/>`) and names its code-behind class with `x:Class`.
+Nothing read either, so a `.xaml` file had no edge to `Ctl.xaml.cs`:
+`get_dead_code_v2` listed `Ok_Click` as dead in its default output, beside a
+method nothing used, and `find_dead_code` called the whole code-behind
+provably unreachable. Web Forms markup got the same edge earlier (#1012); XAML
+had no reader.
+
+A view with `x:Class` now gets an edge to its sibling `.xaml.cs`, carrying the
+class name and the method names its event attributes wire. XAML has no marker
+for an event, so the attribute's name is the evidence: one ending like an event
+(`Click`, `Clicked`, `Loaded`, `TextChanged`, an attached `Mouse.MouseDown`,
+`PreviewKeyDown`, `GotFocus`) or an `EventSetter`'s `Handler`. Boolean
+properties that end the same way (`IsChecked`, `CanContentScroll`,
+`AllowDrop`) do not count. A layout value or button text
+(`HorizontalAlignment="Center"`, `Content="OK"`) is never a name, because
+`find_references`, `check_references` and `get_tectonic_map` match an edge's
+names across the whole repository, and `Center` would then read as imported by
+every view. Namespaced attributes (`x:Name`), markup extensions
+(`{Binding Save}`) and commented-out elements name nothing either. The
+code-behind is matched as the view's sibling only, never a file of the same
+name in a parent folder.
+
+A view without `x:Class` (a resource dictionary) gets no edge. A Visual Basic
+code-behind (`.xaml.vb`) is not linked yet, so its handlers are still reported
+as before. Command names in `{Binding ...}` point at a view-model, not the
+code-behind, and are not read. As
+with Web Forms, once the code-behind has an importer, `check_delete_safe` blocks
+deleting its unused members at low confidence instead of calling them safe: the
+cautious direction. Existing indexes pick the edge up on their next re-index
+(parser generation 27).
+
+### Fixed - `get_blast_radius` counts its direct callers apart from deeper ones
+
+With `call_depth` above 1, `get_blast_radius` returned callers of every depth
+under one `caller_count`, so a reader taking the count at its word read
+indirect callers as direct ones. `get_call_hierarchy` had the same shape and
+was fixed with a direct count and a per-depth count; `get_blast_radius` had
+neither.
+
+The response now adds `direct_caller_count` and `callers_by_depth` beside
+`caller_count`, which stays the total over every depth, and the callers are
+ordered by depth. Both tools count with one function (`label_row_depths`),
+moved out of `get_call_hierarchy` rather than copied, so the two can no longer
+disagree about which caller is direct. The compact encoding carries the new
+counts and now also `caller_count`, which it had never carried.
+`get_endpoint_impact`, which republishes these callers at a default
+`call_depth` of 2, carries both new counts per endpoint.
+
+### Fixed - `uninstall` and `claude-md --refresh` find the policy block's end by Markdown's own rules
+
+Both commands act on the lines between the policy heading and the next heading
+of yours. Finding that end, the reader skipped headings inside code fences, but
+it treated any line opening with three backticks or three tildes as the end of
+a fence and stripped indentation before testing for a heading. In your own
+CLAUDE.md text after the block, a tilde line inside a backtick fence, a shorter
+run inside a longer fence, or a fence line carrying a language name closed the
+fence early, and a line indented four spaces read as a heading. A `#` comment in
+the rest of that code then ended the block too soon, or a fenced or indented
+example of the heading started it in the wrong place, which moved the lines a
+refresh rewrites and an uninstall deletes.
+
+A fence now closes only on the character that opened it, at least as long, with
+nothing after it, and a line indented four or more columns is code, never a
+heading or a fence. One scanner serves both the start and the end, so the two
+cannot read the same file differently. The installed policy text holds no fence,
+so only your own text was ever at risk.
+
+### Fixed - `check_references` says when the file cap cut its content search
+
+The content search stops after `max_content_results` files (default 20), and `content_count` counts the files listed. Nothing in the response said the scan had stopped, so `content_count: 20` read the same for twenty files as for twenty of several hundred. A new `content_truncated` field, present whenever content was searched, is true only when at least one more file that mentions the name exists past the cap. To know that, the scan reads one matching file past the cap; when exactly `max_content_results` files match, it now reads the rest of the corpus before answering false. Every other field is unchanged.
+
+`tests/test_check_references_says_when_the_file_cap_cut_it.py` pins the flag below, at and above the cap, in batch mode, and its absence on an import-only check.
+
+### Fixed - `org-rollup` never shows a license key holder where to buy
+
+`license` already showed the pricing link only to an install with no license key, because a key holder may be a paying customer (`install-pack` follows the same rule, #1272). `org-rollup` printed it on every refusal and every evaluation note, so a Builder key holder asking for the team rollup was handed the pricing URL, and `org-rollup --json` returned it in `get_license`. It now follows the same rule: a valid, unverified or rejected key gets no link and `get_license: null`, while the reason still names the tier the feature needs ("requires Studio or Platform"). An install with no key sees the link as before.
+
+`org.license.sales_link` is now the one place that decides, and `license`, `license --json` and `org-rollup` all read it. `tests/test_org_rollup_shows_no_sales_link_to_a_key_holder.py` runs `org-rollup` for every key state, refused and in evaluation, text and JSON.
+
 ## [1.108.405] - 2026-11-01 - get_class_hierarchy and find_implementations read a base list written after a colon
 
 ### Fixed - `get_class_hierarchy` and `find_implementations` read a base list written after a colon (#1284)

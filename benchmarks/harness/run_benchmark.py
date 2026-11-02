@@ -11,7 +11,8 @@ Usage:
 If no repos are given, runs against all three canonical benchmark repos:
     expressjs/express  |  fastapi/fastapi  |  gin-gonic/gin
 
-Those repos must already be indexed (jcodemunch index_repo owner/repo).
+Those repos must already be indexed at the commits benchmarks/REPRODUCING.md
+pins (jcodemunch-mcp index <clone> --no-ai-summaries).
 
 Methodology
 -----------
@@ -599,7 +600,12 @@ def benchmark_repo(repo_str: str) -> dict:
     if matched is None:
         if os.path.isdir(repo_str):
             return {"error": f"Not indexed: {repo_str}. Run: jcodemunch-mcp index {repo_str}"}
-        return {"error": f"Not indexed: {repo_str}. Run: jcodemunch index_repo {repo_str}"}
+        return {
+            "error": (
+                f"Not indexed: {repo_str}. Clone it at the commit benchmarks/REPRODUCING.md "
+                f"pins, then run: jcodemunch-mcp index <clone> --no-ai-summaries"
+            )
+        }
 
     actual_repo = matched["repo"]
     owner2, name2 = _parse_repo(actual_repo)
