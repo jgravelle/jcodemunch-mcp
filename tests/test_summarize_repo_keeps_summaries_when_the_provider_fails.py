@@ -194,6 +194,9 @@ class _Endpoint:
                 if outer.mode == "429":
                     body = json.dumps({"error": {"message": "rate limited"}}).encode()
                     self.send_response(429)
+                elif outer.mode == "error_body":
+                    body = json.dumps({"error": {"message": "quota exceeded"}}).encode()
+                    self.send_response(200)
                 elif outer.mode == "blank":
                     body = json.dumps({"choices": [{"message": {"content": ""}}]}).encode()
                     self.send_response(200)
@@ -264,6 +267,16 @@ def test_a_blank_answer_counts_as_a_provider_fallback(tmp_path, endpoint):
     repo, storage, db = _index(tmp_path, "".join(f"def g{i}(x):\n    return x * {i}\n\n\n" for i in range(4)))
     summarize_mod.summarize_repo(repo, force=True, storage_path=storage)
     endpoint.mode = "blank"
+    out = summarize_mod.summarize_repo(repo, force=True, storage_path=storage)
+    assert out["previous_summaries_kept"] == 4, out
+    assert all(s.startswith("AI summary") for s in _summaries(db).values())
+
+
+def test_a_200_carrying_an_error_body_counts_as_a_provider_fallback(tmp_path, endpoint):
+    """The report's second spelling: HTTP 200 with an `error` object and no choices."""
+    repo, storage, db = _index(tmp_path, "".join(f"def g{i}(x):\n    return x * {i}\n\n\n" for i in range(4)))
+    summarize_mod.summarize_repo(repo, force=True, storage_path=storage)
+    endpoint.mode = "error_body"
     out = summarize_mod.summarize_repo(repo, force=True, storage_path=storage)
     assert out["previous_summaries_kept"] == 4, out
     assert all(s.startswith("AI summary") for s in _summaries(db).values())
