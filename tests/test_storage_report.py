@@ -172,6 +172,11 @@ def test_a_junction_out_of_the_store_is_not_followed(store, tmp_path):
     rep = sr.storage_report(str(store))
     assert rep["total_bytes"] == baseline
     assert "escape-top" in [r["name"] for r in rep["other"]]
+    # A link reads as a link not followed, never as an empty entry (review).
+    top = next(r for r in rep["other"] if r["name"] == "escape-top")
+    assert top["bytes"] == 0 and top["links_not_followed"] == 1
+    flask = next(r for r in rep["indexes"] if r["name"] == "pallets-flask")
+    assert flask["links_not_followed"] == 1
 
 
 def test_a_symlink_out_of_the_store_is_not_followed(store, tmp_path):
@@ -183,7 +188,25 @@ def test_a_symlink_out_of_the_store_is_not_followed(store, tmp_path):
         os.symlink(outside, link, target_is_directory=True)
     except (OSError, NotImplementedError):
         pytest.skip("symlinks need privileges on this host")
-    assert sr.storage_report(str(store))["total_bytes"] == baseline
+    rep = sr.storage_report(str(store))
+    assert rep["total_bytes"] == baseline
+    flask = next(r for r in rep["indexes"] if r["name"] == "pallets-flask")
+    assert flask["links_not_followed"] == 1
+
+
+def test_an_unfollowed_link_is_named_in_the_text_report(store, tmp_path, capsys):
+    outside = tmp_path / "outside"
+    _write(outside / "big.bin", 9999)
+    try:
+        os.symlink(outside, store / "escape-top", target_is_directory=True)
+    except (OSError, NotImplementedError):
+        pytest.skip("symlinks need privileges on this host")
+    rep = sr.storage_report(str(store))
+    row = next(r for r in rep["other"] if r["name"] == "escape-top")
+    assert row["links_not_followed"] == 1
+    assert sr.main([], storage_path=str(store)) == 0
+    out = capsys.readouterr().out
+    assert "escape-top  (1 link(s) not followed, not counted)" in out
 
 
 def test_json_output_parses_and_text_output_names_the_path(store, capsys):

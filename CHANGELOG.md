@@ -6,7 +6,7 @@
 
 No command said how big the index store (`~/.code-index`, or `CODE_INDEX_PATH`) had grown or which indexes took the space. `diagnose` lists each index's size without its name and adds up no total, so a user wondering whether to delete something had to measure the folder by hand.
 
-`jcodemunch-mcp storage` prints the store's path and total, then each index by name, largest first, with its database (`<slug>.db` and its sidecars) and its content cache (`<slug>/`) apart, then every other entry in the store. `--top N` sets how many rows each list shows (default 10, `-1` for all), and `--json` prints the same report as JSON. It only stats files: it opens no database, so it can't move an index's cache key or create a `-wal`/`-shm` file, and it follows no symlink or Windows junction, so nothing outside the store is counted. A file it can't stat is counted as not measured, never as 0 bytes.
+`jcodemunch-mcp storage` prints the store's path and total, then each index by name, largest first, with its database (`<slug>.db` and its sidecars) and its content cache (`<slug>/`) apart, then every other entry in the store. `--top N` sets how many rows each list shows (default 10, `-1` for all), and `--json` prints the same report as JSON. It only stats files: it opens no database, so it can't move an index's cache key or create a `-wal`/`-shm` file, and it follows no symlink or Windows junction, so nothing outside the store is counted; each one it skips is reported in `links_not_followed`, so a link never reads as an empty entry. A file it can't stat is counted as not measured, never as 0 bytes.
 
 ## [1.108.405] - 2026-11-01 - get_class_hierarchy and find_implementations read a base list written after a colon
 

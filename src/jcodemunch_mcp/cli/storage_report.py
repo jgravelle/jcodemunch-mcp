@@ -47,20 +47,23 @@ def _is_link(path: str) -> bool:
     return bool(getattr(st, "st_file_attributes", 0) & _REPARSE_POINT)
 
 
-def _walk_bytes(path: Path) -> tuple[int, int]:
-    """(bytes, unreadable) for every regular file under `path`, or `path` itself.
+def _walk_bytes(path: Path) -> tuple[int, int, int]:
+    """(bytes, unreadable, links) for every regular file under `path`, or `path` itself.
 
     `unreadable` counts the files and directories that couldn't be measured.
-    Their bytes are left out, never counted as 0."""
+    Their bytes are left out, never counted as 0. `links` counts the symlinks
+    and junctions that were not followed, so a link never reads as an empty
+    entry (review)."""
     unreadable = 0
+    links = 0
     try:
         if _is_link(str(path)):
-            return 0, 0
+            return 0, 0, 1
         if not path.is_dir():
-            return _size_of(str(path)), 0
+            return _size_of(str(path)), 0, 0
     except OSError:
         logger.debug("storage: %s not measured", path, exc_info=True)
-        return 0, 1
+        return 0, 1, 0
     total = 0
 
     def _onerror(err: OSError) -> None:
@@ -71,17 +74,20 @@ def _walk_bytes(path: Path) -> tuple[int, int]:
         )
 
     for root, dirs, files in os.walk(path, followlinks=False, onerror=_onerror):
-        dirs[:] = [d for d in dirs if not _is_link(os.path.join(root, d))]
+        kept = [d for d in dirs if not _is_link(os.path.join(root, d))]
+        links += len(dirs) - len(kept)
+        dirs[:] = kept
         for name in files:
             full = os.path.join(root, name)
             try:
                 if _is_link(full):
+                    links += 1
                     continue
                 total += _size_of(full)
             except OSError:
                 unreadable += 1
                 logger.debug("storage: %s not measured", full, exc_info=True)
-    return total, unreadable
+    return total, unreadable, links
 
 
 def _index_slugs(entries: list[Path]) -> set[str]:
@@ -146,7 +152,13 @@ def storage_report(
     slugs = _index_slugs(entries)
 
     by_slug: dict[str, dict] = {
-        s: {"name": s, "db_bytes": 0, "content_bytes": 0, "unreadable": 0}
+        s: {
+            "name": s,
+            "db_bytes": 0,
+            "content_bytes": 0,
+            "unreadable": 0,
+            "links_not_followed": 0,
+        }
         for s in slugs
     }
     other: list[dict] = []
@@ -162,13 +174,16 @@ def storage_report(
                 if e.name.startswith(s + "."):
                     owner = s
                     break
-        size, bad = _walk_bytes(e)
+        size, bad, links = _walk_bytes(e)
         unreadable_total += bad
         if owner is not None:
             by_slug[owner][part] += size
             by_slug[owner]["unreadable"] += bad
+            by_slug[owner]["links_not_followed"] += links
         else:
-            other.append({"name": e.name, "bytes": size, "unreadable": bad})
+            other.append(
+                {"name": e.name, "bytes": size, "unreadable": bad, "links_not_followed": links}
+            )
 
     indexes = list(by_slug.values())
     for r in indexes:
@@ -200,6 +215,11 @@ def _human(n: int) -> str:
     return f"{n} B"
 
 
+def _links_note(row: dict) -> str:
+    n = row.get("links_not_followed", 0)
+    return f"  ({n} link(s) not followed, not counted)" if n else ""
+
+
 def _print_text(rep: dict) -> None:
     if not rep["exists"]:
         print(f"Index store: {rep['path']} (does not exist; nothing indexed yet)")
@@ -226,6 +246,7 @@ def _print_text(rep: dict) -> None:
             f"  {_human(r['total_bytes']):>10}  {r['name']}  "
             f"(db {_human(r['db_bytes'])}, content {_human(r['content_bytes'])})"
             + (f", {r['unreadable']} not measured" if r["unreadable"] else "")
+            + _links_note(r)
         )
     if rep["indexes_more"]["count"]:
         m = rep["indexes_more"]
@@ -234,7 +255,7 @@ def _print_text(rep: dict) -> None:
         print()
         print("Other entries in the store:")
         for r in rep["other"]:
-            print(f"  {_human(r['bytes']):>10}  {r['name']}")
+            print(f"  {_human(r['bytes']):>10}  {r['name']}{_links_note(r)}")
         if rep["other_more"]["count"]:
             m = rep["other_more"]
             print(f"  {_human(m['bytes']):>10}  ... {m['count']} more")
