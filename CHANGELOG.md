@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+### Fixed - `check_references` says when the file cap cut its content search
+
+The content search stops after `max_content_results` files (default 20), and `content_count` counts the files listed. Nothing in the response said the scan had stopped, so `content_count: 20` read the same for twenty files as for twenty of several hundred. A new `content_truncated` field, present whenever content was searched, is true only when at least one more file that mentions the name exists past the cap. To know that, the scan reads one matching file past the cap; when exactly `max_content_results` files match, it now reads the rest of the corpus before answering false. Every other field is unchanged.
+
+`tests/test_check_references_says_when_the_file_cap_cut_it.py` pins the flag below, at and above the cap, in batch mode, and its absence on an import-only check.
+
 ## [1.108.403] - 2026-10-30 - a file pattern means the same thing in every tool, and the rate_limit config key turns the limit on
 
 ### Fixed - the CLI's license link points at the current site
