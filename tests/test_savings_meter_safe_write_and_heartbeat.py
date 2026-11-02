@@ -24,10 +24,15 @@ first one's read-to-write window), never a sleep and a hope.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
 import pathlib
+import subprocess
+import sys
+import threading
+import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -168,7 +173,7 @@ class TestHeartbeat:
 class TestRefusedRead:
     def test_a_corrupt_file_is_not_wiped_and_the_batch_is_kept(self, tmp_path, caplog):
         corrupt = (
-            '{"total_tokens_saved": 34317586613, "daily": {"2026-10-29": 5'  # truncated
+            '{"total_tokens_saved": 1000000000, "daily": {"2026-10-29": 5'  # truncated
         )
         _file(tmp_path).write_text(corrupt, encoding="utf-8")
         st = _fresh()
@@ -327,19 +332,19 @@ class TestTwoWriters:
             text = real(self, *args, **kw)
             if self.name == "_savings.json" and not fired:
                 fired.append(True)
-                b._flush_locked(lock_wait=0.0)  # B runs inside A's read-to-write window
+                b._flush(lock_wait=0.0)  # B runs inside A's read-to-write window
             return text
 
         _file(tmp_path).write_text(
             json.dumps({"total_tokens_saved": 1000}), encoding="utf-8"
         )
         monkeypatch.setattr(pathlib.Path, "read_text", inside_a)
-        a._flush_locked(lock_wait=0.0)
+        a._flush(lock_wait=0.0)
         monkeypatch.setattr(pathlib.Path, "read_text", real)
         assert fired, "the interleaving did not happen; the test proves nothing"
         assert b._unflushed == 7, "B could not take the lock and kept its batch"
         assert _ledger(tmp_path)["total_tokens_saved"] == 1100
-        b._flush_locked(lock_wait=0.0)
+        b._flush(lock_wait=0.0)
         assert _ledger(tmp_path)["total_tokens_saved"] == 1107, (
             "both processes' batches are counted"
         )
@@ -354,11 +359,11 @@ class TestTwoWriters:
         st = _fresh()
         st._ensure_loaded(str(tmp_path))
         st._unflushed, st._hb_calls = 5, 1
-        st._flush_locked(lock_wait=0.0)
+        st._flush(lock_wait=0.0)
         assert _ledger(tmp_path)["total_tokens_saved"] == 40
         assert st._unflushed == 5
         (tmp_path / tt._SAVINGS_LOCK_FILE).unlink()
-        st._flush_locked(lock_wait=0.0)
+        st._flush(lock_wait=0.0)
         assert _ledger(tmp_path)["total_tokens_saved"] == 45
 
     def test_a_change_between_load_and_flush_is_merged_not_overwritten(self, tmp_path):
@@ -387,7 +392,7 @@ _OLD = "2026-10-29T12:00:00+00:00"
 
 def _write_meter(root: Path, **extra) -> None:
     data = {
-        "total_tokens_saved": 34_317_586_613,
+        "total_tokens_saved": 1_000_000_000,
         "anon_id": "abc",
         "daily": {"2026-10-28": 9, "2026-10-29": 5},
     }
@@ -514,7 +519,7 @@ class TestDisplaySurfaces:
         st = _fresh()
         st._ensure_loaded(str(tmp_path))
         st._unflushed, st._hb_calls = 5, 1
-        st._flush_locked(lock_wait=0.0)
+        st._flush(lock_wait=0.0)
         stats = st.session_stats(str(tmp_path))
         assert stats[sm.STATUS] == "stale"
         assert stats[sm.STALE_SINCE] == "2026-10-29"
@@ -526,7 +531,7 @@ class TestDisplaySurfaces:
             "session_stats.json carries the label for external dashboards"
         )
         (tmp_path / tt._SAVINGS_LOCK_FILE).unlink()
-        st._flush_locked(lock_wait=0.0)
+        st._flush(lock_wait=0.0)
         stats = st.session_stats(str(tmp_path))
         assert stats[sm.STATUS] == "current" and stats[sm.STALE_SINCE] is None
         assert sm.parse_stamp(stats[sm.MEASURED_THROUGH]) > sm.parse_stamp(_OLD)
@@ -561,3 +566,265 @@ def test_the_label_module_imports_nothing_from_the_network():
     src = Path(sm.__file__).read_text(encoding="utf-8")
     for mod in ("urllib", "http", "socket", "requests", "httpx"):
         assert f"import {mod}" not in src and f"from {mod}" not in src
+
+
+# ---------------------------------------------------------------------------
+# 6. The state lock is never held across disk I/O, and exit cannot deadlock
+# ---------------------------------------------------------------------------
+
+
+class _SpyLock:
+    """A real lock that says when someone starts waiting on it."""
+
+    def __init__(self):
+        self._inner = threading.Lock()
+        self.waiting = threading.Event()
+
+    def acquire(self, blocking=True, timeout=-1):
+        if self._inner.acquire(blocking=False):
+            return True
+        if not blocking:
+            return False
+        self.waiting.set()
+        return self._inner.acquire(True, timeout)
+
+    def release(self):
+        self._inner.release()
+
+    def locked(self):
+        return self._inner.locked()
+
+    def __enter__(self):
+        self.acquire()
+        return self
+
+    def __exit__(self, *exc):
+        self.release()
+
+
+class TestStateLock:
+    def test_the_file_write_runs_without_the_state_lock(self, tmp_path, monkeypatch):
+        """While `_merge_batch` reads the file, another thread can take `_lock`."""
+        st = _fresh()
+        st._ensure_loaded(str(tmp_path))
+        st._unflushed, st._hb_calls = 3, 1
+        real = pathlib.Path.read_text
+        seen = []
+
+        def probe(self, *a, **k):
+            if self.name == "_savings.json":
+                seen.append(st._lock.acquire(blocking=False))
+                if seen[-1]:
+                    st._lock.release()
+            return real(self, *a, **k)
+
+        monkeypatch.setattr(pathlib.Path, "read_text", probe)
+        st._flush(lock_wait=0.0)
+        monkeypatch.setattr(pathlib.Path, "read_text", real)
+        assert seen == [True], "the state lock was held across the savings-file read"
+        assert _ledger(tmp_path)["total_tokens_saved"] == 3
+
+    def test_note_call_never_takes_the_state_lock(self, tmp_path):
+        st = _fresh()
+        st._ensure_loaded(str(tmp_path))
+        done = threading.Event()
+        with st._lock:  # held, as by a flush or a signal handler's frame
+            t = threading.Thread(target=lambda: (st.note_call(), done.set()))
+            t.start()
+            assert done.wait(5), "note_call waited on the state lock"
+        t.join(5)
+        assert len(st._dispatch_ticks) == 1
+
+    def test_exit_flush_waits_for_a_lock_another_thread_holds_then_writes(
+        self, tmp_path
+    ):
+        """PINNED: the exit flush is waiting on `_lock` (the spy says so) before
+        the holder lets go; it then completes and writes."""
+        st = _fresh()
+        st._lock = _SpyLock()
+        st._ensure_loaded(str(tmp_path))
+        st._unflushed, st._hb_calls = 9, 1
+        st._lock.acquire()
+        t = threading.Thread(target=st.flush)
+        t.start()
+        assert st._lock.waiting.wait(5), "the exit flush never reached the state lock"
+        st._lock.release()
+        t.join(10)
+        assert not t.is_alive()
+        assert _ledger(tmp_path)["total_tokens_saved"] == 9
+
+    def test_exit_flush_against_a_lock_the_same_thread_holds_returns(
+        self, tmp_path, caplog
+    ):
+        """A signal handled inside a locked region runs `flush` on the thread that
+        holds `_lock`. A blocking acquire there never returns."""
+        st = _fresh()
+        st._ensure_loaded(str(tmp_path))
+        st._unflushed, st._hb_calls = 9, 1
+        returned = threading.Event()
+
+        def holder_then_flush():
+            # The SAME thread holds the lock and then flushes, as a signal
+            # handler does. A daemon, so a deadlock fails this test instead
+            # of hanging the run.
+            st._lock.acquire()
+            st.flush()
+            returned.set()
+
+        with caplog.at_level(logging.WARNING, logger=tt.logger.name):
+            threading.Thread(target=holder_then_flush, daemon=True).start()
+            assert returned.wait(20), "flush deadlocked on a lock its own thread holds"
+        assert any("busy" in r.getMessage() for r in caplog.records)
+
+    def test_a_real_interpreter_exits_with_the_state_lock_held(self, tmp_path):
+        """The atexit flush runs while the main thread still holds `_lock`; the
+        process must still exit, and promptly."""
+        src_root = Path(tt.__file__).resolve().parents[2]
+        script = (
+            "from jcodemunch_mcp.storage import token_tracker as tt\n"
+            "tt.record_savings(5, None, 'search_symbols')\n"
+            "tt._state._lock.acquire()\n"
+        )
+        env = {
+            **os.environ,
+            "PYTHONPATH": str(src_root),
+            "CODE_INDEX_PATH": str(tmp_path),
+            "JCODEMUNCH_SHARE_SAVINGS": "0",
+        }
+        t0 = time.monotonic()
+        done = subprocess.run(
+            [sys.executable, "-c", script], env=env, timeout=60, capture_output=True
+        )
+        assert done.returncode == 0, done.stderr.decode(errors="replace")[-2000:]
+        assert time.monotonic() - t0 < 50
+
+
+# ---------------------------------------------------------------------------
+# 7. The heartbeat thread and the dispatcher entry points
+# ---------------------------------------------------------------------------
+
+
+class TestHeartbeatThread:
+    def test_twenty_dispatched_calls_start_a_writer_that_finishes(self, tmp_path):
+        st = _fresh()
+        st._ensure_loaded(str(tmp_path))
+        for _ in range(tt._HEARTBEAT_FLUSH_CALLS):
+            st.note_call()
+        assert st._hb_thread is not None, "no heartbeat writer was started"
+        st._hb_thread.join(10)
+        assert not st._hb_thread.is_alive(), (
+            "the heartbeat writer must finish (it is joined at exit)"
+        )
+        assert _ledger(tmp_path)[sm.MEASURED_DAYS][_today()] == {
+            "calls": tt._HEARTBEAT_FLUSH_CALLS,
+            "saved": 0,
+        }
+        assert not st._hb_thread.daemon
+
+    def test_the_first_call_after_the_interval_starts_a_writer(self, tmp_path):
+        st = _fresh()
+        st._ensure_loaded(str(tmp_path))
+        st._last_flush_mono -= tt._HEARTBEAT_FLUSH_SECONDS + 1
+        st.note_call()
+        assert st._hb_thread is not None
+        st._hb_thread.join(10)
+        assert not st._hb_thread.is_alive()
+        assert _ledger(tmp_path)[sm.MEASURED_DAYS][_today()]["calls"] == 1
+
+
+class TestDispatcherEntryPoints:
+    @pytest.fixture()
+    def store(self, tmp_path, monkeypatch):
+        root = tmp_path / "store"
+        root.mkdir()
+        monkeypatch.setenv("CODE_INDEX_PATH", str(root))
+        monkeypatch.setattr(tt, "_state", _fresh())
+        monkeypatch.setattr(tool_counters, "_state", tool_counters._State())
+        return root
+
+    @pytest.mark.parametrize(
+        "tool,args",
+        [
+            ("order", {"action": "list_repos", "args": {}}),
+            ("route", {"task": "list the indexed repositories"}),
+        ],
+    )
+    def test_a_front_door_call_is_one_measured_call(self, store, tool, args):
+        from jcodemunch_mcp import server
+
+        asyncio.run(server.call_tool(tool, args))
+        tt._state.flush()
+        assert _ledger(store)[sm.MEASURED_DAYS][_today()]["calls"] == 1, (
+            "a relayed call is one client call: the outer frame counts it, the inner one does not"
+        )
+
+    def test_the_lifetime_total_in_meta_is_labeled_when_not_current(self, monkeypatch):
+        from jcodemunch_mcp import server
+        from jcodemunch_mcp.encoding.schema_driven import UNIVERSAL_META_JSON
+
+        st = _fresh()
+        monkeypatch.setattr(tt, "_state", st)
+        stale = {
+            sm.STATUS: "stale",
+            sm.MEASURED_THROUGH: "2026-10-29T12:00:00Z",
+            sm.STALE_SINCE: "2026-10-29",
+        }
+        st._label = dict(stale)
+        result = {
+            "_meta": {"total_tokens_saved": 5},
+            "results": [{"_meta": {"total_tokens_saved": 5}}, {}],
+        }
+        server._label_lifetime_total(result)
+        assert result["_meta"]["lifetime_meter"] == stale
+        assert result["results"][0]["_meta"]["lifetime_meter"] == stale
+        assert "_meta" not in result["results"][1]
+        st._label = {
+            sm.STATUS: "current",
+            sm.MEASURED_THROUGH: "2026-11-02T00:00:00Z",
+            sm.STALE_SINCE: None,
+        }
+        healthy = {"_meta": {"total_tokens_saved": 5}}
+        server._label_lifetime_total(healthy)
+        assert healthy == {"_meta": {"total_tokens_saved": 5}}, (
+            "a current meter's responses are unchanged"
+        )
+        assert "lifetime_meter" in UNIVERSAL_META_JSON, (
+            "a compact encoder must not drop the label and keep the total"
+        )
+
+
+def test_a_stale_temp_file_from_a_killed_process_is_removed_at_load(tmp_path):
+    old = tmp_path / "_savings.json.4242.tmp"
+    young = tmp_path / "_savings.json.4243.tmp"
+    other = tmp_path / "_savings.json.notapid.tmp"
+    for f in (old, young, other):
+        f.write_text("{}", encoding="utf-8")
+    past = time.time() - 3600
+    os.utime(old, (past, past))
+    os.utime(other, (past, past))
+    _fresh()._ensure_loaded(str(tmp_path))
+    assert not old.exists()
+    assert young.exists(), (
+        "a temp file under a minute old may belong to a write in progress"
+    )
+    assert other.exists(), "only the writer's own name pattern is removed"
+
+
+def test_a_float_total_is_accepted_as_receipt_reads_it(tmp_path):
+    _file(tmp_path).write_text(
+        json.dumps({"total_tokens_saved": 1000.0}), encoding="utf-8"
+    )
+    st = _fresh()
+    for _ in range(3):
+        st.add(10, str(tmp_path), "search_symbols")
+    assert _ledger(tmp_path)["total_tokens_saved"] == 1030
+
+
+def test_the_root_rule_is_the_index_stores(tmp_path, monkeypatch):
+    from jcodemunch_mcp.storage.sqlite_store import _default_base_path
+
+    monkeypatch.setenv("CODE_INDEX_PATH", "~/jcm-root-rule-probe")
+    assert Path(tool_counters.storage_root()) == _default_base_path(), (
+        "CODE_INDEX_PATH=~/x: one place for both"
+    )
+    assert "~" not in tool_counters.storage_root()

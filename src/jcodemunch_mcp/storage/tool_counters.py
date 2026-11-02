@@ -72,12 +72,18 @@ _LOCK_STALE_SECONDS = 30.0
 def storage_root(base_path: Optional[str] = None) -> str:
     """The storage directory: *base_path*, else `CODE_INDEX_PATH`, else `~/.code-index`.
 
-    ⚠ The ONE root rule for the local stores written per call: these counters
-    and the savings file (`token_tracker`). The savings path used
-    to ignore `CODE_INDEX_PATH` while this module, `receipt` and `diagnose`
-    honored it, so a moved store was read in one place and written in another.
+    ⚠⚠ **Not a second rule: it asks the index store's** (`sqlite_store.
+    _default_base_path`, and the same `expanduser().resolve()` the store applies
+    to an explicit path). The savings path used to ignore `CODE_INDEX_PATH`, and
+    a copy here that skipped `expanduser` would put `CODE_INDEX_PATH=~/x`
+    counters in a literal `~` folder beside indexes in the home one.
+    ⚠ Imported at call time: this module stays a stdlib leaf at import.
     """
-    return base_path or os.environ.get("CODE_INDEX_PATH") or str(Path.home() / ".code-index")
+    from .sqlite_store import _default_base_path
+
+    if base_path:
+        return str(Path(base_path).expanduser().resolve())
+    return str(_default_base_path())
 
 
 _root = storage_root

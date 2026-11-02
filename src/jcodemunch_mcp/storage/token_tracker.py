@@ -30,6 +30,7 @@ import json
 import logging
 import os
 import queue
+import re
 import signal
 import sqlite3
 import threading
@@ -69,6 +70,12 @@ _HEARTBEAT_FLUSH_CALLS = 20
 _HEARTBEAT_FLUSH_SECONDS = 30.0
 # A write that keeps failing warns once per this many seconds, then logs at debug.
 _FLUSH_WARN_INTERVAL = 600.0
+# How long the exit and signal paths wait for this process's own state lock.
+# A signal handled while the same thread holds it would otherwise deadlock.
+_STATE_LOCK_WAIT_AT_EXIT = 1.0
+# A temp file a killed process left is removed at load once it is this old.
+_STALE_TMP_SECONDS = 60.0
+_TMP_NAME = re.compile(r"_savings\.json\.\d+\.tmp")
 
 # Basis generation for the savings meter. Bumped when the DEFINITION of a
 # tool's raw_bytes baseline changes, so a lifetime total spanning the change is
@@ -229,7 +236,12 @@ class _State:
         # `measured_days`. Separate from `_unflushed` because a call that saved
         # 0 is still a measurement, and the old writer could not tell them apart.
         self._hb_calls: int = 0
-        self._hb_flushing: bool = False
+        # Dispatched calls (`note_call`), appended WITHOUT `_lock`: deque.append
+        # is atomic, so the event loop never waits on the state lock.
+        self._dispatch_ticks: deque = deque()
+        self._hb_gate = threading.Lock()  # one heartbeat writer thread at a time
+        self._hb_thread: Optional[threading.Thread] = None
+        self._applied_mono: float = float("-inf")  # newest write this process applied
         self._last_flush_mono: float = time.monotonic()
         # The storage directory in force when the meter was loaded; every later
         # write goes there (Maintenance Practice 8, same rule as tool_counters).
@@ -239,6 +251,7 @@ class _State:
         self._flush_failing: bool = False  # the last write attempt left counts unwritten
         self._load_failed: bool = False    # the file exists and its history was not read
         self._last_warn_mono: Optional[float] = None
+        self._label: dict = {_meter.STATUS: "unknown", _meter.MEASURED_THROUGH: None, _meter.STALE_SINCE: None}
         self._stats_call_count: int = 0  # calls since last session_stats.json write
         self._anon_id: Optional[str] = None
         self._base_path: Optional[str] = None
@@ -325,8 +338,11 @@ class _State:
         if data is None:
             # ⚠ The history exists and was not read. This process's total is
             # then only what it counts itself, so it is labeled unknown, and
-            # every write is refused until the file reads (_write_ledger_locked).
-            logger.warning("Savings file %s %s; its lifetime total is not loaded", path, problem)
+            # every write is refused until the file reads (_merge_batch).
+            logger.warning(
+                "Savings file %s %s; its lifetime total is not loaded and nothing is written to it "
+                "until it reads again: repair it, or move it aside to start a new one", path, problem,
+            )
             self._load_failed = True
             data = {}
         self._measured_through = _meter.parse_stamp(data.get(_meter.LAST_FLUSH_AT))
@@ -351,9 +367,12 @@ class _State:
         self._tool_totals = dict(by_tool) if isinstance(by_tool, dict) else {}
         self._by_tool_since = data.get("by_tool_since")
         self._loaded = True
+        _clear_stale_temp_files(Path(self._root_dir))
+        self._refresh_label_locked()
 
     def add(self, delta: int, base_path: Optional[str], tool_name: Optional[str] = None) -> int:
         """Add delta to the running total. Returns new cumulative total."""
+        due = False
         with self._lock:
             self._ensure_loaded(base_path)
             delta = max(0, delta)
@@ -382,17 +401,21 @@ class _State:
                     self._session_tool_calls.get(tool_name, 0) + 1
                 )
             self._call_count += 1
-            if self._call_count >= _FLUSH_INTERVAL:
-                self._flush_locked()
-            return self._total
+            due = self._call_count >= _FLUSH_INTERVAL
+            total = self._total
+        if due:
+            # Outside `_lock`: the write never holds the state lock (see _flush).
+            self._flush()
+        return total
 
     def session_stats(self, base_path: Optional[str]) -> dict:
         """Return session-level stats (process lifetime)."""
         with self._lock:
             self._ensure_loaded(base_path)
             stats = self._build_stats_locked()
-            self._write_session_stats_locked(stats, force=True)
-            return stats
+            item = self._session_stats_payload_locked(stats, force=True)
+        self._write_session_stats_file(item)
+        return stats
 
     def cache_get(self, tool_name: str, repo: str, specific_key: tuple):
         """Return cached result for (tool, repo, key), or None on miss. Thread-safe."""
@@ -949,8 +972,15 @@ class _State:
         Needed because #442 made the connections process-lifetime: on Windows an
         open handle blocks removal of the directory holding the database, and a
         cached handle would otherwise outlive the store it points at.
+
+        ⚠ Also an atexit handler, so the wait for `_lock` is bounded: an exit
+        while the same thread holds it (a signal inside a locked region) hung
+        the interpreter here once `flush` stopped hanging first.
         """
-        with self._lock:
+        if not self._lock.acquire(timeout=_STATE_LOCK_WAIT_AT_EXIT):
+            logger.debug("perf connections not closed: the state lock is busy")
+            return 0
+        try:
             conns = list(self._perf_conns.items())
             self._perf_conns.clear()
             # #476. Same lifetime as the connections it is keyed alongside, so
@@ -962,6 +992,8 @@ class _State:
             # this keeps the two structures from disagreeing about which stores
             # exist -- which is the class of bug #476 itself was.
             self._perf_rows_since_trim.clear()
+        finally:
+            self._lock.release()
         closed = 0
         for _path, conn in conns:
             try:
@@ -1294,24 +1326,38 @@ class _State:
         finally:
             pass  # connection is process-cached (#442); see close_perf_dbs
 
-    def _write_session_stats_locked(self, stats: dict, force: bool = False) -> None:
-        """Write session stats to ~/.code-index/session_stats.json. Must be called with _lock held.
+    def _session_stats_payload_locked(self, stats: dict, force: bool = False) -> "Optional[tuple[str, str]]":
+        """Decide whether session_stats.json is due. Must be called with _lock held.
 
         Writes are gated by stats_file_interval config (default 3 calls).
         Set to 0 to disable all session_stats.json writes.
         Pass force=True to bypass the interval check (e.g. explicit get_session_stats call).
+        Returns ``(root, text)`` for `_write_session_stats_file`, which runs AFTER
+        the lock is released: no disk write happens under `_lock`.
         """
         stats_file_interval = _get_stats_file_interval()
         if stats_file_interval == 0 and not force:
-            return
+            return None
         self._stats_call_count += 1
         if not force and self._stats_call_count < stats_file_interval:
-            return
+            return None
         self._stats_call_count = 0
-        path = _session_stats_path(self._root_dir or self._base_path)
         try:
             payload = {**stats, "last_updated": datetime.now(timezone.utc).isoformat()}
-            path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+            return (self._root_dir or _tool_counters.storage_root(self._base_path)), json.dumps(payload, indent=2)
+        except Exception:
+            logger.debug("Failed to build session stats", exc_info=True)
+            return None
+
+    @staticmethod
+    def _write_session_stats_file(item: "Optional[tuple[str, str]]") -> None:
+        if item is None:
+            return
+        root, text = item
+        path = None
+        try:
+            path = _session_stats_path(root)
+            path.write_text(text, encoding="utf-8")
         except Exception:
             logger.debug("Failed to write session stats to %s", path, exc_info=True)
 
@@ -1321,202 +1367,172 @@ class _State:
             return self._total
 
     def note_call(self) -> None:
-        """Count one dispatched call toward the heartbeat. Never waits for the disk.
+        """Count one dispatched call toward the heartbeat.
 
-        A write is due after `_HEARTBEAT_FLUSH_CALLS` calls, or on the first call
-        after `_HEARTBEAT_FLUSH_SECONDS`; it is handed to a short-lived thread,
-        because the dispatcher calls this on the event loop.
+        ⚠⚠ **Never takes `_lock` and never waits for the disk.** The dispatcher
+        calls this on the event loop, and a signal handled on the main thread
+        while it ran would otherwise re-enter `flush` against a lock the same
+        thread holds. The count is a `deque.append` (atomic in CPython); a write
+        that is due (`_HEARTBEAT_FLUSH_CALLS` calls, or the first call after
+        `_HEARTBEAT_FLUSH_SECONDS`) is handed to a short-lived thread behind a
+        gate taken with ``blocking=False``.
         """
-        due = False
-        with self._lock:
-            self._hb_calls += 1
-            if not self._hb_flushing and (
-                self._hb_calls >= _HEARTBEAT_FLUSH_CALLS
-                or time.monotonic() - self._last_flush_mono >= _HEARTBEAT_FLUSH_SECONDS
-            ):
-                self._hb_flushing = True
-                due = True
-        if due:
+        self._dispatch_ticks.append(None)
+        if (
+            len(self._dispatch_ticks) + self._hb_calls < _HEARTBEAT_FLUSH_CALLS
+            and time.monotonic() - self._last_flush_mono < _HEARTBEAT_FLUSH_SECONDS
+        ):
+            return
+        if not self._hb_gate.acquire(blocking=False):
+            return  # a heartbeat write is already running; it or the next one carries this call
+        try:
             # Not a daemon: a write in progress finishes before the interpreter
             # exits, so the lock file is never left behind by a normal exit.
-            threading.Thread(target=self._flush_in_thread, name="jcm-savings-heartbeat").start()
+            thread = threading.Thread(target=self._flush_in_thread, name="jcm-savings-heartbeat")
+            self._hb_thread = thread
+            thread.start()
+        except Exception:
+            self._hb_gate.release()
+            logger.debug("savings heartbeat thread not started", exc_info=True)
 
     def _flush_in_thread(self) -> None:
         try:
-            self.flush(_SAVINGS_LOCK_WAIT)
+            self._flush(_SAVINGS_LOCK_WAIT)
         except Exception:
             logger.debug("savings heartbeat flush failed", exc_info=True)
         finally:
-            with self._lock:
-                self._hb_flushing = False
+            self._hb_gate.release()
 
-    def _flush_failed(self, msg: str, *args, exc_info: bool = False) -> None:
-        """A write that left counts unwritten: WARNING, then debug while it keeps failing."""
-        self._flush_failing = True
-        now = time.monotonic()
-        if self._last_warn_mono is None or now - self._last_warn_mono >= _FLUSH_WARN_INTERVAL:
-            self._last_warn_mono = now
-            logger.warning(msg, *args, exc_info=exc_info)
-        else:
-            logger.debug(msg, *args, exc_info=exc_info)
+    def _acquire_state(self, wait: Optional[float]) -> bool:
+        return self._lock.acquire() if wait is None else self._lock.acquire(timeout=wait)
 
-    def _flush_locked(self, lock_wait: float = _SAVINGS_LOCK_WAIT) -> None:
-        """Write accumulated counts to disk. Must be called with _lock held.
-
-        ⚠⚠ A batch is cleared ONLY after it is on disk. A lock that could not be
-        taken, a file that could not be read, and a write that failed all keep
-        it for the next flush (the `tool_counters._put_back` rule).
-        """
-        if not self._loaded:
-            self._ensure_loaded(self._base_path)
-        if not (self._unflushed or self._hb_calls or self._encoding_unflushed or self._tool_unflushed):
-            self._call_count = 0
-            self._write_session_stats_locked(self._build_stats_locked())
-            return
-        self._last_flush_mono = time.monotonic()
-        written_total = self._write_ledger_locked(lock_wait)
-
-        # Send batched telemetry. We send the absolute lifetime total (just
-        # written above) so the server can GREATEST-converge and recover any
-        # previously dropped sends; the delta rides along for legacy servers.
-        # A batch that was not written is not sent yet: the total would not be
-        # one this machine holds.
-        if written_total is not None and self._pending_telemetry > 0 and _config.get("share_savings", True):
-            _share_savings(self._pending_telemetry, written_total, self._anon_id)
-            self._pending_telemetry = 0
-
-        self._call_count = 0
-        self._write_session_stats_locked(self._build_stats_locked())
-        # Opt-in and local-only; no-ops entirely unless perf telemetry is on.
-        self._persist_session_yield_locked(self._delivery_base_path)
-
-    def _write_ledger_locked(self, lock_wait: float) -> Optional[int]:
-        """Merge the pending batch into `_savings.json`. The new total, or None when nothing was written."""
-        root = Path(self._root_dir or _tool_counters.storage_root(self._base_path))
-        try:
-            root.mkdir(parents=True, exist_ok=True)
-        except OSError:
-            self._flush_failed("Savings directory %s could not be created; counts kept for the next write", root,
-                               exc_info=True)
+    def _take_batch_locked(self) -> Optional[dict]:
+        """Swap the pending counts out for a write. Must be called with _lock held."""
+        ticks = len(self._dispatch_ticks)
+        for _ in range(ticks):
+            self._dispatch_ticks.popleft()
+        calls = self._hb_calls + ticks
+        if not (self._unflushed or calls or self._encoding_unflushed or self._tool_unflushed):
             return None
-        lock = root / _SAVINGS_LOCK_FILE
-        if not _tool_counters.acquire_lock(lock, lock_wait):
-            self._flush_failing = True
-            logger.debug("Savings file busy (%s held); counts kept for the next write", lock)
-            return None
-        path = root / _SAVINGS_FILE
-        try:
-            data, problem = _read_ledger(path)
-            if data is None:
-                # ⚠⚠ Never treat an unreadable file as empty: merging into {} and
-                # writing that back erased a lifetime of history.
-                self._flush_failed(
-                    "Savings file %s %s; the write is refused so its history is not replaced, "
-                    "and %d tokens saved over %d calls are kept for the next write",
-                    path, problem, self._unflushed, self._hb_calls,
-                )
-                return None
-            if self._anon_id is None:
-                if "anon_id" not in data:
-                    data["anon_id"] = str(uuid.uuid4())
-                self._anon_id = data["anon_id"]
-            else:
-                data["anon_id"] = self._anon_id
-            data["total_tokens_saved"] = data.get("total_tokens_saved", 0) + self._unflushed
-            # Record the first generation this file was ever written under, and the
-            # current one. Equal => the lifetime total is one consistent basis.
-            data.setdefault("basis_generation_first", data.get("basis_generation", SAVINGS_BASIS_GENERATION))
-            data["basis_generation"] = SAVINGS_BASIS_GENERATION
-            # Per-tool attribution. ⚠⚠ It starts EMPTY and can never be backfilled —
-            # the meter only ever stored a scalar — so sum(by_tool) is less than
-            # total_tokens_saved by however much was earned before this shipped.
-            # `by_tool_since` dates the start so that gap reads as unattributed
-            # history rather than as loss; session_stats reports it as a number.
-            if self._tool_unflushed:
-                merged = data.get("by_tool")
-                merged = dict(merged) if isinstance(merged, dict) else {}
-                for tool, amount in self._tool_unflushed.items():
-                    merged[tool] = merged.get(tool, 0) + amount
-                data["by_tool"] = merged
-                data.setdefault(
-                    "by_tool_since", self._by_tool_since or datetime.now().date().isoformat()
-                )
-                self._by_tool_since = data["by_tool_since"]
-            # Daily rollup alongside the lifetime total, so windowed views ("today",
-            # "this month") can come from THIS meter — the authoritative record —
-            # instead of transcript scans, which miss cleared history and model
-            # savings conservatively (observed 4 orders of magnitude under the
-            # meter on a heavy install). Flush batches are small (_FLUSH_INTERVAL
-            # calls), so crediting the whole batch to the flush day mis-dates at
-            # most one batch across midnight. Local date: "today" means today
-            # where the user sits. Capped so the file stays small.
-            day = datetime.now().date().isoformat()
-            if self._unflushed:
-                daily = data.get("daily")
-                if not isinstance(daily, dict):
-                    daily = {}
-                daily[day] = daily.get(day, 0) + self._unflushed
-                if len(daily) > _DAILY_MAX_DAYS:
-                    for stale in sorted(daily)[: len(daily) - _DAILY_MAX_DAYS]:
-                        del daily[stale]
-                data["daily"] = daily
-            # ⚠⚠ The heartbeat. `daily` gains a day only when something was
-            # EARNED, so a meter that measured 0 and a meter that had stopped
-            # left the same file, and every reader showed a frozen total as
-            # current. Every flush that carries a call stamps the time and the
-            # day: a 0 in `measured_days` is a measurement, a missing day is not.
-            now = datetime.now(timezone.utc)
-            data[_meter.LAST_FLUSH_AT] = now.isoformat(timespec="seconds")
-            measured = data.get(_meter.MEASURED_DAYS)
-            measured = dict(measured) if isinstance(measured, dict) else {}
-            prior = measured.get(day)
-            prior = prior if isinstance(prior, dict) else {}
-            measured[day] = {
-                "calls": _as_count(prior.get("calls")) + self._hb_calls,
-                "saved": _as_count(prior.get("saved")) + self._unflushed,
-            }
-            if len(measured) > _DAILY_MAX_DAYS:
-                for stale in sorted(measured)[: len(measured) - _DAILY_MAX_DAYS]:
-                    del measured[stale]
-            data[_meter.MEASURED_DAYS] = measured
-            if self._encoding_unflushed:
-                data["total_encoding_tokens_saved"] = (
-                    data.get("total_encoding_tokens_saved", 0) + self._encoding_unflushed
-                )
-            # Through a temp file named for this process and os.replace, so a
-            # reader never sees a half-written file and a failed write leaves
-            # the old one whole.
-            tmp = root / f"{_SAVINGS_FILE}.{os.getpid()}.tmp"
-            try:
-                tmp.write_text(json.dumps(data), encoding="utf-8")
-                os.replace(tmp, path)
-            except Exception:
-                self._flush_failed("Savings file %s could not be written; counts kept for the next write", path,
-                                   exc_info=True)
-                try:
-                    tmp.unlink()
-                except OSError:
-                    pass
-                return None
-        finally:
-            try:
-                lock.unlink()
-            except OSError:
-                logger.debug("Savings lock %s not removed", lock, exc_info=True)
-        # On disk: clear the batch, and follow the file, which now also holds
-        # whatever other servers wrote since this one loaded it.
+        batch = {
+            "saved": self._unflushed,
+            "calls": calls,
+            "by_tool": self._tool_unflushed,
+            "encoding": self._encoding_unflushed,
+            "telemetry": self._pending_telemetry,
+            "anon_id": self._anon_id,
+            "by_tool_since": self._by_tool_since,
+        }
         self._unflushed = 0
         self._hb_calls = 0
         self._tool_unflushed = {}
         self._encoding_unflushed = 0
-        self._total = data["total_tokens_saved"]
-        self._encoding_total = data.get("total_encoding_tokens_saved", self._encoding_total)
-        if isinstance(data.get("by_tool"), dict):
-            self._tool_totals = dict(data["by_tool"])
-        self._measured_through = now
-        self._flush_failing = False
-        self._load_failed = False
-        return self._total
+        self._pending_telemetry = 0
+        return batch
+
+    def _put_back_locked(self, batch: dict) -> None:
+        """A batch that was not written goes back for the next flush (`tool_counters._put_back`)."""
+        self._unflushed += batch["saved"]
+        self._hb_calls += batch["calls"]
+        for tool, amount in batch["by_tool"].items():
+            self._tool_unflushed[tool] = self._tool_unflushed.get(tool, 0) + amount
+        self._encoding_unflushed += batch["encoding"]
+        self._pending_telemetry += batch["telemetry"]
+
+    def _refresh_label_locked(self) -> None:
+        # Replaced whole, so `lifetime_label()` can read it without the lock.
+        self._label = self._lifetime_label_locked()
+
+    def _flush(self, lock_wait: float = _SAVINGS_LOCK_WAIT, state_wait: Optional[float] = None) -> None:
+        """Write the pending counts to disk.
+
+        ⚠⚠ `_lock` is held only to swap the batch out and to apply the outcome,
+        never across the file-lock wait, the read, the write or `os.replace`. A
+        batch that was not written goes back (`_put_back_locked`). *state_wait*
+        bounds the wait for `_lock` itself: the exit and signal paths pass one,
+        so a lock the same thread already holds (a signal handled inside a
+        locked region) costs that wait instead of a deadlock.
+        """
+        if not self._acquire_state(state_wait):
+            logger.warning("Savings not written: the meter's in-memory state is busy (exit or signal path)")
+            return
+        try:
+            if not self._loaded:
+                if not (self._hb_calls or self._dispatch_ticks):
+                    return
+                self._ensure_loaded(self._base_path)
+            self._call_count = 0
+            batch = self._take_batch_locked()
+            root = Path(self._root_dir or _tool_counters.storage_root(self._base_path))
+            stats_item = None
+            if batch is None:
+                stats_item = self._session_stats_payload_locked(self._build_stats_locked())
+            else:
+                self._last_flush_mono = time.monotonic()
+        finally:
+            self._lock.release()
+        if batch is None:
+            self._write_session_stats_file(stats_item)
+            return
+
+        outcome = _merge_batch(root, batch, lock_wait)
+
+        if not self._acquire_state(state_wait):
+            # Exit path with the state held elsewhere: what was written is on
+            # disk; what was not dies with the process either way.
+            return
+        send = None
+        log = None
+        try:
+            if outcome["ok"]:
+                if outcome["mono"] >= self._applied_mono:
+                    # Follow the file, which also holds what other servers wrote.
+                    self._applied_mono = outcome["mono"]
+                    self._total = outcome["total"] + self._unflushed
+                    self._encoding_total = outcome["encoding_total"] + self._encoding_unflushed
+                    if outcome["by_tool"] is not None:
+                        merged = dict(outcome["by_tool"])
+                        for tool, amount in self._tool_unflushed.items():
+                            merged[tool] = merged.get(tool, 0) + amount
+                        self._tool_totals = merged
+                    self._measured_through = outcome["stamp"]
+                if self._anon_id is None:
+                    self._anon_id = outcome["anon_id"]
+                if outcome["by_tool_since"]:
+                    self._by_tool_since = outcome["by_tool_since"]
+                self._flush_failing = False
+                self._load_failed = False
+                # Send batched telemetry. We send the absolute lifetime total (just
+                # written) so the server can GREATEST-converge and recover any
+                # previously dropped sends; the delta rides along for legacy servers.
+                if batch["telemetry"] > 0 and _config.get("share_savings", True):
+                    send = (batch["telemetry"], outcome["total"], self._anon_id)
+            else:
+                # Not written: nothing is sent either, since the total would not
+                # be one this machine holds.
+                self._put_back_locked(batch)
+                self._flush_failing = True
+                level = outcome["level"]
+                if level == "warning":
+                    now = time.monotonic()
+                    if self._last_warn_mono is not None and now - self._last_warn_mono < _FLUSH_WARN_INTERVAL:
+                        level = "debug"  # still failing; said once per interval
+                    else:
+                        self._last_warn_mono = now
+                log = (level, outcome["msg"], outcome["args"], outcome["exc_info"])
+            self._refresh_label_locked()
+            stats_item = self._session_stats_payload_locked(self._build_stats_locked())
+            # ⚠ Opt-in perf db (off by default), a SQLite upsert on the connection
+            # `_lock` guards; it stays under the lock with record_latency's writes.
+            self._persist_session_yield_locked(self._delivery_base_path)
+        finally:
+            self._lock.release()
+        if log is not None:
+            level, msg, args, exc_info = log
+            (logger.warning if level == "warning" else logger.debug)(msg, *args, exc_info=exc_info)
+        if send is not None:
+            _share_savings(*send)
+        self._write_session_stats_file(stats_item)
 
     def _lifetime_label_locked(self) -> dict:
         """The `savings_meter` label for THIS process's lifetime total."""
@@ -1531,11 +1547,159 @@ class _State:
                     _meter.STALE_SINCE: _meter.day_of(self._measured_through)}
         return {_meter.STATUS: "current", _meter.MEASURED_THROUGH: through, _meter.STALE_SINCE: None}
 
-    def flush(self, wait: float = _SAVINGS_LOCK_WAIT_AT_EXIT) -> None:
-        """Public flush — called at atexit and by the heartbeat thread."""
-        with self._lock:
-            if self._loaded or self._hb_calls:
-                self._flush_locked(lock_wait=wait)
+    def lifetime_label(self) -> dict:
+        """The label for this process's lifetime total, read WITHOUT the lock (a snapshot)."""
+        return dict(self._label)
+
+    def flush(self, wait: float = _SAVINGS_LOCK_WAIT_AT_EXIT, state_wait: float = _STATE_LOCK_WAIT_AT_EXIT) -> None:
+        """Public flush — called at atexit and on SIGTERM/SIGINT.
+
+        Both bounds apply: *wait* for another process's file lock, *state_wait*
+        for this process's own state lock (see `_flush`).
+        """
+        self._flush(lock_wait=wait, state_wait=state_wait)
+
+
+def _merge_batch(root: Path, batch: dict, lock_wait: float) -> dict:
+    """Merge *batch* into `<root>/_savings.json` under `_savings.lock`. Touches no `_State`.
+
+    Returns ``{"ok": True, ...the file's new totals}`` or ``{"ok": False,
+    "level", "msg", "args", "exc_info"}`` for the caller to log after it has
+    released its own lock.
+    """
+
+    def failed(level: str, msg: str, *args, exc_info: bool = False) -> dict:
+        return {"ok": False, "level": level, "msg": msg, "args": args, "exc_info": exc_info}
+
+    try:
+        root.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        return failed("warning", "Savings directory %s could not be created; counts kept for the next write", root,
+                      exc_info=True)
+    lock = root / _SAVINGS_LOCK_FILE
+    if not _tool_counters.acquire_lock(lock, lock_wait):
+        return failed("debug", "Savings file busy (%s held); counts kept for the next write", lock)
+    path = root / _SAVINGS_FILE
+    try:
+        data, problem = _read_ledger(path)
+        if data is None:
+            # ⚠⚠ Never treat an unreadable file as empty: merging into {} and
+            # writing that back erased a lifetime of history.
+            return failed(
+                "warning",
+                "Savings file %s %s. Nothing is written to it (and nothing is sent to the "
+                "community meter) until it reads again: repair it, or move it aside to start "
+                "a new one. %d tokens saved over %d calls are kept in memory for the next write",
+                path, problem, batch["saved"], batch["calls"],
+            )
+        anon_id = batch["anon_id"]
+        if anon_id is None:
+            anon_id = data.get("anon_id") or str(uuid.uuid4())
+        data["anon_id"] = anon_id
+        data["total_tokens_saved"] = data.get("total_tokens_saved", 0) + batch["saved"]
+        # Record the first generation this file was ever written under, and the
+        # current one. Equal => the lifetime total is one consistent basis.
+        data.setdefault("basis_generation_first", data.get("basis_generation", SAVINGS_BASIS_GENERATION))
+        data["basis_generation"] = SAVINGS_BASIS_GENERATION
+        # Per-tool attribution. ⚠⚠ It starts EMPTY and can never be backfilled —
+        # the meter only ever stored a scalar — so sum(by_tool) is less than
+        # total_tokens_saved by however much was earned before this shipped.
+        # `by_tool_since` dates the start so that gap reads as unattributed
+        # history rather than as loss; session_stats reports it as a number.
+        if batch["by_tool"]:
+            merged = data.get("by_tool")
+            merged = dict(merged) if isinstance(merged, dict) else {}
+            for tool, amount in batch["by_tool"].items():
+                merged[tool] = merged.get(tool, 0) + amount
+            data["by_tool"] = merged
+            data.setdefault("by_tool_since", batch["by_tool_since"] or datetime.now().date().isoformat())
+        # Daily rollup alongside the lifetime total, so windowed views ("today",
+        # "this month") can come from THIS meter — the authoritative record —
+        # instead of transcript scans, which miss cleared history and model
+        # savings conservatively (observed 4 orders of magnitude under the
+        # meter on a heavy install). Flush batches are small (_FLUSH_INTERVAL
+        # calls), so crediting the whole batch to the flush day mis-dates at
+        # most one batch across midnight. Local date: "today" means today
+        # where the user sits. Capped so the file stays small.
+        day = datetime.now().date().isoformat()
+        if batch["saved"]:
+            daily = data.get("daily")
+            if not isinstance(daily, dict):
+                daily = {}
+            daily[day] = daily.get(day, 0) + batch["saved"]
+            if len(daily) > _DAILY_MAX_DAYS:
+                for stale in sorted(daily)[: len(daily) - _DAILY_MAX_DAYS]:
+                    del daily[stale]
+            data["daily"] = daily
+        # ⚠⚠ The heartbeat. `daily` gains a day only when something was
+        # EARNED, so a meter that measured 0 and a meter that had stopped
+        # left the same file, and every reader showed a frozen total as
+        # current. Every flush that carries a call stamps the time and the
+        # day: a 0 in `measured_days` is a measurement, a missing day is not.
+        now = datetime.now(timezone.utc)
+        data[_meter.LAST_FLUSH_AT] = now.isoformat(timespec="seconds")
+        measured = data.get(_meter.MEASURED_DAYS)
+        measured = dict(measured) if isinstance(measured, dict) else {}
+        prior = measured.get(day)
+        prior = prior if isinstance(prior, dict) else {}
+        measured[day] = {
+            "calls": _as_count(prior.get("calls")) + batch["calls"],
+            "saved": _as_count(prior.get("saved")) + batch["saved"],
+        }
+        if len(measured) > _DAILY_MAX_DAYS:
+            for stale in sorted(measured)[: len(measured) - _DAILY_MAX_DAYS]:
+                del measured[stale]
+        data[_meter.MEASURED_DAYS] = measured
+        if batch["encoding"]:
+            data["total_encoding_tokens_saved"] = data.get("total_encoding_tokens_saved", 0) + batch["encoding"]
+        # Through a temp file named for this process and os.replace, so a
+        # reader never sees a half-written file and a failed write leaves
+        # the old one whole.
+        tmp = root / f"{_SAVINGS_FILE}.{os.getpid()}.tmp"
+        try:
+            tmp.write_text(json.dumps(data), encoding="utf-8")
+            os.replace(tmp, path)
+        except Exception:
+            try:
+                tmp.unlink()
+            except OSError:
+                pass
+            return failed("warning", "Savings file %s could not be written; counts kept for the next write", path,
+                          exc_info=True)
+        mono = time.monotonic()  # taken under the file lock, so writes in this process order by it
+    finally:
+        try:
+            lock.unlink()
+        except OSError:
+            logger.debug("Savings lock %s not removed", lock, exc_info=True)
+    by_tool = data.get("by_tool")
+    return {
+        "ok": True,
+        "total": data["total_tokens_saved"],
+        "encoding_total": data.get("total_encoding_tokens_saved", 0),
+        "by_tool": dict(by_tool) if isinstance(by_tool, dict) else None,
+        "anon_id": anon_id,
+        "by_tool_since": data.get("by_tool_since"),
+        "stamp": now,
+        "mono": mono,
+    }
+
+
+def _clear_stale_temp_files(root: Path) -> None:
+    """Remove `_savings.json.<pid>.tmp` files a killed process left, once they are a minute old."""
+    try:
+        candidates = list(root.glob(f"{_SAVINGS_FILE}.*.tmp"))
+    except OSError:
+        return
+    now = time.time()
+    for tmp in candidates:
+        if not _TMP_NAME.fullmatch(tmp.name):
+            continue
+        try:
+            if now - tmp.stat().st_mtime > _STALE_TMP_SECONDS:
+                tmp.unlink()
+        except OSError:
+            logger.debug("stale savings temp file %s not removed", tmp, exc_info=True)
 
 
 _state = _State()
@@ -1591,9 +1755,10 @@ def _read_ledger(path: Path) -> "tuple[Optional[dict], Optional[str]]":
         return None, "is not valid JSON"
     if not isinstance(data, dict):
         return None, "does not hold a JSON object"
+    # A non-negative number, the rule `receipt.lifetime_meter` reads by.
     total = data.get("total_tokens_saved", 0)
-    if not isinstance(total, int) or isinstance(total, bool) or total < 0:
-        return None, "holds a total that is not a count"
+    if not isinstance(total, (int, float)) or isinstance(total, bool) or not total >= 0:
+        return None, "holds a total that is not a non-negative number"
     return data, None
 
 
@@ -1699,9 +1864,18 @@ def record_encoding_savings(
         _state._encoding_total += delta
         _state._encoding_unflushed += delta
         _state._call_count += 1
-        if _state._call_count >= _FLUSH_INTERVAL:
-            _state._flush_locked()
-        return _state._encoding_total
+        due = _state._call_count >= _FLUSH_INTERVAL
+        total = _state._encoding_total
+    if due:
+        _state._flush()
+    return total
+
+
+def lifetime_label() -> dict:
+    """`lifetime_status` / `lifetime_measured_through` / `lifetime_stale_since` for
+    this process's lifetime total. Lock-free (a snapshot), so the dispatcher can
+    label `_meta.total_tokens_saved` on the event loop."""
+    return _state.lifetime_label()
 
 
 def note_call() -> None:
@@ -1745,7 +1919,7 @@ def write_pulse(tool_name: str, tokens_saved: int = 0, base_path: Optional[str] 
     if not os.environ.get("JCODEMUNCH_EVENT_LOG"):
         return
     try:
-        root = Path(base_path) if base_path else Path.home() / ".code-index"
+        root = Path(_tool_counters.storage_root(base_path))
         pulse_path = root / _PULSE_FILE
         with _state._lock:
             calls = _state._session_calls
@@ -1799,7 +1973,7 @@ def _runtime_signal_summary(base_path: Optional[str] = None) -> dict:
     import sqlite3 as _sqlite3
     summary = {"rows": 0, "by_source": {}}
     try:
-        root = Path(base_path) if base_path else Path.home() / ".code-index"
+        root = Path(_tool_counters.storage_root(base_path))
         if not root.exists():
             return summary
         # ⚠ Which files are indexes is sqlite_store's one content rule
