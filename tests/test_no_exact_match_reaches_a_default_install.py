@@ -80,6 +80,12 @@ def repo(tmp_path, monkeypatch):
         "class SymbolAtlas:\n    pass\n",
         encoding="utf-8",
     )
+    # Shares "verdict" with `buildVerdict`, whose prefix match lives in table.py:
+    # a `file_pattern` on this file puts the prefix match off the page.
+    (proj / "pkg" / "verdicts.py").write_text(
+        "def verdict_cache():\n    return 0\n",
+        encoding="utf-8",
+    )
     res = index_folder(str(proj), use_ai_summaries=False, storage_path=str(store))
     assert res["success"] is True
     with (
@@ -202,6 +208,34 @@ async def test_a_filter_that_hides_the_exact_symbol_does_not_claim_the_index_lac
     )
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("exit_name", list(EXITS))
+async def test_a_prefix_match_off_the_page_is_still_a_prefix_match(
+    repo, monkeypatch, exit_name
+):
+    """`file_pattern="pkg/verdicts.py"` leaves only `verdict_cache` on the page;
+    `buildVerdictForIndex` is a prefix match for `buildVerdict` elsewhere in the
+    index. The page alone would read `prefix: 0` and emit the marker."""
+    _set_meta_fields(monkeypatch, [])
+    body = await _call(
+        {
+            "repo": repo,
+            "query": "buildVerdict",
+            "file_pattern": "pkg/verdicts.py",
+            **EXITS[exit_name],
+        }
+    )
+    names = [r["name"] for r in body.get("results", [])]
+    assert names, f"precondition: rows returned: {body}"
+    assert "buildVerdictForIndex" not in names, (
+        "precondition: prefix match off the page"
+    )
+    assert (body.get("negative_evidence") or {}).get("verdict") != "no_exact_match", (
+        f"{exit_name}: {body}"
+    )
+    assert "No symbol named" not in body.get(WARNING_KEY, "")
+
+
 # --- not an absence --------------------------------------------------------
 
 
@@ -214,6 +248,8 @@ async def test_no_exact_match_is_not_a_citable_absence(repo, monkeypatch, exit_n
     body = await _call({"repo": repo, "query": QUERY, **EXITS[exit_name]})
     verdict = body["_meta"]["verdict"]
     assert verdict["state"] != "absent"
+    # `ok` beside "No symbol named X" contradicts itself; every exit downgrades.
+    assert verdict["state"] == "low_confidence", (exit_name, verdict)
     assert not str(verdict.get("evidence_ref", "")).startswith("absent:")
     assert "absence_evidence" not in body["_meta"]
 
@@ -227,15 +263,23 @@ async def test_no_exact_match_is_not_a_citable_absence(repo, monkeypatch, exit_n
 
 
 def test_the_marker_survives_compact_encoding(repo):
-    from jcodemunch_mcp.encoding import encode_response
+    from jcodemunch_mcp.encoding import encode_response, registry
     from jcodemunch_mcp.encoding.decoder import decode
     from jcodemunch_mcp.tools.search_symbols import search_symbols
 
     result = search_symbols(repo, QUERY, max_results=5)
     assert (result.get("negative_evidence") or {}).get("verdict") == "no_exact_match"
-    payload, info = encode_response("search_symbols", result, "compact")
-    if info.get("encoding") == "json":
-        pytest.skip("dispatcher chose JSON for this payload")
+    # The schema encoder itself, not `encode_response`: the dispatcher falls back
+    # to JSON when an encoder drops a universal body key, so a skip on that
+    # fallback would pass exactly when the encoder is broken.
+    encoder = registry.for_tool("search_symbols")
+    assert encoder is not None, "search_symbols has a schema encoder"
+    payload, _enc_id = encoder.encode("search_symbols", result)
+    assert isinstance(payload, str), "the schema encoder produced a compact payload"
     restored = decode(payload)
-    assert restored["negative_evidence"] == result["negative_evidence"]
-    assert restored[WARNING_KEY] == result[WARNING_KEY]
+    assert restored.get("negative_evidence") == result["negative_evidence"]
+    assert restored.get(WARNING_KEY) == result[WARNING_KEY]
+
+    # And the dispatcher keeps the compact form rather than falling back.
+    _payload, info = encode_response("search_symbols", result, "compact")
+    assert info.get("encoding") != "json", info

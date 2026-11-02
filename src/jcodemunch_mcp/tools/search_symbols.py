@@ -163,7 +163,6 @@ def _attach_no_exact_match(
     result: dict,
     query: str,
     index,
-    exact_in_index: Optional[int] = None,
 ) -> None:
     """Mark, in the BODY, an identifier query that no symbol is named.
 
@@ -179,34 +178,40 @@ def _attach_no_exact_match(
 
     ⚠ The warning claims the INDEX has no symbol of that name, so the page is
     not enough: a filter (`kind=`, `file_pattern=`, ...) or a similarity ranking
-    can leave the named symbol off the page. `exact_in_index` is the caller's
-    count over the whole index when it has one (the unfiltered lexical scan);
-    otherwise the index is scanned here, which runs only on this rare path.
+    can leave an exact or a prefix match off the page. The index is classified
+    with the SAME rule as the page (`exact_match_report`, one definition of
+    exact and prefix), so `exact`/`prefix` in the marker are index counts. The
+    page is checked first; the index walk runs only on this rare path.
 
-    ⚠ NOT an absence. Rows were returned, the verdict state stays
-    `low_confidence`, and `session_journal._ABSENCE_VERDICTS` does not list
-    `no_exact_match`, so nothing downstream may cite it as proof.
+    ⚠ NOT an absence. Rows were returned, an `ok` verdict state is downgraded to
+    `low_confidence` (the lexical exit's v1.108.173 rule, which the semantic and
+    fusion exits never had, so they said `ok` beside "No symbol named X"), and
+    `session_journal._ABSENCE_VERDICTS` does not list `no_exact_match`, so
+    nothing downstream may cite it as proof.
     """
     rows = result.get("results") or []
     if not rows:
         return
     from ..retrieval.query_shape import exact_match_report as _exact_match_report
 
-    report = _exact_match_report(query, rows)
-    if report is None or report["found"] or report["exact"] or report["prefix"]:
+    page = _exact_match_report(query, rows)
+    if page is None or page["found"]:
         return
-    if exact_in_index is None:
-        needles = _exact_needles(query)
-        if needles is None:
-            return
-        needle, leaf = needles
-        if any(is_exact_row(sym, needle, leaf) for sym in index.symbols):
-            return
-    elif exact_in_index:
+    report = _exact_match_report(query, index.symbols)
+    if report is None or report["found"] or report["exact"] or report["prefix"]:
         return
 
     queried = report["queried"]
-    marker = {"verdict": "no_exact_match", "queried": queried, "exact": 0, "prefix": 0}
+    verdict = (result.get("_meta") or {}).get("verdict")
+    if isinstance(verdict, dict) and verdict.get("state") == "ok":
+        verdict["state"] = "low_confidence"
+        verdict["note"] = page["note"]
+    marker = {
+        "verdict": "no_exact_match",
+        "queried": queried,
+        "exact": report["exact"],
+        "prefix": report["prefix"],
+    }
     prior = result.get("negative_evidence")
     if isinstance(prior, dict):
         # A weak-score `low_confidence_matches` block already said "verify";
@@ -1420,10 +1425,7 @@ def search_symbols(
                 f"(best score: {negative_evidence['best_match_score']}). "
                 f"Verify before claiming this feature exists."
             )
-    # `exact_scanned` counts the whole index only when no filter narrowed the scan.
-    _attach_no_exact_match(
-        result, query, index, exact_in_index=None if has_filters else exact_scanned
-    )
+    _attach_no_exact_match(result, query, index)
 
     # Feature 5: Cache the result if cacheable
     if _cacheable and _cache_key is not None:
