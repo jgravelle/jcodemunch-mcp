@@ -360,6 +360,59 @@ def test_a_name_built_by_a_tag_is_named_by_the_tag_never_by_the_filler():
     assert not [s for s in symbols if "XXX" in s.name or "XXX" in s.qualified_name]
 
 
+# YAML and XML hosts give a child no parent link to its tag-built owner, so a
+# restore that walks parent links never reaches the owner's segment.
+_UNLINKED_OWNER_SOURCES = [
+    ("config/x.yml.erb", "<%= Rails.env %>:\n  adapter: pg\n"),
+    ("config/database.yml.erb", "<%= env %>:\n  <%= k1 %>: <%= v %>\n"),
+    ("config/database.yml.erb", "production:\n  database: app_<%= Rails.env %>\n"),
+    ("app/views/a/feed.xml.erb", '<feed>\n<<%= tag %> id="a"></<%= tag %>>\n</feed>\n'),
+]
+
+
+@pytest.mark.parametrize("path, source", _UNLINKED_OWNER_SOURCES)
+def test_no_field_of_any_symbol_shows_the_filler(path, source):
+    symbols = parse_file(source, path, "erb")
+    leaked = [
+        (s.name, s.qualified_name, s.id, s.signature)
+        for s in symbols
+        if "XXXXX" in s.name + s.qualified_name + s.id + s.signature
+    ]
+    assert not leaked
+
+
+def test_a_child_of_a_tag_built_yaml_key_is_qualified_by_the_tag():
+    symbols = parse_file("<%= Rails.env %>:\n  adapter: pg\n", "config/x.yml.erb", "erb")
+    assert _named(symbols, "adapter", "yaml").qualified_name == "x.<%= Rails.env %>.adapter"
+
+
+def test_nested_tag_built_yaml_keys_each_get_their_own_tag():
+    # `<%= k1 %>` fills to 9 X and `<%= env %>` to 10: the shorter must not be
+    # found inside the longer.
+    symbols = parse_file("<%= env %>:\n  <%= k1 %>: <%= v %>\n", "config/database.yml.erb", "erb")
+    assert _named(symbols, "<%= k1 %>", "yaml").qualified_name == "database.<%= env %>.<%= k1 %>"
+
+
+def test_an_owner_is_never_found_inside_a_longer_sibling_key():
+    # Between `child` and its 9-X owner sits the 10-X sibling `<%= env %>`.
+    source = "<%= k1 %>:\n  <%= env %>: 1\n  child: 2\n"
+    symbols = parse_file(source, "config/database.yml.erb", "erb")
+    assert _named(symbols, "child", "yaml").qualified_name == "database.<%= k1 %>.child"
+
+
+def test_a_signature_the_yaml_parser_rewrote_shows_the_tag():
+    source = "production:\n  database: app_<%= Rails.env %>\n"
+    symbols = parse_file(source, "config/database.yml.erb", "erb")
+    assert "app_<%= Rails.env %>" in _named(symbols, "database", "yaml").signature
+
+
+@pytest.mark.parametrize("name", ALL_FIXTURES)
+def test_no_fixture_symbol_shows_the_filler(name):
+    source, symbols = _parse(name)
+    assert b"XXXXX" not in source
+    assert not [s.id for s in symbols if "XXXXX" in s.name + s.qualified_name + s.id + s.signature]
+
+
 def test_a_signature_read_from_the_file_shows_the_tag_never_the_filler():
     _, symbols = _parse("handwritten_widget.js.erb")
     assert _named(symbols, "count", "javascript").signature == "var count = <%= @items.size %>;"

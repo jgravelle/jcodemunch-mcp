@@ -10231,6 +10231,11 @@ _ERB_BLANK = _erb_fill_table(0x20)
 _ERB_HOLE = _erb_fill_table(ord("X"))
 _ERB_ID_RE = re.compile(rb"""(?<![\w:-])id\s*=\s*["']([^"'<>]+)["']""", re.IGNORECASE)
 _ERB_SLOT_RE = re.compile(rb"\b(content_for|provide|yield)(?:[ \t]+|[ \t]*\([ \t]*):([A-Za-z_]\w*)")
+# How the nested parsers join a qualified name; filler never contains these.
+_ERB_QUALIFIED_SPLIT = re.compile(r"(\.|::|#)")
+# The shortest output tag, `<%=%>`, fills to five X's.
+_ERB_FILLER_RUN = re.compile(r"X{5,}")
+_ERB_WORD_BYTE = [chr(b).isalnum() or b == ord("_") for b in range(128)] + [True] * 128
 
 
 def _erb_tags(source: bytes) -> list[tuple[int, int, int, int, str]]:
@@ -10358,70 +10363,148 @@ def _erb_adopt(
 
     A name the host copy filled from an output tag (``XXXX…Report``) is named
     by the tag's own text instead (``<%= class_name %>Report``), in the symbol,
-    its signature and its members' qualified names. Each name is read at its
-    own position: two tags of one length fill identically, so a rename keyed
-    by the filled name would give both symbols the same tag.
+    its signature and its qualified name. Each name is read at its own
+    position: two tags of one length fill identically, so a rename keyed by
+    the filled name would give both symbols the same tag.
     """
     hole_starts = [start for start, _ in holes]
+
+    def _in_hole(at: int, length: int) -> bool:
+        i = bisect.bisect_right(hole_starts, at + length - 1) - 1
+        return i >= 0 and holes[i][1] > at
+
+    def _tag_text(at: int, length: int) -> str:
+        return source[at:at + length].decode("utf-8", errors="replace")
+
+    texts_by_length: dict[int, set[str]] = {}
+
+    def _texts_of_length(length: int) -> set[str]:
+        if length not in texts_by_length:
+            found: set[str] = set()
+            for start, stop in holes:
+                parse_budget.checkpoint()
+                if stop - start == length:
+                    found.add(_tag_text(start, length))
+            texts_by_length[length] = found
+        return texts_by_length[length]
+
+    def _whole_token(at: int, length: int) -> bool:
+        after = at + length
+        return not (at and _ERB_WORD_BYTE[masked[at - 1]]) and not (
+            after < len(masked) and _ERB_WORD_BYTE[masked[after]]
+        )
+
+    def _token_before(segment: str, limit: int) -> int:
+        # The nearest whole-token occurrence of `segment` ending by `limit`,
+        # so a 9-X name is never found inside a 10-X one.
+        raw = segment.encode("utf-8")
+        end = limit
+        while end >= len(raw):
+            parse_budget.checkpoint()
+            at = masked.rfind(raw, 0, end)
+            if at < 0:
+                return -1
+            if _whole_token(at, len(raw)):
+                return at
+            end = at + len(raw) - 1
+        return -1
+
+    def _name_at(sym: Symbol) -> int:
+        # Where the symbol's own name is written: the first whole token of it
+        # inside its span, else the span's start.
+        raw = sym.name.encode("utf-8")
+        start, stop = sym.byte_offset, sym.byte_offset + max(sym.byte_length, len(raw))
+        while raw:
+            parse_budget.checkpoint()
+            at = masked.find(raw, start, stop)
+            if at < 0:
+                break
+            if _whole_token(at, len(raw)):
+                return at
+            start = at + 1
+        return sym.byte_offset
+
     own: dict[str, tuple[str, str]] = {}  # nested id -> (filled name, tag text)
     for sym in parsed:
         parse_budget.checkpoint()
         if not holes or "XXXXX" not in sym.name:
             continue
-        raw = sym.name.encode("utf-8")
-        at = masked.find(raw, sym.byte_offset, sym.byte_offset + max(sym.byte_length, len(raw)))
-        if at < 0:
-            continue
-        i = bisect.bisect_right(hole_starts, at + len(raw) - 1) - 1
-        if i >= 0 and holes[i][1] > at:
-            own[sym.id] = (sym.name, source[at:at + len(raw)].decode("utf-8", errors="replace"))
+        at = _name_at(sym)
+        length = len(sym.name.encode("utf-8"))
+        if masked[at:at + length] == sym.name.encode("utf-8") and _in_hole(at, length):
+            own[sym.id] = (sym.name, _tag_text(at, length))
     by_id = {sym.id: sym for sym in parsed}
 
-    def _restore(sym: Symbol, text: str) -> str:
-        # The tag text of this symbol's name and of each owner's. The owners
-        # are walked outermost first and each name is found AFTER the one
-        # before it, so every name is put back at its own segment: a literal
-        # owner spelled like a filled name keeps its name.
-        if not own or "XXXXX" not in text:
+    def _qualified(sym: Symbol) -> str:
+        # Segments are read innermost first. A segment that names the next
+        # owner up the parent chain is that owner (its tag text when it was
+        # filled, its position bounding the next search). A segment with no
+        # linked owner (YAML and XML link none) is the nearest whole token
+        # before the last one found, restored only when that token is a tag.
+        text = sym.qualified_name
+        if not holes or "XXXXX" not in text:
             return text
-        chain: list[Symbol] = []
+        parts = _ERB_QUALIFIED_SPLIT.split(text)
         current: Optional[Symbol] = sym
-        for _ in range(64):  # bounded: a parent cycle cannot hang the parse
+        limit = len(masked)
+        for index in range(len(parts) - 1, -1, -2):
             parse_budget.checkpoint()
-            if current is None:
-                break
-            chain.append(current)
-            current = by_id.get(current.parent) if current.parent else None
-        cursor = 0
-        for owner in reversed(chain):
-            parse_budget.checkpoint()
-            at = text.find(owner.name, cursor)
+            segment = parts[index]
+            if current is not None and current.name == segment:
+                if current.id in own:
+                    parts[index] = own[current.id][1]
+                limit = min(limit, _name_at(current))
+                current = by_id.get(current.parent) if current.parent else None
+                continue
+            current = None  # the chain no longer matches the segments
+            at = _token_before(segment, limit)
             if at < 0:
                 continue
-            if owner.id in own:
-                filled, tag_text = own[owner.id]
-                text = text[:at] + tag_text + text[at + len(filled):]
-                cursor = at + len(tag_text)
-            else:
-                cursor = at + len(owner.name)
-        return text
+            if "XXXXX" in segment and _in_hole(at, len(segment.encode("utf-8"))):
+                parts[index] = _tag_text(at, len(segment.encode("utf-8")))
+            limit = at
+        return "".join(parts)
 
     def _signature(sym: Symbol) -> str:
         # A signature copied from the host copy is shown as the original bytes
-        # it came from; one the parser rewrote (YAML quotes values) keeps its
-        # filler, with only the restored names put back.
+        # it came from. In one the parser rewrote (YAML quotes values), each
+        # run of filler is the next tag of its length inside the symbol; a
+        # symbol with no such tag in its span (a YAML merge key's copy) takes
+        # the tag only when every tag of that length in the file reads alike.
         if not holes or "XXXXX" not in sym.signature:
             return sym.signature
         raw = sym.signature.encode("utf-8")
         at = masked.find(raw, sym.byte_offset, sym.byte_offset + max(sym.byte_length, len(raw)))
         if at >= 0:
             return source[at:at + len(raw)].decode("utf-8", errors="replace")
-        return _restore(sym, sym.signature)
+        end = sym.byte_offset + sym.byte_length
+        j = bisect.bisect_left(hole_starts, sym.byte_offset)
+        pieces: list[str] = []
+        pos = 0
+        for run in _ERB_FILLER_RUN.finditer(sym.signature):
+            parse_budget.checkpoint()
+            length = len(run.group())
+            while j < len(holes) and holes[j][0] < end and holes[j][1] - holes[j][0] != length:
+                parse_budget.checkpoint()
+                j += 1
+            if j < len(holes) and holes[j][0] < end:
+                tag = _tag_text(holes[j][0], length)
+                j += 1
+            else:
+                texts = _texts_of_length(length)
+                if len(texts) != 1:
+                    continue
+                tag = next(iter(texts))
+            pieces.append(sym.signature[pos:run.start()])
+            pieces.append(tag)
+            pos = run.end()
+        pieces.append(sym.signature[pos:])
+        return "".join(pieces)
 
     pairs: list[tuple[Symbol, Symbol]] = []
     for sym in parsed:
         parse_budget.checkpoint()
-        qualified = f"{view.name}.{_restore(sym, sym.qualified_name)}"
+        qualified = f"{view.name}.{_qualified(sym)}"
         piece = source[sym.byte_offset:sym.byte_offset + sym.byte_length]
         pairs.append((sym, replace(
             sym,

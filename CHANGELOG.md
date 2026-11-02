@@ -62,7 +62,10 @@ file's and a non-ASCII character cannot move a slice:
 symbol keeps the language of the pass that found it, so
 `search_symbols(language="javascript")` finds a function in a `.js.erb`.
 A name built from a tag is named by the tag, read at its own position
-(`<%= class_name %>Report`), never by the filler used to parse around it.
+(`<%= class_name %>Report`), never by the filler used to parse around it:
+in the symbol's name, its qualified name and id (also under a YAML key or
+XML element the parser links no child to), and its signature (also one the
+YAML parser rewrote).
 The view is always the file's first symbol, which is what files it under
 `erb`: a function at byte 0 of a `.js.erb`, or a YAML merge key, would
 otherwise have filed the view as JavaScript or YAML.
