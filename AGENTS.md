@@ -56,6 +56,7 @@ jCodemunch-MCP indexes this repository's symbols and how they relate. Use it whe
   - DO check `related_existing` files — they show what's nearby, not what exists
   - Anything short of citable proves nothing (`absence_citable: false`, `citable: false`, or neither field present). Read the note or `absence_blocked_by`; if it names the index, re-index, then search again.
 - If `verdict: "low_confidence_matches"`: examine the matches critically before assuming they implement the feature
+- If `verdict: "no_exact_match"`: no symbol has the name you searched; the rows only share words with it. Do not treat any row as that symbol; if you expected it to exist, re-index
 
 **After editing files:**
 - If PostToolUse hooks are installed (Claude Code only), edited files are auto-reindexed
