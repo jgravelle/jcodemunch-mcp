@@ -69,7 +69,7 @@ def _rows(db: Path) -> dict[str, dict]:
         conn.close()
 
 
-def _fake_summarizer(symbols, use_ai=True, repo=None, source_for=None):
+def _fake_summarizer(symbols, use_ai=True, repo=None, source_for=None, report=None):
     for sym in symbols:
         sym.summary = f"refreshed: {sym.name}"
     return symbols
@@ -122,7 +122,8 @@ def test_the_complexity_tools_still_answer_after_a_refresh(indexed, monkeypatch)
 
 def test_the_response_counts_are_unchanged(indexed, monkeypatch):
     """`updated` and `skipped` keep their meaning: a forced run counts every
-    symbol whose summary differs from the cleared one."""
+    symbol whose summary differs from the one stored (#1282: not from the
+    cleared one, which counted a kept summary as updated)."""
     repo, storage, db = indexed
     n = len(_rows(db))
     monkeypatch.setattr(summarize_mod, "summarize_symbols", _fake_summarizer)
@@ -169,7 +170,7 @@ def test_a_summary_is_not_written_onto_a_body_that_changed(indexed, monkeypatch)
     repo, storage, db = indexed
     use_id = next(i for i, r in _rows(db).items() if r["name"] == "use")
 
-    def summarize_then_reindex(symbols, use_ai=True, repo=None, source_for=None):
+    def summarize_then_reindex(symbols, use_ai=True, repo=None, source_for=None, report=None):
         conn = sqlite3.connect(str(db))
         try:
             conn.execute(

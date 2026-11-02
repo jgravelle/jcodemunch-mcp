@@ -186,7 +186,7 @@
    ],
    "rank": 1,
    "leak_name": 0.0,
-   "leak_desc": 0.0
+   "leak_desc": 0.08
   },
   {
    "case_id": "726164af-1ca5-5a49-b502-195c2f520062",
@@ -215,7 +215,7 @@
    ],
    "rank": 1,
    "leak_name": 0.0,
-   "leak_desc": 0.059
+   "leak_desc": 0.147
   },
   {
    "case_id": "77839e69-6c59-5dd3-88fb-38dcc0883e86",
@@ -230,7 +230,7 @@
    ],
    "rank": 1,
    "leak_name": 0.0,
-   "leak_desc": 0.053
+   "leak_desc": 0.263
   },
   {
    "case_id": "69af8d15-7c38-5aff-9acb-a19c0986cd02",
@@ -246,7 +246,7 @@
    ],
    "rank": null,
    "leak_name": 0.5,
-   "leak_desc": 0.13
+   "leak_desc": 0.174
   },
   {
    "case_id": "d77bd7e2-b7e4-5e91-8782-da1deeb159d0",
@@ -261,7 +261,7 @@
    ],
    "rank": 1,
    "leak_name": 0.0,
-   "leak_desc": 0.048
+   "leak_desc": 0.238
   },
   {
    "case_id": "23126fd8-ccf3-5881-8474-fd035eb134a0",
@@ -273,11 +273,11 @@
    "route_actions": [
     "get_symbol_complexity",
     "get_related_symbols",
-    "get_file_risk"
+    "get_changed_symbols"
    ],
    "rank": null,
    "leak_name": 0.5,
-   "leak_desc": 0.13
+   "leak_desc": 0.217
   },
   {
    "case_id": "c7c72675-9bdc-59ef-b660-04ba5a6997da",
@@ -293,7 +293,7 @@
    ],
    "rank": null,
    "leak_name": 0.0,
-   "leak_desc": 0.059
+   "leak_desc": 0.118
   },
   {
    "case_id": "1565e1bf-089e-5e5f-9e1f-f4b68453dd5d",
@@ -308,7 +308,7 @@
    ],
    "rank": 1,
    "leak_name": 0.0,
-   "leak_desc": 0.04
+   "leak_desc": 0.08
   },
   {
    "case_id": "539874af-acd6-5d7c-90e8-1efee16f6c29",
@@ -337,7 +337,7 @@
    ],
    "rank": 1,
    "leak_name": 0.0,
-   "leak_desc": 0.045
+   "leak_desc": 0.182
   },
   {
    "case_id": "4c6c4654-219d-515e-b753-a7b12d23f1e0",
@@ -354,7 +354,7 @@
    ],
    "rank": 2,
    "leak_name": 0.0,
-   "leak_desc": 0.028
+   "leak_desc": 0.139
   },
   {
    "case_id": "d13ad3b5-fce2-51f3-92ba-1e44b50a31a7",
@@ -387,7 +387,7 @@
    ],
    "rank": 1,
    "leak_name": 0.0,
-   "leak_desc": 0.083
+   "leak_desc": 0.25
   },
   {
    "case_id": "0ea5182a-4b80-5663-9ebb-81ce63c261d7",
@@ -403,7 +403,7 @@
    ],
    "rank": 1,
    "leak_name": 0.333,
-   "leak_desc": 0.059
+   "leak_desc": 0.176
   },
   {
    "case_id": "9a2708c4-87eb-5106-a69e-0bfb494d3013",
@@ -420,7 +420,7 @@
    ],
    "rank": null,
    "leak_name": 0.0,
-   "leak_desc": 0.067
+   "leak_desc": 0.133
   },
   {
    "case_id": "34ef5712-7450-515b-9d00-4938c9208488",
@@ -436,7 +436,7 @@
    ],
    "rank": 1,
    "leak_name": 0.333,
-   "leak_desc": 0.071
+   "leak_desc": 0.214
   },
   {
    "case_id": "334ad0d3-459e-5506-ac5d-62896d4fb875",
@@ -452,7 +452,7 @@
    ],
    "rank": 1,
    "leak_name": 0.0,
-   "leak_desc": 0.054
+   "leak_desc": 0.135
   },
   {
    "case_id": "0faaff13-ac4a-509f-94b2-62f8a8492d14",
@@ -469,7 +469,7 @@
    ],
    "rank": 1,
    "leak_name": 0.5,
-   "leak_desc": 0.133
+   "leak_desc": 0.267
   },
   {
    "case_id": "01533f57-dd07-53b7-9a2a-e99f6df46fad",
@@ -485,7 +485,7 @@
    ],
    "rank": 1,
    "leak_name": 0.0,
-   "leak_desc": 0.136
+   "leak_desc": 0.227
   },
   {
    "case_id": "465d026a-5bb5-50c0-861d-2a9ba73a337a",
@@ -501,7 +501,7 @@
    ],
    "rank": 1,
    "leak_name": 0.5,
-   "leak_desc": 0.091
+   "leak_desc": 0.227
   },
   {
    "case_id": "0117a398-6fb0-5c7c-9f98-e9be6ad90716",
@@ -533,7 +533,7 @@
    ],
    "rank": 1,
    "leak_name": 0.5,
-   "leak_desc": 0.054
+   "leak_desc": 0.135
   },
   {
    "case_id": "10d4d696-9f59-5fc7-a3a9-08c3a34e846a",
@@ -549,7 +549,7 @@
    ],
    "rank": 1,
    "leak_name": 0.0,
-   "leak_desc": 0.028
+   "leak_desc": 0.167
   },
   {
    "case_id": "d4fdde18-66c9-5466-871b-21ca6cd08f8e",
@@ -565,7 +565,7 @@
    ],
    "rank": 1,
    "leak_name": 0.0,
-   "leak_desc": 0.083
+   "leak_desc": 0.111
   },
   {
    "case_id": "2cf2de96-fe0f-5823-8af2-fa1189d1ccd9",
@@ -597,7 +597,7 @@
    ],
    "rank": null,
    "leak_name": 0.0,
-   "leak_desc": 0.095
+   "leak_desc": 0.143
   },
   {
    "case_id": "895a33dc-06c8-5930-bcd2-fb87b6344ff1",
@@ -630,7 +630,7 @@
    ],
    "rank": 1,
    "leak_name": 0.0,
-   "leak_desc": 0.069
+   "leak_desc": 0.172
   },
   {
    "case_id": "92619faf-5e7f-54bf-8270-c519c61818e4",
@@ -646,7 +646,7 @@
    ],
    "rank": 1,
    "leak_name": 0.0,
-   "leak_desc": 0.053
+   "leak_desc": 0.211
   },
   {
    "case_id": "67b54c14-a4e5-5ed0-be87-483bc075f5d4",
@@ -662,7 +662,7 @@
    ],
    "rank": 1,
    "leak_name": 0.5,
-   "leak_desc": 0.091
+   "leak_desc": 0.136
   },
   {
    "case_id": "3e5ebe2b-f70b-5da7-9473-abdbf6390059",
@@ -678,7 +678,7 @@
    ],
    "rank": null,
    "leak_name": 0.0,
-   "leak_desc": 0.053
+   "leak_desc": 0.026
   },
   {
    "case_id": "56c970e4-3700-525c-9e74-874ca2f579a7",
@@ -694,7 +694,7 @@
    ],
    "rank": 1,
    "leak_name": 0.0,
-   "leak_desc": 0.053
+   "leak_desc": 0.158
   },
   {
    "case_id": "654d4709-f887-5be8-ad22-552c7b58ea1a",
@@ -726,7 +726,7 @@
    ],
    "rank": 1,
    "leak_name": 0.0,
-   "leak_desc": 0.065
+   "leak_desc": 0.161
   },
   {
    "case_id": "0f46a015-e88a-5e3b-bd72-1de5b2e36a8c",
@@ -742,7 +742,7 @@
    ],
    "rank": 1,
    "leak_name": 0.0,
-   "leak_desc": 0.077
+   "leak_desc": 0.154
   },
   {
    "case_id": "1967c6f1-c155-5c52-a158-82165b3eb5c2",
@@ -759,7 +759,7 @@
    ],
    "rank": null,
    "leak_name": 0.0,
-   "leak_desc": 0.038
+   "leak_desc": 0.077
   },
   {
    "case_id": "ca746920-bfbf-5125-900d-a95a00805bcd",
