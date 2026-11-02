@@ -71,6 +71,25 @@ def _today() -> str:
 
 
 class TestHeartbeat:
+    def test_calls_counted_before_load_go_to_the_root_they_were_counted_under(
+        self, tmp_path, monkeypatch
+    ):
+        # Review round 2: the exit flush loaded the meter at whatever root was
+        # in force AT EXIT, so a CODE_INDEX_PATH restored before atexit (as
+        # conftest does) sent the calls to another store, the developer's real
+        # one in a test run (Practice 8).
+        counted = tmp_path / "counted"
+        later = tmp_path / "later"
+        monkeypatch.setenv("CODE_INDEX_PATH", str(counted))
+        st = _fresh()
+        for _ in range(3):
+            st.note_call()
+        assert not st._loaded, "the meter must still be unloaded for this to test the exit path"
+        monkeypatch.setenv("CODE_INDEX_PATH", str(later))
+        st.flush()
+        assert not _file(later).exists(), "calls were written to the root in force at flush"
+        assert _ledger(counted)[sm.MEASURED_DAYS][_today()]["calls"] == 3
+
     def test_a_zero_credit_batch_still_stamps_the_file(self, tmp_path):
         st = _fresh()
         for _ in range(tt._FLUSH_INTERVAL):
@@ -519,6 +538,11 @@ class TestDisplaySurfaces:
         st = _fresh()
         st._ensure_loaded(str(tmp_path))
         st._unflushed, st._hb_calls = 5, 1
+        for attempt in range(1, tt._BUSY_DEFERRALS_BEFORE_STALE):
+            st._flush(lock_wait=0.0)
+            assert st.session_stats(str(tmp_path))[sm.STATUS] == "current", (
+                f"deferral {attempt}: one server briefly holding the file is not a stopped meter"
+            )
         st._flush(lock_wait=0.0)
         stats = st.session_stats(str(tmp_path))
         assert stats[sm.STATUS] == "stale"

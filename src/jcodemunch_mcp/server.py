@@ -5930,7 +5930,7 @@ def _label_lifetime_total(result: dict) -> None:
     """Attach `_meta.lifetime_meter` beside every `_meta.total_tokens_saved` when the meter is not current.
 
     ⚠ `total_tokens_saved` is the LIFETIME figure (`_savings.json` plus this
-    session's unwritten batch), set by 18 tool modules from `record_savings`'s
+    session's unwritten batch), set by each tool from `record_savings`'s
     return; this is the one place every one of them passes. After a load that
     could not read the file it is only this process's count, and after refused
     writes it is no longer what the file holds (customer report, 1.108.407).

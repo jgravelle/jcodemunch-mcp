@@ -62,6 +62,9 @@ _SAVINGS_FILE = "_savings.json"
 # replace each other's batches. A batch whose lock wait runs out stays in memory.
 _SAVINGS_LOCK_FILE = "_savings.lock"
 _SAVINGS_LOCK_WAIT = 0.25
+# A run of this many writes deferred by another server's file lock labels the
+# meter stale; fewer is an ordinary moment of two servers writing.
+_BUSY_DEFERRALS_BEFORE_STALE = 3
 _SAVINGS_LOCK_WAIT_AT_EXIT = 3.0
 # Calls a dispatcher reports (`note_call`) reach the file on the counters'
 # schedule, so a session of tools that record no savings still stamps the meter
@@ -246,9 +249,16 @@ class _State:
         # The storage directory in force when the meter was loaded; every later
         # write goes there (Maintenance Practice 8, same rule as tool_counters).
         self._root_dir: Optional[str] = None
+        # The storage directory in force when the first heartbeat call was
+        # counted before the meter loaded. ⚠ The exit flush loads the meter at
+        # exit, and the root in force then may not be the one the calls were
+        # counted under (a test that restores CODE_INDEX_PATH before atexit
+        # would write the developer's real store, Practice 8).
+        self._counted_root: Optional[str] = None
         # What a reader of this process's total may be told about it.
         self._measured_through: Optional[datetime] = None  # last stamp on disk
         self._flush_failing: bool = False  # the last write attempt left counts unwritten
+        self._busy_streak: int = 0  # consecutive writes deferred by another holder of the file lock
         self._load_failed: bool = False    # the file exists and its history was not read
         self._last_warn_mono: Optional[float] = None
         self._label: dict = {_meter.STATUS: "unknown", _meter.MEASURED_THROUGH: None, _meter.STALE_SINCE: None}
@@ -327,12 +337,16 @@ class _State:
         # connection it guards is the same defect wearing a new key.
         self._perf_rows_since_trim: dict = {}
 
-    def _ensure_loaded(self, base_path: Optional[str]) -> None:
-        """Load persisted total from disk (once per process)."""
+    def _ensure_loaded(self, base_path: Optional[str], root: Optional[str] = None) -> None:
+        """Load persisted total from disk (once per process).
+
+        *root*, when given, is the directory fixed when the pending calls were
+        counted; it wins over whatever *base_path* resolves to now.
+        """
         if self._loaded:
             return
         self._base_path = base_path
-        self._root_dir = _tool_counters.storage_root(base_path)
+        self._root_dir = root or _tool_counters.storage_root(base_path)
         path = Path(self._root_dir) / _SAVINGS_FILE
         data, problem = _read_ledger(path)
         if data is None:
@@ -1377,6 +1391,12 @@ class _State:
         `_HEARTBEAT_FLUSH_SECONDS`) is handed to a short-lived thread behind a
         gate taken with ``blocking=False``.
         """
+        if self._root_dir is None and self._counted_root is None:
+            # Fix the root these calls belong to now, not at the (exit) flush.
+            try:
+                self._counted_root = _tool_counters.storage_root(self._base_path)
+            except Exception:
+                logger.debug("savings root not resolved at count time", exc_info=True)
         self._dispatch_ticks.append(None)
         if (
             len(self._dispatch_ticks) + self._hb_calls < _HEARTBEAT_FLUSH_CALLS
@@ -1460,7 +1480,7 @@ class _State:
             if not self._loaded:
                 if not (self._hb_calls or self._dispatch_ticks):
                     return
-                self._ensure_loaded(self._base_path)
+                self._ensure_loaded(self._base_path, self._counted_root)
             self._call_count = 0
             batch = self._take_batch_locked()
             root = Path(self._root_dir or _tool_counters.storage_root(self._base_path))
@@ -1501,6 +1521,7 @@ class _State:
                 if outcome["by_tool_since"]:
                     self._by_tool_since = outcome["by_tool_since"]
                 self._flush_failing = False
+                self._busy_streak = 0
                 self._load_failed = False
                 # Send batched telemetry. We send the absolute lifetime total (just
                 # written) so the server can GREATEST-converge and recover any
@@ -1511,7 +1532,13 @@ class _State:
                 # Not written: nothing is sent either, since the total would not
                 # be one this machine holds.
                 self._put_back_locked(batch)
-                self._flush_failing = True
+                if outcome.get("busy"):
+                    # Another server holding the file for a moment is ordinary,
+                    # so one deferral is not a stopped meter; a run of them is.
+                    self._busy_streak += 1
+                    self._flush_failing = self._flush_failing or self._busy_streak >= _BUSY_DEFERRALS_BEFORE_STALE
+                else:
+                    self._flush_failing = True
                 level = outcome["level"]
                 if level == "warning":
                     now = time.monotonic()
@@ -1578,7 +1605,9 @@ def _merge_batch(root: Path, batch: dict, lock_wait: float) -> dict:
                       exc_info=True)
     lock = root / _SAVINGS_LOCK_FILE
     if not _tool_counters.acquire_lock(lock, lock_wait):
-        return failed("debug", "Savings file busy (%s held); counts kept for the next write", lock)
+        out = failed("debug", "Savings file busy (%s held); counts kept for the next write", lock)
+        out["busy"] = True
+        return out
     path = root / _SAVINGS_FILE
     try:
         data, problem = _read_ledger(path)
