@@ -93,9 +93,11 @@ class TestTempFolders:
         assert watch_scope.is_temp_path(str(anchor / "work" / "tmp" / "repo")) is False
 
     def test_an_ordinary_folder_does_not(self):
-        assert (
-            watch_scope.is_temp_path(str(Path(__file__).resolve().parents[1])) is False
-        )
+        # A path the test builds, not this checkout: a checkout in a worktree
+        # under the system temp dir IS a temp path, and the test must not
+        # depend on where it was cloned.
+        anchor = Path(Path.cwd().anchor)
+        assert watch_scope.is_temp_path(str(anchor / "work" / "repo")) is False
 
     def test_a_temp_repo_is_skipped_only_when_the_setting_is_on(self, tmp_path):
         folder = str(tmp_path)
