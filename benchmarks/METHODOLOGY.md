@@ -256,9 +256,11 @@ details.
 ## Common Misreadings
 
 **"The claim is up to 99%."**
-The primary claim is **96.2% average (26.5x)** across all 15 task-runs, measured
-against Baseline B — an agent that greps and opens the top 3 files (664,975 →
-25,132 tokens). Against Baseline A, the read-everything ceiling, the same run
+The primary claim is **94.5% fewer tokens per lookup on average** across all 15
+task-runs, measured against Baseline B: an agent that greps and opens the top 3
+files. It is the mean of the 15 per-lookup reductions in `results.md`. Pooled,
+the totals are 664,975 → 25,132 tokens (96.2%, 26.5x); the pooled figure is
+higher because the lookups with the largest grep baselines weigh the most. Against Baseline A, the read-everything ceiling, the same run
 gives 99.6% / 225.2x (5,658,685 → 25,132). Both are published; B is the one to
 quote.
 
@@ -300,10 +302,11 @@ measures that agent**, on the same corpus in the same run:
 | Against | Baseline tokens | Ratio | Reduction |
 |---|--:|--:|--:|
 | Read-all (Baseline A) | 5,658,685 | 225.2x | 99.6% |
-| **Grep-top-3 (Baseline B)** | **664,975** | **26.5x** | **96.2%** |
+| **Grep-top-3 (Baseline B)** | **664,975** | 26.5x | 96.2% (pooled) |
 
 **Baseline B is 11.8% of Baseline A, so measuring against read-all overstates the
-advantage by roughly 8.5x.** Quote the Baseline B figure.
+advantage by roughly 8.5x.** Quote Baseline B's per-lookup mean, 94.5%; this
+table pools the totals.
 
 ⚠ **The per-query spread on B is 7.6x to 77.2x** (median 19.1x), so no single
 multiple describes every query. The floor — `middleware` on gin at **7.6x** — is
@@ -323,7 +326,8 @@ a typical query.
 So 99.6% measures **what symbol-level retrieval avoids relative to loading the
 corpus** — a ceiling on removable waste, and the right answer to "how much of a
 repository does an agent actually need in context." It is not a prediction of
-anyone's bill. 96.2% / 26.5x is the closer thing to that, and it still does not
+anyone's bill. The 94.5% per-lookup mean against Baseline B is the closer thing
+to that, and it still does not
 model an agent that was already retrieving selectively.
 
 Against comparators that *do* retrieve selectively, the margins are single-digit

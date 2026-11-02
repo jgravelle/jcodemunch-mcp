@@ -125,7 +125,7 @@ end-to-end. The `--surface-only` number needs none of this: it is exact.
 **B vs C** is the question of whether the tools get used *instead of* native
 search or *in addition to* it. jcm's routing policy ships in `CLAUDE.md` for
 Claude Code and in `AGENTS.md` for Codex and OpenCode, written by
-`jcodemunch init`. Installing the MCP server alone does not create it. An agent
+`jcodemunch-mcp init`. Installing the MCP server alone does not create it. An agent
 with 90 unexplained tools and no policy plausibly greps *and* calls them.
 
 **C vs D** is the schema tax on its own.
