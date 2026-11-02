@@ -360,7 +360,7 @@ The README and the benchmark pages quoted 96.2% (26.5x) fewer tokens than a grep
 
 `tests/test_tool_descriptions_never_tell_the_agent_to_ignore.py` reads every tool and parameter description the `full` and `counter` surfaces publish and fails on a sentence that opens with ignore, disregard or forget. A passive form such as "ignored when token_budget is set" states behavior and still passes. It also reads the server instructions on both surfaces, catches "Ignores", "Ignoring", a bullet or parenthesis opener, and "ignore previous instructions" anywhere in a sentence.
 
-The new description is 5 tokens longer. `benchmarks/schema_baseline.json` moves on the four profiles that publish `suggest_corrections`: standard_compact 20084 to 20089, standard_full 22592 to 22597, full_compact 21512 to 21517, full_full 24020 to 24025. The core and counter surfaces are unchanged. A client on the standard or full profile pays one cache write for its tool block on the first request after upgrading.
+The new description is 5 tokens longer. `benchmarks/schema_baseline.json` moves on the four profiles that publish `suggest_corrections`: standard_compact 20174 to 20179, standard_full 22682 to 22687, full_compact 21602 to 21607, full_full 24110 to 24115. The core and counter surfaces are unchanged. A client on the standard or full profile pays one cache write for its tool block on the first request after upgrading.
 
 ## [1.108.405] - 2026-11-01 - get_class_hierarchy and find_implementations read a base list written after a colon
 
