@@ -11,7 +11,7 @@ of it, so every symbol's line and byte offset are the original file's:
   `.text.erb`): a view symbol, static HTML ids, `content_for`/`provide`/`yield`
   slots, and inline `<script>` bodies parsed as JavaScript.
 
-Fixtures and their licences: `tests/fixtures/erb/SOURCES.md`.
+Fixtures and their licenses: `tests/fixtures/erb/SOURCES.md`.
 """
 
 from __future__ import annotations

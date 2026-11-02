@@ -40,14 +40,27 @@ The view is always the file's first symbol, which is what files it under
 `erb`: a function at byte 0 of a `.js.erb`, or a YAML merge key, would
 otherwise have filed the view as JavaScript or YAML.
 
+The dead-code tools never call a view unused. `render "shared/nav"` names
+`shared/_nav.html.erb`, which no import edge resolves, and a controller
+renders its views by convention with no call at all, so a view with no
+importer proves nothing. As #1012 does for a Web Forms control, an `.erb`
+file has an unseen consumer, `template_rendered`: `find_dead_code` caps it
+and every symbol in it below its default threshold, names the cap in
+`confidence_capped_by` and counts them in `template_rendered_withheld`;
+`check_delete_safe` answers `dynamic_import_boundary` with a
+`template_rendered` blocker, never `safe_to_delete`, for a view and the
+symbols in it; and `get_dead_code_v2` leaves `unreachable_file` undecided
+for them. A view can still be dead; the tools no longer say so from a graph
+that cannot see what renders it. Found in review.
+
 No re-index is forced: the next `index_folder` finds the views as new files,
 and a test holds that. The edit hooks treat `.erb` as code, so an edited
-view is re-indexed. `plan_refactoring` recognises a `<%= render %>` line and
+view is re-indexed. `plan_refactoring` recognizes a `<%= render %>` line and
 a `def` or `content_for` definition in a view, but rewriting a `render` line
 on a rename is still left to hand. `render` partials are not yet import
 edges, and `.tt` is left unmapped because Visual Studio's T4 templates use
 it too. Fixtures are real views from rails/rails (MIT) and solidus (BSD-3),
-pinned by commit in `tests/fixtures/erb/SOURCES.md` with the licence texts.
+pinned by commit in `tests/fixtures/erb/SOURCES.md` with the license texts.
 
 `erb` joins the `language` enum every tool derives from the registry:
 `core_full`, `standard_full` and `full_full` each grow by 2 tokens
