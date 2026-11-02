@@ -1,6 +1,12 @@
 {
-  "current": "1.108.407",
+  "current": "1.108.408",
   "entries": [
+    {
+      "version": "1.108.408",
+      "date": "2026-11-02",
+      "title": "a rare work-license reminder, never shown to a license holder",
+      "summary": "Using jCodeMunch for work needs a license, and a machine is now reminded of that rarely: 7 days after its first index, then at most once every 30 days, as one stderr line after a command a person reads or one field on a tool answer. Never with a license key, on CI, or after `jcodemunch-mcp config set license_reminder false`. Nothing is sent."
+    },
     {
       "version": "1.108.407",
       "date": "2026-11-02",
