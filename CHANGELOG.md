@@ -10,6 +10,10 @@ Now, when an identifier-shaped query has no exact and no prefix match and rows a
 
 One existing shape changes. When a query has no exact match AND its best score falls under `negative_evidence_threshold`, the body used to carry `negative_evidence.verdict: "low_confidence_matches"` with the warning "Low-confidence matches ... Verify before claiming this feature exists." It now carries `no_exact_match` and the new warning, because that says why the matches are weak. The block's `scanned_symbols`, `scanned_files`, `best_match_score` and `related_existing` are kept. The steering policy (`cli/policy.py`, and so the skill `init` writes) and `AGENTS.md` gain a `no_exact_match` line beside the `low_confidence_matches` one. The plugin's copy of the skill is generated from the version it pins, so it gains the line when the plugin next pins a release.
 
+### Added - the work-license reminder's buy link says where it was shown
+
+The reminder added in 1.108.408 linked to the plain buy page, so a sale that came through it looked like any other sale and there was no way to tell whether the reminder sells. Each copy of the link now carries a fixed source tag: `utm_source=cli&utm_medium=reminder&utm_campaign=license-reminder` on the terminal copy, and `utm_medium=tool` on the tool-answer copy. The tag is the same on every machine and holds nothing about the install, and jcodemunch.com sees it only if the link is opened; nothing is sent by the reminder itself. A test pins the whole query, so an install id, version or count cannot join it unnoticed. SECURITY.md and README say so.
+
 ## [1.108.408] - 2026-11-02 - a rare work-license reminder, never shown to a license holder
 
 ### Added - a rare work-license reminder, never shown to a license holder
