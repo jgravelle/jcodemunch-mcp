@@ -257,7 +257,9 @@ tools: Read, Grep, Glob, mcp__jcodemunch__route, mcp__jcodemunch__menu, mcp__jco
 ---
 ```
 
-Those three are the front door on the default `counter` surface. On the `full` surface, name the tools themselves, for example `mcp__jcodemunch__search_symbols`. `jcodemunch-mcp surface` lists what your install serves.
+Those three are the front door on the `counter` surface, which `init` sets on a first-ever install. On the `full` surface, name the tools themselves, for example `mcp__jcodemunch__search_symbols`. The first line of `jcodemunch-mcp surface` names the active surface. The `mcp__jcodemunch__` prefix assumes the server is registered as `jcodemunch`, the name `init` writes; a server registered under another name gets that name in the prefix.
+
+---
 
 ## Privacy Policy
 
