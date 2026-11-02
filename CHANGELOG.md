@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+## [1.108.408] - 2026-11-02 - a rare work-license reminder, never shown to a license holder
+
+### Added - a rare work-license reminder, never shown to a license holder
+
+The license terms were said once per machine (the one-time `license_notice`), so a machine that kept using jCodeMunch for work was never told again. Now a short line says it again, rarely: "Personal use stays free. Using jCodeMunch for work needs a license: https://jcodemunch.com/buying.php", followed by the command that silences it.
+
+It is said 7 days after the machine's first index was seen, then at most once every 30 days, on one shared clock for two places. In the terminal it is one line on stderr after a command a person runs and reads (`receipt`, `digest`, `health`, `install-status`, `whatsnew`, `upgrade`, `index`, `refresh`, `file-risk`, `delivery`, `reflect`, `list-repos`), only when stdout and stderr are both terminals and never with `--json`; stdout is unchanged. In a tool answer it is the `license_notice` field on the first successful answer of a server process when due, a statement that names the command as something a person runs; routine calls carry nothing. It is never said with a license key configured (read locally, never validated or sent), on CI or remote runners, after `jcodemunch-mcp config set license_reminder false` (a new `license_reminder` config key, which also silences the one-time notice), or with `JCODEMUNCH_LICENSE_REMINDER=0` or `JCODEMUNCH_LICENSE_NOTICE=0`. Its state is one file, `license_reminder_state.json` in the store, holding when an index was first seen, when it last showed and how many times. Nothing is sent. The console script and `python -m jcodemunch_mcp` now enter through `server.cli`, which runs `main` and then the reminder after a clean exit. SECURITY.md and README disclose it.
+
 ## [1.108.407] - 2026-11-02 - a stdio server exits when the process that started it is gone, and storage reports how much disk the index uses
 
 ### Added - `jcodemunch-mcp storage` reports how much disk the index store uses
