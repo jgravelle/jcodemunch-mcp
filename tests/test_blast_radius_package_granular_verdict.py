@@ -334,5 +334,6 @@ def test_the_compact_encoding_keeps_the_body_disclosures(fixture_repo):
     payload, _enc = br_schema.encode("get_blast_radius", r)
     decoded = br_schema.decode(payload)
     assert decoded["incomplete"] == r["incomplete"]
-    assert br_schema.ENCODING_ID == "br3"
+    assert br_schema.ENCODING_ID == "br4"
     assert "br2" in br_schema.LEGACY_ENCODING_IDS
+    assert "br3" in br_schema.LEGACY_ENCODING_IDS
