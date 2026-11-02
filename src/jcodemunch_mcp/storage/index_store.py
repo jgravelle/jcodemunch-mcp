@@ -686,11 +686,15 @@ INDEX_VERSION = 17
 #   bump does not rewrite a stored AI summary that already says GET: a
 #   re-parse keeps paid AI summaries (see 21), so those need
 #   `summarize_repo(force=true)`.
+# 27 (L-202): a XAML view with `x:Class` gains an edge to its code-behind,
+#   carrying the class and the handler names its markup wires. `files.imports`
+#   changes on UNCHANGED content, so a re-parse is the only way an existing
+#   index gains the edge (the generation-25 shape).
 #
-# 27 (L-263): a JS/TS function assigned to a member at module scope is a
+# 28 (L-263): a JS/TS function assigned to a member at module scope is a
 #   symbol (`res.send = function () {}`, `exports.f = ...`,
 #   `Foo.prototype.m = ...`). Symbols appear on UNCHANGED content.
-PARSER_GENERATION = 27
+PARSER_GENERATION = 28
 
 
 @dataclass(frozen=True)

@@ -1,6 +1,6 @@
 # jCodeMunch MCP
 
-**An MCP server that retrieves source code by symbol, not by file, using tree-sitter AST parsing.** On our pinned benchmark, one lookup costs 96.2% fewer tokens than a grep-and-read agent (26.5x fewer; 86.9% to 98.7% across the 15 lookups), so your agent stops spending its context window on whole files.
+**An MCP server that retrieves source code by symbol, not by file, using tree-sitter AST parsing.** It uses 94.5% fewer tokens per lookup on average than grep-and-read on our 15-lookup benchmark (86.9% to 98.7% across the lookups, at pinned commits), so your agent stops spending its context window on whole files.
 
 <sub>Benchmark: 5 queries on each of express, fastapi and gin at pinned commits, tokens counted with tiktoken `cl100k_base`, jcodemunch-mcp at commit `15afcf75`, whose version string is 1.108.391 but which also carries the settings-file ranking change released in 1.108.392 and the field/constant change released after it. A lookup is one `search_symbols` plus `get_symbol_source` on its top 3 hits, against grep-and-read (rank files by match count, read the top 3 whole). Per lookup, not per session. Reproduce with [`benchmarks/REPRODUCING.md`](benchmarks/REPRODUCING.md).</sub>
 
@@ -60,9 +60,9 @@ Measured with `tiktoken cl100k_base` across three public repos pinned to upstrea
 | expressjs/express | 186 | 989 | 15,724 avg | 990 avg | **15.9x** | 156.1x |
 | fastapi/fastapi | 1,186 | 13,699 | 85,296 avg | 2,556 avg | **33.4x** | 322.9x |
 | gin-gonic/gin | 98 | 1,822 | 31,975 avg | 1,481 avg | **21.6x** | 102.5x |
-| **Grand total (15 task-runs)** | | | **664,975** | **25,132** | **26.5x** | 225.2x |
+| **Grand total, pooled (15 task-runs)** | | | **664,975** | **25,132** | 26.5x | 225.2x |
 
-**Against a grep-and-read agent: 96.2% reduction, 26.5x fewer tokens.** No single multiple describes every query; the per-repo rows above are the spread. Against read-all the figure is 99.6%, but nobody pays that ceiling. Compact [MUNCH](SPEC_MUNCH.md) wire encoding then trims a median 45.5% more bytes off responses.
+**Against a grep-and-read agent: 94.5% fewer tokens per lookup on average.** No single multiple describes every query; the per-repo rows above are the spread. Against read-all the figure is 99.6%, but nobody pays that ceiling. Compact [MUNCH](SPEC_MUNCH.md) wire encoding then trims a median 45.5% more bytes off responses.
 
 Full methodology, pinned commits, harness, and known caveats: [benchmarks/METHODOLOGY.md](benchmarks/METHODOLOGY.md) · [Reproduce it yourself](benchmarks/REPRODUCING.md) · [TOKEN_SAVINGS.md](TOKEN_SAVINGS.md)
 
@@ -162,7 +162,7 @@ What that lookup costs, from our benchmark on Express at commit `1faf2289`, coun
 | Grep-and-read: search `router route handler`, open the top 3 matching files whole | 9,890 |
 | jCodeMunch: one symbol search, then the source of the top 3 matches | 1,074 |
 
-That's one of the 15 lookups in the benchmark (5 each on express, fastapi and gin at pinned commits). jCodeMunch used 96.2% fewer tokens per lookup than grep-and-read on our 15-lookup benchmark. The pack is built from Express 4.x, while the benchmark pins commit `1faf2289` on upstream main, so your count can differ. To rerun the benchmark at the pinned commits, follow [`benchmarks/REPRODUCING.md`](benchmarks/REPRODUCING.md); raw data is in [`benchmarks/`](benchmarks/).
+That's one of the 15 lookups in the benchmark (5 each on express, fastapi and gin at pinned commits). jCodeMunch used 94.5% fewer tokens per lookup on average than grep-and-read on our 15-lookup benchmark. The pack is built from Express 4.x, while the benchmark pins commit `1faf2289` on upstream main, so your count can differ. To rerun the benchmark at the pinned commits, follow [`benchmarks/REPRODUCING.md`](benchmarks/REPRODUCING.md); raw data is in [`benchmarks/`](benchmarks/).
 
 ---
 
@@ -237,11 +237,27 @@ Send it with the beta header `mcp-client-2025-11-20`. **Both halves are required
 
 The `configs` block above follows Anthropic's own advice — keep your 3–5 most-used tools resident so common requests skip the search round trip — and per-tool `configs` overrides `default_config`.
 
-A deferred tool is found by searching its name and description, so the core descriptions open with the question each tool answers, in the words an agent uses: `search_symbols` "find where a function, class or method is defined", `get_symbol_source` "read or show the source code", `get_call_hierarchy` "who calls this function or method", `check_references` "where is a function, class or other identifier used".
+A deferred tool is found by searching its name and description, so the core descriptions open with the question each tool answers, in the words an agent uses: `search_symbols` "find where a function, class or method is defined", `get_symbol_source` "read or show the source code", `get_call_hierarchy` "who calls this function or method", `check_references` "where is a function, class or other identifier used". The analysis tools follow the same rule: `check_delete_safe` opens "is it safe to delete this function", `get_pr_risk_profile` "how risky is this pull request", `get_hotspots` "where is the riskiest code".
 
 Deferred definitions are excluded from the system-prompt prefix and appended inline as `tool_reference` blocks when Claude discovers them, **so prompt caching is preserved** — this is not the cache-invalidating kind of dynamic tool list. At least one tool in the request must stay non-deferred, or the API returns a 400.
 
 ⚠ **This is a different mechanism from our own `tool_surface: "counter"`**, and you do not need both. Tool search is host-side and works across every MCP server you have connected; the Counter is server-side, works on any host including ones with no tool-search support, and is what `init` configures on a first-ever install. Pick whichever your host supports — see [CONFIGURATION.md](CONFIGURATION.md#the-counter--collapse-to-a-3-tool-front-door-tool_surface) for the Counter and `jcodemunch-mcp surface` for what your install actually advertises.
+
+---
+
+## Custom subagents
+
+A Claude Code subagent gets the session's MCP tools unless its definition has a `tools:` list. If yours does, the subagent can call only what that list names, so add the jcodemunch tools you want:
+
+```yaml
+---
+name: code-explorer
+description: Finds where code lives and what a change reaches.
+tools: Read, Grep, Glob, mcp__jcodemunch__route, mcp__jcodemunch__menu, mcp__jcodemunch__order
+---
+```
+
+Those three are the front door on the `counter` surface, which `init` sets on a first-ever install. On the `full` surface, name the tools themselves, for example `mcp__jcodemunch__search_symbols`. The first line of `jcodemunch-mcp surface` names the active surface. The `mcp__jcodemunch__` prefix assumes the server is registered as `jcodemunch`, the name `init` writes; a server registered under another name gets that name in the prefix.
 
 ---
 
@@ -255,9 +271,11 @@ Anything else that reaches the network is something you run or turn on yourself,
 
 ## Security, privacy, and background behavior
 
-An install that never runs `init` (a `uvx` or plugin install) gets one `license_notice` line in its first tool answer, once per machine; it is skipped with a license key configured, after an `init` that printed the license line, on CI or remote runners (`CI=true`, `CLAUDE_CODE_REMOTE=true`), or with `JCODEMUNCH_LICENSE_NOTICE=0`.
+An install that never runs `init` (a `uvx` or plugin install) gets one `license_notice` line in its first tool answer, once per machine; it is skipped with a license key configured, after `jcodemunch-mcp config set license_reminder false`, after an `init` that printed the license line, on CI or remote runners (`CI=true`, `CLAUDE_CODE_REMOTE=true`), or with `JCODEMUNCH_LICENSE_NOTICE=0`.
 
-The short version is the [Privacy Policy](#privacy-policy) above. Local-first by design: indexes live at `~/.code-index/`, and the base package's only default network behavior is an anonymous savings counter (random ID plus aggregate token counts, no code, no paths, no PII; opt out with `share_savings: false`). Everything the server does beyond answering a tool call (file watching, the opt-in login service, license validation, model downloads, org reporting) is opt-in or opt-out, visible, and reversible, and every item is enumerated in **[SECURITY.md](SECURITY.md#background-behavior-fully-disclosed)** alongside the path-traversal, symlink, and secret-redaction controls. A default `init` writes no policy file and installs no hook whose output the model reads; those are `init --policy` and `init --guidance`, and `init --remove-guidance` takes them back out of an older install.
+A short work-license reminder follows, 7 days after a machine's first index and then at most every 30 days: on stderr after a CLI command a person runs (only at a terminal, never with `--json`), and as `license_notice` on the first tool answer of a server process when due. Its state is `~/.code-index/license_reminder_state.json` (three fields: first index seen, last shown, count). It is never shown with a license key configured, on CI or remote runners, or after `jcodemunch-mcp config set license_reminder false`; `JCODEMUNCH_LICENSE_REMINDER=0` also silences it. Nothing is sent.
+
+The short version is the [Privacy Policy](#privacy-policy) above. Local-first by design: indexes live at `~/.code-index/`, and the base package's only default network behavior is an anonymous savings counter (random ID plus aggregate token counts, no code, no paths, no PII; opt out with `share_savings: false`). Everything the server does beyond answering a tool call (file watching, the opt-in login service, license validation, model downloads, org reporting) is opt-in or opt-out, visible, and reversible, and every item is enumerated in **[SECURITY.md](SECURITY.md#background-behavior-fully-disclosed)** alongside the path-traversal, symlink, and secret-redaction controls. A stdio server also stops on its own when the client process that started it is gone, even if its stdin pipe stays open (`JCODEMUNCH_PARENT_WATCH_SECONDS=0` turns that off). A default `init` writes no policy file and installs no hook whose output the model reads; those are `init --policy` and `init --guidance`, and `init --remove-guidance` takes them back out of an older install. `init --git-hook` adds a git post-checkout hook that re-indexes the files a branch switch changed, in an already indexed repository; `uninstall` run in that repository removes it.
 
 **Grammar pack override (#608).** The dependency `tree-sitter-language-pack` is pinned `<1.0.0` because the 0.x wheels bundle every grammar and parsing stays local. F# is the one exception: it is parsed by the pinned `tree-sitter-fsharp` wheel, which also compiles its grammar in, so F# parsing stays local on either pack (#848). You can override it with `pip install -U tree-sitter-language-pack` after installing; nothing in the code refuses it. What you accept, measured against 1.17.0 on 2026-09-11: the 1.x pack ships no grammars and fetches each one over the network into its cache directory (measured on Windows: `%LOCALAPPDATA%\tree-sitter-language-pack\v<version>\libs`; `jcodemunch-mcp install-status` prints the path on any platform) the first time a language is parsed, so an airgapped install parses nothing, and the `nim` grammar changed upstream, so nim files yield no symbols (the manifest also lacks `autohotkey`, `ejs` and `verse`, which costs nothing here: those three are parsed by jCodeMunch's own extractors, not by tree-sitter). An install on a 1.x pack says so: every `index_folder` result carries a `grammar_pack` block and a warning naming the version, the cache directory and each language whose grammar failed, and `jcodemunch-mcp install-status` prints the same. Dropping the pin is a separate decision that needs the offline story first.
 
@@ -433,7 +451,7 @@ Then add an entry for it to the repo's `.cursor-plugin/marketplace.json`, follow
 ## FAQ
 
 **How much can I save on Claude / Opus tokens?**
-In retrieval-heavy workflows, code-reading tokens typically drop 86-99%, benchmarked at 96.2% average (26.5x) against a grep-and-read agent across 15 tasks and 3 repositories. Per-query results span 7.6x to 77.2x. Methodology: [TOKEN_SAVINGS.md](TOKEN_SAVINGS.md) and [benchmarks/](benchmarks/).
+In retrieval-heavy workflows, code-reading tokens typically drop 86-99%, benchmarked at 94.5% fewer tokens per lookup on average against a grep-and-read agent across 15 lookups and 3 repositories. Per-query results span 7.6x to 77.2x. Methodology: [TOKEN_SAVINGS.md](TOKEN_SAVINGS.md) and [benchmarks/](benchmarks/).
 
 **How is this different from RAG or grep-based tools?**
 jCodeMunch retrieves at the **symbol level** with byte-level precision (functions, classes, importers, blast radius, hierarchies) rather than fuzzy chunks (RAG) or raw line matches (grep) the agent still has to read and reason over.

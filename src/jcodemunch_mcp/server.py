@@ -16,6 +16,10 @@ import time
 from pathlib import Path
 from typing import IO, Any, Optional
 
+# Before anything slow: records the parent PID, so a client that dies while
+# this server is still importing is still seen as gone (BACKLOG row 64).
+from . import parent_watch as _parent_watch_origin  # noqa: F401,E402
+
 from mcp.server import Server
 from mcp.server.lowlevel.helper_types import ReadResourceContents
 from mcp.types import Tool, ToolAnnotations, TextContent, Resource, Prompt, PromptMessage, GetPromptResult, CallToolResult
@@ -1371,6 +1375,34 @@ def _index_target_is_local(target: str) -> bool:
     )
 
 
+def _warn_capped_index(result: object, *, local: bool) -> None:
+    """Tell the person at the terminal, on stderr, that the file cap dropped files.
+
+    The result JSON already says so, but a capped index still reports success
+    and exits 0, so the flag was easy to miss. Stdout and the exit code stay
+    as they are: a capped index works, it just lacks files.
+    """
+    if not isinstance(result, dict):
+        return
+    try:
+        skipped = int(result.get("files_skipped_cap") or 0)
+    except (TypeError, ValueError):
+        return
+    if skipped <= 0:
+        return
+    key, env = (
+        ("max_folder_files", "JCODEMUNCH_MAX_FOLDER_FILES")
+        if local
+        else ("max_index_files", "JCODEMUNCH_MAX_INDEX_FILES")
+    )
+    print(
+        f"jcodemunch-mcp: warning: the index holds {result.get('files_indexed')} of "
+        f"{result.get('files_discovered')} files; {skipped} were left out by the "
+        f"{key} cap. Raise {key} in config.jsonc (or set {env}) and index again.",
+        file=sys.stderr,
+    )
+
+
 def _load_index_paths_from_arg(paths_from: str) -> tuple[Optional[list], Optional[str]]:
     """Read explicit paths from a file or stdin for `jcodemunch-mcp index --paths-from`.
 
@@ -1891,7 +1923,7 @@ def _build_tools_list(
         Tool(
             name="summarize_repo",
             description=(
-                "Re-run AI summarization on all symbols in an existing index. "
+                "Summaries missing after indexing? Re-runs AI summarization on all symbols in an existing index. "
                 "Use this when index_folder completed but AI summaries are missing — "
                 "e.g., the background summarization thread was interrupted, AI was disabled "
                 "at index time, or the summarizer provider wasn't configured yet. "
@@ -2325,7 +2357,7 @@ def _build_tools_list(
         ),
         Tool(
             name="get_file_content",
-            description="Get cached source for a file, optionally sliced to a line range. Reads the indexed copy, not the working tree.",
+            description="Read lines of a file: its cached source, optionally a line range. Reads the indexed copy, not the working tree.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -2722,7 +2754,7 @@ def _build_tools_list(
         ),
         Tool(
             name="check_embedding_drift",
-            description="Pin (or re-check) a 16-string canary against the active embedding provider. On first run with capture=True (or force=True), embeds CANARY_STRINGS and persists the vectors to ~/.code-index/embed_canary.json. Subsequent calls re-embed those strings and report cosine drift; alarm fires when max drift exceeds threshold (default 0.05 = cos sim < 0.95). Use after upgrading providers, when retrieval quality drops unexpectedly, or as a periodic background check. Requires an active embedding provider. The first run only captures the baseline; drift is reported from the second run onward.",
+            description="Did the embedding model change? Pins (or re-checks) a 16-string canary against the active embedding provider. On first run with capture=True (or force=True), embeds CANARY_STRINGS and persists the vectors to ~/.code-index/embed_canary.json. Subsequent calls re-embed those strings and report cosine drift; alarm fires when max drift exceeds threshold (default 0.05 = cos sim < 0.95). Use after upgrading providers, when retrieval quality drops unexpectedly, or as a periodic background check. Requires an active embedding provider. The first run only captures the baseline; drift is reported from the second run onward.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -2746,7 +2778,7 @@ def _build_tools_list(
         ),
         Tool(
             name="tune_weights",
-            description="Learn per-repo retrieval weights from the v1.78.0 ranking ledger. Computes confidence correlations for the semantic and identity-match channels and writes overrides to ~/.code-index/tuning.jsonc. search_symbols reads those overrides at query time when the caller doesn't pass an explicit semantic_weight. Learns from a recency window of the ledger (default 90 days) so stale events can't anchor the weights. Safe to re-run; idempotent for stable signal. Requires perf_telemetry_enabled and the ranking ledger it writes; without that history there is nothing to learn from.",
+            description="Tune the search ranking weights for this repo: learn per-repo retrieval weights from the v1.78.0 ranking ledger. Computes confidence correlations for the semantic and identity-match channels and writes overrides to ~/.code-index/tuning.jsonc. search_symbols reads those overrides at query time when the caller doesn't pass an explicit semantic_weight. Learns from a recency window of the ledger (default 90 days) so stale events can't anchor the weights. Safe to re-run; idempotent for stable signal. Requires perf_telemetry_enabled and the ranking ledger it writes; without that history there is nothing to learn from.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -2963,7 +2995,7 @@ def _build_tools_list(
         Tool(
             name="digest",
             description=(
-                "Agent stand-up briefing for a repo. Returns a tight (~200 token) "
+                "Brief me on what changed in this repo: a stand-up briefing. Returns a tight (~200 token) "
                 "markdown digest of (a) what changed since the agent's last session "
                 "(by tracking git HEAD between calls), (b) the current risk surface "
                 "(top hotspots by complexity × churn), and (c) dead-code candidates. "
@@ -3110,7 +3142,7 @@ def _build_tools_list(
         Tool(
             name="suggest_corrections",
             description=(
-                "Mine the ranking telemetry ledger for retrieval regret (re-query churn, "
+                "Why do searches keep missing? Mines the ranking telemetry ledger for retrieval regret (re-query churn, "
                 "low confidence, thin/ambiguous results, stale-at-query, vocabulary gaps) "
                 "and return a prioritized, explainable set of SUGGESTED corrections: "
                 "CLAUDE.md routing/glossary lines (as unified-diff previews), index-freshness "
@@ -3136,7 +3168,7 @@ def _build_tools_list(
                     },
                     "all_time": {
                         "type": "boolean",
-                        "description": "Ignore the window and analyze the full ledger.",
+                        "description": "Analyze the whole ledger instead of only the last window_days days.",
                         "default": False,
                     },
                     "apply_weights": {
@@ -3393,7 +3425,7 @@ def _build_tools_list(
         Tool(
             name="get_pr_risk_profile",
             description=(
-                "Produce a unified risk assessment for all changes between two git refs (branch, PR, "
+                "How risky is this pull request? A unified risk assessment for all changes between two git refs (branch, PR, "
                 "or SHA range). Fuses five signals — blast radius, complexity, churn, test gaps, "
                 "and change volume — into a single composite risk_score (0.0–1.0) with actionable "
                 "recommendations. Returns the top-5 riskiest changed symbols, untested symbols, "
@@ -3451,7 +3483,7 @@ def _build_tools_list(
         Tool(
             name="get_coupling_metrics",
             description=(
-                "Return afferent coupling (Ca), efferent coupling (Ce), and instability score "
+                "How coupled is this module: afferent coupling (Ca), efferent coupling (Ce), and instability score "
                 "for a file/module. Ca = files that import this module (dependents). "
                 "Ce = files this module imports (dependencies). "
                 "Instability I = Ce/(Ca+Ce): 0 = stable, 1 = unstable. "
@@ -3542,7 +3574,7 @@ def _build_tools_list(
         Tool(
             name="check_delete_safe",
             description=(
-                "Composite preflight: can this symbol be deleted safely? Combines find_importers "
+                "Is it safe to delete this function, class or symbol? Combines find_importers "
                 "(cross-repo), check_references, find_dead_code confidence, runtime evidence "
                 "(Phase 7 traces when available), and entry-point heuristics into a single verdict + "
                 "one-line recommended_action. Verdict tiers: safe_to_delete / test_coverage_only / "
@@ -3582,7 +3614,7 @@ def _build_tools_list(
         Tool(
             name="check_edit_safe",
             description=(
-                "Composite preflight: can this symbol be edited safely? Where check_delete_safe asks "
+                "Is it safe to edit or change this function, class or symbol? Where check_delete_safe asks "
                 "who breaks if it disappears, this asks what your regression risk is if you modify it "
                 "and what you must preserve. Fuses signature impact (external/cross-repo importers), "
                 "cyclomatic complexity, test-coverage presence, and runtime traffic into a single "
@@ -3874,7 +3906,7 @@ def _build_tools_list(
         Tool(
             name="get_delivery_metrics",
             description=(
-                "Call this when you want a cost-per-outcome read on a codebase — how much "
+                "How much change stuck (was not reverted or reworked)? A cost-per-outcome read on a codebase — how much "
                 "AI spend produced durable change over a window, not raw commit or token "
                 "volume. "
                 "Quantify durable-change delivery over a window: of the non-merge commits "
@@ -3978,7 +4010,7 @@ def _build_tools_list(
         Tool(
             name="get_decorator_census",
             description=(
-                "Repo-wide census of decorators / annotations / attributes: 'where is every "
+                "Where is every decorator? A repo-wide census of decorators / annotations / attributes: '"
                 "@app.route / @Injectable / @pytest.fixture / [Serializable], and how many?' in one "
                 "read-only call. Cross-language by construction (aggregates the decorators the index "
                 "stored on each symbol). Forms are NORMALIZED (leading @, call-arguments, and [] "
@@ -4031,7 +4063,7 @@ def _build_tools_list(
         Tool(
             name="get_architecture_metrics",
             description=(
-                "Structural concentration, dependency depth, and modularity in one read-only "
+                "How modular is this codebase: structural concentration, dependency depth, and modularity in one read-only "
                 "call, over the file import graph. concentration: Gini coefficient (0 even -> 1 "
                 "hoarded) over per-file symbol count, size, fan-in (importers), and fan-out "
                 "(imports) + the top concentrators — answers 'is complexity/coupling piling up in "
@@ -4061,7 +4093,7 @@ def _build_tools_list(
         Tool(
             name="get_hotspots",
             description=(
-                "Return the top-N highest-risk symbols ranked by hotspot score = "
+                "Where is the riskiest code: the top-N highest-risk symbols ranked by hotspot score = "
                 "cyclomatic_complexity x log(1 + commits_last_N_days). "
                 "Identifies code that is both complex and frequently changed — the highest "
                 "bug-introduction risk in the codebase. Methodology matches CodeScene/Adam Tornhill. "
@@ -4445,7 +4477,7 @@ def _build_tools_list(
         Tool(
             name="assemble_task_context",
             description=(
-                "Task-aware single-call orchestrator. Auto-classifies task into "
+                "Gather the context for a task in one call. Classifies it as "
                 "explore/debug/refactor/extend/audit/review intent, runs the right sub-tools, "
                 "returns one source-attributed capsule under token_budget."
             
@@ -4578,7 +4610,7 @@ def _build_tools_list(
         Tool(
             name="get_group_contracts",
             description=(
-                "Surface the de-facto API contracts across a group of indexed repos. Walks each "
+                "Which APIs do these repos share? Surfaces the de-facto API contracts across a group of indexed repos. Walks each "
                 "member's named imports, resolves them to symbols in other members via the package "
                 "registry, and classifies each shared symbol into one of four verdict tiers: "
                 "'de_facto_api' (used by ≥min_importers external repos), 'leaky_internal' (underscore-"
@@ -4639,7 +4671,7 @@ def _build_tools_list(
         Tool(
             name="get_tectonic_map",
             description=(
-                "Discover the logical module topology of a codebase by fusing three coupling signals: "
+                "What are the real modules of this codebase? Discovers the logical module topology by fusing three coupling signals: "
                 "structural (import edges), behavioral (shared symbol references), and temporal "
                 "(git co-churn). Returns tectonic plates (auto-detected file clusters), each with "
                 "an anchor file, cohesion score, inter-plate coupling, and drifters (files whose "
@@ -7802,6 +7834,17 @@ async def _call_tool_impl(name: str, arguments: dict) -> list[TextContent] | Cal
             if _license_notice:
                 result = {**result, "license_notice": _license_notice}
                 _requested_format = "json"
+            else:
+                # (2026-11-02, item 650 option T) The work-license reminder:
+                # checked on the first successful answer of a process, said
+                # 7 days after the first index and then at most every 30 days.
+                # Routine calls carry nothing. See `license_reminder`.
+                from .license_reminder import tool_reminder_for as _license_reminder_for
+
+                _license_reminder = _license_reminder_for(result)
+                if _license_reminder:
+                    result = {**result, "license_notice": _license_reminder}
+                    _requested_format = "json"
         except Exception:
             logger.debug("license notice attach failed", exc_info=True)
 
@@ -7933,14 +7976,11 @@ async def _run_server_with_watcher(
     global _watcher_manager
 
     if watch_folders is None or WatcherManager is None:
-        try:
-            from .cli.upgrade import watch_extra_install_command
+        from .watcher import watchfiles_install_command
 
-            cmd = watch_extra_install_command()
-        except Exception:
-            cmd = "pip install 'jcodemunch-mcp[watch]'"
         raise ImportError(
-            f"watchfiles is required for --watcher. Install with: {cmd}"
+            "watchfiles is required for --watcher. "
+            f"Install it with: {watchfiles_install_command()}"
         )
 
     import tempfile
@@ -8023,6 +8063,61 @@ async def _run_server_with_watcher(
                 pass
         from .storage import IndexStore
         IndexStore(base_path=watcher_kwargs.get("storage_path") or os.environ.get("CODE_INDEX_PATH")).close()
+
+
+# Seconds a stdio server whose parent is gone waits for its own cleanup before
+# the process exits regardless (BACKLOG row 64).
+_PARENT_GONE_GRACE_SECONDS = 3.0
+
+
+def _exit_for_gone_parent(main_task, loop, gone_event, *, sleep=time.sleep, hard_exit=os._exit):
+    """End a stdio server whose parent is gone (BACKLOG row 64).
+
+    Cancels the run task so the normal cleanup runs, waits a short grace, and
+    if the process is still here (the stdin read sits on a worker thread that
+    cancellation cannot stop) runs the exit handlers and exits.
+
+    ⚠ Nothing here may raise before the exit: the watch thread swallows a
+    raise, and the server would then linger, which is the defect this exists
+    to fix. The notice goes to stderr, whose reader may be the client that
+    died, so a failed write is ignored (row 64 review round 2).
+    ⚠ The exit handlers run once. A gate registered now runs FIRST if the main
+    thread reaches its own shutdown (stdin EOF inside the grace): it takes the
+    lock and so the forced path stands down; if the forced path took it first,
+    the main thread blocks on it until the forced exit ends the process.
+    """
+    gone_event.set()
+    if main_task is not None:
+        try:
+            loop.call_soon_threadsafe(main_task.cancel)
+        except Exception:
+            logger.debug("could not cancel the run task", exc_info=True)
+    try:
+        sys.stderr.write(
+            "jcodemunch-mcp: the process that started this server is gone; "
+            "exiting (JCODEMUNCH_PARENT_WATCH_SECONDS=0 turns this off).\n"
+        )
+        sys.stderr.flush()
+    except Exception:
+        logger.debug("stderr notice failed (its reader may be gone)", exc_info=True)
+
+    lock = threading.Lock()
+    forced = threading.current_thread()
+
+    def _exit_gate() -> None:
+        if threading.current_thread() is forced:
+            return
+        lock.acquire()
+
+    atexit.register(_exit_gate)
+    sleep(_PARENT_GONE_GRACE_SECONDS)
+    if not lock.acquire(blocking=False):
+        return  # the main thread is shutting down and runs the handlers itself
+    try:
+        atexit._run_exitfuncs()
+    except Exception:
+        logger.debug("exit handlers failed before the forced exit", exc_info=True)
+    hard_exit(0)
 
 
 async def run_stdio_server():
@@ -8111,6 +8206,22 @@ async def run_stdio_server():
 
     _watchdog_task = asyncio.create_task(_handshake_watchdog())
 
+    # BACKLOG row 64: stdin EOF ends this server, but a client that dies while
+    # something else holds the pipe open sends no EOF. When the parent is gone
+    # the run task is cancelled so the cleanup below runs; the stdin read sits
+    # on a worker thread cancellation cannot stop, so the process exits after
+    # a short grace if it is still here.
+    from . import parent_watch as _parent_watch
+
+    _main_task = asyncio.current_task()
+    _loop = asyncio.get_running_loop()
+    _parent_gone = threading.Event()
+
+    def _on_parent_gone() -> None:
+        _exit_for_gone_parent(_main_task, _loop, _parent_gone)
+
+    _parent_watch.start(_on_parent_gone)
+
     try:
         _stdout_arg = (
             anyio.wrap_file(_private_stdout) if _private_stdout is not None else None
@@ -8121,6 +8232,9 @@ async def run_stdio_server():
                 write_stream,
                 _initialization_options(indexed_files=_indexed_here()),
             )
+    except asyncio.CancelledError:
+        if not _parent_gone.is_set():
+            raise
     finally:
         if not _watchdog_task.done():
             _watchdog_task.cancel()
@@ -9645,6 +9759,35 @@ def _force_utf8_stdio() -> None:
             logger.debug("Could not force UTF-8 on sys.%s", stream_name, exc_info=True)
 
 
+def _cli_license_reminder(argv: Optional[list[str]]) -> None:
+    """The work-license reminder after a CLI command (item 650). Never raises."""
+    try:
+        from .license_reminder import cli_reminder
+
+        cli_reminder(list(argv if argv is not None else sys.argv[1:]))
+    except Exception:
+        logger.debug("license reminder (cli) failed", exc_info=True)
+
+
+def cli(argv: Optional[list[str]] = None):
+    """The console-script entry point: `main`, then the work-license reminder after a clean exit.
+
+    ⚠ A wrapper, not an edit to `main`: `main` leaves through many returns and exit calls, and
+    several tests and the DoD checklist read `main` by name through its AST, so
+    its body stays where it is. The reminder needs only the argv and a clean exit
+    (a return, or exit code 0). `pyproject.toml`'s script and `__main__` call this.
+    """
+    try:
+        result = main(argv)
+    except SystemExit as exc:
+        if exc.code in (None, 0):
+            _cli_license_reminder(argv)
+        raise
+    if result in (None, 0):
+        _cli_license_reminder(argv)
+    return result
+
+
 def main(argv: Optional[list[str]] = None):
     """Main entry point."""
     _force_utf8_stdio()
@@ -10213,6 +10356,18 @@ def main(argv: Optional[list[str]] = None):
         ),
     )
     init_parser.add_argument(
+        "--git-hook",
+        action="store_true",
+        dest="git_hook",
+        help=(
+            "Write a git post-checkout hook into the repository in this directory. "
+            "On a branch checkout it re-indexes, in the background, only the files "
+            "that differ between the two commits, and only if the repository is "
+            "already indexed. An existing hook keeps its lines. Off by default; "
+            "`uninstall` removes it."
+        ),
+    )
+    init_parser.add_argument(
         "--remove-guidance",
         action="store_true",
         dest="remove_guidance",
@@ -10320,6 +10475,15 @@ def main(argv: Optional[list[str]] = None):
         help="Emit JSON instead of pretty-printed output",
     )
 
+    # --- storage (read-only disk report) ---
+    storage_parser = subparsers.add_parser(
+        "storage",
+        help="Print how much disk the index store uses: the total, each index (largest first) and "
+             "everything else in the store. Stats files only; opens no database.",
+    )
+    from .cli import storage_report as _storage_report_cli
+    _storage_report_cli.add_arguments(storage_parser)
+
     # --- diagnose ---
     diagnose_parser = subparsers.add_parser(
         "diagnose",
@@ -10366,6 +10530,10 @@ def main(argv: Optional[list[str]] = None):
     uninstall_parser.add_argument(
         "--keep-hooks", action="store_true", dest="keep_hooks",
         help="Preserve jcodemunch hooks in ~/.claude/settings.json",
+    )
+    uninstall_parser.add_argument(
+        "--keep-git-hook", action="store_true", dest="keep_git_hook",
+        help="Preserve the jcodemunch block in this repository's git post-checkout hook",
     )
     uninstall_parser.add_argument(
         "--keep-copilot-hooks", action="store_true", dest="keep_copilot_hooks",
@@ -10656,6 +10824,15 @@ def main(argv: Optional[list[str]] = None):
         help="SubagentStart hook: inject condensed repo orientation for spawned agents (reads stdin)",
     )
 
+    # --- hook-post-checkout ---
+    pc_parser = subparsers.add_parser(
+        "hook-post-checkout",
+        help="git post-checkout hook (written by init --git-hook): re-index the files that differ between two commits",
+    )
+    pc_parser.add_argument("prev", help="commit before the checkout")
+    pc_parser.add_argument("new", help="commit after the checkout")
+    pc_parser.add_argument("flag", nargs="?", default="1", help="1 for a branch checkout, 0 for a file checkout")
+
     # --- hook-sessionstart ---
     subparsers.add_parser(
         "hook-sessionstart",
@@ -10810,7 +10987,7 @@ def main(argv: Optional[list[str]] = None):
     if any(arg in top_level_flags for arg in raw_argv):
         args = parser.parse_args(raw_argv)
     else:
-        known_commands = {"serve", "watch", "hook-event", "hook-pretooluse", "hook-posttooluse", "hook-copilot-posttooluse", "hook-precompact", "hook-taskcomplete", "hook-subagent-start", "hook-sessionstart", "watch-claude", "watch-all", "watch-install", "watch-uninstall", "watch-status", "config", "list-repos", "delete-index", "org-report", "org-rollup", "license", "index", "index-file", "import-trace", "import-scip", "claude-md", "init", "install", "install-status", "uninstall", "install-pack", "download-model", "upgrade", "whatsnew", "receipt", "digest", "reflect", "delivery", "parity", "refresh", "health", "file-risk", "observatory", "keyring", "surface", "diagnose"}
+        known_commands = {"serve", "watch", "hook-event", "hook-pretooluse", "hook-posttooluse", "hook-copilot-posttooluse", "hook-precompact", "hook-taskcomplete", "hook-subagent-start", "hook-sessionstart", "hook-post-checkout", "watch-claude", "watch-all", "watch-install", "watch-uninstall", "watch-status", "config", "list-repos", "delete-index", "org-report", "org-rollup", "license", "index", "index-file", "import-trace", "import-scip", "claude-md", "init", "install", "install-status", "uninstall", "install-pack", "download-model", "upgrade", "whatsnew", "receipt", "digest", "reflect", "delivery", "parity", "refresh", "health", "file-risk", "observatory", "keyring", "surface", "diagnose", "storage"}
         # MCP-tool-name typos: route to the right CLI verb with a friendly hint.
         # `index_repo` and `index_folder` are MCP tools, not CLI subcommands.
         _CLI_ALIASES = {
@@ -10916,7 +11093,7 @@ def main(argv: Optional[list[str]] = None):
 
     if args.command == "org-rollup":
         from .org.store import org_rollup
-        from .org.license import check_gate
+        from .org.license import check_gate, sales_link
         org = getattr(args, "org", None) or os.environ.get("JCODEMUNCH_ORG_ID", "")
         as_json = getattr(args, "json", False)
         if not org:
@@ -10930,19 +11107,23 @@ def main(argv: Optional[list[str]] = None):
         # license handler hit in #364.
         config_module.load_config()
         gate = check_gate()
+        # A key holder may be a paying customer and is never shown where to buy;
+        # the reason line still names the tier the feature needs.
+        link = sales_link(gate)
         if not gate["allowed"]:
             if as_json:
                 print(json.dumps({
                     "error": gate["reason"],
                     "license_mode": gate["mode"],
-                    "get_license": gate["get_license"],
+                    "get_license": link,
                 }, indent=2))
             else:
                 print(f"org-rollup is unavailable: {gate['reason']}", file=sys.stderr)
-                print(f"  Get a license: {gate['get_license']}", file=sys.stderr)
+                if link:
+                    print(f"  Get a license: {link}", file=sys.stderr)
             return
         if gate["mode"] == "grace":
-            print(f"note: {gate['reason']}  ({gate['get_license']})", file=sys.stderr)
+            print(f"note: {gate['reason']}" + (f"  ({link})" if link else ""), file=sys.stderr)
 
         data = org_rollup(org)
         data["_license"] = {
@@ -11078,6 +11259,7 @@ def main(argv: Optional[list[str]] = None):
             guidance=getattr(args, "guidance", False),
             policy=getattr(args, "policy", False),
             remove_guidance=getattr(args, "remove_guidance", False),
+            git_hook=getattr(args, "git_hook", False),
         ))
 
     if args.command == "install":
@@ -11130,6 +11312,10 @@ def main(argv: Optional[list[str]] = None):
             minimal=getattr(args, "minimal", False),
         ))
 
+    if args.command == "storage":
+        from .cli.storage_report import run as _storage_run
+        sys.exit(_storage_run(args))
+
     if args.command == "install-status":
         from .cli.init import install_status as _install_status, print_status as _print_status
         _print_status(_install_status(), as_json=getattr(args, "as_json", False))
@@ -11175,6 +11361,7 @@ def main(argv: Optional[list[str]] = None):
             dry_run=getattr(args, "dry_run", False),
             no_backup=getattr(args, "no_backup", False),
             yes=getattr(args, "yes", False),
+            git_hook=not getattr(args, "keep_git_hook", False),
         ))
 
     if args.command == "keyring":
@@ -11439,6 +11626,10 @@ def main(argv: Optional[list[str]] = None):
         from .cli.hooks import run_sessionstart
         sys.exit(run_sessionstart())
 
+    if args.command == "hook-post-checkout":
+        from .cli.git_hook import run_post_checkout
+        sys.exit(run_post_checkout(args.prev, args.new, args.flag))
+
     # Apply config defaults for watcher keys: CLI args > config > env vars.
     # config.load_config() is called inside each subcommand handler, but we need
     # the values here to fill in None defaults from argparse.
@@ -11476,8 +11667,9 @@ def main(argv: Optional[list[str]] = None):
                 )
             )
         else:
-            from .watcher import watch_folders
+            from .watcher import exit_unless_watchfiles, watch_folders
 
+            exit_unless_watchfiles("watch")
             asyncio.run(
                 watch_folders(
                     paths=args.paths,
@@ -11495,7 +11687,17 @@ def main(argv: Optional[list[str]] = None):
 
         handle_hook_event(event_type=args.event_type)
     elif args.command == "watch-all":
+        # Under pythonw (the Windows sign-in task) the watcher runs in a
+        # console-less child, or every git it starts opens a window.
+        from .service_installer import _log_dir as _watch_log_dir
+        from .windowless import run_with_hidden_console
+        _code = run_with_hidden_console(raw_argv, _watch_log_dir() / "watch-all.log")
+        if _code is not None:
+            sys.exit(_code)
         from .watch_all import watch_all, DEFAULT_REDISCOVER_INTERVAL_S
+        from .watcher import exit_unless_watchfiles
+
+        exit_unless_watchfiles("watch-all")
         use_ai = not args.no_ai_summaries and _default_use_ai_summaries()
         asyncio.run(
             watch_all(
@@ -11511,6 +11713,11 @@ def main(argv: Optional[list[str]] = None):
     elif args.command == "watch-install":
         import json as _json
         from .service_installer import install_service, InstallerError
+        from .watcher import exit_unless_watchfiles
+
+        # The service runs watch-all with this interpreter and restarts it on
+        # failure, so without watchfiles it would exit 1 and restart forever.
+        exit_unless_watchfiles("watch-install")
         try:
             print(_json.dumps(install_service(), indent=2))
         except InstallerError as exc:
@@ -11597,6 +11804,7 @@ def main(argv: Optional[list[str]] = None):
                 storage_path=os.environ.get("CODE_INDEX_PATH"),
             ))
         print(_json.dumps(result, indent=2))
+        _warn_capped_index(result, local=is_local)
         if not result.get("success"):
             sys.exit(1)
     elif args.command == "index-file":
@@ -11733,18 +11941,21 @@ def main(argv: Optional[list[str]] = None):
             try:
                 import watchfiles  # noqa: F401
             except ImportError:
+                from .watcher import watchfiles_install_command
+
+                install = watchfiles_install_command()
                 if watcher_from_cli:
                     print(
                         "ERROR: --watcher requires watchfiles. "
-                        "Install with: pip install 'jcodemunch-mcp[watch]'",
+                        f"Install it with: {install}",
                         file=sys.stderr,
                     )
                     sys.exit(1)
                 logger.warning(
                     "watch is enabled in config but the 'watchfiles' "
                     "package is not installed; continuing without the "
-                    "file watcher. Install with: pip install "
-                    "'jcodemunch-mcp[watch]'"
+                    "file watcher. Install it with: %s",
+                    install,
                 )
                 watcher_enabled = False
 
@@ -11866,4 +12077,4 @@ def main(argv: Optional[list[str]] = None):
 
 
 if __name__ == "__main__":
-    main()
+    cli()
