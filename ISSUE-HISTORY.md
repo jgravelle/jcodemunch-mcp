@@ -3028,3 +3028,13 @@ The 1.108.403 entry, verbatim as it stood in `CLAUDE.md`:
 The `Tests:` line's 1.108.403 count, verbatim:
 
 - ⚠ Prior (1.108.403): 18949 passed, 24 skipped, **0 failed** (18973 total).
+
+## Current State rotation (2026-11-02, release 1.108.407)
+
+The 1.108.404 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.404):** **a failed summarizer keeps the summaries it had, and tool descriptions open with the agent's question** (#1290, #1256, #1257): `summarize_repo(force=true)` keeps the stored summary of each symbol the provider failed on, and reports `provider_fallbacks`/`previous_summaries_kept` (L-274: an unbuildable client still resets); 17 descriptions open with the agent's question. The colon base-list fix shipped as .405 (the 2-hour release gate blocked it). Full text: `CHANGELOG.md`.
+
+The `Tests:` line's 1.108.404 count, verbatim:
+
+- ⚠ Prior (1.108.404): 19007 passed, 24 skipped, **0 failed** (19031 total).

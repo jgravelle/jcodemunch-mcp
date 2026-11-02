@@ -1,6 +1,12 @@
 {
-  "current": "1.108.406",
+  "current": "1.108.407",
   "entries": [
+    {
+      "version": "1.108.407",
+      "date": "2026-11-02",
+      "title": "a stdio server exits when the process that started it is gone, and storage reports how much disk the index uses",
+      "summary": "A stdio server now exits when the client that started it is gone, checked every 5 seconds, even if something else holds its input open. jcodemunch-mcp storage prints the index store's path and total, then each index by name, largest first. A query that names a tool, bare or with the host prefix, finds that tool first."
+    },
     {
       "version": "1.108.406",
       "date": "2026-11-01",
