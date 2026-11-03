@@ -2,7 +2,7 @@
 
 jCodeMunch gives Claude, and every sub-agent it starts, the one function or class it asks for instead of the whole file, and shows who calls it and what a change would break. It runs locally over stdio and starts no language servers.
 
-**License:** free for personal and other non-commercial use. Work use needs a commercial license, paid once, that includes every 1.x update: https://jcodemunch.com/buying.php
+**License:** free for personal and other non-commercial use. Work use at a for-profit company, or for client or paid work, needs a license, paid once, that includes every 1.x update: https://jcodemunch.com/buying.php
 
 The index is built with tree-sitter, and the same index answers which repos depend on which.
 

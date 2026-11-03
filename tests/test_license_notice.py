@@ -362,4 +362,29 @@ def test_the_notice_says_what_the_plugin_readme_says():
     root = Path(__file__).resolve().parent.parent
     readme = (root / "plugin" / "jcodemunch" / "README.md").read_text(encoding="utf-8")
     line = next(ln for ln in readme.splitlines() if ln.startswith("**License:**"))
-    assert line.replace("**License:**", "License:", 1) == license_notice.NOTICE_TEXT
+    assert line.replace("**License:**", "License:", 1) == license_notice.README_LINE
+    # Same words; only the link differs, by the notice's source tag.
+    assert license_notice.NOTICE_TEXT == license_notice.README_LINE.replace(
+        license_notice.BUY_URL, license_notice.NOTICE_BUY_URL
+    )
+
+
+def test_the_notice_link_names_where_it_was_shown():
+    """A sale through the notice can be told from other sales. The whole query
+    is pinned, so nothing about the install can join it."""
+    from urllib.parse import parse_qs, urlsplit
+
+    url = license_notice.NOTICE_TEXT.rsplit(" ", 1)[-1]
+    assert url == license_notice.NOTICE_BUY_URL
+    assert parse_qs(urlsplit(url).query) == {
+        "utm_source": ["cli"],
+        "utm_medium": ["notice"],
+        "utm_campaign": ["license-notice"],
+    }
+
+
+def test_the_notice_states_the_site_terms():
+    assert (
+        "Work use at a for-profit company, or for client or paid work, needs a license"
+        in license_notice.NOTICE_TEXT
+    )

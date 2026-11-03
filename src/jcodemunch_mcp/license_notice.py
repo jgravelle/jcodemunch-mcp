@@ -39,11 +39,17 @@ from typing import Mapping, Optional
 
 logger = logging.getLogger(__name__)
 
-#: The plugin README's license line, word for word.
-NOTICE_TEXT = (
-    "License: free for personal and other non-commercial use. Work use needs a commercial "
-    "license, paid once, that includes every 1.x update: https://jcodemunch.com/buying.php"
+BUY_URL = "https://jcodemunch.com/buying.php"
+#: The notice's own source tag, so a sale through it can be told from others.
+NOTICE_BUY_URL = BUY_URL + "?utm_source=cli&utm_medium=notice&utm_campaign=license-notice"
+#: The plugin README's license line, word for word (the README links the bare page).
+README_LINE = (
+    "License: free for personal and other non-commercial use. Work use at a for-profit "
+    "company, or for client or paid work, needs a license, paid once, that includes "
+    f"every 1.x update: {BUY_URL}"
 )
+#: The README's words, with the notice's tagged link.
+NOTICE_TEXT = README_LINE.replace(BUY_URL, NOTICE_BUY_URL)
 ENV_VAR = "JCODEMUNCH_LICENSE_NOTICE"
 MARKER_FILE = "license_notice_state.json"
 #: A CI or remote runner: a fresh machine each run, so a once-per-machine

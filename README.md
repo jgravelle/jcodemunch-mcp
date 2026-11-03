@@ -460,6 +460,9 @@ jCodeMunch retrieves at the **symbol level** with byte-level precision (function
 **Is it free for personal use?**
 Yes. Commercial use needs a license; see [above](#licensing-and-commercial-use).
 
+**Can I use jCodeMunch at work?**
+Personal and other non-commercial use is free, with no license. Using it at a for-profit company, or for client or paid work, takes a license, paid once, no subscription; the tiers and prices are on [the buying page](https://jcodemunch.com/buying.php). Installed it free at home and now use it at work? Your home projects stay free. Work use at a for-profit company, or for client or paid work, needs a license.
+
 **Where's the deep-dive on X?**
 Capabilities: [CAPABILITIES.md](CAPABILITIES.md). Config: [CONFIGURATION.md](CONFIGURATION.md). Clients: [CLIENTS.md](CLIENTS.md). Internals: [UNDER_THE_HOOD.md](UNDER_THE_HOOD.md). Or the firehose: [jcodemunch.com](https://jcodemunch.com/?utm_medium=readme&utm_campaign=jcm_readme_docs).
 
