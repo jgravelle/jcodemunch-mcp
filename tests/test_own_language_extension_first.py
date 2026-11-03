@@ -69,3 +69,13 @@ def test_the_shared_memo_does_not_carry_one_importers_answer_to_another():
     assert resolve_specifier("utils", "b.rb", files) == "utils.rb"
     assert resolve_specifier("utils", "a.py", files) == "utils.py"
     assert resolve_specifier("utils", "b.rb", files) == "utils.rb"
+
+
+def test_a_python_import_finds_a_package_folder_before_a_js_file():
+    files = frozenset({"x/__init__.py", "x.js", "app.py"})
+    assert resolve_specifier("x", "app.py", files) == "x/__init__.py"
+
+
+def test_a_python_module_still_wins_over_its_package_folder():
+    files = frozenset({"x.py", "x/__init__.py", "x.js", "app.py"})
+    assert resolve_specifier("x", "app.py", files) == "x.py"
