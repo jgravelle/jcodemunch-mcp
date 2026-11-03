@@ -163,8 +163,8 @@ _BUILD_CONSUMED_SUFFIXES = (".resx", ".xaml", ".xsd", ".wsdl", ".props", ".targe
 # code generator outside the index may compile them.
 _SHARED_FORMAT_SUFFIXES = (".xsd", ".wsdl")
 _RUNTIME_LOADABLE_SUFFIXES = (".ascx", ".master")
-# A Rails view is rendered by a name the index does not resolve
-# (`render "shared/nav"` names `shared/_nav.html.erb`) or by controller
+# An ERB view is rendered by a name the index does not resolve (Rails'
+# `render "shared/nav"` names `shared/_nav.html.erb`) or by a framework's
 # convention with no call at all. Kept apart from the .NET kinds so a Rails
 # app never reads as .NET (`has_dotnet_evidence`).
 _TEMPLATE_RENDERED_SUFFIXES = (".erb",)

@@ -40,18 +40,25 @@ The view is always the file's first symbol, which is what files it under
 `erb`: a function at byte 0 of a `.js.erb`, or a YAML merge key, would
 otherwise have filed the view as JavaScript or YAML.
 
-The dead-code tools never call a view unused. `render "shared/nav"` names
-`shared/_nav.html.erb`, which no import edge resolves, and a controller
-renders its views by convention with no call at all, so a view with no
-importer proves nothing. As #1012 does for a Web Forms control, an `.erb`
-file has an unseen consumer, `template_rendered`: `find_dead_code` caps it
-and every symbol in it below its default threshold, names the cap in
-`confidence_capped_by` and counts them in `template_rendered_withheld`;
-`check_delete_safe` answers `dynamic_import_boundary` with a
-`template_rendered` blocker, never `safe_to_delete`, for a view and the
-symbols in it; and `get_dead_code_v2` leaves `unreachable_file` undecided
-for them. A view can still be dead; the tools no longer say so from a graph
-that cannot see what renders it. Found in review.
+The dead-code tools no longer prove a view unused. `render "shared/nav"`
+names `shared/_nav.html.erb`, which no import edge resolves, and a Rails
+controller renders its views by convention with no call at all, so a view
+with no importer proves nothing. As #1012 does for a Web Forms control, an
+`.erb` file has an unseen consumer, `template_rendered`:
+
+- `find_dead_code` caps a view and every symbol in it below its default
+  threshold and names the cap in `confidence_capped_by`; the views it
+  withholds are counted in `template_rendered_withheld`.
+- `check_delete_safe` never answers `safe_to_delete` for a view or a symbol
+  in it. With no importer found it answers `dynamic_import_boundary` with a
+  `template_rendered` blocker; a name no call site writes (an HTML id) keeps
+  `name_not_searchable` and gains the blocker.
+- `get_dead_code_v2` leaves `unreachable_file` undecided for a view. A
+  repository with no import edge at all takes its call-graph-only path,
+  which reads no cap, for views as for the .NET kinds.
+
+A view can still be dead; the tools no longer say so from a graph that
+cannot see what renders it. Found in review.
 
 No re-index is forced: the next `index_folder` finds the views as new files,
 and a test holds that. The edit hooks treat `.erb` as code, so an edited

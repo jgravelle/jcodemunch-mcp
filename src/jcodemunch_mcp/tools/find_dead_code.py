@@ -518,8 +518,8 @@ def find_dead_code(
         "schema_consumer": "a build or code generator outside the index may compile them",
         "runtime_loadable": ".NET user controls and master pages can be loaded by path at "
         "runtime (LoadControl, a stored control path, MasterPageFile set in code)",
-        "template_rendered": "a Rails view is rendered by name (`render \"shared/nav\"` for "
-        "`shared/_nav.html.erb`) or by controller convention",
+        "template_rendered": "an ERB view is rendered by name (Rails `render \"shared/nav\"` "
+        "for `shared/_nav.html.erb`) or by a framework's convention",
     }
     for kind, n in unseen_withheld.items():
         if n:

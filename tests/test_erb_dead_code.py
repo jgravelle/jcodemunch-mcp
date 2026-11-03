@@ -183,10 +183,15 @@ def test_an_unreferenced_ruby_file_is_still_reported_at_full_confidence(rails_re
 
 
 @pytest.mark.parametrize(
-    "file,name",
-    [(_NAV_FILE, "_nav"), (_NAV_FILE, "main-nav"), (_NAV_FILE, "toggleNav"), (_SHOW_FILE, "show")],
+    "file,name,verdict",
+    [
+        (_NAV_FILE, "_nav", "dynamic_import_boundary"),
+        (_NAV_FILE, "main-nav", "name_not_searchable"),
+        (_NAV_FILE, "toggleNav", "dynamic_import_boundary"),
+        (_SHOW_FILE, "show", "dynamic_import_boundary"),
+    ],
 )
-def test_delete_preflight_does_not_certify_a_view_or_a_symbol_in_one(rails_repo, file, name):
+def test_delete_preflight_does_not_certify_a_view_or_a_symbol_in_one(rails_repo, file, name, verdict):
     """The rendered partial of the report: `render "shared/nav"` reaches it unseen.
 
     `main-nav` is not a name a call site writes, so it keeps its narrower
@@ -198,11 +203,10 @@ def test_delete_preflight_does_not_certify_a_view_or_a_symbol_in_one(rails_repo,
     repo_id, storage = rails_repo
     sid = _symbol_id(repo_id, storage, file, name)
     out = check_delete_safe(repo_id, sid, cross_repo=False, include_runtime=False, storage_path=storage)
-    assert out["verdict"] != "safe_to_delete", out
-    assert out["verdict"] in ("dynamic_import_boundary", "name_not_searchable"), out
+    assert out["verdict"] == verdict, out
     assert out["confidence"] <= UNPROVEN_CEILING, out
     assert any(b.get("kind") == "template_rendered" for b in out.get("blockers", [])), out
-    if out["verdict"] == "dynamic_import_boundary":
+    if verdict == "dynamic_import_boundary":
         action = out["recommended_action"]
         assert "render" in action and "LoadControl" not in action, action
 
