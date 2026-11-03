@@ -79,3 +79,52 @@ def test_a_python_import_finds_a_package_folder_before_a_js_file():
 def test_a_python_module_still_wins_over_its_package_folder():
     files = frozenset({"x.py", "x/__init__.py", "x.js", "app.py"})
     assert resolve_specifier("x", "app.py", files) == "x.py"
+
+
+# --- every spelling that reaches `_candidates` (review round 1) --------------
+
+
+def test_a_python_package_relative_import_finds_the_py_file():
+    files = frozenset({"pkg/utils.py", "pkg/utils.js", "pkg/a.py", "pkg/__init__.py"})
+    assert resolve_specifier(".utils", "pkg/a.py", files) == "pkg/utils.py"
+
+
+def test_a_python_dotted_import_finds_the_py_file():
+    files = frozenset({"app/utils.py", "app/utils.js", "app/__init__.py", "main.py"})
+    assert resolve_specifier("app.utils", "main.py", files) == "app/utils.py"
+
+
+def test_a_python_dotted_import_under_a_source_root_finds_the_py_file():
+    files = frozenset(
+        {"src/app/utils.py", "src/app/utils.js", "src/app/__init__.py", "src/main.py"}
+    )
+    assert resolve_specifier("app.utils", "src/main.py", files) == "src/app/utils.py"
+
+
+def test_an_aliased_import_keeps_the_importers_order():
+    """Alias expansion goes through the same candidates: a Python importer's
+    own file first, a JavaScript importer's order unchanged."""
+    files = frozenset({"lib/util.py", "lib/util.ts", "web/app.ts", "tools/run.py"})
+    aliases = {"@/*": ["lib/*"]}
+    assert resolve_specifier("@/util", "web/app.ts", files, aliases) == "lib/util.ts"
+    assert resolve_specifier("@/util", "tools/run.py", files, aliases) == "lib/util.py"
+
+
+def test_a_specifier_with_an_extension_is_never_reordered():
+    files = frozenset({"lib/helper.js", "lib/helper.rb", "app/main.rb"})
+    assert resolve_specifier("../lib/helper.js", "app/main.rb", files) == "lib/helper.js"
+
+
+def test_every_call_site_passes_the_importer():
+    """A new `_candidates` call that forgets the importer reads the fixed order
+    again, which is how round 1 missed five of seven sites."""
+    import inspect
+    import re
+
+    from jcodemunch_mcp.parser import imports
+
+    src = inspect.getsource(imports)
+    calls = re.findall(r"(?<![\w.])_candidates\(([^)]*)\)", src)
+    calls = [c for c in calls if not c.startswith("base: str")]
+    assert calls, "no call sites found"
+    assert all("," in c for c in calls), calls
