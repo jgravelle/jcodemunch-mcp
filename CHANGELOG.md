@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+### Fixed - a C or C++ `#include` resolves where the compiler finds it (#1315)
+
+@skibadubskiybadubs measured it on OpenStudio, a 4,507-file C++ repo: 12,291 file edges were missing. `resolve_specifier` had no C-family rule. Only a specifier starting with `.` was joined to the importer's folder, so `#include "X.hpp"` beside the importer, the most common C++ form, resolved only when the header sat at the repo root, and `#include <model/Model.hpp>` never resolved when the include root was `src/`. Every tool built on the import graph inherited the gap: `find_importers`, `get_blast_radius`, `get_dependency_graph`, the dead-code tools and the delete preflight saw a C++ header as imported by nobody.
+
+A C, C++, Objective-C or Arduino importer now tries its own folder first, then the repo root, then `include/` and `src/`. The name is matched exactly, so `#include <vector>` cannot land on a `vector.py` beside it. A `./` or `../` include reads as before, and an include the rule cannot place falls through to the old lookup, so no edge that resolved before is lost. The stored edge does not keep the quotes or brackets, so an angle include is also tried in the importer's folder, which a compiler does only for a quoted one. Include roots named in the build files (`include_directories`, `-I`) are not read. The resolver change needs no re-index.
+
+The extractor read only an unindented `#include`. Objective-C's `#import`, the usual form there, `#include_next`, an indented `#include` and `# include` gave no edge at all; they do now. That changes `files.imports` on unchanged content, so `PARSER_GENERATION` is 28 and the next index re-parses. The Ruby finding in the same report is #1316.
+
 ### Fixed - `reflect --apply-weights` writes the tuning file the server reads
 
 `tuning.jsonc` (learned ranking weights) and the embedding-drift canary are placed by two helpers that, when no storage path was passed, built `~/.code-index` and ignored `CODE_INDEX_PATH`. Over MCP this never showed: the server passes `CODE_INDEX_PATH` as the explicit storage path, so `tune_weights`, `check_embedding_drift` and `search_symbols` all used the named store. The CLI did not. `reflect --apply-weights` passes no storage path, so with `CODE_INDEX_PATH` set it wrote learned weights to `~/.code-index/tuning.jsonc`, a file the server never reads, and the weights it reported as applied were never used.
