@@ -3,7 +3,7 @@
   "name": "jcodemunch",
   "displayName": "jCodeMunch",
   "version": "1.108.412",
-  "description": "Local code index for Claude and its sub-agents: the one function asked for, its callers and what a change would break. Free for personal and non-commercial use; work use needs a paid license.",
+  "description": "Local code index for Claude and its sub-agents: the one function asked for, its callers and what a change would break. Free for non-commercial use; commercial use needs a one-time license.",
   "author": {
     "name": "jMunch, LLC",
     "url": "https://jcodemunch.com"

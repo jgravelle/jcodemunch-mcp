@@ -952,6 +952,11 @@ def main(argv: Optional[list[str]] = None) -> int:
             window_label=_window_label(since, until) if explicit_window else None,
         )
     )
+    from ..license_reminder import receipt_line
+
+    line = receipt_line()
+    if line:
+        sys.stdout.write(f"\n  {line}\n")
     return 0
 
 
