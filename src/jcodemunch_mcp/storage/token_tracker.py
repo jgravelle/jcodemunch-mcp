@@ -1587,6 +1587,75 @@ class _State:
         self._flush(lock_wait=wait, state_wait=state_wait)
 
 
+def _merge_into(data: dict, batch: dict) -> "tuple[str, datetime]":
+    """Add *batch* to the parsed ledger *data* in place; return the anon id and the stamp.
+
+    ⚠ May raise on a ledger that parses but holds the wrong type; `_merge_batch`
+    refuses the file then, as it refuses one it cannot read.
+    """
+    anon_id = batch["anon_id"]
+    if anon_id is None:
+        anon_id = data.get("anon_id") or str(uuid.uuid4())
+    data["anon_id"] = anon_id
+    data["total_tokens_saved"] = data.get("total_tokens_saved", 0) + batch["saved"]
+    # Record the first generation this file was ever written under, and the
+    # current one. Equal => the lifetime total is one consistent basis.
+    data.setdefault("basis_generation_first", data.get("basis_generation", SAVINGS_BASIS_GENERATION))
+    data["basis_generation"] = SAVINGS_BASIS_GENERATION
+    # Per-tool attribution. ⚠⚠ It starts EMPTY and can never be backfilled —
+    # the meter only ever stored a scalar — so sum(by_tool) is less than
+    # total_tokens_saved by however much was earned before this shipped.
+    # `by_tool_since` dates the start so that gap reads as unattributed
+    # history rather than as loss; session_stats reports it as a number.
+    if batch["by_tool"]:
+        merged = data.get("by_tool")
+        merged = dict(merged) if isinstance(merged, dict) else {}
+        for tool, amount in batch["by_tool"].items():
+            merged[tool] = merged.get(tool, 0) + amount
+        data["by_tool"] = merged
+        data.setdefault("by_tool_since", batch["by_tool_since"] or datetime.now().date().isoformat())
+    # Daily rollup alongside the lifetime total, so windowed views ("today",
+    # "this month") can come from THIS meter — the authoritative record —
+    # instead of transcript scans, which miss cleared history and model
+    # savings conservatively (observed 4 orders of magnitude under the
+    # meter on a heavy install). Flush batches are small (_FLUSH_INTERVAL
+    # calls), so crediting the whole batch to the flush day mis-dates at
+    # most one batch across midnight. Local date: "today" means today
+    # where the user sits. Capped so the file stays small.
+    day = datetime.now().date().isoformat()
+    if batch["saved"]:
+        daily = data.get("daily")
+        if not isinstance(daily, dict):
+            daily = {}
+        daily[day] = daily.get(day, 0) + batch["saved"]
+        if len(daily) > _DAILY_MAX_DAYS:
+            for stale in sorted(daily)[: len(daily) - _DAILY_MAX_DAYS]:
+                del daily[stale]
+        data["daily"] = daily
+    # ⚠⚠ The heartbeat. `daily` gains a day only when something was
+    # EARNED, so a meter that measured 0 and a meter that had stopped
+    # left the same file, and every reader showed a frozen total as
+    # current. Every flush that carries a call stamps the time and the
+    # day: a 0 in `measured_days` is a measurement, a missing day is not.
+    now = datetime.now(timezone.utc)
+    data[_meter.LAST_FLUSH_AT] = now.isoformat(timespec="seconds")
+    measured = data.get(_meter.MEASURED_DAYS)
+    measured = dict(measured) if isinstance(measured, dict) else {}
+    prior = measured.get(day)
+    prior = prior if isinstance(prior, dict) else {}
+    measured[day] = {
+        "calls": _as_count(prior.get("calls")) + batch["calls"],
+        "saved": _as_count(prior.get("saved")) + batch["saved"],
+    }
+    if len(measured) > _DAILY_MAX_DAYS:
+        for stale in sorted(measured)[: len(measured) - _DAILY_MAX_DAYS]:
+            del measured[stale]
+    data[_meter.MEASURED_DAYS] = measured
+    if batch["encoding"]:
+        data["total_encoding_tokens_saved"] = data.get("total_encoding_tokens_saved", 0) + batch["encoding"]
+    return anon_id, now
+
+
 def _merge_batch(root: Path, batch: dict, lock_wait: float) -> dict:
     """Merge *batch* into `<root>/_savings.json` under `_savings.lock`. Touches no `_State`.
 
@@ -1621,66 +1690,20 @@ def _merge_batch(root: Path, batch: dict, lock_wait: float) -> dict:
                 "a new one. %d tokens saved over %d calls are kept in memory for the next write",
                 path, problem, batch["saved"], batch["calls"],
             )
-        anon_id = batch["anon_id"]
-        if anon_id is None:
-            anon_id = data.get("anon_id") or str(uuid.uuid4())
-        data["anon_id"] = anon_id
-        data["total_tokens_saved"] = data.get("total_tokens_saved", 0) + batch["saved"]
-        # Record the first generation this file was ever written under, and the
-        # current one. Equal => the lifetime total is one consistent basis.
-        data.setdefault("basis_generation_first", data.get("basis_generation", SAVINGS_BASIS_GENERATION))
-        data["basis_generation"] = SAVINGS_BASIS_GENERATION
-        # Per-tool attribution. ⚠⚠ It starts EMPTY and can never be backfilled —
-        # the meter only ever stored a scalar — so sum(by_tool) is less than
-        # total_tokens_saved by however much was earned before this shipped.
-        # `by_tool_since` dates the start so that gap reads as unattributed
-        # history rather than as loss; session_stats reports it as a number.
-        if batch["by_tool"]:
-            merged = data.get("by_tool")
-            merged = dict(merged) if isinstance(merged, dict) else {}
-            for tool, amount in batch["by_tool"].items():
-                merged[tool] = merged.get(tool, 0) + amount
-            data["by_tool"] = merged
-            data.setdefault("by_tool_since", batch["by_tool_since"] or datetime.now().date().isoformat())
-        # Daily rollup alongside the lifetime total, so windowed views ("today",
-        # "this month") can come from THIS meter — the authoritative record —
-        # instead of transcript scans, which miss cleared history and model
-        # savings conservatively (observed 4 orders of magnitude under the
-        # meter on a heavy install). Flush batches are small (_FLUSH_INTERVAL
-        # calls), so crediting the whole batch to the flush day mis-dates at
-        # most one batch across midnight. Local date: "today" means today
-        # where the user sits. Capped so the file stays small.
-        day = datetime.now().date().isoformat()
-        if batch["saved"]:
-            daily = data.get("daily")
-            if not isinstance(daily, dict):
-                daily = {}
-            daily[day] = daily.get(day, 0) + batch["saved"]
-            if len(daily) > _DAILY_MAX_DAYS:
-                for stale in sorted(daily)[: len(daily) - _DAILY_MAX_DAYS]:
-                    del daily[stale]
-            data["daily"] = daily
-        # ⚠⚠ The heartbeat. `daily` gains a day only when something was
-        # EARNED, so a meter that measured 0 and a meter that had stopped
-        # left the same file, and every reader showed a frozen total as
-        # current. Every flush that carries a call stamps the time and the
-        # day: a 0 in `measured_days` is a measurement, a missing day is not.
-        now = datetime.now(timezone.utc)
-        data[_meter.LAST_FLUSH_AT] = now.isoformat(timespec="seconds")
-        measured = data.get(_meter.MEASURED_DAYS)
-        measured = dict(measured) if isinstance(measured, dict) else {}
-        prior = measured.get(day)
-        prior = prior if isinstance(prior, dict) else {}
-        measured[day] = {
-            "calls": _as_count(prior.get("calls")) + batch["calls"],
-            "saved": _as_count(prior.get("saved")) + batch["saved"],
-        }
-        if len(measured) > _DAILY_MAX_DAYS:
-            for stale in sorted(measured)[: len(measured) - _DAILY_MAX_DAYS]:
-                del measured[stale]
-        data[_meter.MEASURED_DAYS] = measured
-        if batch["encoding"]:
-            data["total_encoding_tokens_saved"] = data.get("total_encoding_tokens_saved", 0) + batch["encoding"]
+        try:
+            anon_id, now = _merge_into(data, batch)
+        except Exception as exc:
+            # ⚠ A file that parses but holds the wrong type (a string where the
+            # merge adds a number) is refused like an unreadable one. Before,
+            # the TypeError escaped to a DEBUG line with the batch lost, the
+            # file frozen and the meter still reading current.
+            return failed(
+                "warning",
+                "Savings file %s holds a value of the wrong type (%s: %s). Nothing is written to it "
+                "(and nothing is sent to the community meter) until it reads again: repair it, or move it "
+                "aside to start a new one. %d tokens saved over %d calls are kept in memory for the next write",
+                path, type(exc).__name__, exc, batch["saved"], batch["calls"],
+            )
         # Through a temp file named for this process and os.replace, so a
         # reader never sees a half-written file and a failed write leaves
         # the old one whole.
@@ -1786,9 +1809,31 @@ def _read_ledger(path: Path) -> "tuple[Optional[dict], Optional[str]]":
         return None, "does not hold a JSON object"
     # A non-negative number, the rule `receipt.lifetime_meter` reads by.
     total = data.get("total_tokens_saved", 0)
-    if not isinstance(total, (int, float)) or isinstance(total, bool) or not total >= 0:
+    if not _is_amount(total):
         return None, "holds a total that is not a non-negative number"
+    # ⚠ Every field the meter does arithmetic on, read by the loader AND the
+    # merge: a string there raised TypeError inside a tool call's savings step
+    # (`add`) and inside the merge, which lost the batch and left the file
+    # frozen while the meter read `current`.
+    if "total_encoding_tokens_saved" in data and not _is_amount(data["total_encoding_tokens_saved"]):
+        return None, "holds an encoding total that is not a non-negative number"
+    # A table that is not a table at all is rebuilt by the merge, as before
+    # (`test_corrupt_daily_shape_is_replaced_not_fatal`); one that IS a table
+    # but holds a mistyped value is history the merge would add to, so it is
+    # refused for the user to repair rather than overwritten.
+    for key in ("by_tool", "daily"):
+        table = data.get(key)
+        if isinstance(table, dict) and not all(_is_amount(v) for v in table.values()):
+            return None, f"holds a `{key}` table whose values are not all non-negative numbers"
+    for key in ("basis_generation", "basis_generation_first"):
+        if key in data and not (isinstance(data[key], int) and not isinstance(data[key], bool)):
+            return None, f"holds a `{key}` that is not a whole number"
     return data, None
+
+
+def _is_amount(value: object) -> bool:
+    """A non-negative number, the rule `receipt.lifetime_meter` reads a total by."""
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and value >= 0
 
 
 def _savings_path(base_path: Optional[str] = None) -> Path:
