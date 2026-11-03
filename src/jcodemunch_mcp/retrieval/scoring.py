@@ -377,27 +377,9 @@ _EXAMPLE_INTENT = frozenset({
     "tutorial", "tutorials", "snippet", "snippets", "docs", "doc", "documentation",
 })
 
-# Words that make a query ABOUT imports and exports.
-_BINDING_INTENT = frozenset({
-    "import", "imports", "imported", "require", "requires", "required",
-    "export", "exports", "exported", "reexport", "include", "includes",
-})
-
-# A variable or constant whose value is a module load: `var Route =
-# require('./router/route');`, `const x = require('y').z`, `const m = await
-# import('m')`. The name repeats the definition's name and the row holds no
-# code, so a routing question returned the binding ahead of the class. Only
-# the declaration's own `=` counts: the text before it holds no `=` or `(`,
-# so `x == require(a)` and a literal holding `k: y = require(z)` are values.
-_BINDING_RE = re.compile(r"[^=(]*=\s*(?:await\s+)?(?:require|import)\s*\(")
-
-# Multipliers for a symbol in an example directory and for an import or
-# module-load binding. An example takes the test-file weight. A binding takes
-# 0.01, below every other factor, so it ranks under any definition that
-# matches and still comes back when nothing else does. Both are chosen, not
-# tuned. Only RANKING reads them, as with every factor here.
+# The multiplier for a symbol in an example directory: the test-file weight.
+# Chosen, not tuned. Only RANKING reads it, as with every factor here.
 EXAMPLE_WEIGHT = TEST_SYMBOL_WEIGHT
-BINDING_WEIGHT = 0.01
 
 
 def is_example_path(file_path: str) -> bool:
@@ -406,31 +388,18 @@ def is_example_path(file_path: str) -> bool:
     return any(p.lower() in _EXAMPLE_DIRS for p in parts[:-1])
 
 
-def is_binding_symbol(sym: dict) -> bool:
-    """An import row, or a variable or constant bound to a module load."""
-    kind = sym.get("kind")
-    if kind == "import":
-        return True
-    if kind not in ("variable", "constant"):
-        return False
-    return bool(_BINDING_RE.match(sym.get("signature") or ""))
-
-
 def rank_factor(sym: dict, terms: list[str]) -> tuple[float, str | None]:
     """The ranking multiplier for ``sym`` on this query, and why.
 
     One reason applies, the first that matches: ``test_file``
-    (`test_file_factor`), ``binding`` (`is_binding_symbol`, on a query with
-    no import or export word), ``example_file`` (`is_example_path`, on a
-    query with no example word), ``non_code_file`` (a NON_CODE_LANGUAGES
+    (`test_file_factor`), ``example_file`` (`is_example_path`, on a query
+    with no example word), ``non_code_file`` (a NON_CODE_LANGUAGES
     symbol on a query with no configuration, or styling, word) or
     ``data_kind`` (`is_data_symbol`, on a query with no value word).
     ``(1.0, None)`` otherwise."""
     weight = test_file_factor(sym, terms)
     if weight != 1.0:
         return weight, "test_file"
-    if is_binding_symbol(sym) and not any(t in _BINDING_INTENT for t in terms):
-        return BINDING_WEIGHT, "binding"
     if is_example_path(sym.get("file") or "") and not any(t in _EXAMPLE_INTENT for t in terms):
         return EXAMPLE_WEIGHT, "example_file"
     lang = (sym.get("language") or "").lower()
