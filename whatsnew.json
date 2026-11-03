@@ -1,6 +1,12 @@
 {
-  "current": "1.108.409",
+  "current": "1.108.410",
   "entries": [
+    {
+      "version": "1.108.410",
+      "date": "2026-11-02",
+      "title": "a savings meter that stops measuring says so, and Rails views are indexed",
+      "summary": "A savings meter that stops measuring now says so: receipt, diagnose and get_session_stats report whether the lifetime total is current, stale or unknown, and a write can no longer wipe or lose counts. Ruby ERB templates (.erb) are indexed, so Rails views are searchable. reflect --apply-weights writes the tuning file the server actually reads when CODE_INDEX_PATH is set."
+    },
     {
       "version": "1.108.409",
       "date": "2026-11-02",
