@@ -163,3 +163,44 @@ def test_the_parser_generation_moved_with_the_stored_imports():
     from jcodemunch_mcp.storage.index_store import PARSER_GENERATION
 
     assert PARSER_GENERATION >= 28
+
+
+@pytest.mark.parametrize(
+    "spec, importer, extra",
+    [
+        # a system header beside a root .py file of the same stem
+        ("vector", "main.cpp", {"vector.py", "main.cpp"}),
+        # the SQL stem fallback
+        ("vector", "lib/widget.c", {"db/vector.sql"}),
+        # the Python module-path reading of a dotted name
+        ("config.h", "lib/widget.c", {"config/h.py"}),
+    ],
+)
+def test_an_include_the_rule_cannot_place_reaches_no_other_languages_rules(
+    spec, importer, extra
+):
+    """A C include names a file. On a miss, the other languages' readings
+    (extensions, stems, module paths) can only invent an edge."""
+    assert resolve_specifier(spec, importer, FILES | extra) is None
+
+
+def test_include_is_tried_before_src_as_an_include_root():
+    files = FILES | {"include/model/Model.hpp"}
+    assert (
+        resolve_specifier("model/Model.hpp", "developer/cmake/test.cpp", files)
+        == "include/model/Model.hpp"
+    )
+
+
+def test_clearing_the_resolution_caches_forgets_the_language_gate(monkeypatch):
+    """The gate is cached by path; a changed extension table is seen once the
+    caches are cleared (review of #1315)."""
+    from jcodemunch_mcp.parser import imports
+    from jcodemunch_mcp.parser import languages
+
+    assert imports._is_c_family_importer("x/a.zzc") is False
+    monkeypatch.setitem(languages.LANGUAGE_EXTENSIONS, ".zzc", "c")
+    imports.clear_resolution_caches()
+    assert imports._is_c_family_importer("x/a.zzc") is True
+    monkeypatch.undo()
+    imports.clear_resolution_caches()
