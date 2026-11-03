@@ -171,16 +171,13 @@ def _parse(value: object) -> Optional[datetime]:
         return None
 
 
-def skip_reason(
-    env: Optional[Mapping[str, str]] = None, now: Optional[datetime] = None
-) -> Optional[str]:
-    """Why the reminder is not due here, or None when it is. Cheapest checks first.
+def switch_reason(env: Optional[Mapping[str, str]] = None) -> Optional[str]:
+    """Which off switch applies here, or None. No clock and no state.
 
-    The first sighting of an index records `first_index_at` and returns
-    `too_early`, so the 7 days count from the first time an index was seen.
+    The one list of switches: `skip_reason` (the reminder) and `receipt_line`
+    both read it, so a switch added here silences both.
     """
     env = os.environ if env is None else env
-    now = now or _now()
     for name in (ENV_VAR, NOTICE_ENV_VAR):
         if (env.get(name) or "").strip().lower() in _OFF:
             return "disabled"
@@ -190,6 +187,21 @@ def skip_reason(
         return "silenced"
     if _licence_key_configured():
         return "licensed"
+    return None
+
+
+def skip_reason(
+    env: Optional[Mapping[str, str]] = None, now: Optional[datetime] = None
+) -> Optional[str]:
+    """Why the reminder is not due here, or None when it is. Cheapest checks first.
+
+    The first sighting of an index records `first_index_at` and returns
+    `too_early`, so the 7 days count from the first time an index was seen.
+    """
+    now = now or _now()
+    reason = switch_reason(env)
+    if reason is not None:
+        return reason
     state = _load_state()
     first = _parse(state.get("first_index_at"))
     if first is None:
@@ -215,14 +227,8 @@ def receipt_line(env: Optional[Mapping[str, str]] = None) -> Optional[str]:
     a CI or remote runner) and a configured license key silences it. A check
     that fails says nothing.
     """
-    env = os.environ if env is None else env
     try:
-        for name in (ENV_VAR, NOTICE_ENV_VAR):
-            if (env.get(name) or "").strip().lower() in _OFF:
-                return None
-        if any((env.get(name) or "").strip().lower() in _ON for name in CI_MARKERS):
-            return None
-        if _config_silenced() or _licence_key_configured():
+        if switch_reason(env) is not None:
             return None
         return RECEIPT_TEXT
     except Exception:

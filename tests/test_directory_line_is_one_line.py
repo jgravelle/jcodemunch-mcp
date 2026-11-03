@@ -36,6 +36,11 @@ def _marketplace_description() -> str:
     return rows[0]["description"]
 
 
+def _plugin_manifest_description() -> str:
+    path = ROOT / "plugin" / "jcodemunch" / ".claude-plugin" / "plugin.json"
+    return json.loads(path.read_text(encoding="utf-8"))["description"]
+
+
 def _docstring() -> str:
     tree = ast.parse((ROOT / "src" / "jcodemunch_mcp" / "__init__.py").read_text(encoding="utf-8"))
     return ast.get_docstring(tree) or ""
@@ -61,6 +66,7 @@ def test_every_description_says_commercial_use_needs_a_license():
         ("pyproject.toml", _pyproject_description()),
         ("server.json", _server_json_description()),
         ("marketplace.json", _marketplace_description()),
+        ("plugin.json", _plugin_manifest_description()),
         ("__init__.py", _docstring()),
     ]:
         low = text.lower()

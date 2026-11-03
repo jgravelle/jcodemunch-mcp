@@ -393,6 +393,14 @@ def test_the_receipt_line_obeys_the_reminders_switches(store, env):
     assert lr.receipt_line(env=env) is None
 
 
+@pytest.mark.parametrize("reason", ["disabled", "ci", "silenced", "licensed", "a-switch-added-later"])
+def test_every_switch_that_silences_the_reminder_silences_the_receipt_line(store, monkeypatch, reason):
+    """Both read `switch_reason`, so a switch added there reaches both."""
+    monkeypatch.setattr(lr, "switch_reason", lambda env=None: reason)
+    assert lr.skip_reason(env={}) == reason
+    assert lr.receipt_line(env={}) is None
+
+
 def test_the_receipt_line_is_silenced_by_config(store, monkeypatch):
     monkeypatch.setattr(lr, "_config_silenced", lambda: True)
     assert lr.receipt_line(env={}) is None
