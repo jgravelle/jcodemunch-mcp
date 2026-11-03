@@ -10,6 +10,14 @@ A C, C++, Objective-C or Arduino importer now tries its own folder first, then t
 
 The extractor read only an unindented `#include`. Objective-C's `#import`, the usual form there, `#include_next`, an indented `#include` and `# include` gave no edge at all; they do now. That changes `files.imports` on unchanged content, so `PARSER_GENERATION` is 28 and the next index re-parses. The Ruby finding in the same report is #1316.
 
+### Fixed - who calls a Go function finds callers in the same package
+
+Go files in one directory form one package and call each other with no import statement. `get_call_hierarchy`, `get_blast_radius` and `get_impact_preview` looked for callers only in files the import graph linked to the symbol's file, so a caller in the same package was never considered. On gin, who-calls found 1 of 4 callers and what-breaks found none, with `auth.go`, `recovery.go` and `routergroup.go` reported as `import_graph_did_not_reach`. Found by Benchmarking's relationship checks on 1.108.401 (LEDGER L-262).
+
+A Go file's package siblings (same directory, also Go) now count as files that may call it, in all three tools and at every call depth. Callers found that way are no longer reported as unreached, a same-package `_test.go` gives a function test reach, and blast radius counts a same-package caller as a dependent, two hops up as well as one. A same-named method on another type, an interface that only declares the method, and a function in another package with its own helper of the same name are not callers. Files in other languages in the same directory still need an import. Java packages and C# namespaces have the same shape and are not covered here.
+
+The compact encoding of `get_blast_radius` dropped two body-level disclosures, `incomplete` and `dynamic_imports_unfollowed`, as undeclared fields. It carries them now, as encoding `br4`; `br3` and `br2` still decode. The extra package scan costs time on a large package: measured in review on a synthetic 300-file Go package, a query took 16.5 ms against 2.6 ms before.
+
 ## [1.108.410] - 2026-11-02 - a savings meter that stops measuring says so, and Rails views are indexed
 
 ### Fixed - `reflect --apply-weights` writes the tuning file the server reads

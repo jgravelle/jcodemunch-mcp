@@ -7,7 +7,7 @@ from typing import Optional
 from ..retrieval.verdict import symbol_not_found
 from ..storage import IndexStore
 from ._utils import index_status_to_tool_error, resolve_repo
-from .get_blast_radius import _build_reverse_adjacency, _find_symbol
+from .get_blast_radius import _build_reverse_adjacency, _find_symbol, with_same_package_peers
 from ._call_graph import build_symbols_by_file, find_direct_callers
 from .decision_context import resolve_decision_context
 
@@ -90,6 +90,10 @@ def get_impact_preview(
         frozenset(index.source_files),
         getattr(index, "alias_map", None),
         getattr(index, "psr4_map", None),
+    )
+    # A Go file's package siblings call it with no import (L-262).
+    reverse_adj = with_same_package_peers(
+        reverse_adj, getattr(index, "file_languages", None)
     )
     symbol_index: dict[str, dict] = getattr(index, "_symbol_index", {})
 
