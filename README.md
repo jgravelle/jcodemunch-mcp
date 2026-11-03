@@ -4,7 +4,7 @@
 
 <sub>Benchmark: 5 queries on each of express, fastapi and gin at pinned commits, tokens counted with tiktoken `cl100k_base`, jcodemunch-mcp at commit `15afcf75`, whose version string is 1.108.391 but which also carries the settings-file ranking change released in 1.108.392 and the field/constant change released after it. A lookup is one `search_symbols` plus `get_symbol_source` on its top 3 hits, against grep-and-read (rank files by match count, read the top 3 whole). Per lookup, not per session. Reproduce with [`benchmarks/REPRODUCING.md`](benchmarks/REPRODUCING.md).</sub>
 
-> **Real results, live from production**
+> **Real results from production, as of 2026-08-17**
 > **838B+ tokens saved** · **136,000+ reporting installs** · **$4.2M+ in AI spend avoided** · **100,000+ kg CO₂ prevented**
 > Estimated counter figures as of 2026-08-17, not live, valued at the $5/MTok Claude Opus **input** rate. All four only grow, so read them as floors. Live at **[jcodemunch.com](https://jcodemunch.com/?utm_medium=readme&utm_campaign=jcm_readme_counter)**.
 
@@ -23,7 +23,7 @@ Works with **Claude Code**, **Cursor**, **VS Code**, **Codex CLI**, **Windsurf**
 <!-- mcp-name: io.github.jgravelle/jcodemunch-mcp -->
 
 **Free for personal use.** Use it to make money, and Uncle J. gets a taste. Fair enough? [Commercial licenses below.](#licensing-and-commercial-use)
-Work use needs a one-time license: $79 for one developer, $349 for up to five, $1,999 for a whole company ([licenses](https://jcodemunch.com/descriptions.php)).
+Commercial use needs a one-time license: $79 for one developer, $349 for up to five, $1,999 for a whole company.
 Our guarantee: if jCodeMunch doesn't pay for itself, you don't pay for jCodeMunch.
 
 **Small by default.** A new install starts on a six-tool front door: menu, order and route do the work, and jcodemunch_guide, announce_model and set_tool_tier help. The full tool set sits behind it, and `jcodemunch-mcp surface` shows exactly what your install advertises.

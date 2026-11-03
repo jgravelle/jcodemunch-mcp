@@ -2,9 +2,9 @@
 
 ## [Unreleased]
 
-### Changed - the package's own descriptions say work use needs a license
+### Changed - the package's own descriptions say commercial use needs a license
 
-None of the short descriptions said that work use is paid, and directories copy them: one listing now calls jCodeMunch "completely free". The MCP registry and marketplace line now reads "Gives AI agents the function they asked for, not the file. Personal use free; work needs a license." The registry allows 100 characters and the old line already used all 100, so "Runs locally, 70+ languages" made room for the license clause. The PyPI summary and the package docstring keep their line and add "Free for personal use; work use needs a one-time license." The README gives the jCodeMunch prices under the personal-use line ($79 for one developer, $349 for up to five, $1,999 for a whole company, as listed on jcodemunch.com/descriptions.php on 2026-11-02), and its counter block now says its figures are estimates as of 2026-08-17 and not live.
+None of the short descriptions said that commercial use is paid, and directories copy them: one listing now calls jCodeMunch "completely free". The MCP registry and marketplace line now reads "Gives AI agents the function they asked for, not the file. Commercial use needs a license." The registry allows 100 characters and the old line already used all 100, so "Runs locally, 70+ languages" made room for the license clause. The PyPI summary and the package docstring keep their line and add "Free for non-commercial use; commercial use needs a one-time license.", the README's own licensing terms. "Commercial" and not "work": the license leaves research and other non-commercial work free. The README gives the jCodeMunch prices under the personal-use line ($79 for one developer, $349 for up to five, $1,999 for a whole company, as listed on jcodemunch.com/descriptions.php on 2026-11-02). Its counter block now says its figures are estimates as of 2026-08-17, not live, in its heading and its caption.
 
 ## [1.108.409] - 2026-11-02 - a search for a name nothing carries says so on a default install
 

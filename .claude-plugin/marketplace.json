@@ -11,7 +11,7 @@
       "name": "jcodemunch",
       "source": "./plugin/jcodemunch",
       "displayName": "jCodeMunch",
-      "description": "Gives AI agents the function they asked for, not the file. Personal use free; work needs a license.",
+      "description": "Gives AI agents the function they asked for, not the file. Commercial use needs a license.",
       "category": "development",
       "tags": [
         "code",
