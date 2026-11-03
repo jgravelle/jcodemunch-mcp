@@ -4583,6 +4583,23 @@ def _variable_function_name(declarator, source_bytes: bytes) -> Optional[str]:
     return source_bytes[name_node.start_byte:name_node.end_byte].decode("utf-8")
 
 
+def _bound_function_signature(stmt, value, spec: LanguageSpec, source_bytes: bytes) -> str:
+    """Signature of a function bound by a declaration or an assignment: its header.
+
+    `const f = function (a) {...}`, `const g = (a) => {...}` and
+    `res.send = function send(body) {...}` used to store the whole statement,
+    body included, because the statement node has no `body` field. A plain
+    `function f(a)` stores only its header, so these rows carried every
+    line of the function into each search result, and words in the body
+    matched searches. The header ends where the function's own body starts.
+    """
+    body = value.child_by_field_name("body") if value is not None else None
+    if body is None or not (stmt.start_byte <= body.start_byte <= stmt.end_byte):
+        return _build_signature(stmt, spec, source_bytes)
+    sig = source_bytes[stmt.start_byte:body.start_byte].decode("utf-8", "replace").strip()
+    return sig.rstrip("{: \n\t")
+
+
 def _extract_variable_function(
     node,
     spec: LanguageSpec,
@@ -4614,7 +4631,9 @@ def _extract_variable_function(
     if sig_node is not node and sig_node.parent and sig_node.parent.type == "export_statement":
         sig_node = sig_node.parent
 
-    signature = _build_signature(sig_node, spec, source_bytes)
+    signature = _bound_function_signature(
+        sig_node, node.child_by_field_name("value"), spec, source_bytes
+    )
 
     # Docstring: look for preceding comment on the declaration statement
     doc_node = sig_node
@@ -4771,7 +4790,7 @@ def _extract_member_assignment_function(
     qualified_name = ".".join(path)
 
     stmt = node.parent if node.parent is not None and node.parent.type == "expression_statement" else node
-    signature = _build_signature(stmt, spec, source_bytes)
+    signature = _bound_function_signature(stmt, right, spec, source_bytes)
     docstring = _extract_docstring(stmt, spec, source_bytes)
     body = source_bytes[stmt.start_byte:stmt.end_byte]
     return _AssignedMember(

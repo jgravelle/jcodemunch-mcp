@@ -102,13 +102,18 @@ def test_a_pattern_beside_a_plain_declarator_records_each_declarator(language, f
 
 @pytest.mark.parametrize("language, filename", _LANGS)
 def test_the_function_expression_channel_follows_the_same_rule(language, filename):
-    """The same statement, the other channel; one rule for both."""
+    """The same statement, the other channel; one rule for both.
+
+    The span follows the declarator. The signature starts where the span
+    starts and ends at the function's body (L-263 review: a bound function's
+    signature carried its whole body), so it never holds a neighbour's text.
+    """
     assert _rows("const f = () => 1, g = function () {};\n", language, filename) == [
-        ("function", "f", 6, 11, "f = () => 1"),
-        ("function", "g", 19, 18, "g = function () {}"),
+        ("function", "f", 6, 11, "f = () =>"),
+        ("function", "g", 19, 18, "g = function ()"),
     ]
     assert _rows("const f = () => 1;\n", language, filename) == [
-        ("function", "f", 0, 18, "const f = () => 1;"),
+        ("function", "f", 0, 18, "const f = () =>"),
     ]
 
 
