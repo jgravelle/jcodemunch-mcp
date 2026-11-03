@@ -49,6 +49,23 @@ def test_the_docstring_carries_the_pypi_summary():
     assert _pyproject_description() in _docstring()
 
 
+def test_every_description_says_work_use_needs_a_license():
+    """Directories copy these lines, and one listing called the package
+    "completely free" while none of them mentioned the license."""
+    for where, text in [
+        ("pyproject.toml", _pyproject_description()),
+        ("server.json", _server_json_description()),
+        ("marketplace.json", _marketplace_description()),
+        ("__init__.py", _docstring()),
+    ]:
+        low = text.lower()
+        assert "personal use" in low and "work" in low and "license" in low, where
+
+
+def test_the_registry_line_fits_the_registry_limit():
+    assert len(_server_json_description()) <= 100
+
+
 def test_no_description_carries_the_old_project_name():
     for where, text in [
         ("pyproject.toml", _pyproject_description()),
