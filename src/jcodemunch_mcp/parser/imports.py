@@ -2892,6 +2892,30 @@ def resolve_specifier(
     Returns:
         The matching source file path, or None if unresolvable.
     """
+    # (#1317) The whole answer is memoized per file set, alias map and PSR-4
+    # map, keyed by importer and specifier: every graph tool resolves every
+    # import of the repository on every call, and the answer is a pure function
+    # of these five arguments. A builder that passes the index's own frozenset
+    # inherits it; a plain set is resolved as before.
+    memo = _answer_memo(source_files, alias_map, psr4_map)
+    if memo is None:
+        return _resolve_specifier_uncached(specifier, importer_path, source_files, alias_map, psr4_map)
+    key = (importer_path, specifier)
+    hit = memo.get(key, _TAIL_MISS)
+    if hit is _TAIL_MISS:
+        hit = _resolve_specifier_uncached(specifier, importer_path, source_files, alias_map, psr4_map)
+        memo[key] = hit
+    return hit
+
+
+def _resolve_specifier_uncached(
+    specifier: str,
+    importer_path: str,
+    source_files: set[str],
+    alias_map: Optional[dict[str, list[str]]] = None,
+    psr4_map: Optional[dict[str, str]] = None,
+) -> Optional[str]:
+    """`resolve_specifier` without the memo; see its docstring."""
     # C, C++, Objective-C and Arduino `#include` (#1315). ⚠ A miss returns None
     # and does NOT fall through: the later steps read the name as another
     # language would (added extensions, SQL stems, Python module paths), and an
@@ -3081,7 +3105,63 @@ def clear_resolution_caches() -> None:
         _sql_stem_by_files.clear()
     with _TAIL_MEMO_LOCK:
         _tail_memos.clear()
+        _answer_memos.clear()
     _is_c_family_importer.cache_clear()
+    global _last_answer_memo
+    _last_answer_memo = None
+
+
+# (#1317) Whole answers, per file set: {frozenset: [(alias_map, psr4_map, memo)]},
+# memo keyed (importer, specifier). Bounded like the tail memo: at most
+# _TAIL_MEMO_MAX file sets, oldest first, each with at most _TAIL_MEMO_MAX map
+# pairs. A memo has no entry cap of its own; it holds one entry per distinct
+# (importer, specifier) its file set was asked about, which is bounded by that
+# repository's imports. Process memory only, nothing written.
+_answer_memos: dict[frozenset, list] = {}
+
+
+def _answer_memo(source_files, alias_map, psr4_map) -> Optional[dict]:
+    """The answer memo for one file set and pair of maps, or None if not cacheable.
+
+    ⚠ The maps are matched by IDENTITY, as the tail memo does: an index hands
+    the same objects to every caller, and comparing two maps by value on every
+    call would cost what the memo saves. An empty map and None resolve alike.
+    """
+    global _last_answer_memo
+    if not isinstance(source_files, frozenset):
+        return None
+    alias_map = alias_map or None
+    psr4_map = psr4_map or None
+    # ⚠ Identity fast path. A builder makes a NEW `frozenset(index.source_files)`
+    # per call and passes that one object for every import; a dict lookup with
+    # an equal-but-different key compares every path, so without this every
+    # call would pay a comparison of the whole file set.
+    last = _last_answer_memo
+    if last is not None and last[0] is source_files and last[1] is alias_map and last[2] is psr4_map:
+        return last[3]
+    memo = _answer_memo_slow(source_files, alias_map, psr4_map)
+    _last_answer_memo = (source_files, alias_map, psr4_map, memo)
+    return memo
+
+
+_last_answer_memo: Optional[tuple] = None
+
+
+def _answer_memo_slow(source_files: frozenset, alias_map, psr4_map) -> dict:
+    with _TAIL_MEMO_LOCK:
+        entries = _answer_memos.get(source_files)
+        if entries is None:
+            if len(_answer_memos) >= _TAIL_MEMO_MAX:
+                _answer_memos.pop(next(iter(_answer_memos)))
+            entries = _answer_memos[source_files] = []
+        for held_alias, held_psr4, memo in entries:
+            if held_alias is alias_map and held_psr4 is psr4_map:
+                return memo
+        memo = {}
+        if len(entries) >= _TAIL_MEMO_MAX:
+            entries.pop(0)
+        entries.append((alias_map, psr4_map, memo))
+        return memo
 
 
 def _tail_memo(source_files, alias_map) -> Optional[dict]:
