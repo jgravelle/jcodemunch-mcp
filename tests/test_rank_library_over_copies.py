@@ -55,6 +55,12 @@ def test_example_directories_are_recognised(path):
         "src/example_utils.py",
         "docs/conf.py",  # a docs directory can hold a site's own source
         "lib/demonstrate.js",
+        # A directory whose name only starts or ends with an example word.
+        "exampleservice/x.py",
+        "docs_srcx/a.py",
+        "samplers/run.py",
+        "src/demonstration/app.js",
+        "my_examples/x.py",
     ],
 )
 def test_library_paths_are_not_examples(path):
@@ -85,6 +91,11 @@ def test_module_load_bindings_are_recognised(sig):
         },
         {"kind": "constant", "signature": "const required = true"},
         {"kind": "function", "signature": "function require(path)"},
+        {"kind": "variable", "signature": "var same = x == require('a')"},
+        {
+            "kind": "constant",
+            "signature": "const settings = { db: 1, store: x = require('./store') };",
+        },
         {"kind": "variable"},
     ],
 )
@@ -278,10 +289,16 @@ def test_a_binding_still_ranks_when_nothing_else_matches(repo):
     assert "lib/application.js::middleware#variable" in _ids(rows), _ids(rows)
 
 
-def test_the_definition_ranks_above_its_binding(repo):
+def test_a_routing_question_ranks_the_definition_above_its_binding(repo):
+    """express: "router route" returned `var Route = require('./router/route')`
+    first. Fails on the unfixed tree, where the binding is row 1."""
     rid, store = repo
-    rows = search_symbols(repo=rid, query="Route", max_results=5, storage_path=store)[
-        "results"
-    ]
+    rows = search_symbols(
+        repo=rid, query="router route", max_results=5, storage_path=store
+    )["results"]
     ids = _ids(rows)
-    assert ids and ids[0] == "lib/router/route.js::Route#function", ids
+    binding = "lib/application.js::Route#variable"
+    assert ids and ids[0] != binding, ids
+    definition = "lib/router/route.js::Route#function"
+    assert definition in ids, ids
+    assert binding not in ids or ids.index(definition) < ids.index(binding), ids

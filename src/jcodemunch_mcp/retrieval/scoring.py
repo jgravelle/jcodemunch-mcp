@@ -386,16 +386,17 @@ _BINDING_INTENT = frozenset({
 # A variable or constant whose value is a module load: `var Route =
 # require('./router/route');`, `const x = require('y').z`, `const m = await
 # import('m')`. The name repeats the definition's name and the row holds no
-# code, so a question about `Route` returned the binding ahead of the class.
-_BINDING_RE = re.compile(r"=\s*(?:await\s+)?(?:require|import)\s*\(")
+# code, so a routing question returned the binding ahead of the class. Only
+# the declaration's own `=` counts: the text before it holds no `=` or `(`,
+# so `x == require(a)` and a literal holding `k: y = require(z)` are values.
+_BINDING_RE = re.compile(r"[^=(]*=\s*(?:await\s+)?(?:require|import)\s*\(")
 
 # Multipliers for a symbol in an example directory and for an import or
-# module-load binding. 0.25 is the test-file value, reused. Bindings take 0.01:
-# at 0.1 the express binding `var middleware = require(...)` still outscored
-# `app.use`, whose code is the answer. Both are chosen values, checked on the
-# pinned benchmark corpora, not tuned. Only RANKING
-# reads them, as with every factor here.
-EXAMPLE_WEIGHT = 0.25
+# module-load binding. An example takes the test-file weight. A binding takes
+# 0.01, below every other factor, so it ranks under any definition that
+# matches and still comes back when nothing else does. Both are chosen, not
+# tuned. Only RANKING reads them, as with every factor here.
+EXAMPLE_WEIGHT = TEST_SYMBOL_WEIGHT
 BINDING_WEIGHT = 0.01
 
 
@@ -412,7 +413,7 @@ def is_binding_symbol(sym: dict) -> bool:
         return True
     if kind not in ("variable", "constant"):
         return False
-    return bool(_BINDING_RE.search(sym.get("signature") or ""))
+    return bool(_BINDING_RE.match(sym.get("signature") or ""))
 
 
 def rank_factor(sym: dict, terms: list[str]) -> tuple[float, str | None]:
