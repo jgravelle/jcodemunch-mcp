@@ -5926,6 +5926,37 @@ _COUNT_FRAME: "contextvars.ContextVar[Optional[dict]]" = contextvars.ContextVar(
 )
 
 
+def _label_lifetime_total(result: dict) -> None:
+    """Attach `_meta.lifetime_meter` beside every `_meta.total_tokens_saved` when the meter is not current.
+
+    ⚠ `total_tokens_saved` is the LIFETIME figure (`_savings.json` plus this
+    session's unwritten batch), set by each tool from `record_savings`'s
+    return; this is the one place every one of them passes. After a load that
+    could not read the file it is only this process's count, and after refused
+    writes it is no longer what the file holds (customer report, 1.108.407).
+    Omitted while `current`, so a healthy meter's responses are unchanged.
+    `lifetime_meter` is in `encoding.schema_driven.UNIVERSAL_META_JSON`, so a
+    compact encoder cannot drop it while keeping the total.
+    """
+    try:
+        carriers = [result]
+        nested = result.get("results")
+        if isinstance(nested, list):
+            carriers.extend(item for item in nested if isinstance(item, dict))
+        metas = [c["_meta"] for c in carriers if isinstance(c.get("_meta"), dict) and "total_tokens_saved" in c["_meta"]]
+        if not metas:
+            return
+        from .storage.token_tracker import lifetime_label
+
+        label = lifetime_label()
+        if label.get("lifetime_status") == "current":
+            return
+        for meta in metas:
+            meta["lifetime_meter"] = dict(label)
+    except Exception:
+        logger.debug("lifetime total not labeled", exc_info=True)
+
+
 def _count_tool_call(
     name: str, result: "list[TextContent] | CallToolResult | None", *, relayed: bool = False
 ) -> None:
@@ -6074,6 +6105,12 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent] | CallToolR
         _count_tool_call(name, _counted_result, relayed=_count_frame["inner"])
         if _count_parent is not None:
             _count_parent["inner"] = True
+        else:
+            # The savings heartbeat counts each CLIENT call once (the outermost
+            # frame), whether or not the tool reached the meter, so a zero-credit
+            # session still stamps `_savings.json` as measured. Never raises.
+            from .storage.token_tracker import note_call as _note_savings_call
+            _note_savings_call()
         try:
             from .storage.token_tracker import record_tool_latency
             _duration_ms = (time.perf_counter() - _t0_dispatch) * 1000.0
@@ -7738,6 +7775,10 @@ async def _call_tool_impl(name: str, arguments: dict) -> list[TextContent] | Cal
                 # no home in the verdict, so there is no "already present" case
                 # and nothing for a filter to have left behind.
                 result.setdefault("_meta", {})["receipts"] = _receipt_carrier
+            # The lifetime total is labeled wherever it survived the display
+            # filter above, so `meta_fields` cannot keep the number and drop
+            # the word saying it stopped being measured.
+            _label_lifetime_total(result)
 
         # Per-call pulse for downstream consumers (dashboards, monitors)
         _saved = result.get("_meta", {}).get("tokens_saved", 0) if isinstance(result, dict) else 0
