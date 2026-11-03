@@ -10,6 +10,8 @@ A C, C++, Objective-C or Arduino importer now tries its own folder first, then t
 
 The extractor read only an unindented `#include`. Objective-C's `#import`, the usual form there, `#include_next`, an indented `#include` and `# include` gave no edge at all; they do now. That changes `files.imports` on unchanged content, so `PARSER_GENERATION` is 28 and the next index re-parses. The Ruby finding in the same report is #1316.
 
+## [1.108.410] - 2026-11-02 - a savings meter that stops measuring says so, and Rails views are indexed
+
 ### Fixed - `reflect --apply-weights` writes the tuning file the server reads
 
 `tuning.jsonc` (learned ranking weights) and the embedding-drift canary are placed by two helpers that, when no storage path was passed, built `~/.code-index` and ignored `CODE_INDEX_PATH`. Over MCP this never showed: the server passes `CODE_INDEX_PATH` as the explicit storage path, so `tune_weights`, `check_embedding_drift` and `search_symbols` all used the named store. The CLI did not. `reflect --apply-weights` passes no storage path, so with `CODE_INDEX_PATH` set it wrote learned weights to `~/.code-index/tuning.jsonc`, a file the server never reads, and the weights it reported as applied were never used.
