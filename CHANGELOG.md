@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+### Fixed - a function assigned to a member is a JavaScript symbol
+
+CommonJS code defines most of its API by assignment: express writes `res.send = function send(body) {...}`, `exports.compileTrust = function ...` and `Foo.prototype.bar = function () {...}`. None of these produced a symbol, so in express's `lib/` a search for `send` found only the `require` of the npm package `send`, and `response.js` indexed as the single variable `res`. Found by Benchmarking's relationship checks on 1.108.401 (LEDGER L-263).
+
+A function, arrow or generator assigned to a member at module scope is now a symbol. `obj.name = ...` and `Foo.prototype.name = ...` give a method (`res.send`, `Foo.bar`); `exports.name = ...` and `module.exports.name = ...` give a function named `name`. The body of a UMD or IIFE wrapper counts as module scope; the body of any other function does not, so an assignment inside a route callback or a factory stays out. TypeScript gets the same rule. The span is the whole assignment statement.
+
+A declaration keeps its id. `class Foo { bar() {} }` beside `Foo.prototype.bar = ...`, or `function f() {}` beside `exports.f = ...`, keeps the declaration and adds nothing, so no existing id moves or gains a `~1`. A repeated assignment keeps the first. Prototype methods carry no parent, so an outline does not nest them under their class. `defineGetter(req, 'protocol', ...)` and other definitions made through a call are not covered. `PARSER_GENERATION` moves to 28, so an existing JavaScript or TypeScript index re-parses once on the next index run.
+
 ## [1.108.409] - 2026-11-02 - a search for a name nothing carries says so on a default install
 
 ### Fixed - a search for a name nothing carries says so on a default install
