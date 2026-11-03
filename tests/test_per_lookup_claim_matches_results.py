@@ -7,8 +7,13 @@ was higher than any typical lookup's. The claim is now the mean of the 15
 per-lookup reductions, which `run_benchmark.py` writes in results.md's Grand
 Summary.
 
+A lookup that fetched no symbol returned nothing the agent can use, so it
+scores 0% saved (a miss) instead of the large reduction its small response
+would earn; the count of such lookups is published beside the mean, in
+results.md and on every page that quotes the figure (J, 2026-11-03).
+
 Nothing here types the number: it is recomputed from results.md's per-lookup
-rows, and every page that quotes it must agree. The pooled figure may still
+rows and its detail table's hits, and every page that quotes it must agree. The pooled figure may still
 appear in a table labelled as pooled, never as the headline.
 """
 from __future__ import annotations
@@ -34,7 +39,9 @@ CLAIM_PAGES = [
 _LOOKUP_ROW = re.compile(
     r"^\| `[^`]+` \| [\d,]+ \| ([\d,]+) \| ([\d,]+) \| [\d.]+x \| \*\*[\d.]+x\*\* \|$", re.M
 )
+_DETAIL_ROW = re.compile(r"^\| `[^`]+` \| [\d,]+ \| [\d,]+ \| (\d+) \| [\d.]+ \|$", re.M)
 _CLAIM = re.compile(r"(\d+(?:\.\d)?)%\s+fewer\s+tokens\s+per\s+lookup\s+on\s+average")
+_EMPTY_CLAIM = re.compile(r"(\d+) of (\d+) (?:lookups )?returned nothing")
 
 
 def _lookups():
@@ -43,9 +50,15 @@ def _lookups():
     return text, rows
 
 
+def _hits():
+    return [int(h) for h in _DETAIL_ROW.findall(RESULTS.read_text(encoding="utf-8"))]
+
+
 def _mean_and_pooled():
     text, rows = _lookups()
-    mean = sum(1 - j / g for g, j in rows) / len(rows) * 100
+    hits = _hits()
+    assert len(hits) == len(rows), (len(hits), len(rows))
+    mean = sum(0.0 if h == 0 else 1 - j / g for (g, j), h in zip(rows, hits)) / len(rows) * 100
     pooled = (1 - sum(j for _, j in rows) / sum(g for g, _ in rows)) * 100
     return text, rows, mean, pooled
 
@@ -81,6 +94,30 @@ def test_the_grand_summary_row_is_the_mean_of_the_lookup_rows():
     assert m, "results.md Grand Summary has no mean-per-lookup row"
     assert int(m.group(1)) == len(rows)
     assert m.group(2) == f"{mean:.1f}"
+
+
+def test_an_empty_lookup_scores_zero_and_is_counted():
+    """The miss rule: results.md publishes how many lookups returned nothing,
+    and the mean it states would be higher if those were credited."""
+    text, rows, mean, _ = _mean_and_pooled()
+    hits = _hits()
+    empty = sum(1 for h in hits if h == 0)
+    m = re.search(r"^\| Lookups that returned nothing \(scored 0% saved\) \| (\d+) of (\d+) \|$", text, re.M)
+    assert m, "results.md Grand Summary has no empty-lookup row"
+    assert (int(m.group(1)), int(m.group(2))) == (empty, len(rows))
+    credited = sum(1 - j / g for g, j in rows) / len(rows) * 100
+    if empty:
+        assert credited > mean, "an empty lookup must not be credited as a saving"
+
+
+@pytest.mark.parametrize("page", CLAIM_PAGES, ids=lambda p: str(p.relative_to(ROOT)))
+def test_every_page_states_how_many_lookups_returned_nothing(page):
+    _, rows = _lookups()
+    empty = sum(1 for h in _hits() if h == 0)
+    if not empty:
+        return
+    stated = set(_EMPTY_CLAIM.findall(page.read_text(encoding="utf-8")))
+    assert stated == {(str(empty), str(len(rows)))}, (page.name, stated)
 
 
 @pytest.mark.parametrize("page", CLAIM_PAGES, ids=lambda p: str(p.relative_to(ROOT)))
@@ -133,5 +170,20 @@ def test_the_generator_writes_the_mean_row():
     )
     # Per lookup 90% and 99%: the mean is 94.5%; pooled, 1 - 20/1100 is 98.2%.
     assert "| **Mean reduction per lookup vs grep-top-3** (2 lookups) | **94.5%** |" in rendered
+    assert "| Lookups that returned nothing (scored 0% saved) | 0 of 2 |" in rendered
+
+    empty = task("c", 1000, 10)
+    empty["hits_fetched"] = 0
+    rendered = harness.render_markdown(
+        [{
+            "repo": "o/n", "display": "n", "file_count": 3, "symbol_count": 9,
+            "baseline_tokens": 10_000,
+            "tasks": [task("a", 100, 10), empty],
+        }],
+        harness.TOKENIZER,
+    )
+    # 90% and a miss scored 0%: the mean is 45.0%, not the 94.5% crediting the miss would give.
+    assert "| **Mean reduction per lookup vs grep-top-3** (2 lookups) | **45.0%** |" in rendered
+    assert "| Lookups that returned nothing (scored 0% saved) | 1 of 2 |" in rendered
     assert "| Reduction vs grep-top-3, pooled totals | 98.2% |" in rendered
     assert "Baseline B is the number to quote" in rendered

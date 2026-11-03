@@ -16,6 +16,12 @@ A function bound by a declaration (`const f = function (a) {...}`, `const g = (a
 
 The signature now ends where the function's own body starts: `const f = function f(a)`, `const g = (a) =>`, `res.json = function (obj)`, `handler = (e) =>`. The span is unchanged, so `get_symbol_source` still returns the whole function. Search rows for these functions are shorter, and a search no longer matches words that appear only in a bound function's body; a plain `function` declaration already worked this way. The same `PARSER_GENERATION` bump re-parses existing indexes.
 
+### Changed - the benchmark scores a lookup that returns nothing as 0% saved
+
+The published figure is the mean of the 15 per-lookup reductions against grep-and-read. One lookup, `context bind` on express, fetches no symbol at all: its 300-token response is a search that found nothing. The mean credited it with a 98.2% saving, the best of any lookup, for an answer the agent cannot use. `run_benchmark.py` now scores a lookup that fetched no symbol as 0% saved and writes the count beside the mean. On this release's reference run that gives 87.8% fewer tokens per lookup on average, with 1 of 15 lookups returning nothing; crediting the empty lookup would have given 94.4%, and on 1.108.409's run the same rule gives 87.9%. The other 14 lookups range from 86.9% to 98.7%. README, TOKEN_SAVINGS, the benchmarks README, METHODOLOGY, REPRODUCING and the Serena comparison quote the new figure and the empty count, and `tests/test_per_lookup_claim_matches_results.py` fails if any of them quotes a figure that credits an empty lookup or leaves the count out.
+
+The same reference run moves the read-all ceiling from 99.6% / 225.2x to 99.5% / 221.9x and the pooled grep ratio from 26.5x to 26.1x. The express rise behind both is the signature and assignment changes above.
+
 ### Added - Rails views are indexed: `.erb` is a language
 
 No language mapped `.erb`, so a Rails application's whole view layer
