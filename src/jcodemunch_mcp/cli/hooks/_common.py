@@ -25,7 +25,7 @@ _CODE_EXTENSIONS: set[str] = {
     ".rs",
     ".java",
     ".php",
-    ".rb",
+    ".rb", ".erb",
     ".cs", ".cshtml", ".razor",
     ".cpp", ".c", ".h", ".hpp", ".cc", ".cxx", ".ino", ".pde",
     ".vhd", ".vhdl", ".vho", ".vhs",

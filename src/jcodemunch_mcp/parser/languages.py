@@ -133,6 +133,10 @@ LANGUAGE_EXTENSIONS = {
     ".exs": "elixir",
     ".rb": "ruby",
     ".rake": "ruby",
+    # Ruby ERB templates. Keyed on the bare `.erb` so every inner suffix
+    # (`.html.erb`, `.js.erb`, `.en.html.erb`, `.html+phone.erb`, ...) falls
+    # through to it; `_parse_erb_symbols` reads the inner suffix itself.
+    ".erb": "erb",
     ".pl": "perl",
     ".pm": "perl",
     ".t": "perl",
@@ -786,6 +790,19 @@ ASPX_SPEC = LanguageSpec(
 )
 
 RAZOR_SPEC = LanguageSpec(
+    ts_language="html",
+    symbol_node_types={},
+    name_fields={},
+    docstring_strategy="preceding_comment",
+    decorator_node_type=None,
+    container_node_types=[],
+    constant_patterns=[],
+)
+
+# Ruby ERB templates (.erb): extracted by _parse_erb_symbols(), which parses the
+# Ruby in `<% %>` tags as Ruby and the host text in the language its inner
+# suffix names; ts_language is nominal.
+ERB_SPEC = LanguageSpec(
     ts_language="html",
     symbol_node_types={},
     name_fields={},
@@ -2077,6 +2094,7 @@ LANGUAGE_REGISTRY = {
     "csharp": CSHARP_SPEC,
     "razor": RAZOR_SPEC,
     "aspx": ASPX_SPEC,
+    "erb": ERB_SPEC,
     "astro": ASTRO_SPEC,
     "c": C_SPEC,
     "swift": SWIFT_SPEC,
