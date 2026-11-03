@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+### Fixed - `reflect --apply-weights` writes the tuning file the server reads
+
+`tuning.jsonc` (learned ranking weights) and the embedding-drift canary are placed by two helpers that, when no storage path was passed, built `~/.code-index` and ignored `CODE_INDEX_PATH`. Over MCP this never showed: the server passes `CODE_INDEX_PATH` as the explicit storage path, so `tune_weights`, `check_embedding_drift` and `search_symbols` all used the named store. The CLI did not. `reflect --apply-weights` passes no storage path, so with `CODE_INDEX_PATH` set it wrote learned weights to `~/.code-index/tuning.jsonc`, a file the server never reads, and the weights it reported as applied were never used.
+
+Both helpers now ask the index store's own root rule, `storage.sqlite_store._default_base_path`: `CODE_INDEX_PATH` with `~` expanded, else `~/.code-index`. An explicit storage path still wins unchanged. Without `CODE_INDEX_PATH` nothing changes. Weights an earlier `reflect --apply-weights` wrote to the home folder are not moved; move the file into the named store or run the command again.
+
+One split remains, filed with the other hand-built store roots as LEDGER L-290: the server passes `CODE_INDEX_PATH` exactly as written, so a value containing `~` is expanded on this path and not on the MCP path. Tests: `tests/test_tuning_and_canary_follow_code_index_path.py`.
+
 ### Fixed - a savings meter that stops measuring says so, and its write can no longer wipe or lose counts
 
 A long-time customer on 1.108.407 reported that `_savings.json` stopped taking new days on 2026-10-29 and its lifetime total froze, while `_tool_counters.json` and `_session_live.json` kept updating. The dashboard showed the frozen figure as current.

@@ -57,7 +57,12 @@ CANARY_STRINGS: tuple[str, ...] = (
 
 
 def _canary_path(base_path: Optional[str] = None) -> Path:
-    root = Path(base_path) if base_path else Path.home() / ".code-index"
+    # L-285: the index store's root rule (`CODE_INDEX_PATH`, else
+    # `~/.code-index`), never a second copy of it. Imported here so this
+    # module does not load the store at import.
+    from ..storage.sqlite_store import _default_base_path
+
+    root = Path(base_path) if base_path else Path(_default_base_path())
     root.mkdir(parents=True, exist_ok=True)
     return root / _CANARY_FILE
 
