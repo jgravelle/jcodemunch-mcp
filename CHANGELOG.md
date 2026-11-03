@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.411] - 2026-11-03 - a C or C++ #include resolves where the compiler finds it, and Go callers in the same package are found
+
 ### Fixed - a C or C++ `#include` resolves where the compiler finds it (#1315)
 
 @skibadubskiybadubs measured it on OpenStudio, a 4,507-file C++ repo: 12,291 file edges were missing. `resolve_specifier` had no C-family rule. Only a specifier starting with `.` was joined to the importer's folder, so `#include "X.hpp"` beside the importer, the most common C++ form, resolved only when the header sat at the repo root, and `#include <model/Model.hpp>` never resolved when the include root was `src/`. Every tool built on the import graph inherited the gap: `find_importers`, `get_blast_radius`, `get_dependency_graph`, the dead-code tools and the delete preflight saw a C++ header as imported by nobody.
