@@ -8,6 +8,8 @@ Found checking a customer's frozen savings meter against the fix in #1309. That 
 
 The one reader both the loader and the merge use, `_read_ledger`, now refuses such a file with the same WARNING and the same recovery: nothing is written until it reads again, the counts are kept, and repairing the file or moving it aside lets the next write take them. A `daily` or `by_tool` that is not a table at all is still rebuilt, as before. The merge also turns any other error into that refusal rather than letting it escape. SECURITY.md names the wrong-type case. LEDGER L-293.
 
+## [1.108.410] - 2026-11-02 - a savings meter that stops measuring says so, and Rails views are indexed
+
 ### Fixed - `reflect --apply-weights` writes the tuning file the server reads
 
 `tuning.jsonc` (learned ranking weights) and the embedding-drift canary are placed by two helpers that, when no storage path was passed, built `~/.code-index` and ignored `CODE_INDEX_PATH`. Over MCP this never showed: the server passes `CODE_INDEX_PATH` as the explicit storage path, so `tune_weights`, `check_embedding_drift` and `search_symbols` all used the named store. The CLI did not. `reflect --apply-weights` passes no storage path, so with `CODE_INDEX_PATH` set it wrote learned weights to `~/.code-index/tuning.jsonc`, a file the server never reads, and the weights it reported as applied were never used.
