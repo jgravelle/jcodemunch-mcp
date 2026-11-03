@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+### Fixed - a C or C++ `#include` resolves where the compiler finds it (#1315)
+
+@skibadubskiybadubs measured it on OpenStudio, a 4,507-file C++ repo: 12,291 file edges were missing. `resolve_specifier` had no C-family rule. Only a specifier starting with `.` was joined to the importer's folder, so `#include "X.hpp"` beside the importer, the most common C++ form, resolved only when the header sat at the repo root, and `#include <model/Model.hpp>` never resolved when the include root was `src/`. Every tool built on the import graph inherited the gap: `find_importers`, `get_blast_radius`, `get_dependency_graph`, the dead-code tools and the delete preflight saw a C++ header as imported by nobody.
+
+A C, C++, Objective-C or Arduino importer now tries its own folder first, then the repo root, then `include/` and `src/`. The name is matched exactly, and an include the rule cannot place resolves to nothing: the old lookup read it as another language would, so `#include <vector>` could land on a `vector.py` at the root, `<vector>` on `db/vector.sql` and `"config.h"` on `config/h.py`. A header beside the importer now wins over one of the same name at the root, which is the one the compiler picks, so such an edge moves. A `./` or `../` include reads as before. The stored edge does not keep the quotes or brackets, so an angle include is also tried in the importer's folder, which a compiler does only for a quoted one. Include roots named in the build files (`include_directories`, `-I`) are not read. The resolver change needs no re-index.
+
+The extractor read only an unindented `#include`. Objective-C's `#import`, the usual form there, `#include_next`, an indented `#include` and `# include` gave no edge at all; they do now. That changes `files.imports` on unchanged content, so `PARSER_GENERATION` is 28 and the next index re-parses. The Ruby finding in the same report is #1316.
+
 ### Fixed - who calls a Go function finds callers in the same package
 
 Go files in one directory form one package and call each other with no import statement. `get_call_hierarchy`, `get_blast_radius` and `get_impact_preview` looked for callers only in files the import graph linked to the symbol's file, so a caller in the same package was never considered. On gin, who-calls found 1 of 4 callers and what-breaks found none, with `auth.go`, `recovery.go` and `routergroup.go` reported as `import_graph_did_not_reach`. Found by Benchmarking's relationship checks on 1.108.401 (LEDGER L-262).

@@ -690,7 +690,10 @@ INDEX_VERSION = 17
 #   carrying the class and the handler names its markup wires. `files.imports`
 #   changes on UNCHANGED content, so a re-parse is the only way an existing
 #   index gains the edge (the generation-25 shape).
-PARSER_GENERATION = 27
+# 28 (#1315): C-family `#import`, `#include_next`, an indented `#include` and
+#   `# include` are edges. `files.imports` changes on UNCHANGED content (the
+#   generation-25 shape). The resolver half of #1315 needs no re-parse.
+PARSER_GENERATION = 28
 
 
 @dataclass(frozen=True)
