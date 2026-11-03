@@ -130,15 +130,23 @@ def served_repo():
 
 class TestPackageGranularRefusal:
     def test_go_symbol_with_callers_refuses_the_zero(self, fixture_repo):
-        """The reported defect: 3 real call sites, reported as a confident 0."""
+        """#415: real callers were reported as a confident 0. Since L-262 the
+        same-package caller is found; the cross-package one still is not, and
+        the answer must keep saying so. (Name kept: renaming reads as a
+        deleted test.)"""
         repo, store = fixture_repo
         r = get_blast_radius(repo=repo, symbol="DeleteItem", call_depth=2,
                              storage_path=store)
-        assert r.get("confirmed_count") == 0, "precondition: the graph still finds nothing"
+        # Precondition: the IMPORT graph still finds nothing. The only file
+        # found is in the symbol's own package, reached with no import (L-262).
+        assert [c["file"] for c in r["confirmed"]] == ["repository/same_pkg_caller.go"]
         verdict = r["_meta"]["verdict"]
-        assert verdict["state"] == "degraded"
-        assert verdict["absence_refused"] is True
+        # L-262: the same-package caller is found now, so the answer is no
+        # longer a zero. The cross-package caller (pkg/pick_service.go) is
+        # still unreached, and the verdict must keep saying so.
+        assert [c["file"] for c in r["callers"]] == ["repository/same_pkg_caller.go"]
         assert verdict["incomplete"]["reason"] == "package_granular_imports"
+        assert r["overall_risk_score"] is None
 
     def test_risk_score_is_withheld_not_zeroed(self, fixture_repo):
         """0.0 is a measurement. The bug was emitting one where none was made."""
@@ -210,7 +218,7 @@ class TestReachesTheCaller:
     ``query``.
     """
 
-    def _call(self, repo, monkeypatch, meta_fields):
+    def _call(self, repo, monkeypatch, meta_fields, symbol="Record"):
         import asyncio
         import json
 
@@ -223,7 +231,9 @@ class TestReachesTheCaller:
             lambda k, *a, **kw: meta_fields if k == "meta_fields" else real_get(k, *a, **kw),
         )
         out = asyncio.run(
-            server.call_tool("get_blast_radius", {"repo": repo, "symbol": "DeleteItem"})
+            # `Record` (the default) has no same-package caller, so its only
+            # caller sits behind the unresolved package edge (L-262).
+            server.call_tool("get_blast_radius", {"repo": repo, "symbol": symbol})
         )
         # `call_tool` returns a plain list on success and a CallToolResult on
         # error. Asserting the type is not ceremony: without it an unresolvable
@@ -247,6 +257,17 @@ class TestReachesTheCaller:
         # Added by the dispatcher, not by the tool: the refusal is not citable.
         assert v["absence_citable"] is False
         assert v["absence_blocked_by"]
+
+    def test_a_partial_answer_says_so_on_the_shipped_default(self, served_repo, monkeypatch):
+        """L-262 review round 4: DeleteItem's same-package caller is found and
+        its cross-package caller is not. No absence carrier fires for a
+        non-empty answer, so the reason must ride in the body, or a default
+        install reads the partial list as complete."""
+        d = self._call(served_repo, monkeypatch, [], symbol="DeleteItem")
+        assert "verdict" not in (d.get("_meta") or {}), "precondition: stripped"
+        assert [c["file"] for c in d["confirmed"]] == ["repository/same_pkg_caller.go"]
+        assert d["incomplete"]["reason"] == "package_granular_imports"
+        assert d["overall_risk_score"] is None
 
     def test_carrier_survives_on_the_shipped_default(self, served_repo, monkeypatch):
         """meta_fields: [] strips the verdict. Without the carrier the caller gets
@@ -300,3 +321,19 @@ class TestEvidenceHelper:
         assert out["match"] == "exact"
         # Both specifiers end in the target dir, so both are exact matches here.
         assert out["unresolved_edges"] == 2
+
+
+def test_the_compact_encoding_keeps_the_body_disclosures(fixture_repo):
+    """L-262: br2 dropped undeclared top-level dicts, so `incomplete` and
+    `dynamic_imports_unfollowed` vanished from a compact answer."""
+    from jcodemunch_mcp.encoding.schemas import get_blast_radius as br_schema
+
+    repo, store = fixture_repo
+    r = get_blast_radius(repo=repo, symbol="DeleteItem", storage_path=store)
+    assert r["incomplete"]["reason"] == "package_granular_imports"
+    payload, _enc = br_schema.encode("get_blast_radius", r)
+    decoded = br_schema.decode(payload)
+    assert decoded["incomplete"] == r["incomplete"]
+    assert br_schema.ENCODING_ID == "br4"
+    assert "br2" in br_schema.LEGACY_ENCODING_IDS
+    assert "br3" in br_schema.LEGACY_ENCODING_IDS
