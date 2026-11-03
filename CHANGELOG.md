@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed - the weight-tuning file and the embedding-drift canary live where `CODE_INDEX_PATH` says
+
+`CODE_INDEX_PATH` names the index store's directory, but two files ignored it: `tuning.jsonc` (written by `tune_weights` and `reflect --apply-weights`) and the embedding-drift canary (`check_embedding_drift`). With no explicit storage path they always went to `~/.code-index`, so a user who moved the store got indexes in one place and these two files in another, and a test run that pointed `CODE_INDEX_PATH` at a scratch folder still wrote the developer's home store. Both now ask the index store's own root rule, `storage.sqlite_store._default_base_path`, instead of keeping a copy of it: `CODE_INDEX_PATH` when it is set (with `~` expanded), else `~/.code-index`. An explicit storage path still wins. An existing `tuning.jsonc` or canary under `~/.code-index` is not moved. With `CODE_INDEX_PATH` set, learned weights read as the defaults until `tune_weights` runs again or the file is moved into the named store, and the drift check takes a new baseline on its next run. Without `CODE_INDEX_PATH` nothing changes. About 35 other sites build the root by hand, most reading the variable but not expanding `~`; that sweep is LEDGER L-290. Tests: `tests/test_tuning_and_canary_follow_code_index_path.py`.
+
 ## [1.108.409] - 2026-11-02 - a search for a name nothing carries says so on a default install
 
 ### Fixed - a search for a name nothing carries says so on a default install
