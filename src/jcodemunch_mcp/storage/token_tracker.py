@@ -27,6 +27,7 @@ time rather than per-call to avoid spawning a new thread on every tool use.
 
 import atexit
 import json
+import math
 import logging
 import os
 import queue
@@ -1693,16 +1694,18 @@ def _merge_batch(root: Path, batch: dict, lock_wait: float) -> dict:
         try:
             anon_id, now = _merge_into(data, batch)
         except Exception as exc:
-            # ⚠ A file that parses but holds the wrong type (a string where the
-            # merge adds a number) is refused like an unreadable one. Before,
-            # the TypeError escaped to a DEBUG line with the batch lost, the
-            # file frozen and the meter still reading current.
+            # ⚠ `_read_ledger` refuses every mistyped field the merge adds to,
+            # so this is reached only by a shape it does not know yet, or by a
+            # defect in the merge itself. Either way the batch is kept and the
+            # file left whole, and the traceback is logged: the message must
+            # not leave a bug in our code looking like damage in the user's file.
             return failed(
                 "warning",
-                "Savings file %s holds a value of the wrong type (%s: %s). Nothing is written to it "
-                "(and nothing is sent to the community meter) until it reads again: repair it, or move it "
-                "aside to start a new one. %d tokens saved over %d calls are kept in memory for the next write",
+                "Savings file %s could not be merged (%s: %s). Nothing is written to it "
+                "(and nothing is sent to the community meter) until a write succeeds. "
+                "%d tokens saved over %d calls are kept in memory for the next write",
                 path, type(exc).__name__, exc, batch["saved"], batch["calls"],
+                exc_info=True,
             )
         # Through a temp file named for this process and os.replace, so a
         # reader never sees a half-written file and a failed write leaves
@@ -1790,7 +1793,7 @@ for _sig in (signal.SIGTERM, signal.SIGINT):
 # ---------------------------------------------------------------------------
 
 def _as_count(value: object) -> int:
-    return value if isinstance(value, int) and not isinstance(value, bool) and value >= 0 else 0
+    return int(value) if _is_whole_count(value) else 0
 
 
 def _read_ledger(path: Path) -> "tuple[Optional[dict], Optional[str]]":
@@ -1817,23 +1820,72 @@ def _read_ledger(path: Path) -> "tuple[Optional[dict], Optional[str]]":
     # frozen while the meter read `current`.
     if "total_encoding_tokens_saved" in data and not _is_amount(data["total_encoding_tokens_saved"]):
         return None, "holds an encoding total that is not a non-negative number"
-    # A table that is not a table at all is rebuilt by the merge, as before
-    # (`test_corrupt_daily_shape_is_replaced_not_fatal`); one that IS a table
-    # but holds a mistyped value is history the merge would add to, so it is
-    # refused for the user to repair rather than overwritten.
+    # A table the merge adds to is history. One that IS a table but holds a
+    # mistyped value is refused for the user to repair rather than
+    # overwritten, and so is a value of the wrong kind that still holds
+    # counts (a list of numbers where a table belongs). Only a value that
+    # holds no count at all, a stray string or null, is rebuilt by the merge,
+    # as before (`test_corrupt_daily_shape_is_replaced_not_fatal`).
+    for key in ("by_tool", "daily", _meter.MEASURED_DAYS):
+        table = data.get(key)
+        if table is None or isinstance(table, dict):
+            continue
+        if _holds_a_count(table):
+            return None, f"holds a `{key}` that is not a table but holds counts"
     for key in ("by_tool", "daily"):
         table = data.get(key)
         if isinstance(table, dict) and not all(_is_amount(v) for v in table.values()):
             return None, f"holds a `{key}` table whose values are not all non-negative numbers"
+    measured = data.get(_meter.MEASURED_DAYS)
+    if isinstance(measured, dict):
+        for day in measured.values():
+            if not isinstance(day, dict) or not all(
+                _is_whole_count(day[k]) for k in ("calls", "saved") if k in day
+            ):
+                return None, (
+                    f"holds a `{_meter.MEASURED_DAYS}` day that is not a table of "
+                    "non-negative whole counts"
+                )
     for key in ("basis_generation", "basis_generation_first"):
-        if key in data and not (isinstance(data[key], int) and not isinstance(data[key], bool)):
+        if key in data and not _is_whole_count(data[key]):
             return None, f"holds a `{key}` that is not a whole number"
     return data, None
 
 
+def _is_whole_count(value: object) -> bool:
+    """A non-negative whole number; ``2.0`` counts, ``2.5``, ``"2"`` and ``True`` do not."""
+    if isinstance(value, bool):
+        return False
+    if isinstance(value, int):
+        return value >= 0
+    return isinstance(value, float) and math.isfinite(value) and value >= 0 and value.is_integer()
+
+
+def _holds_a_count(value: object) -> bool:
+    """True when *value*, of any shape, contains a number anywhere."""
+    if isinstance(value, bool):
+        return False
+    if isinstance(value, (int, float)):
+        return True
+    if isinstance(value, dict):
+        return any(_holds_a_count(v) for v in value.values())
+    if isinstance(value, (list, tuple)):
+        return any(_holds_a_count(v) for v in value)
+    return False
+
+
 def _is_amount(value: object) -> bool:
-    """A non-negative number, the rule `receipt.lifetime_meter` reads a total by."""
-    return isinstance(value, (int, float)) and not isinstance(value, bool) and value >= 0
+    """A finite non-negative number, the rule `receipt.lifetime_meter` reads a total by.
+
+    ``json.loads`` accepts ``Infinity`` and ``NaN``; neither is a count, and
+    writing one back produces a file other JSON readers refuse.
+    """
+    return (
+        isinstance(value, (int, float))
+        and not isinstance(value, bool)
+        and math.isfinite(value)
+        and value >= 0
+    )
 
 
 def _savings_path(base_path: Optional[str] = None) -> Path:
