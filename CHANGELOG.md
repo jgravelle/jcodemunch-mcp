@@ -2,9 +2,13 @@
 
 ## [Unreleased]
 
-### Fixed - the weight-tuning file and the embedding-drift canary live where `CODE_INDEX_PATH` says
+### Fixed - `reflect --apply-weights` writes the tuning file the server reads
 
-`CODE_INDEX_PATH` names the index store's directory, but two files ignored it: `tuning.jsonc` (written by `tune_weights` and `reflect --apply-weights`) and the embedding-drift canary (`check_embedding_drift`). With no explicit storage path they always went to `~/.code-index`, so a user who moved the store got indexes in one place and these two files in another, and a test run that pointed `CODE_INDEX_PATH` at a scratch folder still wrote the developer's home store. Both now ask the index store's own root rule, `storage.sqlite_store._default_base_path`, instead of keeping a copy of it: `CODE_INDEX_PATH` when it is set (with `~` expanded), else `~/.code-index`. An explicit storage path still wins. An existing `tuning.jsonc` or canary under `~/.code-index` is not moved. With `CODE_INDEX_PATH` set, learned weights read as the defaults until `tune_weights` runs again or the file is moved into the named store, and the drift check takes a new baseline on its next run. Without `CODE_INDEX_PATH` nothing changes. About 35 other sites build the root by hand, most reading the variable but not expanding `~`; that sweep is LEDGER L-290. Tests: `tests/test_tuning_and_canary_follow_code_index_path.py`.
+`tuning.jsonc` (learned ranking weights) and the embedding-drift canary are placed by two helpers that, when no storage path was passed, built `~/.code-index` and ignored `CODE_INDEX_PATH`. Over MCP this never showed: the server passes `CODE_INDEX_PATH` as the explicit storage path, so `tune_weights`, `check_embedding_drift` and `search_symbols` all used the named store. The CLI did not. `reflect --apply-weights` passes no storage path, so with `CODE_INDEX_PATH` set it wrote learned weights to `~/.code-index/tuning.jsonc`, a file the server never reads, and the weights it reported as applied were never used.
+
+Both helpers now ask the index store's own root rule, `storage.sqlite_store._default_base_path`: `CODE_INDEX_PATH` with `~` expanded, else `~/.code-index`. An explicit storage path still wins unchanged. Without `CODE_INDEX_PATH` nothing changes. Weights an earlier `reflect --apply-weights` wrote to the home folder are not moved; move the file into the named store or run the command again.
+
+One split remains, filed with the other hand-built store roots as LEDGER L-290: the server passes `CODE_INDEX_PATH` exactly as written, so a value containing `~` is expanded on this path and not on the MCP path. Tests: `tests/test_tuning_and_canary_follow_code_index_path.py`.
 
 ## [1.108.409] - 2026-11-02 - a search for a name nothing carries says so on a default install
 
