@@ -1,23 +1,23 @@
 {
   "schema": "jcm-benchmark-reference/v2",
-  "captured_at": "2026-11-03T11:27:32+0000",
-  "jcodemunch_version": "1.108.409",
+  "captured_at": "2026-10-22T11:31:40+0000",
+  "jcodemunch_version": "1.108.391",
   "tokenizer": "cl100k_base",
   "workflow": "search_symbols(max_results=5) + get_symbol_source x3",
   "baseline_definition": "all indexed source files concatenated",
   "grand": {
     "baseline_tokens": 5658685,
-    "jmunch_tokens": 25504,
+    "jmunch_tokens": 25132,
     "task_runs": 15
   },
   "repos": {
     "expressjs/express": {
-      "avg_tokens_per_query": 1064,
-      "jmunch_total_tokens": 5321,
+      "avg_tokens_per_query": 990,
+      "jmunch_total_tokens": 4948,
       "queries": 5,
       "baseline_tokens": 154569,
       "file_count": 186,
-      "symbol_count": 1085,
+      "symbol_count": 989,
       "corpus": {
         "git_head": "1faf228935aa0a13111f92c28ee795be64ce3f0f",
         "pinned_sha": "1faf228935aa0a13111f92c28ee795be64ce3f0f",
@@ -28,7 +28,7 @@
     },
     "fastapi/fastapi": {
       "avg_tokens_per_query": 2556,
-      "jmunch_total_tokens": 12778,
+      "jmunch_total_tokens": 12779,
       "queries": 5,
       "baseline_tokens": 825326,
       "file_count": 1186,

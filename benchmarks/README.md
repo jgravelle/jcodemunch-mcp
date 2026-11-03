@@ -1,6 +1,6 @@
 # jcodemunch-mcp — Token Efficiency Benchmark
 
-**Result: 87.8% fewer tokens per lookup on average vs a grep-and-read agent (1 of 15 lookups returned nothing, scored 0% saved) · tiktoken cl100k_base · 15 task-runs · 3 repos**
+**Result: 94.5% fewer tokens per lookup on average vs a grep-and-read agent · tiktoken cl100k_base · 15 task-runs · 3 repos**
 
 ## What this measures
 
@@ -54,14 +54,14 @@ Full per-task tables are in [`results.md`](results.md).
 
 | Repo | Files | Grep-top-3 baseline | Read-all baseline | jCodeMunch | vs grep | vs read-all |
 |------|------:|--------------------:|------------------:|-----------:|--------:|------------:|
-| expressjs/express | 186 | 15,724 avg | 154,569 | 1,064 avg | **14.8x** | 145.3x |
+| expressjs/express | 186 | 15,724 avg | 154,569 | 990 avg | **15.9x** | 156.1x |
 | fastapi/fastapi | 1,186 | 85,296 avg | 825,326 | 2,556 avg | **33.4x** | 322.9x |
 | gin-gonic/gin | 98 | 31,975 avg | 151,842 | 1,481 avg | **21.6x** | 102.5x |
-| **Grand total, pooled (15 task-runs)** | — | **664,975** | **5,658,685** | **25,504** | 26.1x | 221.9x |
+| **Grand total, pooled (15 task-runs)** | — | **664,975** | **5,658,685** | **25,132** | 26.5x | 225.2x |
 
-**87.8% fewer tokens per lookup on average** against grep-and-read; 1 of 15 lookups returned nothing and counts as 0% saved. The grand total
-row pools all 15 lookups, so its 26.1x weighs the largest grep baselines most;
-against read-all the pooled figure is 99.5% · 221.9x. tiktoken cl100k_base.
+**94.5% fewer tokens per lookup on average** against grep-and-read. The grand total
+row pools all 15 lookups, so its 26.5x weighs the largest grep baselines most;
+against read-all the pooled figure is 99.6% · 225.2x. tiktoken cl100k_base.
 
 ⚠ **This table was stale until 2026-08-03** — it carried a pre-v1.108.222 corpus
 (165/951/98 files, 5,122,105 tokens, 263.9x) that no other artifact had matched

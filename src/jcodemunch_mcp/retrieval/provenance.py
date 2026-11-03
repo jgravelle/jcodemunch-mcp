@@ -94,7 +94,7 @@ CONFIDENCE_PROVENANCE: dict[str, dict] = {
 
 MEASURED: dict[str, dict] = {
     "token_reduction": {
-        "average_pct": 99.5,
+        "average_pct": 99.6,
         "task_runs": 15,
         "tokenizer": "cl100k_base",
         "basis": BASIS_MEASURED,
