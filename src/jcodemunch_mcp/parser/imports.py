@@ -110,7 +110,14 @@ _JAVA_IMPORT = re.compile(r"""^import\s+(?:static\s+)?([\w.]+)(?:\s+as\s+\w+)?\s
 _RUST_USE = re.compile(r"""^use\s+([\w::{},\s*]+)\s*;""", re.MULTILINE)
 
 # C/C++/ObjC: #include <foo>  or  #include "foo"
-_C_INCLUDE = re.compile(r"""^#include\s+[<"]([^>"]+)[>"]""", re.MULTILINE)
+# (#1315) Every spelling a preprocessor accepts: indented, with space after the
+# `#` (both common inside `#if` blocks), Objective-C's `#import` (the usual form
+# there) and GCC's `#include_next`. Only the bare `#include` was read before.
+# ⚠ Read line by line, not preprocessed: an include inside `#if 0` or a
+# `/* */` block is an edge too (the bare form already was), MSVC's `#import
+# "x.tlb"` gives an edge that never resolves, and a backslash-continued
+# include is not read.
+_C_INCLUDE = re.compile(r"""^[ \t]*#[ \t]*(?:include_next|include|import)[ \t]*[<"]([^>"\n]+)[>"]""", re.MULTILINE)
 
 # Assembly: .include "foo" / .incbin "foo" / %include "foo"
 _ASM_INCLUDE = re.compile(r"""^\s*[.%]include\s+["']([^"']+)["']""", re.MULTILINE | re.IGNORECASE)
@@ -2810,6 +2817,55 @@ def _resolve_python_relative(
     return None
 
 
+# Folders tried as include roots after the importer's folder and the repo root,
+# when the header is there. The real roots live in the build files
+# (`include_directories`, `-I`), which are not read; these two cover the
+# common layouts (#1315: OpenStudio puts its root at `src/`).
+_C_INCLUDE_ROOTS = ("include", "src")
+
+
+@functools.lru_cache(maxsize=8192)
+def _is_c_family_importer(importer_path: str) -> bool:
+    """True when the importer's language reads its imports as `#include`.
+
+    ⚠ Asks the two authorities instead of listing extensions: the path's
+    language (which settles `.m` between Objective-C and MATLAB) and whether
+    that language's extractor is `_extract_c_imports`. A language added to the
+    C family later inherits the rule. ⚠ Cached by path (the language lookup is
+    most of a resolve's cost without it); `clear_resolution_caches` clears it,
+    so a change to the extension table is seen after `invalidate_cache`.
+    """
+    from .languages import get_language_for_path
+
+    try:
+        lang = get_language_for_path(importer_path)
+    except Exception:
+        logger.debug("language not found for %s", importer_path, exc_info=True)
+        return False
+    return lang is not None and _LANGUAGE_EXTRACTORS.get(lang) is _extract_c_imports
+
+
+def _resolve_c_include(specifier: str, importer_path: str, source_files: set[str]) -> Optional[str]:
+    """Where a compiler finds `#include "spec"` or `#include <spec>` (#1315).
+
+    Order: the importer's folder, the repo root, then `include/` and `src/`.
+    ⚠ The stored edge keeps the path text only, not the quotes or brackets, so
+    an angle include is tried in the importer's folder too, which a compiler
+    does only for a quoted one. That can link `<config.h>` to a `config.h`
+    beside the importer when the one meant is elsewhere.
+    ⚠ The name is matched EXACTLY: an include always names the whole file, and
+    adding other languages' extensions would link `#include <vector>` to a
+    `vector.py` in the same folder.
+    """
+    importer_dir = posixpath.dirname(importer_path)
+    bases = [importer_dir, ""] + [r for r in _C_INCLUDE_ROOTS if r != importer_dir]
+    for base in bases:
+        candidate = posixpath.normpath(posixpath.join(base, specifier)) if base else posixpath.normpath(specifier)
+        if candidate in source_files:
+            return candidate
+    return None
+
+
 def resolve_specifier(
     specifier: str,
     importer_path: str,
@@ -2836,6 +2892,17 @@ def resolve_specifier(
     Returns:
         The matching source file path, or None if unresolvable.
     """
+    # C, C++, Objective-C and Arduino `#include` (#1315). ⚠ A miss returns None
+    # and does NOT fall through: the later steps read the name as another
+    # language would (added extensions, SQL stems, Python module paths), and an
+    # include names a whole file, so they could only invent an edge
+    # (`<vector>` to `vector.py`, `"config.h"` to `config/h.py`). The one thing
+    # they found correctly, the file at the repo root, is a base tried here.
+    # An edge can MOVE: a header beside the importer now wins over one of the
+    # same name at the root, which is the one the compiler picks.
+    if not specifier.startswith(".") and _is_c_family_importer(importer_path):
+        return _resolve_c_include(specifier, importer_path, source_files)
+
     # Relative import
     if specifier.startswith("."):
         # Python's relative form is NOT a path. `..parser.fqn` means "up one
@@ -3014,6 +3081,7 @@ def clear_resolution_caches() -> None:
         _sql_stem_by_files.clear()
     with _TAIL_MEMO_LOCK:
         _tail_memos.clear()
+    _is_c_family_importer.cache_clear()
 
 
 def _tail_memo(source_files, alias_map) -> Optional[dict]:
