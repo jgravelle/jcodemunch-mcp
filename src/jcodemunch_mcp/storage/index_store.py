@@ -690,7 +690,11 @@ INDEX_VERSION = 17
 #   carrying the class and the handler names its markup wires. `files.imports`
 #   changes on UNCHANGED content, so a re-parse is the only way an existing
 #   index gains the edge (the generation-25 shape).
-PARSER_GENERATION = 27
+#
+# 28 (L-263): a JS/TS function assigned to a member at module scope is a
+#   symbol (`res.send = function () {}`, `exports.f = ...`,
+#   `Foo.prototype.m = ...`). Symbols appear on UNCHANGED content.
+PARSER_GENERATION = 28
 
 
 @dataclass(frozen=True)

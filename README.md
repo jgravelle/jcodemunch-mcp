@@ -1,8 +1,8 @@
 # jCodeMunch MCP
 
-**An MCP server that retrieves source code by symbol, not by file, using tree-sitter AST parsing.** It uses 94.5% fewer tokens per lookup on average than grep-and-read on our 15-lookup benchmark (86.9% to 98.7% across the lookups, at pinned commits), so your agent stops spending its context window on whole files.
+**An MCP server that retrieves source code by symbol, not by file, using tree-sitter AST parsing.** It uses 87.8% fewer tokens per lookup on average than grep-and-read on our 15-lookup benchmark, at pinned commits (1 of 15 lookups returned nothing and counts as 0% saved; the other 14 range from 86.9% to 98.7%), so your agent stops spending its context window on whole files.
 
-<sub>Benchmark: 5 queries on each of express, fastapi and gin at pinned commits, tokens counted with tiktoken `cl100k_base`, jcodemunch-mcp at commit `15afcf75`, whose version string is 1.108.391 but which also carries the settings-file ranking change released in 1.108.392 and the field/constant change released after it. A lookup is one `search_symbols` plus `get_symbol_source` on its top 3 hits, against grep-and-read (rank files by match count, read the top 3 whole). Per lookup, not per session. Reproduce with [`benchmarks/REPRODUCING.md`](benchmarks/REPRODUCING.md).</sub>
+<sub>Benchmark: 5 queries on each of express, fastapi and gin at pinned commits, tokens counted with tiktoken `cl100k_base`, jcodemunch-mcp at commit `39374421`, whose version string is 1.108.409 but which also carries the JavaScript assignment-definition and function-signature changes released after it. A lookup is one `search_symbols` plus `get_symbol_source` on its top 3 hits, against grep-and-read (rank files by match count, read the top 3 whole). Per lookup, not per session. Reproduce with [`benchmarks/REPRODUCING.md`](benchmarks/REPRODUCING.md).</sub>
 
 > **Real results, live from production**
 > **838B+ tokens saved** · **136,000+ reporting installs** · **$4.2M+ in AI spend avoided** · **100,000+ kg CO₂ prevented**
@@ -50,19 +50,19 @@ Index once. Query cheaply. Keep moving. **Precision context beats brute-force co
 
 ### Reproducible token efficiency benchmark
 
-Measured with `tiktoken cl100k_base` across three public repos pinned to upstream commits, run 2026-10-22 on v1.108.391 (at commit `15afcf75`, whose version string is 1.108.391 but which also carries the settings-file ranking change released in 1.108.392 and the field/constant change released after it). Workflow: `search_symbols` (top 5) + `get_symbol_source` × 3 per query. Two baselines, same run, same corpus, same file reader:
+Measured with `tiktoken cl100k_base` across three public repos pinned to upstream commits, run 2026-11-03 on v1.108.409 (at commit `39374421`, whose version string is 1.108.409 but which also carries the JavaScript assignment-definition and function-signature changes released after it). Workflow: `search_symbols` (top 5) + `get_symbol_source` × 3 per query. Two baselines, same run, same corpus, same file reader:
 
 - **Grep-top-3**: `rg -l` the query terms, rank files by match count, open the top 3 whole. This is what a competent agent without the tool actually does, and it is the number to quote.
 - **Read-all**: every indexed source file concatenated. A ceiling nobody pays; retained for continuity with previously published figures.
 
 | Repository | Files | Symbols | Grep-top-3 baseline | jCodeMunch | vs grep | vs read-all |
 |------------|------:|--------:|--------------------:|-----------:|--------:|------------:|
-| expressjs/express | 186 | 989 | 15,724 avg | 990 avg | **15.9x** | 156.1x |
+| expressjs/express | 186 | 1,085 | 15,724 avg | 1,064 avg | **14.8x** | 145.3x |
 | fastapi/fastapi | 1,186 | 13,699 | 85,296 avg | 2,556 avg | **33.4x** | 322.9x |
 | gin-gonic/gin | 98 | 1,822 | 31,975 avg | 1,481 avg | **21.6x** | 102.5x |
-| **Grand total, pooled (15 task-runs)** | | | **664,975** | **25,132** | 26.5x | 225.2x |
+| **Grand total, pooled (15 task-runs)** | | | **664,975** | **25,504** | 26.1x | 221.9x |
 
-**Against a grep-and-read agent: 94.5% fewer tokens per lookup on average.** No single multiple describes every query; the per-repo rows above are the spread. Against read-all the figure is 99.6%, but nobody pays that ceiling. Compact [MUNCH](SPEC_MUNCH.md) wire encoding then trims a median 45.5% more bytes off responses.
+**Against a grep-and-read agent: 87.8% fewer tokens per lookup on average.** 1 of 15 lookups returned nothing and counts as 0% saved. No single multiple describes every query; the per-repo rows above are the spread. Against read-all the figure is 99.5%, but nobody pays that ceiling. Compact [MUNCH](SPEC_MUNCH.md) wire encoding then trims a median 45.5% more bytes off responses.
 
 Full methodology, pinned commits, harness, and known caveats: [benchmarks/METHODOLOGY.md](benchmarks/METHODOLOGY.md) · [Reproduce it yourself](benchmarks/REPRODUCING.md) · [TOKEN_SAVINGS.md](TOKEN_SAVINGS.md)
 
@@ -160,9 +160,9 @@ What that lookup costs, from our benchmark on Express at commit `1faf2289`, coun
 | | Tokens |
 |---|---:|
 | Grep-and-read: search `router route handler`, open the top 3 matching files whole | 9,890 |
-| jCodeMunch: one symbol search, then the source of the top 3 matches | 1,074 |
+| jCodeMunch: one symbol search, then the source of the top 3 matches | 1,096 |
 
-That's one of the 15 lookups in the benchmark (5 each on express, fastapi and gin at pinned commits). jCodeMunch used 94.5% fewer tokens per lookup on average than grep-and-read on our 15-lookup benchmark. The pack is built from Express 4.x, while the benchmark pins commit `1faf2289` on upstream main, so your count can differ. To rerun the benchmark at the pinned commits, follow [`benchmarks/REPRODUCING.md`](benchmarks/REPRODUCING.md); raw data is in [`benchmarks/`](benchmarks/).
+That's one of the 15 lookups in the benchmark (5 each on express, fastapi and gin at pinned commits). jCodeMunch used 87.8% fewer tokens per lookup on average than grep-and-read on our 15-lookup benchmark, where 1 of 15 lookups returned nothing and counts as 0% saved. The pack is built from Express 4.x, while the benchmark pins commit `1faf2289` on upstream main, so your count can differ. To rerun the benchmark at the pinned commits, follow [`benchmarks/REPRODUCING.md`](benchmarks/REPRODUCING.md); raw data is in [`benchmarks/`](benchmarks/).
 
 ---
 
@@ -451,7 +451,7 @@ Then add an entry for it to the repo's `.cursor-plugin/marketplace.json`, follow
 ## FAQ
 
 **How much can I save on Claude / Opus tokens?**
-In retrieval-heavy workflows, code-reading tokens typically drop 86-99%, benchmarked at 94.5% fewer tokens per lookup on average against a grep-and-read agent across 15 lookups and 3 repositories. Per-query results span 7.6x to 77.2x. Methodology: [TOKEN_SAVINGS.md](TOKEN_SAVINGS.md) and [benchmarks/](benchmarks/).
+In retrieval-heavy workflows, code-reading tokens typically drop 86-99%, benchmarked at 87.8% fewer tokens per lookup on average against a grep-and-read agent across 15 lookups and 3 repositories (1 of 15 lookups returned nothing and counts as 0% saved). Per-query results span 7.6x to 77.2x. Methodology: [TOKEN_SAVINGS.md](TOKEN_SAVINGS.md) and [benchmarks/](benchmarks/).
 
 **How is this different from RAG or grep-based tools?**
 jCodeMunch retrieves at the **symbol level** with byte-level precision (functions, classes, importers, blast radius, hierarchies) rather than fuzzy chunks (RAG) or raw line matches (grep) the agent still has to read and reason over.

@@ -2,6 +2,25 @@
 
 ## [Unreleased]
 
+### Fixed - a function assigned to a member is a JavaScript symbol
+
+CommonJS code defines most of its API by assignment: express writes `res.send = function send(body) {...}`, `exports.compileTrust = function ...` and `Foo.prototype.bar = function () {...}`. None of these produced a symbol, so in express's `lib/` a search for `send` found only the `require` of the npm package `send`, and `response.js` indexed as the single variable `res`. Found by Benchmarking's relationship checks on 1.108.401 (LEDGER L-263).
+
+A function, arrow or generator assigned to a member at module scope is now a symbol. `obj.name = ...` and `Foo.prototype.name = ...` give a method (`res.send`, `Foo.bar`); `exports.name = ...` and `module.exports.name = ...` give a function named `name`. The body of a UMD or IIFE wrapper counts as module scope; the body of any other function does not, so an assignment inside a route callback or a factory stays out. TypeScript gets the same rule. The span is the whole assignment statement.
+
+A declaration keeps its id. `class Foo { bar() {} }` beside `Foo.prototype.bar = ...`, or `function f() {}` beside `exports.f = ...`, keeps the declaration and adds nothing, so no existing id moves or gains a `~1`. A repeated assignment keeps the first. Prototype methods carry no parent, so an outline does not nest them under their class. `defineGetter(req, 'protocol', ...)` and other definitions made through a call are not covered. `PARSER_GENERATION` moves to 28, so an existing JavaScript or TypeScript index re-parses once on the next index run.
+
+### Fixed - a bound JavaScript function's signature is its header, not its whole body
+
+A function bound by a declaration (`const f = function (a) {...}`, `const g = (a) => {...}`, `export const h = async () => {...}`) or by a class field (`handler = (e) => {...}`) stored its whole statement, body included, as its `signature`. The statement node has no `body` field, so the rule that cuts a plain `function f(a)` at its body never applied. Every search row for such a function carried all of its lines, and words inside the body matched searches. The member-assigned functions above inherited it, which is how the token benchmark on this change found it: its first run put express over the per-repository rise Floor (LEDGER L-291).
+
+The signature now ends where the function's own body starts: `const f = function f(a)`, `const g = (a) =>`, `res.json = function (obj)`, `handler = (e) =>`. The span is unchanged, so `get_symbol_source` still returns the whole function. Search rows for these functions are shorter, and a search no longer matches words that appear only in a bound function's body; a plain `function` declaration already worked this way. The same `PARSER_GENERATION` bump re-parses existing indexes.
+
+### Changed - the benchmark scores a lookup that returns nothing as 0% saved
+
+The published figure is the mean of the 15 per-lookup reductions against grep-and-read. One lookup, `context bind` on express, fetches no symbol at all: its 300-token response is a search that found nothing. The mean credited it with a 98.2% saving, the best of any lookup, for an answer the agent cannot use. `run_benchmark.py` now scores a lookup that fetched no symbol as 0% saved and writes the count beside the mean. On this release's reference run that gives 87.8% fewer tokens per lookup on average, with 1 of 15 lookups returning nothing; crediting the empty lookup would have given 94.4%, and on 1.108.409's run the same rule gives 87.9%. The other 14 lookups range from 86.9% to 98.7%. README, TOKEN_SAVINGS, the benchmarks README, METHODOLOGY, REPRODUCING and the Serena comparison quote the new figure and the empty count, and `tests/test_per_lookup_claim_matches_results.py` fails if any of them quotes a figure that credits an empty lookup or leaves the count out.
+
+The same reference run moves the read-all ceiling from 99.6% / 225.2x to 99.5% / 221.9x and the pooled grep ratio from 26.5x to 26.1x. The express rise behind both is the signature and assignment changes above.
 ### Fixed - `reflect --apply-weights` writes the tuning file the server reads
 
 `tuning.jsonc` (learned ranking weights) and the embedding-drift canary are placed by two helpers that, when no storage path was passed, built `~/.code-index` and ignored `CODE_INDEX_PATH`. Over MCP this never showed: the server passes `CODE_INDEX_PATH` as the explicit storage path, so `tune_weights`, `check_embedding_drift` and `search_symbols` all used the named store. The CLI did not. `reflect --apply-weights` passes no storage path, so with `CODE_INDEX_PATH` set it wrote learned weights to `~/.code-index/tuning.jsonc`, a file the server never reads, and the weights it reported as applied were never used.

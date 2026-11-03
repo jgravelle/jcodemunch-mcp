@@ -867,7 +867,11 @@ def render_markdown(results: list[dict], tokenizer: str) -> str:
     grand_jmunch = 0
     grand_tasks = 0
     # One reduction per lookup against grep-top-N; their mean is the quoted figure.
+    # A lookup that fetched no symbol returned nothing the agent can use, so it
+    # scores 0 saved (a miss), not the large reduction its small response would
+    # otherwise earn. The count of such lookups is published beside the mean.
     per_lookup_grep = []
+    empty_lookups = 0
 
     for res in results:
         if "error" in res:
@@ -923,7 +927,11 @@ def render_markdown(results: list[dict], tokenizer: str) -> str:
             grand_grep += t.get("grep_baseline_tokens") or 0
             grand_tasks += 1
             if gb:
-                per_lookup_grep.append(1 - t["jmunch_tokens"] / gb)
+                if t.get("hits_fetched", 0) == 0:
+                    empty_lookups += 1
+                    per_lookup_grep.append(0.0)
+                else:
+                    per_lookup_grep.append(1 - t["jmunch_tokens"] / gb)
 
         if valid_tasks:
             avg_ratio = sum(t["ratio"] for t in valid_tasks) / len(valid_tasks)
@@ -979,13 +987,18 @@ def render_markdown(results: list[dict], tokenizer: str) -> str:
                     f"| **Mean reduction per lookup vs grep-top-{GREP_FILES_READ}** "
                     f"({len(per_lookup_grep)} lookups) | **{mean_red:.1f}%** |"
                 )
+                lines.append(
+                    f"| Lookups that returned nothing (scored 0% saved) "
+                    f"| {empty_lookups} of {len(per_lookup_grep)} |"
+                )
             lines.append(f"| Reduction vs grep-top-{GREP_FILES_READ}, pooled totals | {g_red:.1f}% |")
             lines.append(f"| Ratio vs grep-top-{GREP_FILES_READ}, pooled totals | {grand_grep / grand_jmunch:.1f}x |")
         lines.append("")
         if grand_grep:
             lines.append(
                 f"> **Baseline B is the number to quote**, as the mean reduction per "
-                f"lookup. The pooled totals weigh the lookups with the largest grep "
+                f"lookup, with a lookup that returned nothing counted as 0% saved. "
+                f"The pooled totals weigh the lookups with the largest grep "
                 f"baselines most. Read-all is a ceiling nobody "
                 f"pays: it assumes an agent opens every file in the repository before "
                 f"acting. Grep-then-read is what a competent agent without this tool "
