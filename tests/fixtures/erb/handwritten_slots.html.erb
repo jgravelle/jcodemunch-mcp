@@ -1,0 +1,17 @@
+<%# Hand-written for jcodemunch's ERB tests: layout slots, trim tags, a literal <%%, several tags on one line, a view-local method and a script. %>
+<% content_for :sidebar do %>
+  <nav id="side-nav"><%= render "shared/nav" %></nav>
+<% end %>
+<% provide :title, "Dashboard" %>
+<%- if signed_in? -%><p id="greeting">Hi <%= current_user.name %></p><%- end -%>
+<p>Write <%%= tags %> to output Ruby.</p>
+<header><%= yield :title %></header>
+<%
+  def helper_inside_a_view(x)
+    x * 2
+  end
+%>
+<div id="<%= dom_id(@post) %>" class="post"><%= yield %></div>
+<script>
+  function wireSidebar() { return '<%= j sidebar_path %>'; }
+</script>

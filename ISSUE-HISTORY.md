@@ -3054,3 +3054,23 @@ The 1.108.406 entry, verbatim as it stood in `CLAUDE.md`:
 The `Tests:` line's 1.108.406 count, verbatim:
 
 - ⚠ Prior (1.108.406): 19550 passed, 24 skipped, **0 failed** (19574 total).
+
+## Current State rotation (2026-11-02, release 1.108.410)
+
+The 1.108.407 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.407):** **a stdio server exits when the process that started it is gone, and storage reports how much disk the index uses** (#1297-#1301): `serve` on stdio watches its parent (PID plus start time, past Windows launchers) and exits when it is gone, `JCODEMUNCH_PARENT_WATCH_SECONDS` sets the interval and 0 turns it off; `jcodemunch-mcp storage` reports the store by index without opening a database; a query that names a tool ranks that tool first. Full text: `CHANGELOG.md`.
+
+The `Tests:` line's 1.108.407 count, verbatim:
+
+- ⚠ Prior (1.108.407): 19613 passed, 24 skipped, **0 failed** (19637 total).
+
+## Current State rotation (2026-11-03, release 1.108.411)
+
+The 1.108.408 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.408):** **a rare work-license reminder, never shown to a license holder** (#1303): a machine is told work use needs a license 7 days after its first index is seen, then at most every 30 days, on stderr after a human-read command or in `license_notice`; never with a key, on CI, after `config set license_reminder false` or with `JCODEMUNCH_LICENSE_REMINDER=0`; the console script enters through `server.cli`. Full text: `CHANGELOG.md`.
+
+The `Tests:` line's 1.108.408 count, verbatim:
+
+- ⚠ Prior (1.108.408): 19660 passed, 24 skipped, **0 failed** (19684 total).

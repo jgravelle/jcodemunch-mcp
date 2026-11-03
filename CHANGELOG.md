@@ -12,6 +12,119 @@ The notice's link now carries a fixed source tag (`utm_medium=notice`), as the r
 
 None of the short descriptions said that commercial use is paid, and directories copy them: one listing now calls jCodeMunch "completely free". The MCP registry and marketplace line now reads "Gives AI agents the function they asked for, not the file. Commercial use needs a license." The registry allows 100 characters and the old line already used all 100, so "Runs locally, 70+ languages" made room for the license clause. The PyPI summary and the package docstring keep their line and add "Free for non-commercial use; commercial use needs a one-time license.", the README's own licensing terms. "Commercial" and not "work": the license leaves research and other non-commercial work free. Its counter block now says its figures are estimates as of 2026-08-17, not live, in its heading and its caption.
 
+## [1.108.411] - 2026-11-03 - a C or C++ #include resolves where the compiler finds it, and Go callers in the same package are found
+
+### Fixed - a C or C++ `#include` resolves where the compiler finds it (#1315)
+
+@skibadubskiybadubs measured it on OpenStudio, a 4,507-file C++ repo: 12,291 file edges were missing. `resolve_specifier` had no C-family rule. Only a specifier starting with `.` was joined to the importer's folder, so `#include "X.hpp"` beside the importer, the most common C++ form, resolved only when the header sat at the repo root, and `#include <model/Model.hpp>` never resolved when the include root was `src/`. Every tool built on the import graph inherited the gap: `find_importers`, `get_blast_radius`, `get_dependency_graph`, the dead-code tools and the delete preflight saw a C++ header as imported by nobody.
+
+A C, C++, Objective-C or Arduino importer now tries its own folder first, then the repo root, then `include/` and `src/`. The name is matched exactly, and an include the rule cannot place resolves to nothing: the old lookup read it as another language would, so `#include <vector>` could land on a `vector.py` at the root, `<vector>` on `db/vector.sql` and `"config.h"` on `config/h.py`. A header beside the importer now wins over one of the same name at the root, which is the one the compiler picks, so such an edge moves. A `./` or `../` include reads as before. The stored edge does not keep the quotes or brackets, so an angle include is also tried in the importer's folder, which a compiler does only for a quoted one. Include roots named in the build files (`include_directories`, `-I`) are not read. The resolver change needs no re-index.
+
+The extractor read only an unindented `#include`. Objective-C's `#import`, the usual form there, `#include_next`, an indented `#include` and `# include` gave no edge at all; they do now. That changes `files.imports` on unchanged content, so `PARSER_GENERATION` is 28 and the next index re-parses. The Ruby finding in the same report is #1316.
+
+### Fixed - who calls a Go function finds callers in the same package
+
+Go files in one directory form one package and call each other with no import statement. `get_call_hierarchy`, `get_blast_radius` and `get_impact_preview` looked for callers only in files the import graph linked to the symbol's file, so a caller in the same package was never considered. On gin, who-calls found 1 of 4 callers and what-breaks found none, with `auth.go`, `recovery.go` and `routergroup.go` reported as `import_graph_did_not_reach`. Found by Benchmarking's relationship checks on 1.108.401 (LEDGER L-262).
+
+A Go file's package siblings (same directory, also Go) now count as files that may call it, in all three tools and at every call depth. Callers found that way are no longer reported as unreached, a same-package `_test.go` gives a function test reach, and blast radius counts a same-package caller as a dependent, two hops up as well as one. A same-named method on another type, an interface that only declares the method, and a function in another package with its own helper of the same name are not callers. Files in other languages in the same directory still need an import. Java packages and C# namespaces have the same shape and are not covered here.
+
+The compact encoding of `get_blast_radius` dropped two body-level disclosures, `incomplete` and `dynamic_imports_unfollowed`, as undeclared fields. It carries them now, as encoding `br4`; `br3` and `br2` still decode. The extra package scan costs time on a large package: measured in review on a synthetic 300-file Go package, a query took 16.5 ms against 2.6 ms before.
+
+## [1.108.410] - 2026-11-02 - a savings meter that stops measuring says so, and Rails views are indexed
+
+### Fixed - `reflect --apply-weights` writes the tuning file the server reads
+
+`tuning.jsonc` (learned ranking weights) and the embedding-drift canary are placed by two helpers that, when no storage path was passed, built `~/.code-index` and ignored `CODE_INDEX_PATH`. Over MCP this never showed: the server passes `CODE_INDEX_PATH` as the explicit storage path, so `tune_weights`, `check_embedding_drift` and `search_symbols` all used the named store. The CLI did not. `reflect --apply-weights` passes no storage path, so with `CODE_INDEX_PATH` set it wrote learned weights to `~/.code-index/tuning.jsonc`, a file the server never reads, and the weights it reported as applied were never used.
+
+Both helpers now ask the index store's own root rule, `storage.sqlite_store._default_base_path`: `CODE_INDEX_PATH` with `~` expanded, else `~/.code-index`. An explicit storage path still wins unchanged. Without `CODE_INDEX_PATH` nothing changes. Weights an earlier `reflect --apply-weights` wrote to the home folder are not moved; move the file into the named store or run the command again.
+
+One split remains, filed with the other hand-built store roots as LEDGER L-290: the server passes `CODE_INDEX_PATH` exactly as written, so a value containing `~` is expanded on this path and not on the MCP path. Tests: `tests/test_tuning_and_canary_follow_code_index_path.py`.
+
+### Fixed - a savings meter that stops measuring says so, and its write can no longer wipe or lose counts
+
+A long-time customer on 1.108.407 reported that `_savings.json` stopped taking new days on 2026-10-29 and its lifetime total froze, while `_tool_counters.json` and `_session_live.json` kept updating. The dashboard showed the frozen figure as current.
+
+The writer had two defects. A batch that earned 0 wrote nothing, so a meter that measured 0 and a meter that measured nothing left the same file. And the read-merge-write was unsafe: a file that could not be read was treated as empty, so the next write replaced the lifetime history with one batch; the file was truncated and rewritten in place, so a reader could see half of it; nothing stopped two servers from replacing each other's batches; and a failed write was logged at debug, so the file froze without a word. The path also ignored `CODE_INDEX_PATH`, which `receipt`, `diagnose` and the per-tool counters honor.
+
+Every write that carries a call now records `last_flush_at` (UTC) and `measured_days[day] = {"calls": n, "saved": m}`, so a 0 is a measurement and a missing day is not. `daily` and `total_tokens_saved` mean what they meant. The dispatcher counts each client call once, so a session of tools that save nothing still stamps the file. The write takes `_savings.lock` through the counters module's lock rule, goes through a temp file and `os.replace`, and runs in the storage directory in force when the meter was loaded. A file that exists and cannot be read or parsed is never overwritten: the batch stays in memory and the server warns, naming the file and saying to repair it or move it aside; until then nothing is written to it or sent to the community meter. A failed write warns too, and keeps its batch. A total stored as a non-negative float is accepted, as `receipt` already read it. A temp file a killed server left is removed at the next load once it is a minute old. After a write, the in-memory total follows the file, so it includes what other servers wrote. The store root is the index store's own rule (`sqlite_store._default_base_path`, which expands `~`), so `CODE_INDEX_PATH=~/x` puts indexes, the savings file, the counters, `session_stats.json` and the pulse file in one place. The perf database keeps its old default (`~/.code-index`) when no path is named, which `tests/test_v1_108_188.py` pins.
+
+⚠ The server's in-memory state lock is held only to swap a batch out and to apply the result, never across the file-lock wait, the read or the write; a batch that was not written goes back. The dispatcher's per-call count takes no lock at all. The exit and signal paths wait at most a second for that lock, so a signal handled while the same thread holds it, or the parent-watch exit, can no longer hang the process; a test runs a real interpreter to exit with the lock held.
+
+`receipt` (text and `--export` JSON), `diagnose` and `get_session_stats` (and `session_stats.json`) now carry `lifetime_status` (`current`, `stale`, `unknown`, or `absent` in `diagnose`), `lifetime_measured_through` and `lifetime_stale_since` beside the lifetime total. A tool answer whose `_meta` carries `total_tokens_saved` gains `_meta.lifetime_meter` with the same three fields whenever the meter is not current; it is attached after the `meta_fields` filter and every compact encoder keeps it, so a frozen total is never served unlabeled. A healthy meter's answers are unchanged. ⚠ An older server running alongside still counts but writes no stamp, so while only older servers are writing the label can read stale. A total whose last stamp is older than the last write of `_tool_counters.json`, or a file with no stamp at all, reads "unmeasured since <date>"; a file that cannot be read reads unknown, never current. A file written before this release has no stamp, so it reads as stale until the first write from this version. In a running server, one write deferred because another server holds the file lock is not a stopped meter; three in a row are, and a refused read or a failed write is at once. Calls counted before the meter loads go to the storage root in force when they were counted, not the one in force at exit. SECURITY.md's "Background behavior" list names the new fields, the lock and the temp file. Tests: `tests/test_savings_meter_safe_write_and_heartbeat.py`.
+
+### Added - Rails views are indexed: `.erb` is a language
+
+No language mapped `.erb`, so a Rails application's whole view layer
+(`show.html.erb`, `_form.html.erb`, `create.js.erb`, a mailer's
+`.text.erb`) never entered the index: no symbols, nothing for `search_text`
+to find, no outline, and a helper called only from views looked unused. The
+`erb` language is keyed on the bare `.erb`, so every inner suffix reaches it
+(`.html.erb`, `.en.html.erb`, `.html+phone.erb`, `.js.erb`, `.rb.erb`,
+`.yml.erb`, `.turbo_stream.erb`).
+
+An ERB file is parsed in up to three passes, each over a copy of the file
+of the same length, so a symbol's line and byte offset are the original
+file's and a non-ASCII character cannot move a slice:
+
+- the Ruby inside `<% %>` tags, parsed as Ruby, with each tag's close read
+  as a statement end so adjacent tags and a block spanning tags stay valid;
+- the template text, in the language its inner suffix names (`.js.erb` as
+  JavaScript, `.rb.erb` as Ruby, `.yml.erb` as YAML);
+- for an HTML host, a bare `.erb`, or a format with no parser (`.text`,
+  `.turbo_stream`): static HTML ids and `<script>` bodies as JavaScript.
+
+`content_for`, `provide` and `yield :name` slots become constants. Each
+symbol keeps the language of the pass that found it, so
+`search_symbols(language="javascript")` finds a function in a `.js.erb`.
+A name built from a tag is named by the tag (`<%= class_name %>Report`),
+in the symbol's name, qualified name, id, signature, docstring, decorators
+and call references. The template text is parsed with each output tag
+filled by a token of its own length that no other tag shares, so a name maps
+back to its tag by lookup: two tags of one length keep their own names, two
+tag-built YAML keys stay two keys, and a child under a YAML key or XML
+element, or a value the YAML parser rewrote, shows the tags it was written
+with. A tag spanning lines gets a token per line; a line too short to hold
+one (a lone `%>`) is blanked like the indentation, so it is left out of a
+name rather than shown as filler.
+The view is always the file's first symbol, which is what files it under
+`erb`: a function at byte 0 of a `.js.erb`, or a YAML merge key, would
+otherwise have filed the view as JavaScript or YAML.
+
+The dead-code tools no longer prove a view unused. `render "shared/nav"`
+names `shared/_nav.html.erb`, which no import edge resolves, and a Rails
+controller renders its views by convention with no call at all, so a view
+with no importer proves nothing. As #1012 does for a Web Forms control, an
+`.erb` file has an unseen consumer, `template_rendered`:
+
+- `find_dead_code` caps a view and every symbol in it below its default
+  threshold and names the cap in `confidence_capped_by`; the views it
+  withholds are counted in `template_rendered_withheld`.
+- `check_delete_safe` never answers `safe_to_delete` for a view or a symbol
+  in it. With no importer found it answers `dynamic_import_boundary` with a
+  `template_rendered` blocker; a name no call site writes (an HTML id) keeps
+  `name_not_searchable` and gains the blocker.
+- `get_dead_code_v2` leaves `unreachable_file` undecided for a view. A
+  repository with no import edge at all takes its call-graph-only path,
+  which reads no cap, for views as for the .NET kinds.
+
+A view can still be dead; the tools no longer say so from a graph that
+cannot see what renders it. Found in review.
+
+No re-index is forced: the next `index_folder` finds the views as new files,
+and a test holds that. The edit hooks treat `.erb` as code, so an edited
+view is re-indexed. `plan_refactoring` recognizes a `<%= render %>` line and
+a `def` or `content_for` definition in a view, but rewriting a `render` line
+on a rename is still left to hand. `render` partials are not yet import
+edges, and `.tt` is left unmapped because Visual Studio's T4 templates use
+it too. Fixtures are real views from rails/rails (MIT) and solidus (BSD-3),
+pinned by commit in `tests/fixtures/erb/SOURCES.md` with the license texts.
+
+`erb` joins the `language` enum every tool derives from the registry:
+`core_full`, `standard_full` and `full_full` each grow by 2 tokens
+(`benchmarks/schema_baseline.json`), and `core_compact` and the `counter`
+surface are unchanged. A changed tool block is written to the prompt cache
+once, at full rate, on the first request after upgrading.
+
 ## [1.108.409] - 2026-11-02 - a search for a name nothing carries says so on a default install
 
 ### Fixed - a search for a name nothing carries says so on a default install

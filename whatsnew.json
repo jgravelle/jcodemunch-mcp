@@ -1,6 +1,18 @@
 {
-  "current": "1.108.409",
+  "current": "1.108.411",
   "entries": [
+    {
+      "version": "1.108.411",
+      "date": "2026-11-03",
+      "title": "a C or C++ #include resolves where the compiler finds it, and Go callers in the same package are found",
+      "summary": "A C or C++ #include now resolves where the compiler finds it: beside the including file, then at the repo root and under include/ and src/, so a C++ repo's import graph is no longer missing most of its header edges. Asking who calls a Go function now finds callers in the same package, which call each other with no import. The next index re-parses every file."
+    },
+    {
+      "version": "1.108.410",
+      "date": "2026-11-02",
+      "title": "a savings meter that stops measuring says so, and Rails views are indexed",
+      "summary": "A savings meter that stops measuring now says so: receipt, diagnose and get_session_stats report whether the lifetime total is current, stale or unknown, and a write can no longer wipe or lose counts. Ruby ERB templates (.erb) are indexed, so Rails views are searchable. reflect --apply-weights writes the tuning file the server actually reads when CODE_INDEX_PATH is set."
+    },
     {
       "version": "1.108.409",
       "date": "2026-11-02",
