@@ -1,6 +1,12 @@
 {
-  "current": "1.108.411",
+  "current": "1.108.412",
   "entries": [
+    {
+      "version": "1.108.412",
+      "date": "2026-11-03",
+      "title": "graph tools resolve each import once per loaded index, and a savings file holding the wrong type is refused, not frozen",
+      "summary": "Graph tools (dependency graph, importers, blast radius) now resolve each import once per loaded index instead of on every call, so a second call on a large repo answers in a fraction of the time. A savings file that parses but holds a string or another wrong type where the meter adds a number is now refused with a warning and the counts kept, instead of silently freezing the meter."
+    },
     {
       "version": "1.108.411",
       "date": "2026-11-03",
