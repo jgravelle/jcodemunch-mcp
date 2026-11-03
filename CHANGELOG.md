@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+### Fixed - a search for library code ranks the library above its tutorial copies and the lines that only load it
+
+Two kinds of row outranked the definition a question was asking for. Example and tutorial directories repeat a library's names: fastapi's `docs_src/` holds many `GzipRoute.get_route_handler` tutorials beside the one `APIRoute.get_route_handler` in `fastapi/routing.py`, and "router route handler" returned three tutorials. A module-load binding carries a definition's name and none of its code: express's `var Route = require('./router/route');` answered a routing question, and `var middleware = require('./middleware/init');` was promoted to first place as an exact-name match for "middleware", ahead of the code that mounts middleware.
+
+Test files were already weighted down when the query was not about tests. Ranking now does the same for a symbol under an `examples`, `example`, `docs_src`, `samples`, `sample`, `demo`, `demos`, `tutorial` or `tutorials` directory, and weights an import row, or a variable or constant whose value is a `require(...)` or `import(...)`, below any definition. An exact-name binding is no longer promoted ahead of other matches. A query that asks for an example ("example", "tutorial", "demo", "docs") keeps the old weight for examples, and one about imports or exports ("import", "require", "export") keeps it for bindings. Both are ranking weights, not filters: a demoted row still comes back when nothing else matches, and confidence and absence verdicts still read the unweighted score. Tests: `tests/test_rank_library_over_copies.py`.
+
 ### Fixed - `reflect --apply-weights` writes the tuning file the server reads
 
 `tuning.jsonc` (learned ranking weights) and the embedding-drift canary are placed by two helpers that, when no storage path was passed, built `~/.code-index` and ignored `CODE_INDEX_PATH`. Over MCP this never showed: the server passes `CODE_INDEX_PATH` as the explicit storage path, so `tune_weights`, `check_embedding_drift` and `search_symbols` all used the named store. The CLI did not. `reflect --apply-weights` passes no storage path, so with `CODE_INDEX_PATH` set it wrote learned weights to `~/.code-index/tuning.jsonc`, a file the server never reads, and the weights it reported as applied were never used.

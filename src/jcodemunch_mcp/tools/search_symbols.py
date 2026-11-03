@@ -39,6 +39,7 @@ from ..retrieval.scoring import (  # noqa: F401,E402
     query_idf as _query_idf,
     query_terms as _query_terms,
     identity_query,
+    is_binding_symbol,
     rank_factor,
     test_file_factor,
 )
@@ -614,7 +615,9 @@ _DEFINITION_KINDS = frozenset(
 )
 
 
-def _declaration_rank(entry: dict, index, needles: Optional[tuple[str, str]]) -> int:
+def _declaration_rank(
+    entry: dict, index, needles: Optional[tuple[str, str]], sym: Optional[dict] = None
+) -> int:
     """How much of a definition is this row, for the purpose of the result cut?
 
     2 = an exact-name match of a declaring KIND that is not a proven local.
@@ -657,6 +660,12 @@ def _declaration_rank(entry: dict, index, needles: Optional[tuple[str, str]]) ->
     if needles is None:
         return 0
     if not is_exact_row(entry, *needles):
+        return 0
+    if is_binding_symbol(sym if sym is not None else entry):
+        # `var middleware = require('./middleware/init')` carries the name and
+        # none of the code; ranked by score like a non-match, its
+        # `rank_factor` puts it below the definitions. ``sym`` is the indexed
+        # row: a compact response entry carries no signature to read.
         return 0
 
     if str(entry.get("kind", "")) not in _DEFINITION_KINDS:
@@ -1133,7 +1142,7 @@ def search_symbols(
 
         # Bounded heap: O(N log K) instead of O(N log N)
         tiebreak = _heap_tiebreak(entry.get("id", ""))
-        rank = _declaration_rank(entry, index, _needles)
+        rank = _declaration_rank(entry, index, _needles, sym)
         if rank:
             exact_scanned += 1
         key = (rank, heap_score)

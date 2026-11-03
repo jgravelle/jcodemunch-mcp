@@ -358,17 +358,80 @@ def is_data_symbol(sym: dict) -> bool:
     return any(c.isupper() for c in name) and name == name.upper()
 
 
+# Directories that hold copies of a library's code written to teach it:
+# tutorial snippets, runnable examples, demo apps. They reuse the library's
+# names (`docs_src/.../tutorial001.py::GzipRoute.get_route_handler` beside
+# `fastapi/routing.py`), and there are many of them, so a question about the
+# library returned the copies first. A directory component is matched, never
+# the filename, case-insensitively. `docs` is left out on purpose: a docs
+# directory can hold a site's own source.
+_EXAMPLE_DIRS = frozenset({
+    "example", "examples", "docs_src", "sample", "samples",
+    "demo", "demos", "tutorial", "tutorials",
+})
+
+# Words that make a query ABOUT examples; with one present they are not
+# weighted. Stems are listed because `query_terms` adds them.
+_EXAMPLE_INTENT = frozenset({
+    "example", "examples", "exampl", "sample", "samples", "demo", "demos",
+    "tutorial", "tutorials", "snippet", "snippets", "docs", "doc", "documentation",
+})
+
+# Words that make a query ABOUT imports and exports.
+_BINDING_INTENT = frozenset({
+    "import", "imports", "imported", "require", "requires", "required",
+    "export", "exports", "exported", "reexport", "include", "includes",
+})
+
+# A variable or constant whose value is a module load: `var Route =
+# require('./router/route');`, `const x = require('y').z`, `const m = await
+# import('m')`. The name repeats the definition's name and the row holds no
+# code, so a question about `Route` returned the binding ahead of the class.
+_BINDING_RE = re.compile(r"=\s*(?:await\s+)?(?:require|import)\s*\(")
+
+# Multipliers for a symbol in an example directory and for an import or
+# module-load binding. 0.25 is the test-file value, reused. Bindings take 0.01:
+# at 0.1 the express binding `var middleware = require(...)` still outscored
+# `app.use`, whose code is the answer. Both are chosen values, checked on the
+# pinned benchmark corpora, not tuned. Only RANKING
+# reads them, as with every factor here.
+EXAMPLE_WEIGHT = 0.25
+BINDING_WEIGHT = 0.01
+
+
+def is_example_path(file_path: str) -> bool:
+    """True when a directory on the path names example or tutorial code."""
+    parts = [p for p in (file_path or "").replace("\\", "/").split("/") if p]
+    return any(p.lower() in _EXAMPLE_DIRS for p in parts[:-1])
+
+
+def is_binding_symbol(sym: dict) -> bool:
+    """An import row, or a variable or constant bound to a module load."""
+    kind = sym.get("kind")
+    if kind == "import":
+        return True
+    if kind not in ("variable", "constant"):
+        return False
+    return bool(_BINDING_RE.search(sym.get("signature") or ""))
+
+
 def rank_factor(sym: dict, terms: list[str]) -> tuple[float, str | None]:
     """The ranking multiplier for ``sym`` on this query, and why.
 
     One reason applies, the first that matches: ``test_file``
-    (`test_file_factor`), ``non_code_file`` (a NON_CODE_LANGUAGES symbol on a
-    query with no configuration, or styling, word) or ``data_kind``
-    (`is_data_symbol`, on a query with no value word). ``(1.0, None)``
-    otherwise."""
+    (`test_file_factor`), ``binding`` (`is_binding_symbol`, on a query with
+    no import or export word), ``example_file`` (`is_example_path`, on a
+    query with no example word), ``non_code_file`` (a NON_CODE_LANGUAGES
+    symbol on a query with no configuration, or styling, word) or
+    ``data_kind`` (`is_data_symbol`, on a query with no value word).
+    ``(1.0, None)`` otherwise."""
     weight = test_file_factor(sym, terms)
     if weight != 1.0:
         return weight, "test_file"
+    if is_binding_symbol(sym) and not any(t in _BINDING_INTENT for t in terms):
+        return BINDING_WEIGHT, "binding"
+    if is_example_path(sym.get("file") or "") and not any(t in _EXAMPLE_INTENT for t in terms):
+        return EXAMPLE_WEIGHT, "example_file"
     lang = (sym.get("language") or "").lower()
     if lang in NON_CODE_LANGUAGES:
         intent = _CONFIG_INTENT if lang in _CONFIG_LANGUAGES else _STYLE_INTENT
