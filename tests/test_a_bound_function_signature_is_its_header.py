@@ -68,6 +68,14 @@ def test_a_class_field_function_signature_stops_at_its_body(language, filename):
 
 
 @pytest.mark.parametrize("language, filename", _LANGS)
+def test_a_function_field_that_shadows_a_method_gets_its_header_too(language, filename):
+    """It is published as a field (#781) but still binds a function (review round 2)."""
+    src = "class C {\n  m = () => {\n    return 2;\n  };\n  m() { return 1; }\n}\n"
+    fields = [s for s in parse_file(src, filename, language) if s.qualified_name == "C.m" and s.kind == "field"]
+    assert [s.signature for s in fields] == ["m = () =>"]
+
+
+@pytest.mark.parametrize("language, filename", _LANGS)
 def test_a_plain_declaration_is_unchanged(language, filename):
     assert _sigs(language, filename)["plain"] == "function plain(y)"
 

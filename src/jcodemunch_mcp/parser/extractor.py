@@ -5447,7 +5447,9 @@ def _extract_js_class_field(
     else:
         kind = "field"
     sym = _field_symbol(name, node, source_bytes, filename, language, kind)
-    if kind == "method":
+    # By value, not by kind: a function field that shadows a real method is
+    # published as a field (#781) and still binds a function.
+    if value is not None and value.type in _JS_FUNCTION_VALUE_TYPES:
         header = _bound_function_header(node, value, source_bytes)
         if header is not None:
             sym.signature = header
