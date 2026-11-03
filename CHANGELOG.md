@@ -16,6 +16,79 @@ A function bound by a declaration (`const f = function (a) {...}`, `const g = (a
 
 The signature now ends where the function's own body starts: `const f = function f(a)`, `const g = (a) =>`, `res.json = function (obj)`, `handler = (e) =>`. The span is unchanged, so `get_symbol_source` still returns the whole function. Search rows for these functions are shorter, and a search no longer matches words that appear only in a bound function's body; a plain `function` declaration already worked this way. The same `PARSER_GENERATION` bump re-parses existing indexes.
 
+### Added - Rails views are indexed: `.erb` is a language
+
+No language mapped `.erb`, so a Rails application's whole view layer
+(`show.html.erb`, `_form.html.erb`, `create.js.erb`, a mailer's
+`.text.erb`) never entered the index: no symbols, nothing for `search_text`
+to find, no outline, and a helper called only from views looked unused. The
+`erb` language is keyed on the bare `.erb`, so every inner suffix reaches it
+(`.html.erb`, `.en.html.erb`, `.html+phone.erb`, `.js.erb`, `.rb.erb`,
+`.yml.erb`, `.turbo_stream.erb`).
+
+An ERB file is parsed in up to three passes, each over a copy of the file
+of the same length, so a symbol's line and byte offset are the original
+file's and a non-ASCII character cannot move a slice:
+
+- the Ruby inside `<% %>` tags, parsed as Ruby, with each tag's close read
+  as a statement end so adjacent tags and a block spanning tags stay valid;
+- the template text, in the language its inner suffix names (`.js.erb` as
+  JavaScript, `.rb.erb` as Ruby, `.yml.erb` as YAML);
+- for an HTML host, a bare `.erb`, or a format with no parser (`.text`,
+  `.turbo_stream`): static HTML ids and `<script>` bodies as JavaScript.
+
+`content_for`, `provide` and `yield :name` slots become constants. Each
+symbol keeps the language of the pass that found it, so
+`search_symbols(language="javascript")` finds a function in a `.js.erb`.
+A name built from a tag is named by the tag (`<%= class_name %>Report`),
+in the symbol's name, qualified name, id, signature, docstring, decorators
+and call references. The template text is parsed with each output tag
+filled by a token of its own length that no other tag shares, so a name maps
+back to its tag by lookup: two tags of one length keep their own names, two
+tag-built YAML keys stay two keys, and a child under a YAML key or XML
+element, or a value the YAML parser rewrote, shows the tags it was written
+with. A tag spanning lines gets a token per line; a line too short to hold
+one (a lone `%>`) is blanked like the indentation, so it is left out of a
+name rather than shown as filler.
+The view is always the file's first symbol, which is what files it under
+`erb`: a function at byte 0 of a `.js.erb`, or a YAML merge key, would
+otherwise have filed the view as JavaScript or YAML.
+
+The dead-code tools no longer prove a view unused. `render "shared/nav"`
+names `shared/_nav.html.erb`, which no import edge resolves, and a Rails
+controller renders its views by convention with no call at all, so a view
+with no importer proves nothing. As #1012 does for a Web Forms control, an
+`.erb` file has an unseen consumer, `template_rendered`:
+
+- `find_dead_code` caps a view and every symbol in it below its default
+  threshold and names the cap in `confidence_capped_by`; the views it
+  withholds are counted in `template_rendered_withheld`.
+- `check_delete_safe` never answers `safe_to_delete` for a view or a symbol
+  in it. With no importer found it answers `dynamic_import_boundary` with a
+  `template_rendered` blocker; a name no call site writes (an HTML id) keeps
+  `name_not_searchable` and gains the blocker.
+- `get_dead_code_v2` leaves `unreachable_file` undecided for a view. A
+  repository with no import edge at all takes its call-graph-only path,
+  which reads no cap, for views as for the .NET kinds.
+
+A view can still be dead; the tools no longer say so from a graph that
+cannot see what renders it. Found in review.
+
+No re-index is forced: the next `index_folder` finds the views as new files,
+and a test holds that. The edit hooks treat `.erb` as code, so an edited
+view is re-indexed. `plan_refactoring` recognizes a `<%= render %>` line and
+a `def` or `content_for` definition in a view, but rewriting a `render` line
+on a rename is still left to hand. `render` partials are not yet import
+edges, and `.tt` is left unmapped because Visual Studio's T4 templates use
+it too. Fixtures are real views from rails/rails (MIT) and solidus (BSD-3),
+pinned by commit in `tests/fixtures/erb/SOURCES.md` with the license texts.
+
+`erb` joins the `language` enum every tool derives from the registry:
+`core_full`, `standard_full` and `full_full` each grow by 2 tokens
+(`benchmarks/schema_baseline.json`), and `core_compact` and the `counter`
+surface are unchanged. A changed tool block is written to the prompt cache
+once, at full rate, on the first request after upgrading.
+
 ## [1.108.409] - 2026-11-02 - a search for a name nothing carries says so on a default install
 
 ### Fixed - a search for a name nothing carries says so on a default install
