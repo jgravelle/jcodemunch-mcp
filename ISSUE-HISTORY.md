@@ -3038,3 +3038,19 @@ The 1.108.404 entry, verbatim as it stood in `CLAUDE.md`:
 The `Tests:` line's 1.108.404 count, verbatim:
 
 - ⚠ Prior (1.108.404): 19007 passed, 24 skipped, **0 failed** (19031 total).
+
+## Current State rotation (2026-11-02, release 1.108.408)
+
+The 1.108.405 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.405):** **`get_class_hierarchy` and `find_implementations` read a base list written after a colon** (#1287, fixes #1284): the colon list is read for C#, Kotlin, Swift, C++ and Rust, plus Ruby `<` and Scala/Dart `with`; an enum's underlying type is never a base; signatures already stored are read, so no re-index. Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-02, release 1.108.409)
+
+The 1.108.406 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.406):** **watch-all leaves temp and idle indexes unwatched, and agents sharing an index stop reloading it** (bundle of 27 PRs, #1258-#1292): watch-all skips temp and idle indexes and `watch` exits when it cannot watch; a reader no longer invalidates other processes' cache; `init --git-hook` re-indexes a branch switch; a key holder never sees a sales link. Full text: `CHANGELOG.md`.
+
+The `Tests:` line's 1.108.406 count, verbatim:
+
+- ⚠ Prior (1.108.406): 19550 passed, 24 skipped, **0 failed** (19574 total).
