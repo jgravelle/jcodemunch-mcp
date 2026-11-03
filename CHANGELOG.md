@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed - an import without an extension resolves to the importer's own language first (#1316)
+
+@skibadubskiybadubs found it on OpenStudio while measuring #1315: `require_relative '../measure'` in three Ruby tests resolved to `measure.py` while `measure.rb` sat in the same folder. The resolver adds every known extension in one fixed order, JavaScript, then `.py`, then `.rb`, and never asked what language the importing file is in, so the first file that existed won whatever its language. The same order sent a Python `import utils` to `utils.js` when both files sat at the root. A Ruby, Python or Go importer now tries its own extension first, for a relative specifier and from the repo root. A file in another language is still found when no file in the importer's own language exists, and a specifier that names its extension is read as before. The shared per-specifier memo stays keyed without the importer, so one importer's answer is never served to another language's importer.
+
 ### Fixed - `reflect --apply-weights` writes the tuning file the server reads
 
 `tuning.jsonc` (learned ranking weights) and the embedding-drift canary are placed by two helpers that, when no storage path was passed, built `~/.code-index` and ignored `CODE_INDEX_PATH`. Over MCP this never showed: the server passes `CODE_INDEX_PATH` as the explicit storage path, so `tune_weights`, `check_embedding_drift` and `search_symbols` all used the named store. The CLI did not. `reflect --apply-weights` passes no storage path, so with `CODE_INDEX_PATH` set it wrote learned weights to `~/.code-index/tuning.jsonc`, a file the server never reads, and the weights it reported as applied were never used.

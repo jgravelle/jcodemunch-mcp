@@ -2124,6 +2124,34 @@ _JS_EXTENSIONS = (
 _PY_EXTENSIONS = (".py",)
 _RUBY_EXTENSIONS = (".rb",)
 _ALL_EXTENSIONS = _JS_EXTENSIONS + _PY_EXTENSIONS + _RUBY_EXTENSIONS + (".go",)
+# (#1316) The groups `_candidates` tries in order, by the importer's own
+# extension. JavaScript is first in that order already, so only the others
+# need trying ahead of it.
+_OWN_FIRST_GROUPS = {
+    **{e: _PY_EXTENSIONS for e in (".py", ".pyi")},
+    **{e: _RUBY_EXTENSIONS for e in _RUBY_EXTENSIONS},
+    ".go": (".go",),
+}
+
+
+def _own_language_first(base: str, importer_path: str, source_files) -> Optional[str]:
+    """*base* with the importer's own extension, when that file exists (#1316).
+
+    `_candidates` adds every known extension in one fixed order, JavaScript
+    then `.py` then `.rb`, so `require_relative '../measure'` from a Ruby file
+    took `measure.py` over the `measure.rb` beside it, and a Python `import
+    utils` took `utils.js`. Only an extensionless *base* is affected; a
+    specifier that names its extension already says which file it means.
+    """
+    group = _OWN_FIRST_GROUPS.get(posixpath.splitext(importer_path)[1])
+    if not group or posixpath.splitext(base)[1] or base in source_files:
+        return None
+    for e in group:
+        if base + e in source_files:
+            return base + e
+    return None
+
+
 _RACKET_EXTENSIONS = (".rkt", ".rktl", ".rktd")
 
 # TypeScript's ESM rules require the specifier to name the EMITTED file, so a
@@ -2862,6 +2890,9 @@ def resolve_specifier(
 
         importer_dir = posixpath.dirname(importer_path)
         joined = posixpath.normpath(posixpath.join(importer_dir, specifier))
+        own = _own_language_first(joined, importer_path, source_files)
+        if own:
+            return own
         for c in _candidates(joined):
             if c in source_files:
                 return c
@@ -2983,6 +3014,12 @@ def resolve_specifier(
     # map alone, so it is computed once per specifier and file set: the
     # import-graph builders resolve every import of every file, and a large
     # repository repeats the same specifiers across thousands of files.
+    # ⚠ (#1316) The importer's own extension is tried BEFORE the memo, which
+    # stays keyed without the importer: a Ruby answer cached first must not be
+    # served to a Python importer of the same name.
+    own = _own_language_first(specifier, importer_path, source_files)
+    if own:
+        return own
     if not importer_path.endswith(".gleam"):
         memo = _tail_memo(source_files, alias_map)
         if memo is not None:
