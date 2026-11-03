@@ -152,9 +152,12 @@ def test_a_gleam_answer_is_never_shared_between_importers():
         assert imp.resolve_specifier("pkg/config", "other/src/other/main.gleam", files) == (
             "other/src/pkg/config.gleam"
         )
+    # A tail-memo key is the specifier, or a tuple that starts with it (#1316
+    # adds the importer's own forms), so read the specifier either way.
     for entries in imp._tail_memos.values():
         for _alias, memo in entries:
-            assert "pkg/config" not in memo
+            specs = {k[0] if isinstance(k, tuple) else k for k in memo}
+            assert "pkg/config" not in specs
 
 
 def test_a_different_alias_map_gets_its_own_answers():
