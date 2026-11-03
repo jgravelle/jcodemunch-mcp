@@ -23,7 +23,6 @@ Works with **Claude Code**, **Cursor**, **VS Code**, **Codex CLI**, **Windsurf**
 <!-- mcp-name: io.github.jgravelle/jcodemunch-mcp -->
 
 **Free for personal use.** Use it to make money, and Uncle J. gets a taste. Fair enough? [Commercial licenses below.](#licensing-and-commercial-use)
-Commercial use needs a one-time license: $79 for one developer, $349 for up to five, $1,999 for a whole company.
 Our guarantee: if jCodeMunch doesn't pay for itself, you don't pay for jCodeMunch.
 
 **Small by default.** A new install starts on a six-tool front door: menu, order and route do the work, and jcodemunch_guide, announce_model and set_tool_tier help. The full tool set sits behind it, and `jcodemunch-mcp surface` shows exactly what your install advertises.
