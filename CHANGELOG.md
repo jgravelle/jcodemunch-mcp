@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.412] - 2026-11-03 - graph tools resolve each import once per loaded index, and a savings file holding the wrong type is refused, not frozen
+
 ### Changed - graph tools resolve each import once per loaded index, not once per call (#1317)
 
 @skibadubskiybadubs profiled it on OpenStudio (4,507 files, 39,167 imports): every graph tool resolved every import of the repository again on every call, 2.3 to 5.2 s each on 1.108.386, while tools that do not touch the graph answered in 0.01 to 0.1 s. 1.108.396 (#1224) had memoized the part of `resolve_specifier` that does not read the importer; the parts that do (relative paths, C includes, Python script folders, Racket, XAML, ASPX) still ran on every call, so the builders kept paying for the whole graph.
