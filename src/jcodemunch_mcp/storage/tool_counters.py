@@ -69,8 +69,24 @@ _LOCK_WAIT_AT_EXIT = 3.0
 _LOCK_STALE_SECONDS = 30.0
 
 
-def _root(base_path: Optional[str] = None) -> str:
-    return base_path or os.environ.get("CODE_INDEX_PATH") or str(Path.home() / ".code-index")
+def storage_root(base_path: Optional[str] = None) -> str:
+    """The storage directory: *base_path*, else `CODE_INDEX_PATH`, else `~/.code-index`.
+
+    ⚠⚠ **Not a second rule: it asks the index store's** (`sqlite_store.
+    _default_base_path`, and the same `expanduser().resolve()` the store applies
+    to an explicit path). The savings path used to ignore `CODE_INDEX_PATH`, and
+    a copy here that skipped `expanduser` would put `CODE_INDEX_PATH=~/x`
+    counters in a literal `~` folder beside indexes in the home one.
+    ⚠ Imported at call time: this module stays a stdlib leaf at import.
+    """
+    from .sqlite_store import _default_base_path
+
+    if base_path:
+        return str(Path(base_path).expanduser().resolve())
+    return str(_default_base_path())
+
+
+_root = storage_root
 
 
 def _as_count(value: object) -> int:
@@ -113,8 +129,12 @@ def _load(path: Path, *, strict: bool = False) -> dict:
     return {"version": _VERSION, "since": since, "estimator": ESTIMATOR, "tools": tools}
 
 
-def _acquire(lock: Path, wait: float) -> bool:
-    """Create *lock* exclusively, waiting up to *wait* seconds. False when another holds it."""
+def acquire_lock(lock: Path, wait: float) -> bool:
+    """Create *lock* exclusively, waiting up to *wait* seconds. False when another holds it.
+
+    ⚠ Also the savings meter's lock (see `token_tracker`): one lock rule for both
+    per-call stores, so a fix to it (the Windows `PermissionError` below) reaches both.
+    """
     deadline = time.monotonic() + wait
     while True:
         try:
@@ -137,6 +157,9 @@ def _acquire(lock: Path, wait: float) -> bool:
         if time.monotonic() >= deadline:
             return False
         time.sleep(0.01)
+
+
+_acquire = acquire_lock
 
 
 def _merge_into_file(root: str, rows: dict, wait: float) -> bool:
