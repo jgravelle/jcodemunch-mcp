@@ -1,12 +1,13 @@
-"""A function bound by a declaration or an assignment has its header as its signature.
+"""A function bound by a declaration, an assignment or a class field has its header as its signature.
 
-`const f = function (a) {...}`, `const g = (a) => {...}` and
-`res.send = function send(body) {...}` stored the whole statement as their
-signature, body included, because the statement node has no `body` field.
-A plain `function f(a)` stores only its header. Every search row for such a
-function carried all of its lines, and words in the body matched searches:
-on express, `app.use`'s search row alone was 459 tokens. Found in review of
-L-263, whose new member-assigned symbols inherited it.
+`const f = function (a) {...}`, `const g = (a) => {...}`,
+`res.send = function send(body) {...}` and the class field
+`handler = (e) => {...}` stored the whole statement as their signature,
+body included, because the statement node has no `body` field. A plain
+`function f(a)` stores only its header. Every search row for such a
+function carried all of its lines, and words in the body matched searches.
+Found through L-263's token benchmark, whose new member-assigned symbols
+inherited it (LEDGER L-291).
 """
 
 from __future__ import annotations
@@ -44,6 +45,26 @@ def test_a_bound_function_signature_stops_at_its_body(language, filename):
 def test_no_signature_carries_a_body_line(language, filename):
     for name, sig in _sigs(language, filename).items():
         assert "return" not in sig and "secretword" not in sig, (name, sig)
+
+
+_CLASS_SRC = (
+    "class C {\n"
+    "  handler = (e) => {\n    var secretword = e;\n    return secretword;\n  };\n"
+    "  static s = function () { return 1; };\n"
+    "  count = 0;\n"
+    "  m(x) { return x; }\n"
+    "}\n"
+)
+
+
+@pytest.mark.parametrize("language, filename", _LANGS)
+def test_a_class_field_function_signature_stops_at_its_body(language, filename):
+    """The third channel that binds a function (review round 1)."""
+    sigs = {s.qualified_name: s.signature for s in parse_file(_CLASS_SRC, filename, language)}
+    assert sigs["C.handler"] == "handler = (e) =>"
+    assert sigs["C.s"] == "static s = function ()"
+    assert sigs["C.count"] == "count = 0"
+    assert sigs["C.m"] == "m(x)"
 
 
 @pytest.mark.parametrize("language, filename", _LANGS)

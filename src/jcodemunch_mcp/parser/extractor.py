@@ -4583,21 +4583,29 @@ def _variable_function_name(declarator, source_bytes: bytes) -> Optional[str]:
     return source_bytes[name_node.start_byte:name_node.end_byte].decode("utf-8")
 
 
-def _bound_function_signature(stmt, value, spec: LanguageSpec, source_bytes: bytes) -> str:
-    """Signature of a function bound by a declaration or an assignment: its header.
+def _bound_function_header(stmt, value, source_bytes: bytes) -> Optional[str]:
+    """The header of a function bound by a declaration, an assignment or a class field.
 
-    `const f = function (a) {...}`, `const g = (a) => {...}` and
-    `res.send = function send(body) {...}` used to store the whole statement,
-    body included, because the statement node has no `body` field. A plain
+    `const f = function (a) {...}`, `const g = (a) => {...}`,
+    `res.send = function send(body) {...}` and the class field
+    `handler = (e) => {...}` used to store the whole statement, body
+    included, because the statement node has no `body` field. A plain
     `function f(a)` stores only its header, so these rows carried every
     line of the function into each search result, and words in the body
-    matched searches. The header ends where the function's own body starts.
+    matched searches (L-291). The header ends where the function's own body
+    starts. None when the value has no body inside the statement.
     """
     body = value.child_by_field_name("body") if value is not None else None
     if body is None or not (stmt.start_byte <= body.start_byte <= stmt.end_byte):
-        return _build_signature(stmt, spec, source_bytes)
+        return None
     sig = source_bytes[stmt.start_byte:body.start_byte].decode("utf-8", "replace").strip()
     return sig.rstrip("{: \n\t")
+
+
+def _bound_function_signature(stmt, value, spec: LanguageSpec, source_bytes: bytes) -> str:
+    """`_bound_function_header`, or the statement's ordinary signature without one."""
+    header = _bound_function_header(stmt, value, source_bytes)
+    return header if header is not None else _build_signature(stmt, spec, source_bytes)
 
 
 def _extract_variable_function(
@@ -5438,7 +5446,12 @@ def _extract_js_class_field(
         kind = "constant"
     else:
         kind = "field"
-    return [_field_symbol(name, node, source_bytes, filename, language, kind)]
+    sym = _field_symbol(name, node, source_bytes, filename, language, kind)
+    if kind == "method":
+        header = _bound_function_header(node, value, source_bytes)
+        if header is not None:
+            sym.signature = header
+    return [sym]
 
 
 #: The grammars with parameter properties. JavaScript has none.

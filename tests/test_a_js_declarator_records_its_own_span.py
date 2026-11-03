@@ -9,7 +9,8 @@ not answer differently; JS has two channels (bindings, and the
 
 The rule here: the declaration (keyword included, `export` excluded as
 before) when it holds ONE declarator, the `variable_declarator` when it
-holds several; `signature` follows the span. A destructuring pattern is ONE
+holds several; `signature` starts with the span (a bound function's signature
+ends at its body, L-291). A destructuring pattern is ONE
 declarator however many names it binds, so `const { a, b } = o` keeps the
 declaration's span for both, the rule and not an exception (Go's
 `const D, E = 5, 6`). Java's `int a, b;` stays on its declaration (#823:
