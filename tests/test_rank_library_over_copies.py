@@ -4,10 +4,9 @@ above the lines that only load it.
 Two shapes outranked the definition on the pinned benchmark corpora:
 
 - copies in example and tutorial directories. fastapi's ``docs_src/`` holds
-  dozens of ``GzipRoute.get_route_handler`` tutorials beside the one
+  ``GzipRoute.get_route_handler`` tutorials beside the one
   ``APIRoute.get_route_handler`` in ``fastapi/routing.py``, and "router route
-  handler" returned three tutorials; express's ``examples/error-pages`` EJS
-  views answered "error exception";
+  handler" returned three tutorials;
 - module-load bindings. ``var Route = require('./router/route');`` carries the
   definition's name and none of its code, and ``var middleware =
   require('./middleware/init')`` was promoted to first place as an exact-name
