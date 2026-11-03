@@ -41,7 +41,7 @@ from collections import OrderedDict, deque
 from contextvars import ContextVar, Token
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 from .. import config as _config
 from . import savings_meter as _meter
@@ -1792,7 +1792,7 @@ for _sig in (signal.SIGTERM, signal.SIGINT):
 # Public API (unchanged signatures)
 # ---------------------------------------------------------------------------
 
-def _as_count(value: object) -> int:
+def _as_count(value: Any) -> int:
     return int(value) if _is_whole_count(value) else 0
 
 
