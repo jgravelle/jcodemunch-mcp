@@ -67,7 +67,7 @@ def test_a_tool_call_is_counted_with_the_size_of_its_answer(store):
     assert data["estimator"] == "bytes/4", "a count with no named estimator reads as a tokenizer count"
     assert re.fullmatch(r"\d{4}-\d{2}-\d{2}", data["since"])
     assert set(data) == {"version", "since", "estimator", "tools"}
-    assert set(row) == {"calls", "tokens_returned"}
+    assert set(row) == {"calls", "tokens_returned", "no_match"}
 
 
 def test_an_error_answer_is_counted_too(store):
@@ -131,7 +131,7 @@ def test_an_unwritable_file_is_not_an_error(store, monkeypatch):
         assert not (store / tool_counters.FILE).exists()
         assert not [p.name for p in store.iterdir() if p.name.endswith(".tmp")]
     # A write that could not be made kept its counts: the next one carries them.
-    assert _counters(store)["tools"]["list_repos"] == {"calls": 2, "tokens_returned": 200}
+    assert _counters(store)["tools"]["list_repos"] == {"calls": 2, "tokens_returned": 200, "no_match": 0}
 
 
 def test_a_flush_that_cannot_take_the_lock_keeps_its_counts(store, monkeypatch):
@@ -248,7 +248,7 @@ def test_processes_that_stop_together_lose_no_count(store):
     procs = [subprocess.Popen([sys.executable, "-c", code, str(store), go], env=env) for _ in range(8)]
     assert [p.wait(timeout=60) for p in procs] == [0] * 8
     data = json.loads((store / tool_counters.FILE).read_text(encoding="utf-8"))
-    assert data["tools"]["list_repos"] == {"calls": 1040, "tokens_returned": 5 + 40 * 100}
+    assert data["tools"]["list_repos"] == {"calls": 1040, "tokens_returned": 5 + 40 * 100, "no_match": 0}
     assert data["since"] == "2026-01-01", "history is kept, with its start date"
     assert not list(store.glob("*.tmp")) and not (store / tool_counters.LOCK_FILE).exists()
 
@@ -310,7 +310,7 @@ def test_a_dispatch_that_raises_is_a_call_with_no_tokens(store, monkeypatch):
     monkeypatch.setattr(server, "_call_tool_impl", boom)
     with pytest.raises(RuntimeError):
         _call("list_repos", {})
-    assert _counters(store)["tools"]["list_repos"] == {"calls": 1, "tokens_returned": 0}
+    assert _counters(store)["tools"]["list_repos"] == {"calls": 1, "tokens_returned": 0, "no_match": 0}
 
 
 def test_the_switch_is_read_from_a_real_config_file(store):
@@ -344,8 +344,8 @@ def test_two_flushes_add_up_and_a_second_process_is_not_overwritten(store):
     other.flush()
     tool_counters.record("list_repos", 400)
     data = _counters(store)
-    assert data["tools"]["list_repos"] == {"calls": 3, "tokens_returned": 400}
-    assert data["tools"]["search_symbols"] == {"calls": 1, "tokens_returned": 10}
+    assert data["tools"]["list_repos"] == {"calls": 3, "tokens_returned": 400, "no_match": 0}
+    assert data["tools"]["search_symbols"] == {"calls": 1, "tokens_returned": 10, "no_match": 0}
 
 
 def test_a_damaged_file_is_replaced_not_fatal(store):
@@ -461,8 +461,8 @@ def test_an_index_that_cannot_be_opened_is_listed_with_unknown_counts(install):
 def test_a_tool_row_joins_the_three_counts_and_folds_an_unlisted_name(install):
     tools = _report(install)["tools"]
     assert tools["estimator"] == "bytes/4"
-    assert tools["by_tool"]["search_symbols"] == {"calls": 1, "tokens_returned": 1000, "tokens_saved": 700}
-    assert tools["by_tool"]["other"] == {"calls": 1, "tokens_returned": 20, "tokens_saved": 200}
+    assert tools["by_tool"]["search_symbols"] == {"calls": 1, "tokens_returned": 1000, "no_match": 0, "tokens_saved": 700}
+    assert tools["by_tool"]["other"] == {"calls": 1, "tokens_returned": 20, "no_match": 0, "tokens_saved": 200}
     assert set(tools["by_tool"]) == {"search_symbols", "other"}
     assert tools["tokens_saved_total"] == 900
 
@@ -579,7 +579,7 @@ def test_a_savings_file_that_cannot_be_read_gives_no_saved_figure(install):
     (store / "_savings.json").write_text("{damaged", encoding="utf-8")
     tools = _report(install)["tools"]
     assert tools["tokens_saved_total"] is None, "unknown is not zero"
-    assert tools["by_tool"]["search_symbols"] == {"calls": 1, "tokens_returned": 1000, "tokens_saved": None}
+    assert tools["by_tool"]["search_symbols"] == {"calls": 1, "tokens_returned": 1000, "no_match": 0, "tokens_saved": None}
     (store / "_savings.json").unlink()
     absent = _report(install)["tools"]
     assert absent["tokens_saved_total"] == 0 and absent["by_tool"]["search_symbols"]["tokens_saved"] == 0
@@ -602,7 +602,7 @@ def test_a_counters_file_that_cannot_be_read_gives_no_count(install, monkeypatch
         monkeypatch.setattr(Path, "read_text", busy)
     tools = _report(install)["tools"]
     assert tools["counting_since"] is None
-    assert tools["by_tool"]["search_symbols"] == {"calls": None, "tokens_returned": None, "tokens_saved": 700}
+    assert tools["by_tool"]["search_symbols"] == {"calls": None, "tokens_returned": None, "no_match": None, "tokens_saved": 700}
 
 
 def test_a_saved_total_that_is_not_a_count_is_unknown(install):

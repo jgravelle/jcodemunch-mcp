@@ -5958,7 +5958,11 @@ def _label_lifetime_total(result: dict) -> None:
 
 
 def _count_tool_call(
-    name: str, result: "list[TextContent] | CallToolResult | None", *, relayed: bool = False
+    name: str,
+    result: "list[TextContent] | CallToolResult | None",
+    *,
+    relayed: bool = False,
+    no_match: bool = False,
 ) -> None:
     """Add this call to the local per-tool counters (`storage/tool_counters.py`).
 
@@ -5970,6 +5974,11 @@ def _count_tool_call(
     the default surface was mirrored under `order` (review, 2026-10-13).
     ⚠ A dispatch that raised is a call with no answer: *result* is None and
     it adds a call and no tokens, so `calls` agrees with the latency rows.
+    ⚠ *no_match* says the answer carried `negative_evidence` (#1308). It is
+    read from the result DICT, before encoding, because a compact encoding
+    cannot be parsed back here; `_call_tool_impl` marks it on this frame
+    (BACKLOG 74). A relayed call's marker stays with the tool that answered,
+    the same as its size.
     ⚠ *name* is the client's string: only a name this server publishes is
     counted, so nothing else can be written into a file the user may hand to
     someone. ⚠ It never touches the disk (the counters module hands a due
@@ -5983,7 +5992,7 @@ def _count_tool_call(
         from .storage import tool_counters
 
         size = 0 if relayed or result is None else _response_text_bytes(result)
-        tool_counters.record(name, size)
+        tool_counters.record(name, size, no_match=no_match)
     except Exception:
         logger.debug("tool counter not recorded for %s", name, exc_info=True)
 
@@ -6102,7 +6111,12 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent] | CallToolR
         return result
     finally:
         _COUNT_FRAME.reset(_count_token)
-        _count_tool_call(name, _counted_result, relayed=_count_frame["inner"])
+        _count_tool_call(
+            name,
+            _counted_result,
+            relayed=_count_frame["inner"],
+            no_match=bool(_count_frame.get("no_match")),
+        )
         if _count_parent is not None:
             _count_parent["inner"] = True
         else:
@@ -7907,6 +7921,14 @@ async def _call_tool_impl(name: str, arguments: dict) -> list[TextContent] | Cal
                         meta["secrets_redacted"] = _redact_count
             except Exception:
                 logger.debug("Secret redaction failed", exc_info=True)
+
+        # The tool counters' no-match count (BACKLOG 74): read the marker while
+        # the answer is still a dict; after encoding it is text in a format
+        # the counter cannot parse.
+        if isinstance(result, dict) and result.get("negative_evidence"):
+            _frame = _COUNT_FRAME.get()
+            if _frame is not None:
+                _frame["no_match"] = True
 
         # Compact output encoding (MUNCH). Opt-in via `format` argument or
         # JCODEMUNCH_DEFAULT_FORMAT env; "auto" falls back to JSON unless

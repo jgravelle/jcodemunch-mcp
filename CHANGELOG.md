@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added - the tool counters say how many calls found nothing
+
+`_tool_counters.json` counted a search for a name nothing carries as one more ordinary call, so the per-tool figures `diagnose` reports could not tell calls that answered from calls that found nothing (customer report). Since 1.108.409 (#1308) such an answer carries `negative_evidence` in its body, the channel a default install keeps. The dispatcher now reads that marker while the answer is still a dict, before any compact encoding, and the counters keep a third count per tool, `no_match`, beside `calls` and `tokens_returned`; `diagnose` reports it in each `by_tool` row. A call relayed by the front door keeps its marker with the tool that answered, the same as its size. A counters file written before this release reads `no_match` as 0 and keeps adding; a count that could not be written keeps its `no_match` for the next write. Nothing new is sent anywhere, and `"tool_counters": false` still records nothing. SECURITY.md and CONFIGURATION.md name the third count.
+
 ### Fixed - `reflect --apply-weights` writes the tuning file the server reads
 
 `tuning.jsonc` (learned ranking weights) and the embedding-drift canary are placed by two helpers that, when no storage path was passed, built `~/.code-index` and ignored `CODE_INDEX_PATH`. Over MCP this never showed: the server passes `CODE_INDEX_PATH` as the explicit storage path, so `tune_weights`, `check_embedding_drift` and `search_symbols` all used the named store. The CLI did not. `reflect --apply-weights` passes no storage path, so with `CODE_INDEX_PATH` set it wrote learned weights to `~/.code-index/tuning.jsonc`, a file the server never reads, and the weights it reported as applied were never used.
