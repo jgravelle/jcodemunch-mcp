@@ -3080,3 +3080,9 @@ The `Tests:` line's 1.108.408 count, verbatim:
 The 1.108.409 entry, verbatim as it stood in `CLAUDE.md`:
 
 - **Prior (1.108.409):** **a search for a name nothing carries says so on a default install** (#1308, #1306): an identifier-shaped `search_symbols` query with no exact and no prefix match anywhere in the index carries `negative_evidence: no_exact_match` and a warning in the body, which `meta_fields: []` keeps; rows and ranking are unchanged and the verdict state is `low_confidence`, never `absent`. The work-license reminder's buy link names where it was shown. Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-03, release 1.108.413)
+
+The 1.108.410 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.410):** **a savings meter that stops measuring says so, and Rails views are indexed** (#1309, #1307, #1311): the savings meter records `last_flush_at` and `measured_days` on every write that carries a call, so a 0 is a measurement and a missing day is not, and `receipt`, `diagnose` and `get_session_stats` carry `lifetime_status` (`current`/`stale`/`unknown`); its write can no longer wipe or lose counts; `.erb` is a language; `tuning.jsonc` and the embedding-drift canary follow `CODE_INDEX_PATH` through the store's own root rule. Full text: `CHANGELOG.md`.

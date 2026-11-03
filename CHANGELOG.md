@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.413] - 2026-11-03 - the license terms read the same in the terminal, the package and the site
+
 ### Changed - the license lines in the terminal say what the site says, and `receipt` ends with one
 
 The CLI stated the terms in its own words: the one-time notice said "Work use needs a commercial license", the reminder "Using jCodeMunch for work needs a license", while jcodemunch.com answers "Can I use jCodeMunch at work?" with "Work use at a for-profit company, or for client or paid work, needs a license." The notice, both copies of the reminder and the plugin README's license line now use the site's sentence, and the README FAQ carries the site's answer. The plugin listing's description reads "Free for non-commercial use; commercial use needs a one-time license."

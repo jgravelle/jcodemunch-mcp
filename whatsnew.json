@@ -1,6 +1,12 @@
 {
-  "current": "1.108.412",
+  "current": "1.108.413",
   "entries": [
+    {
+      "version": "1.108.413",
+      "date": "2026-11-03",
+      "title": "the license terms read the same in the terminal, the package and the site",
+      "summary": "The license lines in the terminal and the package's own descriptions now say what the site says: work use at a for-profit company, or for client or paid work, needs a license."
+    },
     {
       "version": "1.108.412",
       "date": "2026-11-03",
