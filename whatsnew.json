@@ -1,6 +1,12 @@
 {
-  "current": "1.108.408",
+  "current": "1.108.409",
   "entries": [
+    {
+      "version": "1.108.409",
+      "date": "2026-11-02",
+      "title": "a search for a name nothing carries says so on a default install",
+      "summary": "A search for a name that no symbol carries now says so in the answer itself, even on a default install that hides metadata: the results stay, marked as sharing words with the query only, and the answer is never presented as proof the name is absent. The work-license reminder's buy link now says where it was shown."
+    },
     {
       "version": "1.108.408",
       "date": "2026-11-02",

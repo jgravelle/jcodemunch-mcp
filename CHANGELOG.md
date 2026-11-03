@@ -75,6 +75,8 @@ pinned by commit in `tests/fixtures/erb/SOURCES.md` with the license texts.
 surface are unchanged. A changed tool block is written to the prompt cache
 once, at full rate, on the first request after upgrading.
 
+## [1.108.409] - 2026-11-02 - a search for a name nothing carries says so on a default install
+
 ### Fixed - a search for a name nothing carries says so on a default install
 
 Reported by a long-time customer: `search_symbols` for a camelCase name that exists nowhere in the index, such as `zzqqxxNotARealSymbolAtAll`, returned ten ranked rows with nothing to say none of them was the symbol asked for. BM25 scores camelCase sub-tokens, so one common word (`not`, `symbol`, `at`, `all`) is enough to qualify a row. The tool already knew: `_meta.exact_match` read `found: false` and the verdict read `low_confidence` (1.108.173). But `meta_fields: []` is the shipped default, and the dispatcher strips `_meta`, so a default install got the rows and lost the finding. A query that matched nothing at all kept its body-level `negative_evidence` and warning through the same dispatcher; a query that matched only words did not.
