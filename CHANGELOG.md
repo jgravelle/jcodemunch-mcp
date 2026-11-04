@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed - a search credits the tokens it saved on a fresh install's index
+
+`search_symbols`, `search_text`, `get_file_content`, `get_ranked_context`, `get_repo_map` and `get_symbol_importance` credit savings against the file sizes stored in the index. Since v1.10.23 a save stored a size only when it was handed the file's contents, and a full `index_folder` writes the contents to the index's content folder and hands the save none. So every file of a first index, and of every full re-index, stored no size, and those tools credited 0 tokens on every call: on the maintainer's own index of this repository, 1,471 of 1,510 files had none on 2026-11-04. An install that only searched never had a savings total to report. `get_file_outline` measures the cached file on disk and was not affected. A full save and a branch save now record a size for each file from the content folder (an incremental save already stored one from the contents it is handed), and an index built before this fix reads a missing size from its content copy the first time a tool asks, so no re-index is needed and nothing is written back from a read. The fallback survives the in-memory updates a hook or watcher save makes, a file with no copy is looked up once and remembered, and the path is confined by the same rule that placed the copy. An install with `cache_mode: metadata_only` keeps no content copies, so its files still store no size and credit nothing. Found while checking why a fresh install's searches credited nothing. Tests: `tests/test_savings_credit_file_sizes.py`.
+
 ## [1.108.415] - 2026-11-04 - a search for library code ranks the library above its tutorial and example copies
 
 ### Fixed - a search for library code ranks the library above its tutorial and example copies
