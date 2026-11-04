@@ -112,7 +112,9 @@ def test_an_aliased_import_keeps_the_importers_order():
 
 def test_a_specifier_with_an_extension_is_never_reordered():
     files = frozenset({"lib/helper.js", "lib/helper.rb", "app/main.rb"})
-    assert resolve_specifier("../lib/helper.js", "app/main.rb", files) == "lib/helper.js"
+    assert (
+        resolve_specifier("../lib/helper.js", "app/main.rb", files) == "lib/helper.js"
+    )
 
 
 def test_every_call_site_passes_the_importer():
