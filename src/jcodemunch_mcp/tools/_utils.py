@@ -535,7 +535,7 @@ def distinct_file_bytes(file_sizes: dict, symbols) -> int:
         if not f:
             continue
         size = normalised.get(f)
-        if size is None and file_sizes:
+        if size is None and file_sizes is not None:
             # A size the index did not store is read from its content copy
             # (`storage.file_sizes.ContentSizes`); copying the map loses that.
             size = file_sizes.get(f)

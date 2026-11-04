@@ -205,3 +205,11 @@ def test_a_key_that_leaves_the_content_dir_reads_nothing(tmp_path):
     except (OSError, NotImplementedError):
         return
     assert sizes.get("link.py", 0) == 0
+
+
+def test_distinct_file_bytes_reads_through_a_map_with_no_stored_sizes(tmp_path):
+    """A pre-fix index with no stored sizes loads as an EMPTY map, which is falsy."""
+    from jcodemunch_mcp.storage.file_sizes import ContentSizes
+
+    (tmp_path / "a.py").write_bytes(b"abcd")
+    assert distinct_file_bytes(ContentSizes({}, tmp_path), [{"file": "a.py"}]) == 4
