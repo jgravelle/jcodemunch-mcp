@@ -530,4 +530,14 @@ def distinct_file_bytes(file_sizes: dict, symbols) -> int:
     """
     files = {(s.get("file", "") or "").replace("\\", "/") for s in symbols}
     normalised = {k.replace("\\", "/"): v for k, v in (file_sizes or {}).items()}
-    return sum(int(normalised.get(f, 0) or 0) for f in files if f)
+    total = 0
+    for f in files:
+        if not f:
+            continue
+        size = normalised.get(f)
+        if size is None and file_sizes:
+            # A size the index did not store is read from its content copy
+            # (`storage.file_sizes.ContentSizes`); copying the map loses that.
+            size = file_sizes.get(f)
+        total += int(size or 0)
+    return total

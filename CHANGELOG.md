@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed - a search credits the tokens it saved on a fresh install's index
+
+`search_symbols`, `search_text`, `get_file_content`, `get_ranked_context`, `get_repo_map` and `get_symbol_importance` credit savings against the file sizes stored in the index. Since v1.10.23 a save stored a size only when it was handed the file's contents, and a full `index_folder` writes the contents to the index's content folder and hands the save none. So every file of a first index, and of every full re-index, stored no size, and those tools credited 0 tokens on every call: on this box's own index of this repository, 1,471 of 1,509 files had none. An install that only searched never had a savings total to report. `get_file_outline` measures the cached file on disk and was not affected. Every save now records a size for each file from the content folder, and an index built before this fix reads a missing size from its content copy the first time a tool asks, so no re-index is needed and nothing is written back from a read. Found while answering why a fresh install's searches credited nothing (LEDGER L-302). Tests: `tests/test_savings_credit_file_sizes.py`.
+
 ### Fixed - a search for library code ranks the library above its tutorial and example copies
 
 Example and tutorial directories repeat a library's names, and there are many of them, so a question about the library returned the copies. fastapi's `docs_src/` holds many `GzipRoute.get_route_handler` tutorials beside the one `APIRoute.get_route_handler` in `fastapi/routing.py`, and "router route handler" returned three tutorials. On express, "error exception" returned two template imports and a template from `examples/error-pages/`. Measured on the pinned corpora (fastapi a64dfbb, express 1faf228), "router route handler" now returns `fastapi/routing.py::APIRoute.get_route_handler` first, and express's "error exception" returns rows from `lib/response.js` and `lib/application.js`.
