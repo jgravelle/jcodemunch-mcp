@@ -217,6 +217,12 @@ def order_gate(
         hint = retired_hint(action)
         if hint is not None:
             new = RETIRED_TOOL_NAMES[action][0]
+            if suggest_from is not None and new not in set(suggest_from):
+                # The replacement would be refused as turned off: say so, never offer it.
+                return (
+                    f"Unknown action '{action}'. It was replaced by {as_order_call(new)}, "
+                    f"which is turned off here; ask the user whether to turn it back on."
+                )
             return f"Unknown action '{action}'. {render_names(hint, [new])}"
         # Suggest only what would run: a turned-off tool stays dispatchable (so
         # its own reply explains it) but is never offered as the next call.

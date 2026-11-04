@@ -146,6 +146,16 @@ def test_a_retired_name_points_through_order():
     assert 'order(action="get_symbol_source")' in err
 
 
+def test_a_retired_name_whose_replacement_is_turned_off_is_not_offered_it():
+    from jcodemunch_mcp import counter
+
+    names = _real_names()
+    err = counter.order_gate("get_symbol", names, False,
+                             suggest_from=set(names) - {"get_symbol_source"})
+    assert "turned off here" in err
+    assert "call" not in err.split("turned off here")[1]
+
+
 # --- what gets suggested, through the server's own order handler --------------
 
 
