@@ -6257,11 +6257,16 @@ async def _call_tool_impl(name: str, arguments: dict) -> list[TextContent] | Cal
         allow_disable_tier = config_module.get("allow_disabling_tier_controls", False, repo=repo_arg)
         protected_at_call = frozenset() if allow_disable_tier else _UNDISABLEABLE_TOOLS
         if name not in protected_at_call and config_module.is_tool_disabled(name, repo=repo_arg):
+            where = (
+                "this project's .jcodemunch.jsonc"
+                if config_module.disabled_tool_source(name, repo=repo_arg) == "project"
+                else "the global config.jsonc"
+            )
             return _fail(json.dumps({
                 "error": (
-                    f"Tool '{name}' is disabled in this project's configuration. "
-                    f"Project-level tool disabling is set via the 'disabled_tools' key "
-                    f"in the .jcodemunch.jsonc file. Remove '{name}' from 'disabled_tools' to re-enable."
+                    f"Tool '{name}' is turned off: it is listed in 'disabled_tools' in {where}. "
+                    f"The user disabled it on purpose. Ask the user before using it, "
+                    f"and do not edit that setting yourself."
                 )
             }, indent=2))
 

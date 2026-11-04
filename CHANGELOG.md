@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Changed - a wrong call through `order` says what to call instead, and a turned-off tool says to ask the user
+
+On the default front door, an agent reaches every tool through `order`. A misspelled action (`serch_symbols`, `Get-File-Outline`) used to answer only "Unknown action" and send the agent to `menu`, which costs a round trip; it now names up to three close actions, compared after folding case and `-` to `_`, from the same names `menu` searches. Nothing close means no suggestion, so a far-off name is never answered with a guess. A tool listed in `disabled_tools` used to answer that it was disabled in the project's `.jcodemunch.jsonc`, even when the global `config.jsonc` held the setting, and told the agent how to remove it. It now names the file that holds the setting, says the user turned the tool off on purpose, and tells the agent to ask the user rather than edit the setting. Tests: `tests/test_order_replies.py`.
+
 ## [1.108.415] - 2026-11-04 - a search for library code ranks the library above its tutorial and example copies
 
 ### Fixed - a search for library code ranks the library above its tutorial and example copies

@@ -135,6 +135,24 @@ def retired_hint(name: str) -> Optional[str]:
     return f"It was replaced by {new}; call {new} with {arg}."
 
 
+def nearest_actions(action: str, catalog_names: Iterable[str], n: int = 3) -> list[str]:
+    """Up to ``n`` catalog names close to ``action``, closest first; [] when none is.
+
+    A list, not one name: ``get_symbol`` is as close to ``get_symbol_diff`` as
+    to ``get_symbol_source``, and one confident wrong name costs more than three.
+
+    Compared after folding case and ``-``/space to ``_``, so ``Get-File-Outline``
+    finds ``get_file_outline``. The names are the ones ``menu`` searches.
+    """
+    import difflib
+
+    folded = re.sub(r"[\s\-]+", "_", action.strip().lower())
+    names = sorted(catalog_names)
+    if folded in names:
+        return [folded]
+    return difflib.get_close_matches(folded, names, n=n, cutoff=0.75)
+
+
 def order_gate(
     action: str,
     catalog_names: Iterable[str],
@@ -155,8 +173,12 @@ def order_gate(
         hint = retired_hint(action)
         if hint is not None:
             return f"Unknown action '{action}'. {hint}"
+        near = nearest_actions(action, names)
+        did_you_mean = (
+            " Did you mean " + " or ".join(f"'{a}'" for a in near) + "?" if near else ""
+        )
         return (
-            f"Unknown action '{action}'. Call 'menu' (optionally with a query) "
+            f"Unknown action '{action}'.{did_you_mean} Call 'menu' (optionally with a query) "
             f"to discover valid actions."
         )
     tripwire = forbidden_reason(action)

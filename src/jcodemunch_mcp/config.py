@@ -1503,6 +1503,21 @@ def is_tool_disabled(tool_name: str, repo: str | None = None) -> bool:
     return tool_name in disabled
 
 
+def disabled_tool_source(tool_name: str, repo: str | None = None) -> str | None:
+    """Which file turned ``tool_name`` off: "project", "global", or None.
+
+    Follows :func:`get`'s resolution: a project file that declares
+    ``disabled_tools`` replaces the global list, so it alone decides.
+    """
+    _ensure_loaded()
+    if repo:
+        resolved = _resolve_repo_key(repo)
+        project = _PROJECT_CONFIGS.get(resolved) if resolved else None
+        if project is not None and "disabled_tools" in project:
+            return "project" if tool_name in (project["disabled_tools"] or []) else None
+    return "global" if tool_name in (_GLOBAL_CONFIG.get("disabled_tools") or []) else None
+
+
 def is_language_enabled(language: str, repo: str | None = None) -> bool:
     """Check if a language is in the languages list."""
     languages = get("languages", None, repo=repo)
