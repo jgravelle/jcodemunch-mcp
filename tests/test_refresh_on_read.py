@@ -11,7 +11,6 @@ per repository per cooldown.
 
 from __future__ import annotations
 
-import asyncio
 import json
 import subprocess
 import time
@@ -142,10 +141,78 @@ def test_a_refresh_past_its_budget_says_so(indexed, monkeypatch):
         time.sleep(0.5)
         return real(*a, **k)
 
-    monkeypatch.setattr(ror, "_reindex", slow)
+    started = []
+
+    def counted(*a, **k):
+        started.append(1)
+        return slow(*a, **k)
+
+    monkeypatch.setattr(ror, "_reindex", counted)
     block = ror.refresh_before_read(repo, storage_path=store)
-    assert block["reason"] == "budget"
-    assert block["refreshed"] == 0
+    # The re-index is still running: its outcome is unknown, so no count of
+    # zero and no call that would start a second write.
+    assert block["reason"] == "in_progress"
+    assert block["refreshed"] is None
+    assert "call" not in block
+    # A check while it runs starts no second writer, even past the cooldown.
+    with ror._lock:
+        ror._last_check.clear()
+    again = ror.refresh_before_read(repo, storage_path=store)
+    assert again["reason"] == "in_progress"
+    assert started == [1]
+    deadline = time.monotonic() + 10
+    while ror._in_flight and time.monotonic() < deadline:
+        time.sleep(0.05)
+    assert not ror._in_flight
+    assert "a4" in _names(repo, store, "a4")
+
+
+def test_a_file_the_indexer_never_takes_is_not_stale(indexed):
+    """A log or a binary in the tree is not indexed, so it is never counted or re-indexed."""
+    src, repo, store = indexed
+    (src / "run.log").write_text("started\n")
+    (src / "blob.bin").write_bytes(bytes(range(256)) * 4)
+    assert ror.refresh_before_read(repo, storage_path=store) is None
+    ror.reset_cooldowns()
+    assert ror.refresh_before_read(repo, storage_path=store) is None
+
+
+def test_many_files_the_indexer_never_takes_do_not_flag_the_index(indexed, monkeypatch):
+    """Before: 60 such files read `too_many_files`, and `index_folder` could not clear it."""
+    src, repo, store = indexed
+    monkeypatch.setattr(ror, "REFRESH_MAX_FILES", 5)
+    for i in range(60):
+        (src / f"out{i}.log").write_text("x\n")
+    assert ror.refresh_before_read(repo, storage_path=store) is None
+
+
+def test_too_many_files_says_the_count_is_a_floor(indexed, monkeypatch):
+    src, repo, store = indexed
+    monkeypatch.setattr(ror, "REFRESH_MAX_FILES", 1)
+    for i in range(4):
+        (src / f"new{i}.py").write_text(f"def n{i}():\n    return {i}\n")
+    block = ror.refresh_before_read(repo, storage_path=store)
+    assert block["reason"] == "too_many_files"
+    assert block["stale_files_basis"] == "at_least"
+    assert block["stale_files"] > 1
+
+
+def test_a_check_reads_metadata_and_never_hydrates_the_index(indexed, monkeypatch):
+    from jcodemunch_mcp.storage import IndexStore
+
+    src, repo, store = indexed
+    loads = []
+    real = IndexStore.load_index
+
+    def counted(self, *a, **k):
+        loads.append(a)
+        return real(self, *a, **k)
+
+    monkeypatch.setattr(IndexStore, "load_index", counted)
+    monkeypatch.setattr(ror, "_reindex", lambda *a, **k: {"success": True})
+    (src / "app.py").write_text("def a5(x):\n    return x\n")
+    assert ror.refresh_before_read(repo, storage_path=store) == {"refreshed": 1}
+    assert loads == []
 
 
 def test_a_folder_that_is_not_a_git_repo_is_left_alone(tmp_path):
@@ -158,7 +225,8 @@ def test_a_folder_that_is_not_a_git_repo_is_left_alone(tmp_path):
     assert ror.refresh_before_read(res["repo"], storage_path=str(store)) is None
 
 
-def test_the_block_survives_every_compact_encoder():
+def test_the_block_is_a_universal_body_key():
+    """A universal body key falls back to JSON when an encoder cannot carry it."""
     from jcodemunch_mcp.encoding.schema_driven import is_universal_body_key
 
     assert is_universal_body_key("index_refresh")
@@ -198,3 +266,57 @@ async def test_the_dispatcher_attaches_the_block_only_when_switched_on(
     on = await body("process_order")
     assert on["index_refresh"] == {"refreshed": 1}
     assert {r["name"] for r in on["results"]} >= {"process_order"}
+
+
+@pytest.mark.asyncio
+async def test_a_cached_answer_does_not_survive_the_refresh(tmp_path, monkeypatch):
+    """Before: `find_references` served its cached pre-refresh answer beside `refreshed: 1`."""
+    from jcodemunch_mcp import config as cfg
+    from jcodemunch_mcp.server import call_tool
+
+    src = tmp_path / "proj"
+    src.mkdir()
+    (src / "lib.py").write_text("def helper():\n    return 1\n")
+    (src / "a.py").write_text("from lib import helper\n")
+    _git(src, "init", "-q")
+    _git(src, "add", ".")
+    _git(src, "commit", "-qm", "one")
+    store = tmp_path / "store"
+    monkeypatch.setenv("CODE_INDEX_PATH", str(store))
+    repo = index_folder(str(src), use_ai_summaries=False, storage_path=str(store))[
+        "repo"
+    ]
+    monkeypatch.setitem(cfg._GLOBAL_CONFIG, "server_output", "raw")
+    monkeypatch.setitem(cfg._GLOBAL_CONFIG, "refresh_on_read", True)
+
+    async def files():
+        res = await call_tool("find_references", {"repo": repo, "identifier": "helper"})
+        content = res.content if hasattr(res, "content") else res
+        body = json.loads(content[0].text)
+        return body, {r.get("file") for r in body.get("references", [])}
+
+    _, first = await files()
+    assert first == {"a.py"}
+    time.sleep(1.1)
+    (src / "b.py").write_text("from lib import helper\n")
+    ror.reset_cooldowns()
+    body, second = await files()
+    assert body.get("index_refresh") == {"refreshed": 1}
+    assert second == {"a.py", "b.py"}
+
+
+@pytest.mark.asyncio
+async def test_a_disabled_tool_writes_nothing(indexed, monkeypatch):
+    from jcodemunch_mcp import config as cfg
+    from jcodemunch_mcp.server import call_tool
+
+    src, repo, store = indexed
+    monkeypatch.setenv("CODE_INDEX_PATH", store)
+    monkeypatch.setitem(cfg._GLOBAL_CONFIG, "refresh_on_read", True)
+    calls = []
+    monkeypatch.setattr(ror, "refresh_before_read", lambda *a, **k: calls.append(a))
+    monkeypatch.setattr(
+        cfg, "is_tool_disabled", lambda name, repo=None: name == "search_symbols"
+    )
+    await call_tool("search_symbols", {"repo": repo, "query": "handle_order"})
+    assert calls == []

@@ -32,8 +32,8 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
-# Seeded, not calibrated. A check costs two git calls, so it runs at most once
-# per repository per cooldown; one re-indexed file measures roughly 70-190 ms.
+# Seeded, not calibrated. A check costs up to four git calls, so it runs at
+# most once per repository per cooldown, in each server process.
 REFRESH_COOLDOWN_SECONDS = 30.0
 REFRESH_MAX_FILES = 50
 REFRESH_BUDGET_SECONDS = 2.0
@@ -59,7 +59,15 @@ READ_TOOLS = frozenset(
     }
 )
 
+# Changed or untracked paths that are not indexed are asked of the walk's own
+# rule one at a time; past this many refusals the check stops and says nothing,
+# rather than spending the read's time on a tree of files nobody indexes.
+_MAX_REFUSALS_CHECKED = 2000
+
 _last_check: dict[str, float] = {}
+# Repositories with a re-index running that outlived its answer's budget. A
+# check skips them until it finishes, so writers never pile up per repository.
+_in_flight: set[str] = set()
 _lock = threading.Lock()
 
 
@@ -67,6 +75,7 @@ def reset_cooldowns() -> None:
     """Forget every cooldown (tests, and a deliberate re-index)."""
     with _lock:
         _last_check.clear()
+        _in_flight.clear()
 
 
 def _git(source_root: str, *args: str) -> Optional[bytes]:
@@ -130,6 +139,7 @@ def _changes(
     mtimes = getattr(index, "file_mtimes", None) or {}
     root = Path(source_root)
     found: dict[str, str] = {}
+    candidates: list[str] = []
     parts = diff.decode("utf-8", errors="replace").split("\0")
     for status, rel in zip(parts[0::2], parts[1::2]):
         if not status or not rel:
@@ -149,12 +159,53 @@ def _changes(
                 continue  # the index already holds this edit
             found[rel] = "modified"
         else:
-            found[rel] = "added"
+            candidates.append(rel)
     for rel in untracked.decode("utf-8", errors="replace").split("\0"):
         rel = rel.replace("\\", "/")
         if rel and rel not in indexed:
-            found.setdefault(rel, "added")
+            candidates.append(rel)
+    added = _indexable(root, index, dict.fromkeys(candidates))
+    if added is None:
+        return None
+    for rel in added:
+        found.setdefault(rel, "added")
     return [(kind, str(root / rel)) for rel, kind in sorted(found.items())]
+
+
+def _indexable(root: Path, index, candidates) -> Optional[list[str]]:
+    """The not-yet-indexed paths a full walk would index, or None when too many to ask.
+
+    Asked of `index_file`'s `_walk_refusal`, the walk's own rule for one path,
+    so a binary, a log or an un-ignored dependency tree is never counted as a
+    stale file: re-indexing it changes nothing, and the walk would drop it.
+    Stops once more than :data:`REFRESH_MAX_FILES` are found, since the answer
+    is then "too many" whatever the rest are.
+    """
+    from .tools.index_file import _walk_refusal, _walk_root_for
+
+    source_root = root.resolve()
+    out: list[str] = []
+    refused = 0
+    for rel in candidates:
+        path = source_root / rel
+        if not path.is_file():
+            continue
+        try:
+            refusal = _walk_refusal(
+                path, source_root, _walk_root_for(index, source_root, rel), rel
+            )
+        except Exception:
+            logger.debug("refresh_on_read: walk rule failed for %s", rel, exc_info=True)
+            refusal = {"error": "unknown"}
+        if refusal is None:
+            out.append(rel)
+            if len(out) > REFRESH_MAX_FILES:
+                return out
+        else:
+            refused += 1
+            if refused >= _MAX_REFUSALS_CHECKED:
+                return None
+    return out
 
 
 def _index_write_locked(owner: str, name: str, storage_root: str) -> bool:
@@ -183,13 +234,25 @@ def _reindex(source_root: str, changes: list, storage_path: Optional[str]) -> di
 
 
 def _unrepaired(n: int, reason: str, source_root: str) -> dict:
-    return {
+    block = {
         "stale_files": n,
         "refreshed": 0,
         "reason": reason,
         "call": "index_folder",
         "args": {"path": source_root, "incremental": True},
     }
+    if reason == "too_many_files":
+        # `_indexable` stops counting once the answer is "too many".
+        block["stale_files_basis"] = "at_least"
+    return block
+
+
+def _in_progress(n: Optional[int]) -> dict:
+    """A re-index is still running: its outcome is unknown, so no count and no call."""
+    block: dict = {"reason": "in_progress", "refreshed": None}
+    if n is not None:
+        block["stale_files"] = n
+    return block
 
 
 def refresh_before_read(
@@ -199,7 +262,8 @@ def refresh_before_read(
 
     Returns None when nothing was stale, the cooldown has not passed, or the
     question could not be asked. Returns ``{"refreshed": n}`` after a repair,
-    or an unrepaired block naming the reason and the call that fixes it.
+    ``in_progress`` while an earlier re-index of this repository is still
+    running, or an unrepaired block naming the reason and the call that fixes it.
     """
     try:
         from .storage import IndexStore
@@ -207,19 +271,27 @@ def refresh_before_read(
 
         owner, name = resolve_repo(repo, storage_path)
         store = IndexStore(base_path=storage_path)
-        index = store.load_index(owner, name)
+        key = (
+            f"{os.path.normcase(os.path.abspath(str(store.base_path)))}::{owner}/{name}"
+        )
+        now = time.monotonic()
+        with _lock:
+            if key in _in_flight:
+                return _in_progress(None)
+            last = _last_check.get(key)
+            if last is not None and now - last < REFRESH_COOLDOWN_SECONDS:
+                return None
+            _last_check[key] = now
+        # Metadata only: a selective view, so this never hydrates the symbols
+        # ahead of a tool that avoids loading them (#557, #398).
+        index = store.open_selective(owner, name, symbol_ids=())
+        if index is None:
+            index = store.load_index(owner, name)
         if not index:
             return None
         source_root = getattr(index, "source_root", "") or ""
         if not source_root or not os.path.isdir(source_root):
             return None
-        key = os.path.normcase(os.path.abspath(source_root))
-        now = time.monotonic()
-        with _lock:
-            last = _last_check.get(key)
-            if last is not None and now - last < REFRESH_COOLDOWN_SECONDS:
-                return None
-            _last_check[key] = now
         if not _is_git_worktree(source_root):
             return None
         changes = _changes(source_root, getattr(index, "git_head", None) or None, index)
@@ -229,18 +301,30 @@ def refresh_before_read(
             return _unrepaired(len(changes), "too_many_files", source_root)
         if _index_write_locked(owner, name, str(store.base_path)):
             return _unrepaired(len(changes), "locked", source_root)
+        with _lock:
+            if key in _in_flight:
+                return _in_progress(len(changes))
+            _in_flight.add(key)
         result: dict = {}
-        worker = threading.Thread(
-            target=lambda: result.update(_reindex(source_root, changes, storage_path)),
-            name="jcm-refresh-on-read",
-            daemon=True,
-        )
+
+        def _run() -> None:
+            try:
+                result.update(_reindex(source_root, changes, storage_path))
+            except Exception:
+                logger.debug(
+                    "refresh_on_read: re-index failed for %s", repo, exc_info=True
+                )
+            finally:
+                with _lock:
+                    _in_flight.discard(key)
+
+        worker = threading.Thread(target=_run, name="jcm-refresh-on-read", daemon=True)
         worker.start()
         worker.join(REFRESH_BUDGET_SECONDS)
         if worker.is_alive():
             # The re-index keeps running and finishes on its own; this answer
-            # is served from the index as it was.
-            return _unrepaired(len(changes), "budget", source_root)
+            # is served from the index as it was, and its outcome is unknown.
+            return _in_progress(len(changes))
         if not result.get("success", False):
             return _unrepaired(len(changes), "failed", source_root)
         return {"refreshed": len(changes)}
