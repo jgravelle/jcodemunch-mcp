@@ -151,3 +151,10 @@ def test_a_query_for_the_example_still_gets_the_example(repo):
         repo=rid, query="gzip route handler example", max_results=5, storage_path=store
     )["results"]
     assert rows and rows[0]["file"].startswith("docs_src/"), _ids(rows)
+
+
+def test_a_demoted_example_still_comes_back_when_nothing_else_matches(repo):
+    """Only the tutorials define a gzip route; the weight reorders, it never drops."""
+    rid, store = repo
+    rows = search_symbols(repo=rid, query="gzip", max_results=5, storage_path=store)["results"]
+    assert rows and all(r["file"].startswith("docs_src/") for r in rows), _ids(rows)
