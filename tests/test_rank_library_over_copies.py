@@ -158,3 +158,16 @@ def test_a_demoted_example_still_comes_back_when_nothing_else_matches(repo):
     rid, store = repo
     rows = search_symbols(repo=rid, query="gzip", max_results=5, storage_path=store)["results"]
     assert rows and all(r["file"].startswith("docs_src/") for r in rows), _ids(rows)
+
+
+def test_a_served_debug_row_names_the_example_weight(repo):
+    """The CHANGELOG's debug label, checked on a served row, not only at rank_factor."""
+    rid, store = repo
+    rows = search_symbols(
+        repo=rid, query="route handler", max_results=5, storage_path=store, debug=True
+    )["results"]
+    tutorial = [r for r in rows if r["file"].startswith("docs_src/")]
+    assert tutorial, _ids(rows)
+    assert all(r["score_breakdown"].get("rank_weight_reason") == "example_file" for r in tutorial), tutorial
+    library = [r for r in rows if r["file"] == "pkg/routing.py"]
+    assert library and all(r["score_breakdown"].get("rank_weight_reason") != "example_file" for r in library), library
