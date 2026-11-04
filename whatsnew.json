@@ -1,6 +1,12 @@
 {
-  "current": "1.108.414",
+  "current": "1.108.415",
   "entries": [
+    {
+      "version": "1.108.415",
+      "date": "2026-11-04",
+      "title": "a search for library code ranks the library above its tutorial and example copies",
+      "summary": "Searching for library code now returns the library's own symbols ahead of the copies in its examples, tutorials and docs samples, the way test files were already weighted down."
+    },
     {
       "version": "1.108.414",
       "date": "2026-11-03",
