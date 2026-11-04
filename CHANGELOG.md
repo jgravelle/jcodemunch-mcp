@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+### Fixed - a search for library code ranks the library above its tutorial and example copies
+
+Example and tutorial directories repeat a library's names, and there are many of them, so a question about the library returned the copies. fastapi's `docs_src/` holds many `GzipRoute.get_route_handler` tutorials beside the one `APIRoute.get_route_handler` in `fastapi/routing.py`, and "router route handler" returned three tutorials. On express, "error exception" returned two template imports and a template from `examples/error-pages/`. Measured on the pinned corpora (fastapi a64dfbb, express 1faf228), "router route handler" now returns `fastapi/routing.py::APIRoute.get_route_handler` first, and express's "error exception" returns rows from `lib/response.js` and `lib/application.js`.
+
+Test files were already weighted down when the query was not about tests. Ranking now does the same for a symbol under an `examples`, `example`, `docs_src`, `samples`, `sample`, `demo`, `demos`, `tutorial` or `tutorials` directory. A query that asks for an example (any of "example", "sample", "demo", "tutorial", "snippet", "doc", "docs", "documentation" and their plurals) keeps the old weight. It is a ranking weight, not a filter: a demoted row still comes back when nothing else matches, and confidence and absence verdicts still read the unweighted score. With `debug=True` a demoted row carries `rank_weight_reason: "example_file"`. Tests: `tests/test_rank_library_over_copies.py`.
+
+The right answers cost more tokens than the copies they replace. On the token benchmark (`benchmarks/harness/run_benchmark.py`, the pinned corpora) fastapi's "router route handler" now fetches `fastapi/routing.py::_IncludedRouter`, a 232-line class, where it fetched an 8-line tutorial method, and fastapi's jcm total rises from 13,508 to 16,870 tokens; express falls from 5,005 to 4,816. Merged after the class outline in `get_symbol_source`, fastapi measures 13,738.
+
 ## [1.108.413] - 2026-11-03 - the license terms read the same in the terminal, the package and the site
 
 ### Changed - the license lines in the terminal say what the site says, and `receipt` ends with one
@@ -13,14 +21,6 @@ The notice's link now carries a fixed source tag (`utm_medium=notice`), as the r
 ### Changed - the package's own descriptions say commercial use needs a license
 
 None of the short descriptions said that commercial use is paid, and directories copy them: one listing now calls jCodeMunch "completely free". The MCP registry and marketplace line now reads "Gives AI agents the function they asked for, not the file. Commercial use needs a license." The registry allows 100 characters and the old line already used all 100, so "Runs locally, 70+ languages" made room for the license clause. The PyPI summary and the package docstring keep their line and add "Free for non-commercial use; commercial use needs a one-time license.", the README's own licensing terms. "Commercial" and not "work": the license leaves research and other non-commercial work free. The README's counter block no longer says "live": its heading dates the figures to 2026-08-17 and its caption calls them estimates.
-
-### Fixed - a search for library code ranks the library above its tutorial and example copies
-
-Example and tutorial directories repeat a library's names, and there are many of them, so a question about the library returned the copies. fastapi's `docs_src/` holds many `GzipRoute.get_route_handler` tutorials beside the one `APIRoute.get_route_handler` in `fastapi/routing.py`, and "router route handler" returned three tutorials. On express, "error exception" returned two template imports and a template from `examples/error-pages/`. Measured on the pinned corpora (fastapi a64dfbb, express 1faf228), "router route handler" now returns `fastapi/routing.py::APIRoute.get_route_handler` first, and express's "error exception" returns rows from `lib/response.js` and `lib/application.js`.
-
-Test files were already weighted down when the query was not about tests. Ranking now does the same for a symbol under an `examples`, `example`, `docs_src`, `samples`, `sample`, `demo`, `demos`, `tutorial` or `tutorials` directory. A query that asks for an example (any of "example", "sample", "demo", "tutorial", "snippet", "doc", "docs", "documentation" and their plurals) keeps the old weight. It is a ranking weight, not a filter: a demoted row still comes back when nothing else matches, and confidence and absence verdicts still read the unweighted score. With `debug=True` a demoted row carries `rank_weight_reason: "example_file"`. Tests: `tests/test_rank_library_over_copies.py`.
-
-The right answers cost more tokens than the copies they replace. On the token benchmark (`benchmarks/harness/run_benchmark.py`, the pinned corpora) fastapi's "router route handler" now fetches `fastapi/routing.py::_IncludedRouter`, a 232-line class, where it fetched an 8-line tutorial method, and fastapi's jcm total rises from 13,508 to 16,870 tokens; express falls from 5,005 to 4,816. Merged after the class outline in `get_symbol_source`, fastapi measures 13,738.
 
 ## [1.108.412] - 2026-11-03 - graph tools resolve each import once per loaded index, and a savings file holding the wrong type is refused, not frozen
 
