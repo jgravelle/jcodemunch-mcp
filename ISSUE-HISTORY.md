@@ -3104,3 +3104,9 @@ The 1.108.412 entry, verbatim as it stood in `CLAUDE.md`:
 The 1.108.413 entry, verbatim as it stood in `CLAUDE.md`:
 
 - **Prior (1.108.413):** **the license terms read the same in the terminal, the package and the site** (#1321): the CLI's license lines and the package descriptions state the site's terms, `receipt` ends with a one-line license note on a machine with no key, and `license_reminder.switch_reason` is the one rule for when the lines stay quiet. Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-04, release 1.108.417)
+
+The 1.108.414 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.414):** **a class comes back as its outline, and an import finds the file in its own language** (#1326, #1327): `get_symbol_source` returns a class with each method collapsed to its signature by default (`class_body="full"` for the whole body, a 1.x default change); an extensionless Ruby or Python import tries the importer's own language's file first. Full text: `CHANGELOG.md`.
