@@ -2131,6 +2131,30 @@ _JS_EXTENSIONS = (
 _PY_EXTENSIONS = (".py",)
 _RUBY_EXTENSIONS = (".rb",)
 _ALL_EXTENSIONS = _JS_EXTENSIONS + _PY_EXTENSIONS + _RUBY_EXTENSIONS + (".go",)
+# (#1316) The file forms `_candidates` tries, by the importer's own extension:
+# a suffix, or (for Python) a package folder's `__init__.py`. JavaScript is
+# first in `_candidates`' order already, so only the others need trying ahead
+# of it. ⚠ Go is deliberately absent: a Go import names a package DIRECTORY, so
+# preferring a `util.go` file over `util.js` would rank one wrong file over
+# another.
+_OWN_FIRST_GROUPS = {
+    **{e: (".py", "/__init__.py") for e in (".py", ".pyi")},
+    **{e: _RUBY_EXTENSIONS for e in _RUBY_EXTENSIONS},
+}
+
+
+def _own_forms(importer_path: str) -> tuple[str, ...]:
+    """The file forms an importer's own language reads, to try first (#1316).
+
+    `_candidates` adds every known extension in one fixed order, JavaScript
+    then `.py` then `.rb`, so `require_relative '../measure'` from a Ruby file
+    took `measure.py` over the `measure.rb` beside it, and a Python `import
+    utils` (or `from .utils import x`, or `import app.utils`) took `utils.js`.
+    Empty for every other importer, whose order is unchanged.
+    """
+    return _OWN_FIRST_GROUPS.get(posixpath.splitext(importer_path or "")[1], ())
+
+
 _RACKET_EXTENSIONS = (".rkt", ".rktl", ".rktd")
 
 # TypeScript's ESM rules require the specifier to name the EMITTED file, so a
@@ -2266,8 +2290,13 @@ def _sql_stems_for(key: frozenset) -> dict[str, str]:
     return stems
 
 
-def _candidates(base: str) -> list[str]:
+def _candidates(base: str, own: tuple[str, ...] = ()) -> list[str]:
     """Generate path candidates with and without extension.
+
+    ``own`` is `_own_forms(importer)`: for an extensionless or dotted-stem
+    *base* those forms come right after *base* itself, ahead of the fixed
+    JavaScript-first order (#1316). Every caller that knows its importer
+    passes it, so a new call site inherits the rule.
 
     Cases:
     - No extension (`./foo`): try every known source extension and the
@@ -2283,6 +2312,8 @@ def _candidates(base: str) -> list[str]:
     """
     cands = [base]
     _, ext = posixpath.splitext(base)
+    if own and (not ext or (ext not in _ALL_EXTENSIONS and ext not in _JS_SPECIFIER_REWRITES)):
+        cands.extend(base + e for e in own)
     if not ext:
         for e in _ALL_EXTENSIONS:
             cands.append(base + e)
@@ -2811,7 +2842,7 @@ def _resolve_python_relative(
     if not base:
         return None
 
-    for candidate in _candidates(base):
+    for candidate in _candidates(base, _own_forms(importer_path)):
         if candidate in source_files:
             return candidate
     return None
@@ -2953,7 +2984,7 @@ def _resolve_specifier_uncached(
 
         importer_dir = posixpath.dirname(importer_path)
         joined = posixpath.normpath(posixpath.join(importer_dir, specifier))
-        for c in _candidates(joined):
+        for c in _candidates(joined, _own_forms(importer_path)):
             if c in source_files:
                 return c
         return None
@@ -3074,13 +3105,17 @@ def _resolve_specifier_uncached(
     # map alone, so it is computed once per specifier and file set: the
     # import-graph builders resolve every import of every file, and a large
     # repository repeats the same specifiers across thousands of files.
+    # ⚠ (#1316) The answer also depends on the importer's language group
+    # (`_own_forms`), so the memo key carries it: a Ruby answer cached first
+    # must not be served to a Python importer of the same name.
     if not importer_path.endswith(".gleam"):
         memo = _tail_memo(source_files, alias_map)
         if memo is not None:
-            hit = memo.get(specifier, _TAIL_MISS)
+            key = (specifier, _own_forms(importer_path))
+            hit = memo.get(key, _TAIL_MISS)
             if hit is _TAIL_MISS:
                 hit = _resolve_tail(specifier, importer_path, source_files, alias_map)
-                memo[specifier] = hit
+                memo[key] = hit
             return hit
     return _resolve_tail(specifier, importer_path, source_files, alias_map)
 
@@ -3194,8 +3229,9 @@ def _resolve_tail(
     alias_map: Optional[dict[str, list[str]]],
 ) -> Optional[str]:
     """resolve_specifier's absolute, Gleam, Python-module, alias and stem steps."""
+    own = _own_forms(importer_path)
     # Absolute: try direct match first (e.g., for Go or absolute paths)
-    for c in _candidates(specifier):
+    for c in _candidates(specifier, own):
         if c in source_files:
             return c
 
@@ -3215,11 +3251,11 @@ def _resolve_tail(
         # "Own" roots share the importer's package dir (the part above
         # src/test), so a test module prefers its package's src/ root too.
         # A root-level src/test (dirname "") means a single-package repo.
-        own = [
+        own_roots = [
             r for r in roots
             if not posixpath.dirname(r) or importer_path.startswith(posixpath.dirname(r) + "/")
         ]
-        for root in own + [r for r in roots if r not in own]:
+        for root in own_roots + [r for r in roots if r not in own_roots]:
             prefixed = f"{root}/{candidate}"
             if prefixed in source_files:
                 return prefixed
@@ -3237,13 +3273,13 @@ def _resolve_tail(
     ):
         module_path = specifier.replace(".", "/")
         # Try direct (repo-root layout)
-        for c in _candidates(module_path):
+        for c in _candidates(module_path, own):
             if c in source_files:
                 return c
         # Try with each detected Python source root as a prefix
         for root in _python_source_roots(source_files):
             prefixed = f"{root}/{module_path}" if root else module_path
-            for c in _candidates(prefixed):
+            for c in _candidates(prefixed, own):
                 if c in source_files:
                     return c
         # Fallback for runtime-injected source roots (conftest.py sys.path
@@ -3261,14 +3297,14 @@ def _resolve_tail(
                 if parent in seen_roots:
                     continue  # already tried above
                 prefixed = f"{parent}/{module_path}" if parent else module_path
-                for c in _candidates(prefixed):
+                for c in _candidates(prefixed, own):
                     if c in source_files:
                         return c
 
     # Alias expansion (tsconfig compilerOptions.paths: @/*, $lib/*, etc.)
     if alias_map:
         for expanded in _expand_aliases(specifier, alias_map):
-            for c in _candidates(expanded):
+            for c in _candidates(expanded, own):
                 if c in source_files:
                     return c
 

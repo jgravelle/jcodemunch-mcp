@@ -3086,3 +3086,9 @@ The 1.108.409 entry, verbatim as it stood in `CLAUDE.md`:
 The 1.108.410 entry, verbatim as it stood in `CLAUDE.md`:
 
 - **Prior (1.108.410):** **a savings meter that stops measuring says so, and Rails views are indexed** (#1309, #1307, #1311): the savings meter records `last_flush_at` and `measured_days` on every write that carries a call, so a 0 is a measurement and a missing day is not, and `receipt`, `diagnose` and `get_session_stats` carry `lifetime_status` (`current`/`stale`/`unknown`); its write can no longer wipe or lose counts; `.erb` is a language; `tuning.jsonc` and the embedding-drift canary follow `CODE_INDEX_PATH` through the store's own root rule. Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-03, release 1.108.414)
+
+The 1.108.411 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.411):** **a C or C++ #include resolves where the compiler finds it, and Go callers in the same package are found** (#1315, #1313): a C-family include tries the importer's folder, the root, `include/`, `src/`; a miss resolves to nothing; who-calls, blast radius and impact preview count a Go file's same-directory siblings as callers. Full text: `CHANGELOG.md`.
