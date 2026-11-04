@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.417] - 2026-11-04 - a wrong call through order names a call that works
+
 ### Changed - a wrong call through `order` names a call that works, and a turned-off tool says to ask the user
 
 On the default front door, an agent reaches every tool through `order`, and Codex, VS Code and Claude Code refuse a tool name the server did not list. A misspelled action (`serch_symbols`, `Get-File-Outline`) used to answer only "Unknown action" and send the agent to `menu`, which costs a round trip; it now names up to three close actions, each written as `order(action="...")`, from the same names `menu` searches. A name that starts more than three actions (`get_symbol`, `search`) gets no guess and points at `menu` with that query instead, and a far-off name gets no guess at all. A tool that `order` would refuse as turned off is never suggested, and one that still runs although it is listed (`set_tool_tier`) still is. A retired name's replacement is written as an `order` call too, and when that replacement is turned off the reply says so instead of offering it. A tool listed in `disabled_tools` used to answer that it was disabled in the project's `.jcodemunch.jsonc`, even when the global `config.jsonc` held the setting, and told the agent how to remove it. It now names the file that lists it, says when the package ships the tool turned off, and tells the agent to ask the user whether to turn it back on rather than edit the setting. On the counter surface it names the tool as an `order` call. Tests: `tests/test_order_replies.py`.
