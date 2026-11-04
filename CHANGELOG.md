@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.414] - 2026-11-03 - a class comes back as its outline, and an import finds the file in its own language
+
 ### Fixed - an import without an extension resolves to the importer's own language first (#1316)
 
 @skibadubskiybadubs found it on OpenStudio while measuring #1315: `require_relative '../measure'` in three Ruby tests (the reporter's figure) resolved to `measure.py` while `measure.rb` sat in the same folder. The resolver adds every known extension in one fixed order, JavaScript, then `.py`, then `.rb`, and never asked what language the importing file is in, so the first file that existed won whatever its language. The same order sent a Python `import utils` to `utils.js` when both files sat at the root. A Ruby or Python importer now tries its own language's file first on every path the resolver reads: a relative specifier, the repo root, a Python package-relative (`from .utils import x`) or dotted (`import app.utils`) import, under a detected source root, and through an alias. The order lives in the one function that lists candidate files, which every path calls with the importer, so a new path inherits it. For Python that is `x.py`, then a package folder's `x/__init__.py`, which also lost to `x.js` before. Go is left alone: a Go import names a package folder, not a file. A file in another language is still found when no file in the importer's own language exists, and a specifier that names its extension is read as before. The shared per-specifier memo is keyed by the importer's language as well, so one importer's answer is never served to another language's importer.

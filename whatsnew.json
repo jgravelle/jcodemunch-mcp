@@ -1,6 +1,12 @@
 {
-  "current": "1.108.413",
+  "current": "1.108.414",
   "entries": [
+    {
+      "version": "1.108.414",
+      "date": "2026-11-03",
+      "title": "a class comes back as its outline, and an import finds the file in its own language",
+      "summary": "Fetching a class now returns its outline, each method collapsed to its signature; pass class_body=\"full\" for the whole body. An import with no extension now finds the file in the importer's own language first."
+    },
     {
       "version": "1.108.413",
       "date": "2026-11-03",
