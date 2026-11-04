@@ -15,32 +15,55 @@ Two halves, both here so the rule lives once:
   the indexer has already written, so a new index stores a size for every file.
 - :class:`ContentSizes` is the map the loaded index carries. A stored size is
   served as stored; a missing one is read from the content dir copy once and
-  kept, so an index built before this fix credits without a re-index. Nothing
-  is written back: a read path never writes the index.
+  kept, so an index built before this fix credits without a re-index. A file
+  with no copy is remembered as a miss and never stat'ed twice. Nothing is
+  written back: a read path never writes the index.
 
-A leaf, stdlib only.
+The in-memory patch paths (`incremental_save`, the branch compose) rebuild
+the map as a plain dict; :func:`carry_fallback` is what they call so the
+patched index keeps the fallback instead of losing it at the first hook save.
+
+A path is confined by ``security.resolve_within``, the rule that placed the
+copy, never by a string test of our own.
 """
 
 from __future__ import annotations
 
 import logging
-import os
 from pathlib import Path
 from typing import Iterable, Optional
 
 logger = logging.getLogger(__name__)
 
 
-def _content_size(content_dir: Optional[Path], rel: str) -> Optional[int]:
+def _content_size(
+    content_dir: Optional[Path], rel: str, base_resolved: Optional[str] = None
+) -> Optional[int]:
     """Size of the indexed copy of ``rel``, or None when there is none to read."""
     if content_dir is None or not rel:
         return None
-    norm = rel.replace("\\", "/")
-    if norm.startswith("/") or os.path.isabs(norm) or ".." in norm.split("/"):
+    # Imported here: `security` imports `config`, and this module stays a leaf.
+    from ..security import resolve_within
+
+    try:
+        path = resolve_within(content_dir, rel, base_resolved=base_resolved)
+    except (OSError, ValueError):
+        return None
+    if path is None:
         return None
     try:
-        return (content_dir / norm).stat().st_size
+        return path.stat().st_size
     except OSError:
+        return None
+
+
+def _resolved(content_dir: Optional[Path]) -> Optional[str]:
+    if content_dir is None:
+        return None
+    try:
+        return str(content_dir.resolve())
+    except (OSError, ValueError):
+        logger.debug("content dir did not resolve: %s", content_dir, exc_info=True)
         return None
 
 
@@ -49,10 +72,11 @@ def sizes_from_content(
 ) -> dict:
     """``sizes`` plus the content-dir size of each of ``files`` it lacks."""
     out = dict(sizes)
+    base = _resolved(content_dir)
     for rel in files:
         if rel in out:
             continue
-        size = _content_size(content_dir, rel)
+        size = _content_size(content_dir, rel, base)
         if size is not None:
             out[rel] = size
     return out
@@ -66,17 +90,23 @@ class ContentSizes(dict):
     stat per file.
     """
 
-    __slots__ = ("_content_dir",)
+    __slots__ = ("_content_dir", "_base", "_misses")
 
     def __init__(self, stored: dict, content_dir: Optional[Path]) -> None:
         super().__init__(stored)
         self._content_dir = content_dir
+        self._base: Optional[str] = None
+        self._misses: set = set()
 
     def _fill(self, key) -> Optional[int]:
-        if not isinstance(key, str):
+        if not isinstance(key, str) or key in self._misses or self._content_dir is None:
             return None
-        size = _content_size(self._content_dir, key)
-        if size is not None:
+        if self._base is None:
+            self._base = _resolved(self._content_dir)
+        size = _content_size(self._content_dir, key, self._base)
+        if size is None:
+            self._misses.add(key)
+        else:
             dict.__setitem__(self, key, size)
         return size
 
@@ -94,3 +124,10 @@ class ContentSizes(dict):
 
     def __reduce__(self):
         return (ContentSizes, (dict(self), self._content_dir))
+
+
+def carry_fallback(base, patched: dict) -> dict:
+    """``patched`` with ``base``'s content-dir fallback, when ``base`` had one."""
+    if isinstance(base, ContentSizes):
+        return ContentSizes(patched, base._content_dir)
+    return patched

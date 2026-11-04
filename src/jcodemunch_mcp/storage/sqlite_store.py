@@ -30,7 +30,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-from .file_sizes import ContentSizes, sizes_from_content  # noqa: E402
+from .file_sizes import ContentSizes, carry_fallback, sizes_from_content  # noqa: E402
 
 # `context_metadata` key naming the context providers a time budget cut on the
 # last full pass (L-190). Written by `tools/index_folder.py`; a delta save keeps
@@ -1599,7 +1599,9 @@ class SQLiteIndexStore:
         composed_mtimes = _patch(base_index.file_mtimes, delta_mtimes, files_to_remove)
         composed_languages = _patch(base_index.file_languages, delta_languages, files_to_remove)
         composed_summaries = _patch(base_index.file_summaries, delta_summaries, files_to_remove)
-        composed_sizes = _patch(base_index.file_sizes, delta_sizes, files_to_remove)
+        composed_sizes = carry_fallback(
+            base_index.file_sizes, _patch(base_index.file_sizes, delta_sizes, files_to_remove)
+        )
 
         base_imports = base_index.imports if base_index.imports is not None else {}
         composed_imports = _patch(base_imports, delta_imports, files_to_remove)
@@ -3657,7 +3659,9 @@ class SQLiteIndexStore:
         new_file_languages = _patch_dict(old.file_languages, file_languages, files_to_remove)
         new_file_summaries = _patch_dict(old.file_summaries, file_summaries, files_to_remove)
         new_file_blob_shas = _patch_dict(old.file_blob_shas, file_blob_shas, files_to_remove)
-        new_file_sizes = _patch_dict(old.file_sizes, file_sizes, files_to_remove)
+        new_file_sizes = carry_fallback(
+            old.file_sizes, _patch_dict(old.file_sizes, file_sizes, files_to_remove)
+        )
 
         if old.imports is not None:
             new_imports: Optional[dict] = _patch_dict(old.imports, imports, files_to_remove)

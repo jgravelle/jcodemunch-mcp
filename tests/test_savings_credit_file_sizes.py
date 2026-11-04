@@ -99,7 +99,9 @@ def test_a_missing_size_falls_back_only_inside_the_content_dir(tmp_path):
     assert sizes.get("a.py") == 6
     assert sizes["a.py"] == 6
     assert sizes.get("../a.py", 0) == 0
-    assert sizes.get(str(tmp_path / "a.py"), 0) == 0
+    outside = tmp_path.parent / f"{tmp_path.name}_outside.py"
+    outside.write_bytes(b"y" * 9)
+    assert sizes.get(str(outside), 0) == 0
     assert sizes.get("missing.py", 0) == 0
     with pytest.raises(KeyError):
         sizes["missing.py"]
@@ -131,3 +133,75 @@ def test_distinct_file_bytes_reads_a_size_the_map_did_not_store(tmp_path):
         )
         == 14
     )
+
+
+def test_a_hook_save_on_an_index_without_sizes_keeps_the_fallback(fresh, tmp_path):
+    """The mtime-only save the PostToolUse hook makes must not turn the fallback back into a plain dict."""
+    import os
+
+    from jcodemunch_mcp.storage import result_cache_invalidate
+    from jcodemunch_mcp.tools import search_symbols as ss
+    from jcodemunch_mcp.tools.index_file import index_file
+
+    repo, store = fresh
+    conn = sqlite3.connect(str(_db(store)))
+    conn.execute("UPDATE files SET size_bytes = NULL")
+    conn.commit()
+    conn.close()
+    result_cache_invalidate()
+    ss.result_cache_invalidate_repo(repo)
+    owner, name = repo.split("/", 1)
+    IndexStore(base_path=store).load_index(owner, name)
+
+    touched = tmp_path / "proj" / "mod0.py"
+    st = touched.stat()
+    os.utime(touched, ns=(st.st_atime_ns, st.st_mtime_ns + 5_000_000_000))
+    res = index_file(str(touched), use_ai_summaries=False, storage_path=store)
+    assert res["success"] is True, res
+
+    result_cache_invalidate()
+    ss.result_cache_invalidate_repo(repo)
+    r = search_symbols(repo, "func_4_9", storage_path=store)
+    assert r["_meta"]["tokens_saved"] > 0
+
+
+def test_a_patched_map_keeps_the_fallback(tmp_path):
+    from jcodemunch_mcp.storage.file_sizes import ContentSizes, carry_fallback
+
+    (tmp_path / "a.py").write_bytes(b"abcde")
+    out = carry_fallback(ContentSizes({}, tmp_path), {"b.py": 1})
+    assert out.get("a.py") == 5 and out.get("b.py") == 1
+    assert type(carry_fallback({}, {"b.py": 1})) is dict
+
+
+def test_a_missing_copy_is_stated_once(tmp_path, monkeypatch):
+    from jcodemunch_mcp.storage import file_sizes as fs
+
+    calls = []
+    real = fs._content_size
+    monkeypatch.setattr(
+        fs, "_content_size", lambda *a, **k: calls.append(a[1]) or real(*a, **k)
+    )
+    sizes = fs.ContentSizes({}, tmp_path)
+    for _ in range(5):
+        assert sizes.get("missing.py", 0) == 0
+    assert calls == ["missing.py"]
+
+
+def test_a_key_that_leaves_the_content_dir_reads_nothing(tmp_path):
+    """Confinement is resolve_within's, so a drive-relative or symlinked key is refused too."""
+    from jcodemunch_mcp.storage.file_sizes import ContentSizes
+
+    inside = tmp_path / "content"
+    inside.mkdir()
+    (tmp_path / "secret.py").write_bytes(b"x" * 50)
+    sizes = ContentSizes({}, inside)
+    assert sizes.get("../secret.py", 0) == 0
+    drive = str(tmp_path)[:2]
+    if drive[1:] == ":":
+        assert sizes.get(drive + "secret.py", 0) == 0
+    try:
+        (inside / "link.py").symlink_to(tmp_path / "secret.py")
+    except (OSError, NotImplementedError):
+        return
+    assert sizes.get("link.py", 0) == 0
