@@ -938,8 +938,9 @@ def main(argv: Optional[list[str]] = None) -> int:
 
     calls = list(iter_calls_multi(roots, since=since, until=until))
     agg = aggregate(calls)
-    meter = lifetime_meter()
-    meter_refused = None if meter else lifetime_meter_refusal()
+    meter_root = _index_root()
+    meter = lifetime_meter(meter_root)
+    meter_refused = None if meter else lifetime_meter_refusal(meter_root)
 
     if args.export:
         target = Path(args.export)
