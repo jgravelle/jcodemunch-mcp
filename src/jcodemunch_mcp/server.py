@@ -2292,7 +2292,7 @@ def _build_tools_list(
         ),
         Tool(
             name="get_symbol_source",
-            description="Read or show the source code of a function, class or method: the full source of one symbol (symbol_id → flat object) or many (symbol_ids[] → {symbols, errors}). Supports verify, context_lines, fqn (PHP FQN via PSR-4), and an optional bounded mode that caps returned source for large symbols/batches.",
+            description="Read or show the source code of a function, class or method: one symbol (symbol_id → flat object) or many (symbol_ids[] → {symbols, errors}); a class comes back as a method outline. Supports verify, context_lines, fqn (PHP FQN via PSR-4), and a bounded mode for large symbols/batches.",
             inputSchema={
                 "type": "object",
                 "properties": {

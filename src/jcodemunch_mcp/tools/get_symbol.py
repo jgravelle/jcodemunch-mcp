@@ -451,7 +451,7 @@ def get_symbol_source(
     max_total_source_bytes: Optional[int] = None,
     class_body: str = "outline",
 ) -> dict:
-    """Get full source of one or more symbols by ID.
+    """Get the source of one or more symbols by ID (a class as an outline by default).
 
     Pass symbol_id (string) for one symbol — returns flat symbol object.
     Pass symbol_ids (array) for batch — returns {symbols, errors}.
@@ -483,8 +483,9 @@ def get_symbol_source(
     with members comes back as the class's own lines with each member's body
     collapsed to its signature; a member's id is ``<file>::<Class>.<name>#<kind>``
     and its body is one fetch away. The entry carries ``source_outline: true``,
-    ``source_outline_members`` (members collapsed), ``source_total_lines`` and
-    ``source_is_bounded_view``. ``class_body="full"`` returns the whole body, as
+    ``source_outline_members`` (members collapsed), ``source_total_lines``,
+    ``source_is_bounded_view`` and ``source_outline_full_body`` (the argument
+    that returns the whole body). ``class_body="full"`` returns the whole body, as
     does any source bound or a class with no members. ``verify`` still hashes
     the full body.
     """
@@ -658,6 +659,9 @@ def get_symbol_source(
             entry["source_outline_members"] = outline_members
             entry["source_total_lines"] = symbol["end_line"] - symbol["line"] + 1
             entry["source_is_bounded_view"] = True
+            # The way back, in the body: a reason in `_meta` is stripped on a
+            # default install (`meta_fields: []`).
+            entry["source_outline_full_body"] = 'class_body="full"'
         if bound_meta is not None:
             entry["source_truncated"] = bound_meta["truncated"]
             if bound_meta["truncated"]:

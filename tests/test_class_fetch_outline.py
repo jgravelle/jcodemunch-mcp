@@ -2,8 +2,7 @@
 signature, unless the caller asks for the full body.
 
 A class body repeats every method body, and each method is a symbol of its own,
-one fetch away. fastapi's `_IncludedRouter` is 232 lines; fetched in full it
-was most of the token cost of the benchmark question that returned it.
+one fetch away.
 `class_body="full"` keeps the old reply, as do the bounded-source arguments.
 """
 
@@ -89,6 +88,8 @@ def test_a_class_comes_back_with_its_methods_collapsed(repo):
     assert r["source_outline_members"] == 2
     assert r["source_total_lines"] == r["end_line"] - r["line"] + 1
     assert r["source_is_bounded_view"] is True
+    # The way back is in the reply body, not in `_meta`.
+    assert r["source_outline_full_body"] == 'class_body="full"'
 
 
 def test_a_decorator_is_kept_once(repo):
