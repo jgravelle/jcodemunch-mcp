@@ -242,7 +242,7 @@ def order_gate(
         return tripwire
     if is_state_changing(action) and not allow_state_change:
         return (
-            f"'{action}' changes index/session state. Re-issue with "
+            f"{as_order_call(action)} changes index/session state. Re-issue it with "
             f"allow_state_change=true to proceed. (Read-only actions need no opt-in.)"
         )
     return None

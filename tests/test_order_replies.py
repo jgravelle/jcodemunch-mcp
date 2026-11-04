@@ -132,6 +132,13 @@ def test_close_actions_come_closest_first():
     assert near[0] == "get_symbol_source"
 
 
+def test_a_state_changing_action_without_opt_in_is_named_as_an_order_call():
+    from jcodemunch_mcp import counter
+
+    err = counter.order_gate("index_folder", _real_names(), False)
+    assert err.startswith('order(action="index_folder") changes index/session state')
+
+
 def test_a_retired_name_points_through_order():
     from jcodemunch_mcp import counter
 
@@ -226,6 +233,8 @@ def test_on_the_counter_surface_no_order_reply_names_a_hidden_tool_bare(monkeypa
         for action in ("serch_symbols", "Get-File-Outline", "get_repo", "get_symbol",
                        "get_symbol_", "search", "brew_coffee", "index-foldr"):
             replies.append(_order(action))
+        # A real state-changing action sent without the opt-in.
+        replies.append(_order("index_folder", {"path": "/elsewhere"}))
         replies.append(_call("get_file_tree", {"repo": "/elsewhere"}))
         replies.append(_call(shipped[0], {"repo": "/elsewhere"}))
         replies.append(_call("get_repo_map", {"repo": "/fake/project"}))
