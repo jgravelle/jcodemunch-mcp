@@ -124,9 +124,9 @@ def test_a_repeated_specifier_does_its_path_work_once(monkeypatch):
     calls = []
     real = imp._candidates
 
-    def counting(base):
+    def counting(base, *rest):
         calls.append(base)
-        return real(base)
+        return real(base, *rest)
 
     monkeypatch.setattr(imp, "_candidates", counting)
     imp.resolve_specifier("app.util.helpers", "app/a0.py", FILES, ALIASES)
