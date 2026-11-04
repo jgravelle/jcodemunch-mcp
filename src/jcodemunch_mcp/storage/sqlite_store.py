@@ -1315,6 +1315,7 @@ class SQLiteIndexStore:
                 new_symbols, raw_files, git_head, base_head, file_hashes,
                 file_mtimes, file_languages, file_summaries, file_imports,
             )
+        _evict_result_cache(owner, name)
 
     def _save_branch_delta_locked(
         self,

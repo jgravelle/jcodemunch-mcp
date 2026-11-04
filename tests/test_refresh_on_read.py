@@ -320,3 +320,34 @@ async def test_a_disabled_tool_writes_nothing(indexed, monkeypatch):
     )
     await call_tool("search_symbols", {"repo": repo, "query": "handle_order"})
     assert calls == []
+
+
+def _refused_tree(src, n):
+    """`n` files the walk refuses (an un-ignored `node_modules/`), all untracked."""
+    (src / "node_modules").mkdir()
+    for i in range(n):
+        (src / "node_modules" / f"m{i}.js").write_text("module.exports = 1\n")
+
+
+def test_past_the_refusal_cap_a_tracked_edit_is_still_repaired(indexed, monkeypatch):
+    """Review round 2: past the cap the check returned nothing and dropped the edit."""
+    src, repo, store = indexed
+    monkeypatch.setattr(ror, "_MAX_REFUSALS_CHECKED", 20)
+    (src / "app.py").write_text("def renamed_fn(x):\n    return x\n")
+    _refused_tree(src, 40)
+    block = ror.refresh_before_read(repo, storage_path=store)
+    assert block == {"refreshed": 1, "unchecked": "untracked_paths"}
+    assert "renamed_fn" in _names(repo, store, "renamed_fn")
+
+
+def test_past_the_refusal_cap_with_nothing_else_the_answer_is_undetermined(
+    indexed, monkeypatch
+):
+    """A check that could not ask every path never reads as "nothing stale"."""
+    src, repo, store = indexed
+    monkeypatch.setattr(ror, "_MAX_REFUSALS_CHECKED", 20)
+    _refused_tree(src, 40)
+    block = ror.refresh_before_read(repo, storage_path=store)
+    assert block["reason"] == "undetermined"
+    assert block["refreshed"] is None
+    assert "call" not in block

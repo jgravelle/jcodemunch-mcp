@@ -60,9 +60,10 @@ READ_TOOLS = frozenset(
 )
 
 # Changed or untracked paths that are not indexed are asked of the walk's own
-# rule one at a time; past this many refusals the check stops and says nothing,
-# rather than spending the read's time on a tree of files nobody indexes.
-_MAX_REFUSALS_CHECKED = 2000
+# rule one at a time. Past this many refusals the check stops asking, so a tree
+# of files nobody indexes (an un-ignored `node_modules/`) costs a bounded scan;
+# the answer then says the rest went unchecked, never that nothing is stale.
+_MAX_REFUSALS_CHECKED = 200
 
 _last_check: dict[str, float] = {}
 # Repositories with a re-index running that outlived its answer's budget. A
@@ -103,8 +104,8 @@ def _is_git_worktree(source_root: str) -> bool:
 
 def _changes(
     source_root: str, indexed_head: Optional[str], index
-) -> Optional[list[tuple[str, str]]]:
-    """(change_type, absolute path) for indexed files that changed, or None when git cannot say."""
+) -> Optional[tuple[list[tuple[str, str]], bool]]:
+    """((change_type, absolute path) list, every candidate checked), or None when git cannot say."""
     base = indexed_head or "HEAD"
     diff = _git(
         source_root,
@@ -164,22 +165,21 @@ def _changes(
         rel = rel.replace("\\", "/")
         if rel and rel not in indexed:
             candidates.append(rel)
-    added = _indexable(root, index, dict.fromkeys(candidates))
-    if added is None:
-        return None
+    added, complete = _indexable(root, index, dict.fromkeys(candidates))
     for rel in added:
         found.setdefault(rel, "added")
-    return [(kind, str(root / rel)) for rel, kind in sorted(found.items())]
+    return [(kind, str(root / rel)) for rel, kind in sorted(found.items())], complete
 
 
-def _indexable(root: Path, index, candidates) -> Optional[list[str]]:
-    """The not-yet-indexed paths a full walk would index, or None when too many to ask.
+def _indexable(root: Path, index, candidates) -> tuple[list[str], bool]:
+    """(the not-yet-indexed paths a full walk would index, whether every candidate was asked).
 
     Asked of `index_file`'s `_walk_refusal`, the walk's own rule for one path,
     so a binary, a log or an un-ignored dependency tree is never counted as a
     stale file: re-indexing it changes nothing, and the walk would drop it.
     Stops once more than :data:`REFRESH_MAX_FILES` are found, since the answer
-    is then "too many" whatever the rest are.
+    is then "too many" whatever the rest are, and after
+    :data:`_MAX_REFUSALS_CHECKED` refusals, reporting the rest as unchecked.
     """
     from .tools.index_file import _walk_refusal, _walk_root_for
 
@@ -200,12 +200,12 @@ def _indexable(root: Path, index, candidates) -> Optional[list[str]]:
         if refusal is None:
             out.append(rel)
             if len(out) > REFRESH_MAX_FILES:
-                return out
+                return out, True
         else:
             refused += 1
             if refused >= _MAX_REFUSALS_CHECKED:
-                return None
-    return out
+                return out, False
+    return out, True
 
 
 def _index_write_locked(owner: str, name: str, storage_root: str) -> bool:
@@ -245,6 +245,11 @@ def _unrepaired(n: int, reason: str, source_root: str) -> dict:
         # `_indexable` stops counting once the answer is "too many".
         block["stale_files_basis"] = "at_least"
     return block
+
+
+def _undetermined() -> dict:
+    """More not-indexed paths than the check asks about: it cannot say the index is current."""
+    return {"reason": "undetermined", "refreshed": None, "unchecked": "untracked_paths"}
 
 
 def _in_progress(n: Optional[int]) -> dict:
@@ -294,9 +299,13 @@ def refresh_before_read(
             return None
         if not _is_git_worktree(source_root):
             return None
-        changes = _changes(source_root, getattr(index, "git_head", None) or None, index)
-        if not changes:
+        asked = _changes(source_root, getattr(index, "git_head", None) or None, index)
+        if asked is None:
             return None
+        changes, complete = asked
+        if not changes:
+            # A check that could not ask every path must not read as "nothing stale".
+            return None if complete else _undetermined()
         if len(changes) > REFRESH_MAX_FILES:
             return _unrepaired(len(changes), "too_many_files", source_root)
         if _index_write_locked(owner, name, str(store.base_path)):
@@ -327,7 +336,10 @@ def refresh_before_read(
             return _in_progress(len(changes))
         if not result.get("success", False):
             return _unrepaired(len(changes), "failed", source_root)
-        return {"refreshed": len(changes)}
+        done: dict = {"refreshed": len(changes)}
+        if not complete:
+            done["unchecked"] = "untracked_paths"
+        return done
     except Exception:
         logger.debug("refresh_on_read failed for %s", repo, exc_info=True)
         return None
