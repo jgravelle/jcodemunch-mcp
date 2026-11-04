@@ -1499,15 +1499,17 @@ def load_all_project_configs() -> None:
 
 def is_tool_disabled(tool_name: str, repo: str | None = None) -> bool:
     """Check if a tool is in disabled_tools."""
-    disabled = get("disabled_tools", [], repo=repo)
-    return tool_name in disabled
+    return disabled_tool_source(tool_name, repo=repo) is not None
 
 
 def disabled_tool_source(tool_name: str, repo: str | None = None) -> str | None:
-    """Which file turned ``tool_name`` off: "project", "global", or None.
+    """What turned ``tool_name`` off: "project", "global", "default", or None.
 
-    Follows :func:`get`'s resolution: a project file that declares
-    ``disabled_tools`` replaces the global list, so it alone decides.
+    The ONE resolver for ``disabled_tools``; :func:`is_tool_disabled` asks it.
+    Follows :func:`get`'s resolution: a project file that declares the key
+    replaces the global list. "default" is a global list still equal to the
+    shipped ``DEFAULTS`` value, so a reply never says the user turned off a
+    tool that the package turned off.
     """
     _ensure_loaded()
     if repo:
@@ -1515,7 +1517,13 @@ def disabled_tool_source(tool_name: str, repo: str | None = None) -> str | None:
         project = _PROJECT_CONFIGS.get(resolved) if resolved else None
         if project is not None and "disabled_tools" in project:
             return "project" if tool_name in (project["disabled_tools"] or []) else None
-    return "global" if tool_name in (_GLOBAL_CONFIG.get("disabled_tools") or []) else None
+    current = _GLOBAL_CONFIG.get("disabled_tools") or []
+    if tool_name not in current:
+        return None
+    shipped = DEFAULTS.get("disabled_tools") or []
+    if tool_name in shipped and list(current) == list(shipped):
+        return "default"
+    return "global"
 
 
 def is_language_enabled(language: str, repo: str | None = None) -> bool:

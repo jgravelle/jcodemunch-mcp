@@ -135,28 +135,48 @@ def retired_hint(name: str) -> Optional[str]:
     return f"It was replaced by {new}; call {new} with {arg}."
 
 
+def _fold_action(action: str) -> str:
+    return re.sub(r"[\s\-]+", "_", action.strip().lower()).strip("_")
+
+
 def nearest_actions(action: str, catalog_names: Iterable[str], n: int = 3) -> list[str]:
     """Up to ``n`` catalog names close to ``action``, closest first; [] when none is.
 
-    A list, not one name: ``get_symbol`` is as close to ``get_symbol_diff`` as
-    to ``get_symbol_source``, and one confident wrong name costs more than three.
-
     Compared after folding case and ``-``/space to ``_``, so ``Get-File-Outline``
     finds ``get_file_outline``. The names are the ones ``menu`` searches.
+
+    A name that starts more than ``n`` actions (``get_symbol``, ``search``) gets
+    no guess: closeness picks one of them by length, not by what was meant, and
+    one confident wrong name costs more than a ``menu`` call. A name that starts
+    ``n`` or fewer actions gets all of them.
     """
     import difflib
 
-    folded = re.sub(r"[\s\-]+", "_", action.strip().lower())
+    folded = _fold_action(action)
     names = sorted(catalog_names)
     if folded in names:
         return [folded]
+    if not folded:
+        return []
+    prefixed = [nm for nm in names if nm.startswith(folded + "_")]
+    if len(prefixed) > n:
+        return []
+    if prefixed:
+        return prefixed
     return difflib.get_close_matches(folded, names, n=n, cutoff=0.75)
+
+
+def starts_many_actions(action: str, catalog_names: Iterable[str], n: int = 3) -> bool:
+    """True when ``action`` starts more than ``n`` catalog names."""
+    folded = _fold_action(action)
+    return bool(folded) and sum(1 for nm in catalog_names if nm.startswith(folded + "_")) > n
 
 
 def order_gate(
     action: str,
     catalog_names: Iterable[str],
     allow_state_change: bool,
+    suggest_from: Optional[Iterable[str]] = None,
 ) -> Optional[str]:
     """Validate an ``order`` request. Return an error string, or None if OK.
 
@@ -173,12 +193,23 @@ def order_gate(
         hint = retired_hint(action)
         if hint is not None:
             return f"Unknown action '{action}'. {hint}"
-        near = nearest_actions(action, names)
-        did_you_mean = (
-            " Did you mean " + " or ".join(f"'{a}'" for a in near) + "?" if near else ""
-        )
+        # Suggest only what would run: a turned-off tool stays dispatchable (so
+        # its own reply explains it) but is never offered as the next call.
+        pool = set(suggest_from) if suggest_from is not None else names
+        near = nearest_actions(action, pool)
+        if near:
+            return (
+                f"Unknown action '{action}'. Did you mean "
+                + " or ".join(f"'{a}'" for a in near)
+                + "? Call 'menu' (optionally with a query) to discover valid actions."
+            )
+        if starts_many_actions(action, pool):
+            return (
+                f"Unknown action '{action}'. Several actions start with it; call "
+                f"'menu' with query '{action}' to see them."
+            )
         return (
-            f"Unknown action '{action}'.{did_you_mean} Call 'menu' (optionally with a query) "
+            f"Unknown action '{action}'. Call 'menu' (optionally with a query) "
             f"to discover valid actions."
         )
     tripwire = forbidden_reason(action)

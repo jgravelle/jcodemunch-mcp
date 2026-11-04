@@ -893,7 +893,7 @@ async def test_tier_controls_call_time_allowed_without_escape_hatch():
         # return a tier-related error, but NOT the "disabled in this project"
         # message that the escape hatch unlocks.
         if "error" in payload:
-            assert "disabled in this project" not in payload["error"]
+            assert "disabled_tools" not in payload["error"]
     finally:
         config_module._GLOBAL_CONFIG.clear()
         config_module._GLOBAL_CONFIG.update(orig_config)

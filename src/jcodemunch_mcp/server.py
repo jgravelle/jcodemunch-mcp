@@ -5798,7 +5798,9 @@ async def _handle_order(arguments: dict) -> list[TextContent] | CallToolResult:
     if not isinstance(args, dict):
         return _error_call_result(json.dumps({"error": "order 'args' must be an object."}, indent=2))
     allow = bool(arguments.get("allow_state_change", False))
-    err = _counter.order_gate(action, _catalog_names(), allow)
+    names = _catalog_names()
+    suggest = {n for n in names if not config_module.is_tool_disabled(n)}
+    err = _counter.order_gate(action, names, allow, suggest_from=suggest)
     if err is not None:
         return _error_call_result(json.dumps({"error": err, "tool": "order"}, indent=2))
     return await call_tool(action, _normalize_order_args(action, dict(args)))
@@ -6257,16 +6259,25 @@ async def _call_tool_impl(name: str, arguments: dict) -> list[TextContent] | Cal
         allow_disable_tier = config_module.get("allow_disabling_tier_controls", False, repo=repo_arg)
         protected_at_call = frozenset() if allow_disable_tier else _UNDISABLEABLE_TOOLS
         if name not in protected_at_call and config_module.is_tool_disabled(name, repo=repo_arg):
-            where = (
-                "this project's .jcodemunch.jsonc"
-                if config_module.disabled_tool_source(name, repo=repo_arg) == "project"
-                else "the global config.jsonc"
-            )
+            source = config_module.disabled_tool_source(name, repo=repo_arg)
+            if source == "default":
+                why = (
+                    f"Tool '{name}' is turned off by default: the shipped 'disabled_tools' "
+                    f"setting lists it."
+                )
+            else:
+                where = (
+                    "this project's .jcodemunch.jsonc" if source == "project"
+                    else "the global config.jsonc"
+                )
+                why = (
+                    f"Tool '{name}' is turned off: the user listed it in 'disabled_tools' "
+                    f"in {where}."
+                )
             return _fail(json.dumps({
                 "error": (
-                    f"Tool '{name}' is turned off: it is listed in 'disabled_tools' in {where}. "
-                    f"The user disabled it on purpose. Ask the user before using it, "
-                    f"and do not edit that setting yourself."
+                    f"{why} Ask the user whether to turn it back on; "
+                    f"do not edit that setting yourself."
                 )
             }, indent=2))
 

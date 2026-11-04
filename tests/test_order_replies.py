@@ -42,7 +42,7 @@ def test_an_unknown_action_with_no_near_name_suggests_nothing():
     assert "Did you mean" not in err
 
 
-def _disabled_reply(global_disabled, project_disabled):
+def _disabled_reply(global_disabled, project_disabled, tool="get_file_tree"):
     import asyncio
 
     from jcodemunch_mcp import config as config_module
@@ -59,7 +59,7 @@ def _disabled_reply(global_disabled, project_disabled):
         if project_disabled is not None:
             config_module._PROJECT_CONFIGS[project_root] = {"disabled_tools": list(project_disabled)}
         result = asyncio.run(
-            call_tool("get_file_tree", {"repo": project_root})
+            call_tool(tool, {"repo": project_root})
         )
         assert result.isError is True
         return json.loads(result.content[0].text)["error"]
@@ -113,3 +113,62 @@ def test_close_actions_come_closest_first():
     assert near[0] == "get_symbol_source"
     err = counter.order_gate("get_symbol_dif", {"get_symbol_diff", "get_symbol_source"}, False)
     assert "'get_symbol_diff'" in err
+
+
+# The real catalog, not a fixture: a two-name fixture cannot show a prefix
+# shared by five actions, which is where a single guess goes wrong.
+def _real_names():
+    from jcodemunch_mcp import server
+
+    return server._catalog_names()
+
+
+def test_on_the_real_catalog_a_prefix_of_many_actions_gets_no_guess():
+    from jcodemunch_mcp import counter
+
+    names = _real_names()
+    for action in ("get_symbol", "search"):
+        assert counter.nearest_actions(action, names) == [], action
+    err = counter.order_gate("get_symbol_", names, False)
+    assert "Did you mean" not in err
+
+
+def test_on_the_real_catalog_a_typo_and_a_short_prefix_find_their_actions():
+    from jcodemunch_mcp import counter
+
+    names = _real_names()
+    assert counter.nearest_actions("serch_symbols", names) == ["search_symbols"]
+    assert set(counter.nearest_actions("get_repo", names)) == {
+        "get_repo_health",
+        "get_repo_map",
+        "get_repo_outline",
+    }
+
+
+def test_a_prefix_of_many_actions_points_at_menu_with_that_query():
+    from jcodemunch_mcp import counter
+
+    names = {f"get_widget_{x}" for x in ("a", "b", "c", "d")}
+    err = counter.order_gate("get_widget", names, False)
+    assert "menu" in err and "'get_widget'" in err
+    assert "Did you mean" not in err
+
+
+def test_a_suggestion_never_names_a_tool_that_would_refuse():
+    from jcodemunch_mcp import counter
+
+    err = counter.order_gate(
+        "test_summariser", {"test_summarizer", "search_text"}, False, suggest_from={"search_text"}
+    )
+    assert "test_summarizer" not in err
+
+
+def test_a_tool_the_package_turned_off_does_not_blame_the_user():
+    from jcodemunch_mcp import config as config_module
+
+    shipped = list(config_module.DEFAULTS["disabled_tools"])
+    assert shipped, "the shipped default turns at least one tool off"
+    err = _disabled_reply(shipped, None, tool=shipped[0])
+    assert "by default" in err
+    assert "the user listed" not in err
+    assert "config.jsonc" not in err
