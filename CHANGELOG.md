@@ -10,6 +10,8 @@ A class body repeats every method body, and each method is a symbol of its own: 
 
 An outlined entry says so: `source_outline: true`, `source_outline_members` (how many members were collapsed), `source_total_lines` (the full body's length) and `source_is_bounded_view: true`, so the evidence receipt does not hash the outline as the class's bytes. `verify` still hashes the full body. Nothing changes for a class with no members, for any other kind, or when a source bound (`source_start_line`, `max_source_lines` and the rest) is given. The members come from one read of the class's file; when that read fails the full body is served. Tests: `tests/test_class_fetch_outline.py`.
 
+## [1.108.413] - 2026-11-03 - the license terms read the same in the terminal, the package and the site
+
 ### Changed - the license lines in the terminal say what the site says, and `receipt` ends with one
 
 The CLI stated the terms in its own words: the one-time notice said "Work use needs a commercial license", the reminder "Using jCodeMunch for work needs a license", while jcodemunch.com answers "Can I use jCodeMunch at work?" with "Work use at a for-profit company, or for client or paid work, needs a license." The notice, both copies of the reminder and the plugin README's license line now use the site's sentence, and the README FAQ carries the site's answer. The plugin listing's description reads "Free for non-commercial use; commercial use needs a one-time license."
