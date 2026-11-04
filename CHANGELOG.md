@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.415] - 2026-11-04 - a search for library code ranks the library above its tutorial and example copies
+
 ### Fixed - a search for library code ranks the library above its tutorial and example copies
 
 Example and tutorial directories repeat a library's names, and there are many of them, so a question about the library returned the copies. fastapi's `docs_src/` holds many `GzipRoute.get_route_handler` tutorials beside the one `APIRoute.get_route_handler` in `fastapi/routing.py`, and "router route handler" returned three tutorials. On express, "error exception" returned two template imports and a template from `examples/error-pages/`. Measured on the pinned corpora (fastapi a64dfbb, express 1faf228), "router route handler" now returns `fastapi/routing.py::APIRoute.get_route_handler` first, and express's "error exception" returns rows from `lib/response.js` and `lib/application.js`.
