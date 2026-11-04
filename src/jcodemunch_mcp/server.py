@@ -1257,6 +1257,9 @@ _COMPACT_STRIP_PARAMS: dict[str, set[str]] = {
         # makes the next person shave again. Removing an advanced param from
         # the minimal surface is the fix the budget was designed to take.
         "verify_against",
+        # `class_body="full"` is the escape hatch from the class outline, the
+        # same shape as the bounds above; the handler honours it when passed.
+        "class_body",
     },
     # v1.108.231: `degeneracy_cutoff` is an escape hatch for callers who want the
     # pre-.231 volume back, not a core retrieval control. get_dead_code_v2 is a
@@ -2341,6 +2344,12 @@ def _build_tools_list(
                     "max_source_bytes": {
                         "type": "integer",
                         "description": "Bounded mode: UTF-8-safe per-symbol byte cap on the returned source. Verify still hashes the full body."
+                    },
+                    "class_body": {
+                        "type": "string",
+                        "enum": ["outline", "full"],
+                        "description": "A class: 'outline' (default) collapses each method to its signature (source_outline: true); 'full' returns the whole body.",
+                        "default": "outline"
                     },
                     "max_total_source_bytes": {
                         "type": "integer",
@@ -6489,6 +6498,7 @@ async def _call_tool_impl(name: str, arguments: dict) -> list[TextContent] | Cal
                     max_source_lines=arguments.get("max_source_lines"),
                     max_source_bytes=arguments.get("max_source_bytes"),
                     max_total_source_bytes=arguments.get("max_total_source_bytes"),
+                    class_body=arguments.get("class_body", "outline"),
                 )
             )
         elif name == "search_symbols":
