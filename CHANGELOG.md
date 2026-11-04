@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+### Fixed - a search for library code ranks the library above its tutorial and example copies
+
+Example and tutorial directories repeat a library's names, and there are many of them, so a question about the library returned the copies. fastapi's `docs_src/` holds many `GzipRoute.get_route_handler` tutorials beside the one `APIRoute.get_route_handler` in `fastapi/routing.py`, and "router route handler" returned three tutorials. On express, "error exception" returned two template imports and a template from `examples/error-pages/`. Measured on the pinned corpora (fastapi a64dfbb, express 1faf228), "router route handler" now returns `fastapi/routing.py::APIRoute.get_route_handler` first, and express's "error exception" returns rows from `lib/response.js` and `lib/application.js`.
+
+Test files were already weighted down when the query was not about tests. Ranking now does the same for a symbol under an `examples`, `example`, `docs_src`, `samples`, `sample`, `demo`, `demos`, `tutorial` or `tutorials` directory. A query that asks for an example (any of "example", "sample", "demo", "tutorial", "snippet", "doc", "docs", "documentation" and their plurals) keeps the old weight. It is a ranking weight, not a filter: a demoted row still comes back when nothing else matches, and confidence and absence verdicts still read the unweighted score. With `debug=True` a demoted row's `score_breakdown` carries `rank_weight_reason: "example_file"`. Tests: `tests/test_rank_library_over_copies.py`.
+
+The right answers cost more tokens than the copies they replace. On the token benchmark (`benchmarks/harness/run_benchmark.py`, the pinned corpora) fastapi's "router route handler" now fetches `fastapi/routing.py::_IncludedRouter`, a 232-line class, where it fetched an 8-line tutorial method. With the class outline in `get_symbol_source` (#1326) on main, fastapi's jcm total measures 13,804 tokens against the published reference's 12,779 (+8.0%, inside the per-repo Floor `token.per_repo_rise_max`), express 4,816 against 4,948, and the mean reduction per lookup against grep is 94.44%.
+
 ## [1.108.414] - 2026-11-03 - a class comes back as its outline, and an import finds the file in its own language
 
 ### Fixed - an import without an extension resolves to the importer's own language first (#1316)
