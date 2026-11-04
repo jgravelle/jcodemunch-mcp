@@ -261,18 +261,17 @@ def lifetime_meter(root: Optional[Path] = None) -> Optional[dict]:
     taking calls showed its frozen total here as current (customer report,
     1.108.407).
     """
-    from ..storage import savings_meter
+    from ..storage import savings_meter, token_tracker
 
     base = root or _index_root()
-    path = base / "_savings.json"
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
+    # The meter's own reader (L-297): a file it refuses to add to is not a
+    # lifetime figure here either. This read took `True` as a total and raised
+    # OverflowError on `Infinity`.
+    data, _why = token_tracker._read_ledger(base / "_savings.json")
+    if not data:
         return None
-    if not isinstance(data, dict):
-        return None
-    total = data.get("total_tokens_saved")
-    if not isinstance(total, (int, float)) or total <= 0:
+    total = data.get("total_tokens_saved", 0)
+    if total <= 0:
         return None
     return {
         "total_tokens_saved": int(total),

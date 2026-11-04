@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed - `receipt` and `diagnose` read the savings file the way the meter does
+
+`receipt`'s lifetime figure and `diagnose`'s savings report each parsed `_savings.json` by their own rules, beside `token_tracker._read_ledger`, the reader the meter uses. #1309 and the follow-up for L-293 taught that reader to refuse a file whose totals or tables the meter cannot add to; the other two never learned it. So `receipt` took `true` as a total and crashed with `OverflowError` on `{"total_tokens_saved": Infinity}` and `ValueError` on `NaN`, and `diagnose` reported a file the meter refuses as readable. Both now read through `_read_ledger`: a file the meter refuses gives no lifetime figure in `receipt` and no figure in `diagnose`, and a file that starts with a byte-order mark is read, as the meter reads it. A test fails if any function that names `_savings.json` in code parses it with `json.load` itself. Found while fixing L-293 (LEDGER L-297). Tests: `tests/test_savings_file_has_one_reader.py`.
+
 ## [1.108.413] - 2026-11-03 - the license terms read the same in the terminal, the package and the site
 
 ### Changed - the license lines in the terminal say what the site says, and `receipt` ends with one
