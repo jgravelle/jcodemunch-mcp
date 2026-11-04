@@ -341,3 +341,98 @@ def test_the_reminder_is_disclosed_with_every_switch():
     assert lr.SILENCE_COMMAND in readme
     assert lr.ENV_VAR in (root / "CLI-AND-ENV.md").read_text(encoding="utf-8")
     assert "license_reminder" in (root / "CONFIGURATION.md").read_text(encoding="utf-8")
+
+
+# --- the site's terms, and the line at the end of `receipt` -----------------
+
+SITE_TERMS = "Work use at a for-profit company, or for client or paid work, needs a license"
+
+
+def test_both_reminder_copies_state_the_site_terms():
+    for text in (lr.CLI_TEXT, lr.TOOL_TEXT):
+        assert SITE_TERMS in text
+        assert "for work needs a license" not in text
+
+
+def test_the_security_disclosure_quotes_the_reminder_as_it_reads():
+    from pathlib import Path
+
+    security = (Path(__file__).resolve().parent.parent / "SECURITY.md").read_text(encoding="utf-8")
+    assert f"Personal use stays free. {lr.WORK_TERMS}: {lr.CLI_BUY_URL}" in security
+    assert lr.RECEIPT_TEXT in security
+
+
+def test_the_receipt_line_names_where_it_was_shown():
+    from urllib.parse import parse_qs, urlsplit
+
+    assert lr.RECEIPT_TEXT.endswith(lr.RECEIPT_BUY_URL)
+    assert parse_qs(urlsplit(lr.RECEIPT_BUY_URL).query) == {
+        "utm_source": ["cli"],
+        "utm_medium": ["receipt"],
+        "utm_campaign": ["savings-receipt"],
+    }
+
+
+def test_the_receipt_line_is_said_on_every_receipt_without_a_key(store):
+    """No clock: the line does not wait 7 days and writes no state."""
+    assert lr.receipt_line(env={}) == lr.RECEIPT_TEXT
+    assert lr.receipt_line(env={}) == lr.RECEIPT_TEXT
+    assert not (store / lr.STATE_FILE).exists()
+
+
+@pytest.mark.parametrize(
+    "env",
+    [
+        {"JCODEMUNCH_LICENSE_REMINDER": "0"},
+        {"JCODEMUNCH_LICENSE_NOTICE": "false"},
+        {"CI": "true"},
+        {"CLAUDE_CODE_REMOTE": "1"},
+    ],
+)
+def test_the_receipt_line_obeys_the_reminders_switches(store, env):
+    assert lr.receipt_line(env=env) is None
+
+
+@pytest.mark.parametrize("reason", ["disabled", "ci", "silenced", "licensed", "a-switch-added-later"])
+def test_every_switch_that_silences_the_reminder_silences_the_receipt_line(store, monkeypatch, reason):
+    """Both read `switch_reason`, so a switch added there reaches both."""
+    monkeypatch.setattr(lr, "switch_reason", lambda env=None: reason)
+    assert lr.skip_reason(env={}) == reason
+    assert lr.receipt_line(env={}) is None
+
+
+def test_the_receipt_line_is_silenced_by_config(store, monkeypatch):
+    monkeypatch.setattr(lr, "_config_silenced", lambda: True)
+    assert lr.receipt_line(env={}) is None
+
+
+def test_a_license_holder_never_sees_the_receipt_line(store, monkeypatch):
+    monkeypatch.setattr(lr, "_licence_key_configured", lambda: True)
+    assert lr.receipt_line(env={}) is None
+
+
+def test_a_failing_check_says_nothing(store, monkeypatch):
+    def boom():
+        raise RuntimeError("config unreadable")
+
+    monkeypatch.setattr(lr, "_config_silenced", boom)
+    assert lr.receipt_line(env={}) is None
+
+
+def test_receipt_ends_with_the_line_and_export_does_not_carry_it(store, tmp_path, monkeypatch, capsys):
+    from jcodemunch_mcp.cli import receipt
+
+    monkeypatch.setattr(receipt, "iter_calls_multi", lambda *a, **k: iter(()))
+    monkeypatch.setattr(receipt, "lifetime_meter", lambda *a, **k: None)
+    assert receipt.main(["--projects-root", str(tmp_path)]) == 0
+    out = capsys.readouterr().out
+    assert out.rstrip().endswith(lr.RECEIPT_TEXT)
+
+    target = tmp_path / "r.json"
+    assert receipt.main(["--projects-root", str(tmp_path), "--export", str(target)]) == 0
+    assert lr.RECEIPT_TEXT not in capsys.readouterr().out
+    assert lr.RECEIPT_TEXT not in target.read_text(encoding="utf-8")
+
+    monkeypatch.setenv("JCODEMUNCH_LICENSE_REMINDER", "0")
+    assert receipt.main(["--projects-root", str(tmp_path)]) == 0
+    assert lr.RECEIPT_TEXT not in capsys.readouterr().out

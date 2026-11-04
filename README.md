@@ -4,9 +4,9 @@
 
 <sub>Benchmark: 5 queries on each of express, fastapi and gin at pinned commits, tokens counted with tiktoken `cl100k_base`, jcodemunch-mcp at commit `15afcf75`, whose version string is 1.108.391 but which also carries the settings-file ranking change released in 1.108.392 and the field/constant change released after it. A lookup is one `search_symbols` plus `get_symbol_source` on its top 3 hits, against grep-and-read (rank files by match count, read the top 3 whole). Per lookup, not per session. Reproduce with [`benchmarks/REPRODUCING.md`](benchmarks/REPRODUCING.md).</sub>
 
-> **Real results, live from production**
+> **Real results from production, as of 2026-08-17**
 > **838B+ tokens saved** · **136,000+ reporting installs** · **$4.2M+ in AI spend avoided** · **100,000+ kg CO₂ prevented**
-> Counter figures as of 2026-08-17, valued at the $5/MTok Claude Opus **input** rate. All four only grow, so read them as floors. Live at **[jcodemunch.com](https://jcodemunch.com/?utm_medium=readme&utm_campaign=jcm_readme_counter)**.
+> Estimated counter figures as of 2026-08-17, not live, valued at the $5/MTok Claude Opus **input** rate. All four only grow, so read them as floors. Live at **[jcodemunch.com](https://jcodemunch.com/?utm_medium=readme&utm_campaign=jcm_readme_counter)**.
 
 Works with **Claude Code**, **Cursor**, **VS Code**, **Codex CLI**, **Windsurf**, **Continue**, and [any MCP-compatible client](CLIENTS.md).
 
@@ -23,7 +23,7 @@ Works with **Claude Code**, **Cursor**, **VS Code**, **Codex CLI**, **Windsurf**
 <!-- mcp-name: io.github.jgravelle/jcodemunch-mcp -->
 
 **Free for personal use.** Use it to make money, and Uncle J. gets a taste. Fair enough? [Commercial licenses below.](#licensing-and-commercial-use)
-Our guarantee: if jCodeMunch doesn't pay for itself, you don't pay for jCodeMunch.
+Our [guarantee](https://jcodemunch.com/guarantee.php): if jCodeMunch doesn't pay for itself, you don't pay for jCodeMunch.
 
 **Small by default.** A new install starts on a six-tool front door: menu, order and route do the work, and jcodemunch_guide, announce_model and set_tool_tier help. The full tool set sits behind it, and `jcodemunch-mcp surface` shows exactly what your install advertises.
 
@@ -271,9 +271,11 @@ Anything else that reaches the network is something you run or turn on yourself,
 
 ## Security, privacy, and background behavior
 
-An install that never runs `init` (a `uvx` or plugin install) gets one `license_notice` line in its first tool answer, once per machine; it is skipped with a license key configured, after `jcodemunch-mcp config set license_reminder false`, after an `init` that printed the license line, on CI or remote runners (`CI=true`, `CLAUDE_CODE_REMOTE=true`), or with `JCODEMUNCH_LICENSE_NOTICE=0`.
+An install that never runs `init` (a `uvx` or plugin install) gets one `license_notice` line in its first tool answer, once per machine; it is skipped with a license key configured, after `jcodemunch-mcp config set license_reminder false`, after an `init` that printed the license line, on CI or remote runners (`CI=true`, `CLAUDE_CODE_REMOTE=true`), or with `JCODEMUNCH_LICENSE_NOTICE=0`. Its link carries a fixed source tag, `utm_medium=notice`.
 
 A short work-license reminder follows, 7 days after a machine's first index and then at most every 30 days: on stderr after a CLI command a person runs (only at a terminal, never with `--json`), and as `license_notice` on the first tool answer of a server process when due. Its state is `~/.code-index/license_reminder_state.json` (three fields: first index seen, last shown, count). It is never shown with a license key configured, on CI or remote runners, or after `jcodemunch-mcp config set license_reminder false`; `JCODEMUNCH_LICENSE_REMINDER=0` also silences it. Nothing is sent. Its buy link carries a fixed source tag (`utm_medium=reminder`, or `utm_medium=tool` in a tool answer), the same on every machine, which reaches the site only if the link is opened.
+
+The text report of `jcodemunch-mcp receipt` ends with one license line on a machine with no license key, tagged `utm_medium=receipt`. It has no clock and writes no state; every switch that silences the reminder silences it, and `--export` and `--explain` never carry it.
 
 The short version is the [Privacy Policy](#privacy-policy) above. Local-first by design: indexes live at `~/.code-index/`, and the base package's only default network behavior is an anonymous savings counter (random ID plus aggregate token counts, no code, no paths, no PII; opt out with `share_savings: false`). Everything the server does beyond answering a tool call (file watching, the opt-in login service, license validation, model downloads, org reporting) is opt-in or opt-out, visible, and reversible, and every item is enumerated in **[SECURITY.md](SECURITY.md#background-behavior-fully-disclosed)** alongside the path-traversal, symlink, and secret-redaction controls. A stdio server also stops on its own when the client process that started it is gone, even if its stdin pipe stays open (`JCODEMUNCH_PARENT_WATCH_SECONDS=0` turns that off). A default `init` writes no policy file and installs no hook whose output the model reads; those are `init --policy` and `init --guidance`, and `init --remove-guidance` takes them back out of an older install. `init --git-hook` adds a git post-checkout hook that re-indexes the files a branch switch changed, in an already indexed repository; `uninstall` run in that repository removes it.
 
@@ -458,6 +460,9 @@ jCodeMunch retrieves at the **symbol level** with byte-level precision (function
 
 **Is it free for personal use?**
 Yes. Commercial use needs a license; see [above](#licensing-and-commercial-use).
+
+**Can I use jCodeMunch at work?**
+Personal and other non-commercial use is free, with no license. Using it at a for-profit company, or for client or paid work, takes a license, paid once, no subscription; the tiers and prices are on [the buying page](https://jcodemunch.com/buying.php). Installed it free at home and now use it at work? Your home projects stay free. Work use at a for-profit company, or for client or paid work, needs a license.
 
 **Where's the deep-dive on X?**
 Capabilities: [CAPABILITIES.md](CAPABILITIES.md). Config: [CONFIGURATION.md](CONFIGURATION.md). Clients: [CLIENTS.md](CLIENTS.md). Internals: [UNDER_THE_HOOD.md](UNDER_THE_HOOD.md). Or the firehose: [jcodemunch.com](https://jcodemunch.com/?utm_medium=readme&utm_campaign=jcm_readme_docs).

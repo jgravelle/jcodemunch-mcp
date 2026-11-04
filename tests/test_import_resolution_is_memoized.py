@@ -139,15 +139,25 @@ def test_a_repeated_specifier_does_its_path_work_once(monkeypatch):
     assert len(calls) == once
 
 
-def test_a_gleam_importer_is_resolved_every_time(monkeypatch):
-    calls = []
-    real = imp._gleam_source_roots
-    monkeypatch.setattr(imp, "_gleam_source_roots", lambda fs: calls.append(1) or real(fs))
+def test_a_gleam_answer_is_never_shared_between_importers():
+    """The Gleam tail step reads the importer's own package root, so the
+    specifier-keyed tail memo must skip it. The whole-answer memo (#1317) keys
+    by importer and specifier, so a Gleam answer is remembered per importer and
+    never served to an importer in another package."""
+    files = FILES | {"other/src/pkg/config.gleam", "other/src/other/main.gleam"}
     for _ in range(3):
-        assert imp.resolve_specifier("pkg/config", "pkg/src/pkg/main.gleam", FILES) == (
+        assert imp.resolve_specifier("pkg/config", "pkg/src/pkg/main.gleam", files) == (
             "pkg/src/pkg/config.gleam"
         )
-    assert len(calls) == 3
+        assert imp.resolve_specifier("pkg/config", "other/src/other/main.gleam", files) == (
+            "other/src/pkg/config.gleam"
+        )
+    # A tail-memo key is the specifier, or a tuple that starts with it (#1316
+    # adds the importer's own forms), so read the specifier either way.
+    for entries in imp._tail_memos.values():
+        for _alias, memo in entries:
+            specs = {k[0] if isinstance(k, tuple) else k for k in memo}
+            assert "pkg/config" not in specs
 
 
 def test_a_different_alias_map_gets_its_own_answers():

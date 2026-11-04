@@ -5,7 +5,7 @@ from typing import Optional
 
 from ..storage import IndexStore
 from ._utils import index_status_to_tool_error, resolve_repo
-from .get_blast_radius import _build_reverse_adjacency, _find_symbol
+from .get_blast_radius import _build_reverse_adjacency, _find_symbol, with_same_package_peers
 from ._call_graph import build_symbols_by_file, bfs_callers, bfs_callees, label_row_depths
 from ._scip_consume import open_scip_reader, scip_meta_and_stale, scip_meta_block
 from ..retrieval.verdict import (
@@ -198,6 +198,10 @@ def get_call_hierarchy(
         frozenset(index.source_files),
         getattr(index, "alias_map", None),
         getattr(index, "psr4_map", None),
+    )
+    # A Go file's package siblings call it with no import (L-262).
+    reverse_adj = with_same_package_peers(
+        reverse_adj, getattr(index, "file_languages", None)
     )
 
     callers: list[dict] = []
