@@ -3098,3 +3098,9 @@ The 1.108.411 entry, verbatim as it stood in `CLAUDE.md`:
 The 1.108.412 entry, verbatim as it stood in `CLAUDE.md`:
 
 - **Prior (1.108.412):** **graph tools resolve each import once per loaded index, and a savings file holding the wrong type is refused, not frozen** (#1317, #1320, #1322): `resolve_specifier` remembers its whole answer per file set, alias map and PSR-4 map, keyed by importer and specifier, so a graph tool after the first call on an index skips the resolve; `_read_ledger` refuses a `_savings.json` holding the wrong type wherever the merge adds a number, with #1309's warning and recovery. Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-04, release 1.108.416)
+
+The 1.108.413 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.413):** **the license terms read the same in the terminal, the package and the site** (#1321): the CLI's license lines and the package descriptions state the site's terms, `receipt` ends with a one-line license note on a machine with no key, and `license_reminder.switch_reason` is the one rule for when the lines stay quiet. Full text: `CHANGELOG.md`.
