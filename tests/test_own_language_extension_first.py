@@ -130,3 +130,40 @@ def test_every_call_site_passes_the_importer():
     calls = [c for c in calls if not c.startswith("base: str")]
     assert calls, "no call sites found"
     assert all("," in c for c in calls), calls
+
+
+def test_an_unknown_dotted_suffix_is_part_of_the_ruby_name():
+    """`foo.service` is a name, not an extension, so the Ruby file still wins."""
+    files = {"foo.service.py", "foo.service.rb", "app/main.rb"}
+    assert (
+        resolve_specifier("../foo.service", "app/main.rb", frozenset(files))
+        == "foo.service.rb"
+    )
+
+
+def test_a_pyi_stub_import_finds_the_py_file():
+    files = {"pkg/utils.js", "pkg/utils.py", "pkg/main.pyi"}
+    assert (
+        resolve_specifier("pkg.utils", "pkg/main.pyi", frozenset(files))
+        == "pkg/utils.py"
+    )
+
+
+def test_a_gleam_importer_passes_file_forms_not_source_roots(monkeypatch):
+    """The Gleam branch's package roots must never reach `_candidates` as file forms."""
+    import jcodemunch_mcp.parser.imports as imp
+
+    seen = []
+    real = imp._candidates
+
+    def spy(base, *rest):
+        seen.append(rest)
+        return real(base, *rest)
+
+    monkeypatch.setattr(imp, "_candidates", spy)
+    files = {"cells/webse/src/app.gleam", "cells/webse/src/other.gleam", "lib/thing.ts"}
+    resolve_specifier(
+        "@/thing", "cells/webse/src/app.gleam", frozenset(files), {"@/*": ["lib/*"]}
+    )
+    forms = {f for rest in seen for arg in rest for f in (arg or ())}
+    assert not any("/" in f for f in forms), forms

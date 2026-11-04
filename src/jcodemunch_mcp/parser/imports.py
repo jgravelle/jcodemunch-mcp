@@ -3251,11 +3251,11 @@ def _resolve_tail(
         # "Own" roots share the importer's package dir (the part above
         # src/test), so a test module prefers its package's src/ root too.
         # A root-level src/test (dirname "") means a single-package repo.
-        own = [
+        own_roots = [
             r for r in roots
             if not posixpath.dirname(r) or importer_path.startswith(posixpath.dirname(r) + "/")
         ]
-        for root in own + [r for r in roots if r not in own]:
+        for root in own_roots + [r for r in roots if r not in own_roots]:
             prefixed = f"{root}/{candidate}"
             if prefixed in source_files:
                 return prefixed
