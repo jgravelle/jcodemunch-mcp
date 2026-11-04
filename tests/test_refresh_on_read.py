@@ -336,7 +336,7 @@ def test_past_the_refusal_cap_a_tracked_edit_is_still_repaired(indexed, monkeypa
     (src / "app.py").write_text("def renamed_fn(x):\n    return x\n")
     _refused_tree(src, 40)
     block = ror.refresh_before_read(repo, storage_path=store)
-    assert block == {"refreshed": 1, "unchecked": "untracked_paths"}
+    assert block == {"refreshed": 1, "unchecked": "not_indexed_paths"}
     assert "renamed_fn" in _names(repo, store, "renamed_fn")
 
 
@@ -351,3 +351,4 @@ def test_past_the_refusal_cap_with_nothing_else_the_answer_is_undetermined(
     assert block["reason"] == "undetermined"
     assert block["refreshed"] is None
     assert "call" not in block
+    assert ".gitignore" in block["hint"]

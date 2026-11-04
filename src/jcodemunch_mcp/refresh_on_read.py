@@ -249,7 +249,13 @@ def _unrepaired(n: int, reason: str, source_root: str) -> dict:
 
 def _undetermined() -> dict:
     """More not-indexed paths than the check asks about: it cannot say the index is current."""
-    return {"reason": "undetermined", "refreshed": None, "unchecked": "untracked_paths"}
+    return {
+        "reason": "undetermined",
+        "refreshed": None,
+        "unchecked": "not_indexed_paths",
+        # `index_folder` cannot clear this: the paths are ones it refuses.
+        "hint": "Add the directory of files you never index (a dependency or build tree) to .gitignore.",
+    }
 
 
 def _in_progress(n: Optional[int]) -> dict:
@@ -338,7 +344,7 @@ def refresh_before_read(
             return _unrepaired(len(changes), "failed", source_root)
         done: dict = {"refreshed": len(changes)}
         if not complete:
-            done["unchecked"] = "untracked_paths"
+            done["unchecked"] = "not_indexed_paths"
         return done
     except Exception:
         logger.debug("refresh_on_read failed for %s", repo, exc_info=True)
