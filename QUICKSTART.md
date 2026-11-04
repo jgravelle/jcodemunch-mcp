@@ -15,7 +15,7 @@ uvx jcodemunch-mcp
 
 # jCodeMunch Quick Start
 
-Get from zero to 95% token savings in one command.
+Get from zero to symbol-level code retrieval in one command. What it saves per lookup, measured, is in the [benchmark](benchmarks/README.md).
 
 ---
 

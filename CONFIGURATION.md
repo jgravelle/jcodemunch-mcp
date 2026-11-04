@@ -204,6 +204,8 @@ The legacy `suppress_meta` per-call parameter still works for backward compatibi
 | `watch_idle_timeout` | int or null | `null` | Auto-stop watcher after N minutes with no re-indexing. `null` = disabled. |
 | `watch_log` | str or null | `null` | Log watcher output to file. `"auto"` = temp file. `null` = quiet. |
 | `watch_paths` | list | `[]` | Folder(s) to watch. Empty = current working directory. |
+| `watch_all_skip_temp` | bool | `true` | `watch-all` leaves unwatched any indexed repo under the system temp directory or a top-level `tmp`/`temp` folder. The index stays searchable. |
+| `watch_all_max_idle_days` | int | `14` | `watch-all` leaves unwatched any indexed repo whose newest indexed file and last indexed commit are both older than this. Before skipping, the tree is checked too (the indexed commit is still checked out; no indexed file or its folder is newer), at most every 10 minutes per repo, so an edited or committed repo is watched again. `0` = watch every repo. |
 | `freshness_mode` | str | `"relaxed"` | `"relaxed"` = serve immediately. `"strict"` = wait for fresh results (500ms timeout). |
 | `refresh_on_read` | bool | `true` | `true` = before a read tool answers on a git repository, re-index the files that changed since the index was built (a rebase, a branch switch, an edit outside the agent) when there are at most 50, within 2 s. Otherwise the answer carries `index_refresh` with the reason (`too_many_files`, `locked`, `budget`, `failed`) and the `index_folder` call that fixes it. Checks git at most once per repo every 30 s; writes only the local index. `false` answers from the index as it is and only flags a stale row. |
 | `claude_poll_interval` | float | `5.0` | Poll interval (seconds) for Claude Code worktree discovery. |
@@ -223,6 +225,7 @@ The legacy `suppress_meta` per-call parameter still works for backward compatibi
 | `stats_file_interval` | int | `3` | Calls between `session_stats.json` writes. `0` = disable (reduces NVMe writes). |
 | `share_savings` | bool | `true` | Send anonymous token savings telemetry to the community counter. |
 | `perf_telemetry_enabled` | bool | `false` | Persist per-tool latency rows + the ranking ledger to `~/.code-index/telemetry.db`. The in-memory latency ring (queryable via `analyze_perf` and `get_session_stats`) is always tracked; this flag only controls durable persistence. |
+| `license_reminder` | bool | `true` | The work-license reminder, 7 days after the first index and then at most every 30 days. Never shown with a license key set. `false` silences it, the one-time license notice and the license line at the end of `receipt`, for good: `jcodemunch-mcp config set license_reminder false`. Read from the global config only; a project `.jcodemunch.jsonc` does not set it. |
 | `perf_telemetry_max_rows` | int | `100000` | Rolling cap on persisted perf rows; oldest rows trimmed in 1k-row batches once exceeded. |
 | `allow_paid_summaries` | bool | `false` | Paid-cloud summary providers (Anthropic, Gemini, and similar) are **never auto-selected** from a bare API key in the environment — a stray key must not silently bill you. Naming a provider explicitly via `summarizer_provider` always works; this flag (or `JCODEMUNCH_ALLOW_PAID_SUMMARIES=1`) additionally allows auto-detection to pick paid providers. Free/local endpoints (e.g. a localhost `OPENAI_API_BASE`) auto-detect regardless. |
 
@@ -391,6 +394,8 @@ Every `JCODEMUNCH_*` env var maps to a config key:
 | `JCODEMUNCH_PORT` | `port` |
 | `JCODEMUNCH_WATCH` | `watch` |
 | `JCODEMUNCH_WATCH_DEBOUNCE_MS` | `watch_debounce_ms` |
+| `JCODEMUNCH_WATCH_ALL_SKIP_TEMP` | `watch_all_skip_temp` |
+| `JCODEMUNCH_WATCH_ALL_MAX_IDLE_DAYS` | `watch_all_max_idle_days` |
 | `JCODEMUNCH_FRESHNESS_MODE` | `freshness_mode` |
 | `JCODEMUNCH_REFRESH_ON_READ` | `refresh_on_read` |
 | `JCODEMUNCH_CLAUDE_POLL_INTERVAL` | `claude_poll_interval` |

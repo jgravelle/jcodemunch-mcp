@@ -380,6 +380,19 @@ def _codex_command() -> Optional[str]:
     return executable_for_commands()
 
 
+def _codex_command_name(exe: str) -> str:
+    """The bare name when PATH finds ``exe`` itself, else ``exe``.
+
+    Codex starts a server named by its bare command through PATH (tested on
+    Windows only; elsewhere the absolute path is kept). The bare name keeps working when the install
+    moves, but only if PATH finds this same install: otherwise it would start
+    a different version, or nothing, so the absolute path is kept.
+    """
+    from ..install_layout import bare_name_if_path_finds
+
+    return bare_name_if_path_finds(exe)
+
+
 def _has_codex_entry(text: str) -> bool:
     """True when config.toml already declares the jcodemunch server."""
     return re.search(r"^\s*\[mcp_servers\.jcodemunch\]", text, re.MULTILINE) is not None
@@ -414,14 +427,17 @@ def _patch_codex_config(
         )
 
     if dry_run:
-        return f"  would add [mcp_servers.jcodemunch] to {path} (command = {exe})"
+        return (
+            f"  would add [mcp_servers.jcodemunch] to {path} "
+            f"(command = {_codex_command_name(exe)})"
+        )
 
     if backup and path.exists():
         shutil.copy2(path, _backup_path(path))
 
     block = (
         "\n[mcp_servers.jcodemunch]\n"
-        f"command = {_toml_string(exe)}\n"
+        f"command = {_toml_string(_codex_command_name(exe))}\n"
     )
     # Keep exactly one blank line between our block and whatever precedes it.
     prefix = "" if (not existing or existing.endswith("\n")) else "\n"
@@ -1399,8 +1415,13 @@ def run_init(
     guidance: bool = False,
     policy: bool = False,
     remove_guidance: bool = False,
+    git_hook: bool = False,
 ) -> int:
     """Run the init flow. Returns exit code (0 = success).
+
+    ``git_hook`` writes a git post-checkout hook into the repository in the
+    current directory, which re-indexes the files a branch checkout changed.
+    Only a typed ``--git-hook`` or a yes to the interactive offer writes it.
 
     A default install registers the server and adds only the hooks whose
     output the model never sees. ``guidance`` adds the model-facing hooks,
@@ -1707,6 +1728,18 @@ def run_init(
                 "Symbol search, find-references, and repo exploration would be available immediately — without opening a single file",
             ))
 
+    # ----- Step 4b: git post-checkout hook (opt-in) -----
+    from . import git_hook as _git_hook
+    do_git_hook = git_hook
+    if not do_git_hook and interactive and _git_hook._hooks_dir(os.getcwd()) is not None:
+        print()
+        do_git_hook = _prompt_yn(
+            "Add a git post-checkout hook that re-indexes changed files after a branch switch?",
+            default=False,
+        )
+    if do_git_hook:
+        print(f"  Git hook:{_git_hook.install_post_checkout(os.getcwd(), dry_run=dry_run, backup=backup)}")
+
     # ----- Step 5: Audit agent config -----
     do_audit = audit
     if not do_audit and interactive:
@@ -1761,6 +1794,12 @@ def run_init(
             print()
             for line in _LICENCE_LINES:
                 print(line)
+            # This machine was just shown the license line, so the server's
+            # one-time notice is not due. `upgrade` re-runs init silently and
+            # prints nothing, so it writes no marker.
+            from ..license_notice import mark_shown
+
+            mark_shown("init")
     print()
     return 0
 
@@ -2202,6 +2241,7 @@ def run_uninstall(
     dry_run: bool = False,
     no_backup: bool = False,
     yes: bool = False,
+    git_hook: bool = True,
 ) -> int:
     """Reverse a prior `init` run. Returns exit code (0 = success)."""
     backup = not no_backup
@@ -2263,6 +2303,11 @@ def run_uninstall(
     if copilot_hooks and not scoped_to_one:
         msg = uninstall_copilot_hooks(dry_run=dry_run, backup=backup)
         print(f"  Copilot hooks:{msg}")
+
+    if git_hook and not scoped_to_one:
+        from . import git_hook as _git_hook
+        msg = _git_hook.uninstall_post_checkout(os.getcwd(), dry_run=dry_run, backup=backup)
+        print(f"  Git hook:{msg}")
 
     if skills and not scoped_to_one:
         from .skills import uninstall_claude_skill

@@ -3232,6 +3232,9 @@ def index_folder(
         no_symbols_files: list[str] = []
         _languages_with_symbols: set[str] = set()
         _total_files = len(source_file_list)
+        from ..storage import text_filter as _text_filter
+
+        _filter_rows: list = []
         for _file_idx, rel_path in enumerate(source_file_list):
             if progress_cb:
                 progress_cb(_file_idx, _total_files, rel_path)
@@ -3248,6 +3251,9 @@ def index_folder(
             if file_dest:
                 file_dest.parent.mkdir(parents=True, exist_ok=True)
                 store._write_cached_text(file_dest, content)
+                _filter_row = _text_filter.row_for(content_dir, rel_path, content)
+                if _filter_row is not None:
+                    _filter_rows.append(_filter_row)
 
             language = get_language_for_path(rel_path)
             if not language:
@@ -3274,6 +3280,10 @@ def index_folder(
             if imps:
                 file_imports[rel_path] = imps
             # content is discarded at end of iteration
+
+        # One write for the whole walk: each row's stamp is its cached file's
+        # stat after the write above, so a later rewrite makes it stale.
+        _text_filter.store_rows(content_dir, _filter_rows)
 
         if progress_cb:
             progress_cb(_total_files, _total_files, "Parsing complete")

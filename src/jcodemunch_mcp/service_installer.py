@@ -350,9 +350,36 @@ _WINDOWS_TASK_TEMPLATE = """<?xml version="1.0" encoding="UTF-16"?>
 """
 
 
+def _windowless(interpreter: str) -> Optional[Path]:
+    """`pythonw.exe` beside a console `python.exe`, or None when there is none."""
+    path = Path(interpreter)
+    if path.name.lower() != "python.exe":
+        return None
+    windowless = path.with_name("pythonw.exe")
+    return windowless if windowless.is_file() else None
+
+
+def _windows_exec_cmd() -> list[str]:
+    """The Windows task's command: no console window, and a log file to write to.
+
+    `python.exe` is a console program, so a logon task that starts it opens a
+    console window at every sign-in and keeps it open while the watcher runs.
+    `pythonw.exe` opens none, but it has no stderr either, so the log goes to a
+    file under the log dir. Under pythonw, `watch-all` re-runs itself in a
+    console-less `python.exe` (`windowless.py`), so the git processes it starts
+    open no window either. Without a `pythonw.exe` beside the interpreter the
+    console one is kept: a visible window beats a task that cannot start.
+    """
+    exe, *rest = _exec_cmd()
+    windowless = _windowless(exe)
+    if windowless is not None:
+        exe = str(windowless)
+    return [exe, *rest, "--log-file", str(_log_dir() / "watch-all.log")]
+
+
 def _windows_task_xml() -> str:
     """The task definition `_install_windows` registers (L-149)."""
-    exe, *rest = _exec_cmd()
+    exe, *rest = _windows_exec_cmd()
     return _WINDOWS_TASK_TEMPLATE.format(
         command=_xml_escape(_cmd_quote(exe)),
         arguments=_xml_escape(" ".join(_cmd_quote(x) for x in rest)),
@@ -361,8 +388,8 @@ def _windows_task_xml() -> str:
 
 def _install_windows() -> dict:
     _log_dir().mkdir(parents=True, exist_ok=True)
-    # schtasks /Create does not persist stdout redirection; rely on Python logging
-    # (watcher.py writes to stderr) and inspect via Event Viewer if needed.
+    # The task cannot redirect stdout, and pythonw has none, so the command passes
+    # --log-file into this directory (`_windows_exec_cmd`).
     # ⚠ The file is written in the encoding its declaration names; schtasks
     # rejects a document whose bytes disagree with it.
     fd, xml_path = tempfile.mkstemp(prefix=f"{SERVICE_NAME}-", suffix=".xml")
@@ -445,6 +472,28 @@ def _scheduled_task_settings() -> Optional[dict]:
     }
 
 
+def _scheduled_task_command() -> Optional[str]:
+    """The program the installed task starts, or None if it could not be read."""
+    script = (
+        "$ErrorActionPreference='Stop';"
+        f"(Get-ScheduledTask -TaskName '{SERVICE_NAME}').Actions[0].Execute"
+    )
+    try:
+        result = subprocess.run(
+            ["powershell", "-NoProfile", "-NonInteractive", "-Command", script],
+            capture_output=True, check=False, timeout=30,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+    except (OSError, subprocess.SubprocessError):
+        logger.debug("Get-ScheduledTask action probe failed", exc_info=True)
+        return None
+    if result.returncode != 0:
+        logger.debug("Get-ScheduledTask action returned %s", result.returncode)
+        return None
+    command = _decode_windows_output(result.stdout or b"").strip()
+    return command or None
+
+
 def _status_windows() -> dict:
     _rc, stdout, _stderr = _run_schtasks(
         ["schtasks", "/Query", "/TN", SERVICE_NAME, "/FO", "LIST"]
@@ -494,6 +543,15 @@ def _status_windows() -> dict:
                 "task carries Task Scheduler defaults that stop the watcher on "
                 f"battery or after 72 hours ({', '.join(old)}); re-run "
                 "`jcodemunch-mcp watch-install` to replace it"
+            )
+    command = _scheduled_task_command()
+    if command is not None:
+        out["command"] = command
+        if _windowless(command.strip().strip('"')) is not None:
+            warnings.append(
+                "task starts the console interpreter (python.exe), which opens "
+                "a console window at every sign-in; re-run "
+                "`jcodemunch-mcp watch-install` to register pythonw.exe instead"
             )
     if warnings:
         out["warnings"] = warnings

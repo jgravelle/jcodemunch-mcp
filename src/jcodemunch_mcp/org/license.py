@@ -41,7 +41,7 @@ logger = logging.getLogger(__name__)
 
 VALIDATE_URL = "https://j.gravelle.us/jCodeMunch/validate.php"
 PRODUCT = "jcodemunch"
-GET_LICENSE_URL = "https://j.gravelle.us/jCodeMunch/#pricing"
+GET_LICENSE_URL = "https://jcodemunch.com/?utm_source=cli&utm_medium=license&utm_campaign=get-license#pricing"
 
 RECHECK_SECONDS = 7 * 24 * 60 * 60   # re-confirm a still-valid key at most this often
 GRACE_SECONDS = 14 * 24 * 60 * 60    # evaluation window for a never-licensed org
@@ -257,8 +257,9 @@ def format_license_status(gate: dict, *, key_provided: bool = False) -> list[str
     # valid, unverified (server unreachable) or rejected may belong to a paying
     # customer, so it gets no sales link: the same "any key, no sales line" rule
     # as `licence_key_configured`, erring toward not selling.
-    if gate.get("get_license") and status == "absent":
-        lines.append(f"  Get a license: {gate['get_license']}")
+    link = sales_link(gate) if status == "absent" else None
+    if link:
+        lines.append(f"  Get a license: {link}")
 
     lines.append("  Core indexing and search are free and need no license.")
     if status == "unverified_offline":
@@ -266,6 +267,20 @@ def format_license_status(gate: dict, *, key_provided: bool = False) -> list[str
     if key_provided:
         lines.append("  (set JCODEMUNCH_LICENSE_KEY or config `license_key` to persist this key)")
     return lines
+
+
+def sales_link(gate: dict) -> Optional[str]:
+    """The pricing URL to show for a ``check_gate()`` result, or None.
+
+    THE rule for every rendering (``license``, ``license --json``,
+    ``org-rollup``): only an install with no key at all is shown where to buy.
+    A key that is valid, unverified (server unreachable) or rejected may belong
+    to a paying customer, and paid clients are never marketed to (jjg,
+    DECISIONS 2026-10-20).
+    """
+    if (gate.get("key_status") or "absent") != "absent":
+        return None
+    return gate.get("get_license") or None
 
 
 def license_status_json(gate: dict) -> dict:
@@ -277,8 +292,7 @@ def license_status_json(gate: dict) -> dict:
     (jjg, DECISIONS 2026-10-20). Every other field is passed through unchanged.
     """
     out = dict(gate)
-    if (gate.get("key_status") or "absent") != "absent":
-        out["get_license"] = None
+    out["get_license"] = sales_link(gate)
     return out
 
 

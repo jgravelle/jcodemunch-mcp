@@ -1,7 +1,7 @@
 """Full-text search across indexed file contents."""
 
-import fnmatch as _fnmatch
 import itertools
+import logging
 import re
 import time
 from ._enclosing import attach_enclosing_symbols
@@ -9,6 +9,8 @@ from typing import Optional
 
 from ..storage import IndexStore, record_savings, cost_avoided
 from ._utils import index_status_to_tool_error, resolve_repo
+
+logger = logging.getLogger(__name__)
 
 # Detect nested quantifiers that cause catastrophic backtracking in Python's re engine.
 # Matches patterns like (a+)+, (a*)+, (a+)*, (?:a+){2,}, etc.
@@ -65,6 +67,16 @@ MAX_BRACE_ALTERNATIVES = 32
 # and whether the list was cut ride beside it.
 MORE_FILES_CAP = 20
 
+# When a page's matches sit inside a few small symbols, the body carries each
+# symbol's source once (`sources`), so the agent can edit from the answer
+# instead of opening the file. Bounded three ways; `sources_total`,
+# `sources_omitted` and `sources_omitted_reason` say what was left out.
+# Seeded values, not calibrated: a short fix's code usually sits in one or two
+# functions of a few dozen lines.
+SOURCE_MAX_SYMBOLS = 3
+SOURCE_MAX_LINES = 60
+SOURCE_MAX_BYTES = 8000
+
 
 def _file_patterns(file_pattern: str) -> list[str]:
     """The pattern as written, then its brace expansions (bounded, no nesting)."""
@@ -115,7 +127,7 @@ def _count_matching_lines(lines, pattern, query_lower, deadline) -> tuple[int, b
     return n, True
 
 
-def _count_matches(store, content_dir, files, pattern, query_lower, deadline):
+def _count_matches(store, content_dir, files, pattern, query_lower, deadline, text_filter=None):
     """Matching-line counts per file; (counts, complete, unreadable)."""
     counts: dict[str, int] = {}
     unreadable = 0
@@ -128,6 +140,8 @@ def _count_matches(store, content_dir, files, pattern, query_lower, deadline):
     for file_path in files:
         if deadline is not None and time.perf_counter() > deadline:
             return counts, False, unreadable
+        if text_filter is not None and text_filter.rules_out(file_path)[0]:
+            continue
         full_path = store._safe_content_path(content_dir, file_path)
         if not full_path:
             unreadable += 1
@@ -157,6 +171,108 @@ def _count_matches(store, content_dir, files, pattern, query_lower, deadline):
     return counts, True, unreadable
 
 
+def _read_stored_lines(store, content_dir, file_path: str) -> list[str]:
+    """The index's stored copy of one file, as lines; [] if it cannot be read."""
+    full_path = store._safe_content_path(content_dir, file_path)
+    if not full_path:
+        return []
+    try:
+        with open(full_path, "r", encoding="utf-8", errors="replace") as f:
+            return f.readlines()
+    except OSError:
+        logger.debug("search_text: could not re-read %s for its source", file_path, exc_info=True)
+        return []
+
+
+def _symbols_of_matched_files(store, owner: str, name: str, index, results: list):
+    """The symbols the enclosing-symbol step needs: those of the matched files.
+
+    A warm cached index (or one already promoted) answers from memory. A
+    selective view reads just the matched files' symbol rows in a second
+    selective read, and uses them only if both reads report the same
+    ``indexed_at`` and the same database mtime.
+
+    ⚠ The ``indexed_at`` half is what catches a write between the two reads:
+    ``open_selective`` samples the mtime before its transaction starts, and
+    every writer that moves symbol spans (full and incremental save) re-stamps
+    ``indexed_at``. The summaries writer does not, and is harmless here only
+    because enclosing names read ``file``/``kind``/``line``/``end_line``/``id``
+    and no summary. A new span writer must stamp ``indexed_at`` or this check
+    can pass across it.
+
+    Anything else falls back to ``index.symbols``, which loads the current
+    index: the scan then ran on the first read's file list and the names come
+    from the newer index. The verdict already reports the index as changed
+    since load in that case.
+    """
+    from ..storage.selective import SelectiveIndexView
+
+    if not isinstance(index, SelectiveIndexView) or index.promoted:
+        return index.symbols
+    files = list(dict.fromkeys(group["file"] for group in results))
+    if not files:
+        return []
+    narrow = store.open_selective(owner, name, files=files)
+    if (
+        isinstance(narrow, SelectiveIndexView)
+        and index.generation is not None
+        and narrow.generation == index.generation
+        and narrow._loaded_mtime_ns == index._loaded_mtime_ns
+    ):
+        return narrow.selected_symbols()
+    return index.symbols
+
+
+def _attach_sources(body: dict, results: list, read_lines) -> None:
+    """Add the source of the symbols a page's matches sit in, when they are few and small.
+
+    The lines are read from the index's stored copy of each file, the same text
+    the spans were taken from, and only for the at most SOURCE_MAX_SYMBOLS
+    symbols that qualify: the scan keeps no file's lines alive.
+    """
+    order: dict[str, tuple] = {}
+    for group in results:
+        for match in group["matches"]:
+            enclosing = match.get("in")
+            if enclosing and enclosing.get("id") not in order:
+                order[enclosing["id"]] = (group["file"], enclosing["line"], enclosing["end_line"])
+    # A page spread over many symbols is a survey, not a fix; it gets no source
+    # and no keys, so the common broad search pays nothing for this.
+    if not order or len(order) > SOURCE_MAX_SYMBOLS:
+        return
+    sources: list[dict] = []
+    reasons: list[str] = []
+    used = 0
+    for sym_id, (file_path, start, end) in order.items():
+        if end - start + 1 > SOURCE_MAX_LINES:
+            reason = "too_long"
+        else:
+            lines = read_lines(file_path)
+            if len(lines) < end:
+                # The stored copy could not be read, or is shorter than the
+                # span (rewritten since the scan): a partial or empty body
+                # would read as the symbol's whole source, so it is left out.
+                reason = "unreadable"
+                if reason not in reasons:
+                    reasons.append(reason)
+                continue
+            source = "\n".join(v.rstrip("\r\n") for v in lines[start - 1:end])
+            size = len(source.encode("utf-8"))
+            if used + size <= SOURCE_MAX_BYTES:
+                used += size
+                sources.append({"id": sym_id, "source": source})
+                continue
+            reason = "byte_cap"
+        if reason not in reasons:
+            reasons.append(reason)
+    if sources:
+        body["sources"] = sources
+    body["sources_total"] = len(order)
+    body["sources_omitted"] = len(order) - len(sources)
+    if reasons:
+        body["sources_omitted_reason"] = ",".join(reasons)
+
+
 def search_text(
     repo: str,
     query: str,
@@ -165,8 +281,16 @@ def search_text(
     context_lines: int = 0,
     is_regex: bool = False,
     storage_path: Optional[str] = None,
+    *,
+    selective_load: bool = False,
 ) -> dict:
     """Search for text across all indexed files in a repository.
+
+    ``selective_load`` is for a caller that runs once in a fresh process, such
+    as the Grep redirect hook: it reads the file metadata and only the matched
+    files' symbols instead of the whole index, and caches nothing. A server
+    leaves it off, so its first search loads and caches the full index and the
+    next ones answer from memory. Not an MCP argument.
 
     Useful when symbol search misses — e.g., searching for string literals,
     comments, configuration values, or patterns not captured as symbols.
@@ -207,7 +331,15 @@ def search_text(
         return {"error": str(e)}
 
     store = IndexStore(base_path=storage_path)
-    index = store.load_index(owner, name)
+    # The scan needs the file list and metadata; only the enclosing-symbol
+    # step needs symbols, and only those of the matched files. A one-shot
+    # caller opens the selective view (files table, no symbol rows; a warm
+    # cached index comes back as is). A server loads and caches the full
+    # index, so later calls are memory reads. None from open_selective means
+    # "take the ordinary path", never an absence.
+    index = (
+        store.open_selective(owner, name) if selective_load else None
+    ) or store.load_index(owner, name)
 
     if not index:
         return index_status_to_tool_error(store.inspect_index(owner, name))
@@ -216,9 +348,8 @@ def search_text(
     files = index.source_files
     scope_patterns = _file_patterns(file_pattern) if file_pattern else []
     if file_pattern:
-        pat_re = re.compile("|".join(
-            _fnmatch.translate(p) + "|" + _fnmatch.translate(f"*/{p}") for p in scope_patterns
-        ))
+        from .. import path_glob
+        pat_re = path_glob.compile_patterns(scope_patterns)
         files = [f for f in files if pat_re.match(f)]
 
     # #377 item 6: identity before the scan, compared after it. search_text
@@ -228,6 +359,9 @@ def search_text(
     _state_before = _subject.capture(index)
 
     content_dir = store._content_dir(owner, name)
+    from ..storage.text_filter import Filter as _TextFilter
+
+    text_filter = _TextFilter(content_dir, query_lower)
     results = []
     result_count = 0
     files_searched = 0
@@ -249,6 +383,12 @@ def search_text(
         # #377 hardening item 7: an eligible file the scan could not read is a
         # gap in the scan, not a file that contained no match. Counted so a
         # zero-result response cannot present a partial sweep as exhaustive.
+        # A file whose current trigram bitmap rules the query out holds no
+        # match, so it counts as searched without being opened.
+        ruled_out, stamp = text_filter.rules_out(file_path)
+        if ruled_out:
+            files_searched += 1
+            continue
         full_path = store._safe_content_path(content_dir, file_path)
         if not full_path:
             files_unreadable += 1
@@ -259,6 +399,7 @@ def search_text(
         except OSError:
             files_unreadable += 1
             continue
+        text_filter.note_read(file_path, stamp, "".join(lines))
 
         files_searched += 1
         file_matches = []
@@ -313,6 +454,8 @@ def search_text(
         if finished:
             later, complete, unreadable = _count_matches(
                 store, content_dir, files[cut_index + 1:], pattern, query_lower, _budget_deadline,
+                # Only a substring query has trigrams to test.
+                **({"text_filter": text_filter} if text_filter.grams else {}),
             )
             counts.update(later)
             complete = complete and unreadable == 0
@@ -324,7 +467,8 @@ def search_text(
             "more_files_complete": complete,
         }
 
-    attach_enclosing_symbols(results, index.symbols)
+    text_filter.flush()
+    attach_enclosing_symbols(results, _symbols_of_matched_files(store, owner, name, index, results))
 
     elapsed = (time.perf_counter() - start) * 1000
 
@@ -416,6 +560,7 @@ def search_text(
     }
     if more_files is not None:
         body.update(more_files)
+    _attach_sources(body, results, lambda f: _read_stored_lines(store, content_dir, f))
     if files_eligible == 0 and file_pattern:
         # An empty result over a scope that matched no file is not an absence.
         note = f"file_pattern {file_pattern!r} matched no indexed file, so nothing was searched."

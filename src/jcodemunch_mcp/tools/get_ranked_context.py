@@ -2,7 +2,7 @@
 
 import threading
 import time
-from fnmatch import fnmatch
+from ..path_glob import matches as _glob_match
 from typing import Optional
 
 from ..storage import IndexStore, record_savings, estimate_savings, cost_avoided as _cost_avoided
@@ -198,7 +198,7 @@ def _exact_seed_symbols(
         cands = [
             s for s in cands
             if (not include_kinds or s.get("kind") in include_kinds)
-            and (not scope or fnmatch(s.get("file", ""), scope))
+            and (not scope or _glob_match(s.get("file", ""), scope))
         ]
         if tok.get("parent"):
             want = f"{tok['parent']}.{tok['name']}".lower()
@@ -365,7 +365,7 @@ def get_ranked_context(
     for sym in candidates:
         if include_kinds and sym.get("kind") not in include_kinds:
             continue
-        if scope and not fnmatch(sym.get("file", ""), scope):
+        if scope and not _glob_match(sym.get("file", ""), scope):
             continue
 
         raw_bm25 = _bm25_score(sym, query_terms, idf, avgdl, raw_query=query)
@@ -679,7 +679,7 @@ def _get_ranked_context_fusion(
         candidates = [
             sym for sym in candidates
             if (not include_kinds or sym.get("kind") in include_kinds)
-            and (not scope or fnmatch(sym.get("file", ""), scope))
+            and (not scope or _glob_match(sym.get("file", ""), scope))
         ]
 
     if not candidates:

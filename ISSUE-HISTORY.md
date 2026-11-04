@@ -2958,3 +2958,131 @@ The 1.108.396 entry, verbatim as it stood in `CLAUDE.md`:
 The `Tests:` line's 1.108.396 count, verbatim:
 
 - ⚠ Prior (1.108.396): 18625 passed, 24 skipped, **0 failed** (18649 total).
+
+## Current State rotation (2026-10-27, release 1.108.400)
+
+The 1.108.397 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.397):** **a cut search names the files it left off, and file_pattern takes braces** (#1226): `tools/search_text._file_patterns` expands brace groups (as-written pattern always kept; nesting, an unclosed brace or > `MAX_BRACE_ALTERNATIVES` (32) match as written); a truncated page adds `more_files` (cap `MORE_FILES_CAP` 20) + `more_files_total`/`_truncated`/`_complete`, counted by `_count_matches` with the page's own line test (bytes prefilter only on ASCII files); encoding `st4`. Full text: `CHANGELOG.md`.
+
+The `Tests:` line's 1.108.397 count, verbatim:
+
+- ⚠ Prior (1.108.397): 18648 passed, 24 skipped, **0 failed** (18672 total).
+
+## Current State rotation (2026-10-28, release 1.108.401)
+
+The 1.108.398 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.398):** **the semantic and all extras install a fixed filelock on every Python** (#1229, #1228): the extras carry `filelock==3.20.3; python_version < '3.11'` and `filelock>=4.2.1; python_version >= '3.11'` (4.2.1+ needs 3.11, 3.20.3 is the only clean release 3.10 installs, so a floor alone admits 4.1.0 there); `[tool.uv] constraint-dependencies` keeps only setuptools; `tests/test_filelock_extra_floor.py` applies markers per Python and the 3.10 install cap. Full text: `CHANGELOG.md`.
+
+The `Tests:` line's 1.108.398 count, verbatim:
+
+- ⚠ Prior (1.108.398): 18674 passed, 24 skipped, **0 failed** (18698 total).
+
+## Current State rotation (2026-10-28, release 1.108.402)
+
+The 1.108.399 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.399):** **four core tool descriptions open with the question each tool answers** (#1233, #1234): search_symbols/get_symbol_source/get_call_hierarchy/check_references, pinned by `tests/test_question_queries_find_core_tools.py`; the counter `instructions` add a named-code line whose route() phrasings `tests/test_instructions_named_code.py` checks against `classify_intent`. No effect on use is claimed. Full text: `CHANGELOG.md`.
+
+The `Tests:` line's 1.108.399 count, verbatim:
+
+- ⚠ Prior (1.108.399): 18696 passed, 24 skipped, **0 failed** (18720 total).
+
+## Current State rotation (2026-10-30, release 1.108.403)
+
+The 1.108.400 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.400):** **a text search returns the code it found, and a retired tool name says what replaced it** (#1237, #1236): `search_text` attaches `sources` when matches sit in at most `SOURCE_MAX_SYMBOLS` symbols within `SOURCE_MAX_LINES`/`SOURCE_MAX_BYTES`, disclosing `sources_omitted_reason`; encoding `st5`. `counter.RETIRED_TOOL_NAMES` maps `get_symbol`/`get_symbols` to `get_symbol_source` for the unknown-tool error and `order`. Full text: `CHANGELOG.md`.
+
+The `Tests:` line's 1.108.400 count, verbatim:
+
+- ⚠ Prior (1.108.400): 18715 passed, 24 skipped, **0 failed** (18739 total).
+
+## Current State rotation (2026-11-01, release 1.108.404)
+
+The 1.108.401 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.401):** **a redirected Grep can carry the index's answer, and a substring search opens only the files that can match** (#1240): `cli/hooks/grep_answer.answer_enabled` is an allowlist (`1`/`true`/`yes`/`on`) on `JCODEMUNCH_HOOK_GREP_ANSWER`, default OFF; once per session and Grep arguments, never over a stale index or a cut page. `storage/text_filter.py` keeps a trigram bitmap per cached file in `<repo>.textfilter`, a sidecar so a repaired row never moves the `.db` mtime that keys the index cache; a bitmap may say maybe, never no. Full text: `CHANGELOG.md`.
+
+The `Tests:` line's 1.108.401 count, verbatim:
+
+- ⚠ Prior (1.108.401): 18773 passed, 24 skipped, **0 failed** (18797 total).
+
+## Current State rotation (2026-11-01, release 1.108.405)
+
+The 1.108.402 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.402):** **the server instructions name the tools in the first 512 characters, and tool names hold across 1.x** (#1248, #1247, #1246): ToolSearch follows the tool bullets; `tests/fixtures/tool_names_1x.json` freezes the names, and a rename keeps an alias for `counter.ALIAS_MIN_DAYS`; a modified folder no longer re-walks a watched repo (L-256); `license_notice` shows the license terms once. Full text: `CHANGELOG.md`.
+
+The `Tests:` line's 1.108.402 count, verbatim:
+
+- ⚠ Prior (1.108.402): 18839 passed, 24 skipped, **0 failed** (18863 total).
+
+## Current State rotation (2026-11-01, release 1.108.406)
+
+The 1.108.403 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.403):** **a file pattern means the same thing in every tool, and the rate_limit config key turns the limit on** (#1255, #1254, #1252, #1251): `path_glob.py` is the one file_pattern rule for search_text, the index store and the scope checks; `rate_limit` reads through the config loader, so the limit `jcodemunch-mcp config` shows is the one enforced; Codex's Windows entry is the bare command name when PATH finds the same install. Full text: `CHANGELOG.md`.
+
+The `Tests:` line's 1.108.403 count, verbatim:
+
+- ⚠ Prior (1.108.403): 18949 passed, 24 skipped, **0 failed** (18973 total).
+
+## Current State rotation (2026-11-02, release 1.108.407)
+
+The 1.108.404 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.404):** **a failed summarizer keeps the summaries it had, and tool descriptions open with the agent's question** (#1290, #1256, #1257): `summarize_repo(force=true)` keeps the stored summary of each symbol the provider failed on, and reports `provider_fallbacks`/`previous_summaries_kept` (L-274: an unbuildable client still resets); 17 descriptions open with the agent's question. The colon base-list fix shipped as .405 (the 2-hour release gate blocked it). Full text: `CHANGELOG.md`.
+
+The `Tests:` line's 1.108.404 count, verbatim:
+
+- ⚠ Prior (1.108.404): 19007 passed, 24 skipped, **0 failed** (19031 total).
+
+## Current State rotation (2026-11-02, release 1.108.408)
+
+The 1.108.405 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.405):** **`get_class_hierarchy` and `find_implementations` read a base list written after a colon** (#1287, fixes #1284): the colon list is read for C#, Kotlin, Swift, C++ and Rust, plus Ruby `<` and Scala/Dart `with`; an enum's underlying type is never a base; signatures already stored are read, so no re-index. Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-02, release 1.108.409)
+
+The 1.108.406 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.406):** **watch-all leaves temp and idle indexes unwatched, and agents sharing an index stop reloading it** (bundle of 27 PRs, #1258-#1292): watch-all skips temp and idle indexes and `watch` exits when it cannot watch; a reader no longer invalidates other processes' cache; `init --git-hook` re-indexes a branch switch; a key holder never sees a sales link. Full text: `CHANGELOG.md`.
+
+The `Tests:` line's 1.108.406 count, verbatim:
+
+- ⚠ Prior (1.108.406): 19550 passed, 24 skipped, **0 failed** (19574 total).
+
+## Current State rotation (2026-11-02, release 1.108.410)
+
+The 1.108.407 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.407):** **a stdio server exits when the process that started it is gone, and storage reports how much disk the index uses** (#1297-#1301): `serve` on stdio watches its parent (PID plus start time, past Windows launchers) and exits when it is gone, `JCODEMUNCH_PARENT_WATCH_SECONDS` sets the interval and 0 turns it off; `jcodemunch-mcp storage` reports the store by index without opening a database; a query that names a tool ranks that tool first. Full text: `CHANGELOG.md`.
+
+The `Tests:` line's 1.108.407 count, verbatim:
+
+- ⚠ Prior (1.108.407): 19613 passed, 24 skipped, **0 failed** (19637 total).
+
+## Current State rotation (2026-11-03, release 1.108.411)
+
+The 1.108.408 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.408):** **a rare work-license reminder, never shown to a license holder** (#1303): a machine is told work use needs a license 7 days after its first index is seen, then at most every 30 days, on stderr after a human-read command or in `license_notice`; never with a key, on CI, after `config set license_reminder false` or with `JCODEMUNCH_LICENSE_REMINDER=0`; the console script enters through `server.cli`. Full text: `CHANGELOG.md`.
+
+The `Tests:` line's 1.108.408 count, verbatim:
+
+- ⚠ Prior (1.108.408): 19660 passed, 24 skipped, **0 failed** (19684 total).
+
+## Current State rotation (2026-11-03, release 1.108.412)
+
+The 1.108.409 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.409):** **a search for a name nothing carries says so on a default install** (#1308, #1306): an identifier-shaped `search_symbols` query with no exact and no prefix match anywhere in the index carries `negative_evidence: no_exact_match` and a warning in the body, which `meta_fields: []` keeps; rows and ranking are unchanged and the verdict state is `low_confidence`, never `absent`. The work-license reminder's buy link names where it was shown. Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-03, release 1.108.413)
+
+The 1.108.410 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.410):** **a savings meter that stops measuring says so, and Rails views are indexed** (#1309, #1307, #1311): the savings meter records `last_flush_at` and `measured_days` on every write that carries a call, so a 0 is a measurement and a missing day is not, and `receipt`, `diagnose` and `get_session_stats` carry `lifetime_status` (`current`/`stale`/`unknown`); its write can no longer wipe or lose counts; `.erb` is a language; `tuning.jsonc` and the embedding-drift canary follow `CODE_INDEX_PATH` through the store's own root rule. Full text: `CHANGELOG.md`.

@@ -66,10 +66,16 @@ def test_two_brace_groups_expand_together(dirs):
     assert _files(res) == {"pkg/a/mod.py", "pkg/c/mod.py"}, res
 
 
-def test_a_brace_pattern_also_matches_at_depth_like_any_pattern(dirs):
+def test_a_brace_pattern_with_a_slash_is_anchored_like_any_pattern(dirs):
+    """A pattern with `/` names a place from the repo root (`path_glob`), and
+    a brace expansion follows the same rule: `pkg/{a,c}/mod.py` matches, and
+    `{a,c}/mod.py` does not reach into `pkg/`. It used to, because each
+    expansion was also tried as `*/` + pattern (test_file_pattern_anchoring)."""
     rid, store = dirs
-    res = search_text(rid, "needle", file_pattern="{a,c}/mod.py", storage_path=store)
+    res = search_text(rid, "needle", file_pattern="pkg/{a,c}/mod.py", storage_path=store)
     assert _files(res) == {"pkg/a/mod.py", "pkg/c/mod.py"}, res
+    res = search_text(rid, "needle", file_pattern="{a,c}/mod.py", storage_path=store)
+    assert res["result_count"] == 0, res
 
 
 def test_nested_braces_are_matched_as_written(dirs):
@@ -292,4 +298,5 @@ def test_the_compact_encoding_keeps_the_list(tmp_path):
     assert decoded["more_files_total"] == res["more_files_total"]
     assert decoded["more_files_truncated"] is res["more_files_truncated"]
     assert decoded["more_files_complete"] is res["more_files_complete"]
-    assert st_schema.ENCODING_ID == "st4" and "st3" in st_schema.LEGACY_ENCODING_IDS
+    # st4 added the more_files table; a later id keeps st4 and st3 decodable.
+    assert st_schema.ENCODING_ID != "st3" and {"st3", "st4"} <= set(st_schema.LEGACY_ENCODING_IDS) | {st_schema.ENCODING_ID}

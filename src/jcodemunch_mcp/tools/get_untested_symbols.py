@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-import fnmatch
 import logging
 import time
 from typing import Optional
 
+from .. import path_glob
 from ..storage import IndexStore
 from ..parser.imports import resolve_specifier
 from ._utils import index_status_to_tool_error, resolve_repo
@@ -157,9 +157,7 @@ def get_untested_symbols(
 
         # Apply optional file_pattern filter
         if file_pattern:
-            fp_fwd = sym_file.replace("\\", "/")
-            if not (fnmatch.fnmatch(fp_fwd, file_pattern)
-                    or fnmatch.fnmatch(fp_fwd.rsplit("/", 1)[-1], file_pattern)):
+            if not path_glob.matches(sym_file, file_pattern):
                 continue
 
         total_non_test += 1

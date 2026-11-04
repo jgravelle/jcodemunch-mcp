@@ -260,6 +260,42 @@ class FileWords:
         return found[0] < start or found[-1] >= end
 
 
+# Symbol kinds whose body holds declarations only, never a call, per language.
+# A Go `type X interface { DeleteItem(id string) error }` names a method it
+# declares; with its methods unindexed, the text pass read that as a call
+# once same-package peers made the interface's file a candidate (L-262).
+_NO_CODE_KINDS: dict[str, frozenset[str]] = {
+    "go": frozenset({"type", "interface", "struct"}),
+}
+
+
+def _same_named_declarations_removed(
+    file_lines: list[str], sym: dict, decl_lines: Optional[set], name: str
+) -> str:
+    """*sym*'s body with the first mention of *name* removed on every line
+    where a symbol called *name* is declared (L-262 review).
+
+    A declaration names itself: `func (g *Group) Use()` beside the target
+    `Engine.Use`, or an interface whose body declares `DeleteItem`, is not a
+    call. Only another mention can be one, so a wrapper whose body calls the
+    target is still found.
+    """
+    line = sym.get("line", 0)
+    if not line:
+        return ""
+    end_line = sym.get("end_line", line)
+    if not decl_lines:
+        return _symbol_body(file_lines, sym)
+    out: list[str] = []
+    pattern = re.compile(word_pattern(name))
+    for n in range(max(1, line), min(len(file_lines), end_line) + 1):
+        text = file_lines[n - 1]
+        if n in decl_lines:
+            text = pattern.sub(" ", text, count=1)
+        out.append(text)
+    return "\n".join(out)
+
+
 def _symbol_body(file_lines: list[str], sym: dict) -> str:
     """Slice *file_lines* to the lines covered by *sym* (1-indexed)."""
     line = sym.get("line", 0)
@@ -293,20 +329,31 @@ class _ContentCache:
     argument so direct callers of the finders keep their original behavior.
     """
 
-    __slots__ = ("_store", "_owner", "_repo", "_content", "_lines")
+    __slots__ = ("_store", "_owner", "_repo", "_index", "_content", "_lines")
 
-    def __init__(self, store: "IndexStore", owner: str, repo_name: str):
+    def __init__(
+        self, store: "IndexStore", owner: str, repo_name: str,
+        index: Optional["CodeIndex"] = None,
+    ):
         self._store = store
         self._owner = owner
         self._repo = repo_name
+        # With the index, a read checks the file against it instead of opening
+        # a SQLite connection per file (L-262 review round 4 measured that as most of the call).
+        self._index = index
         self._content: dict[str, Optional[str]] = {}
         self._lines: dict[str, list[str]] = {}
 
     def content(self, file_path: str) -> Optional[str]:
         if file_path not in self._content:
-            self._content[file_path] = self._store.get_file_content(
-                self._owner, self._repo, file_path
-            )
+            if self._index is None:
+                self._content[file_path] = self._store.get_file_content(
+                    self._owner, self._repo, file_path
+                )
+            else:
+                self._content[file_path] = self._store.get_file_content(
+                    self._owner, self._repo, file_path, _index=self._index
+                )
         return self._content[file_path]
 
     def lines(self, file_path: str) -> list[str]:
@@ -456,7 +503,7 @@ def constructors_as_their_classes(symbols, importers: dict[str, list[str]]) -> l
             continue
         classes_by_id[sym["id"]] = sym
         extends = (sym.get("signature") or "").split(" implements ", 1)[0]
-        for base in _parse_bases(extends):
+        for base in _parse_bases(extends, sym.get("language")):
             children.setdefault((base, sym.get("file") or ""), []).append(sym)
     if not classes_by_id:
         return []
@@ -854,6 +901,12 @@ def find_direct_callers(
 
     callers: list[dict] = []
     seen_ids: set[str] = set(ast_caller_ids) | lsp_ids
+    # Lines where a symbol of the same name is DECLARED, per file (L-262).
+    decl_lines: dict[str, set[int]] = {}
+    for f in reverse_adj.get(sym_file, []):
+        lines = {s.get("line") for s in symbols_by_file.get(f, []) if s.get("name") == sym_name}
+        if lines:
+            decl_lines[f] = lines
 
     for imp_file in reverse_adj.get(sym_file, []):
         if content_cache is not None:
@@ -875,7 +928,11 @@ def find_direct_callers(
             cid = candidate.get("id", "")
             if not cid or cid in seen_ids or not candidate.get("line"):
                 continue
-            body = _symbol_body(file_lines, candidate)
+            if candidate.get("kind") in _NO_CODE_KINDS.get(candidate.get("language", ""), ()):
+                continue
+            body = _same_named_declarations_removed(
+                file_lines, candidate, decl_lines.get(imp_file), sym_name
+            )
             if body and _word_match(body, sym_name):
                 seen_ids.add(cid)
                 callers.append({
@@ -993,6 +1050,47 @@ def find_direct_callees(
 # BFS traversals
 # ---------------------------------------------------------------------------
 
+def label_row_depths(rows: list[dict]) -> dict[str, int]:
+    """Re-derive each row's depth, order *rows* by it in place, and count each depth.
+
+    THE one depth rule for a caller or callee list: `get_call_hierarchy` and
+    `get_blast_radius` both call it (L-240), so a direct count can never mean
+    two things. A row's depth is one more than the row it is reached through
+    (``via``), so a row promoted to depth 1 shortens every chain through it; a
+    row with no usable depth counts under ``"unknown"``, sorts last and is never
+    direct. The sort is stable, so the walk's order holds within a depth.
+    Returns ``{"1": n, "2": n, ...}``; the direct count is ``counts.get("1", 0)``.
+    """
+    by_id = {r.get("id"): r for r in rows}
+    resolved: dict[Optional[str], Optional[int]] = {}
+
+    def depth_of(r: dict, seen: frozenset = frozenset()) -> Optional[int]:
+        rid = r.get("id")
+        if rid in resolved:
+            return resolved[rid]
+        parent = by_id.get(r.get("via"))
+        if parent is not None and rid not in seen:
+            pd = depth_of(parent, seen | {rid})
+            d = pd + 1 if pd is not None else None
+        else:
+            raw = r.get("depth")
+            d = raw if isinstance(raw, int) and not isinstance(raw, bool) and raw >= 1 else None
+        resolved[rid] = d
+        return d
+
+    for r in rows:
+        d = depth_of(r)
+        if d is not None:
+            r["depth"] = d
+    rows.sort(key=lambda r: resolved.get(r.get("id")) or 10**9)
+    counts: dict[str, int] = {}
+    for r in rows:
+        d = resolved.get(r.get("id"))
+        label = str(d) if d is not None else "unknown"
+        counts[label] = counts.get(label, 0) + 1
+    return counts
+
+
 def bfs_callers(
     index: "CodeIndex",
     store: "IndexStore",
@@ -1002,6 +1100,7 @@ def bfs_callers(
     reverse_adj: dict[str, list[str]],
     symbols_by_file: dict[str, list[dict]],
     max_depth: int,
+    content_cache: Optional[_ContentCache] = None,
 ) -> tuple[list[dict], int]:
     """BFS over callers up to *max_depth* hops.
 
@@ -1015,7 +1114,8 @@ def bfs_callers(
     results: list[dict] = []
     depth_reached = 0
     symbol_index: dict[str, dict] = getattr(index, "_symbol_index", {})
-    content_cache = _ContentCache(store, owner, repo_name)
+    if content_cache is None:
+        content_cache = _ContentCache(store, owner, repo_name)
 
     # Depth-1 callers
     for c in find_direct_callers(index, store, owner, repo_name, sym, reverse_adj, symbols_by_file, content_cache):

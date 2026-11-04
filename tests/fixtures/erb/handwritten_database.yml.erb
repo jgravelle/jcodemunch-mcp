@@ -1,0 +1,8 @@
+<%# Hand-written for jcodemunch's ERB tests: a YAML host with a tag at a value position. %>
+default: &default
+  adapter: postgresql
+  pool: <%= ENV.fetch("RAILS_MAX_THREADS") { 5 } %>
+
+development:
+  <<: *default
+  database: app_development

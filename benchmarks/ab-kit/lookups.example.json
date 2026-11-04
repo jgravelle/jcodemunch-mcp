@@ -1,0 +1,34 @@
+{
+ "lookups": [
+  {
+   "id": "route-dispatch",
+   "question": "Find the core function or method responsible for registering and dispatching route handlers.",
+   "symbols": [
+    {
+     "name": "handle",
+     "owner": "Router",
+     "file": "lib/router/index.js"
+    },
+    {
+     "name": "route",
+     "owner": "Router",
+     "file": "lib/router/index.js"
+    }
+   ],
+   "query": "router route handler"
+  },
+  {
+   "id": "error-handling",
+   "question": "Find error handling, exception types, or error propagation logic.",
+   "symbols": [
+    {
+     "name": "handle_error",
+     "owner": "Layer",
+     "file": "lib/router/layer.js",
+     "alt_files": []
+    }
+   ],
+   "query": "error exception"
+  }
+ ]
+}

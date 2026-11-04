@@ -107,6 +107,10 @@ NOT_LEDGERS: dict[tuple[str, str], str] = {
         "DOC_KEYS_SKIPPED",
     ): "config keys documented as prose, not a single literal",
     (
+        "test_no_assistant_leftovers.py",
+        "SKIPPED_HISTORY_FILES",
+    ): "history files quote old text verbatim; they are not published guidance",
+    (
         "test_grammar_spelled_forms.py",
         "_HELPER_LITERAL_EXCEPTIONS",
     ): "measured non-gaps: helper literals the parse function does not hold",
@@ -119,6 +123,10 @@ NOT_LEDGERS: dict[tuple[str, str], str] = {
         "_EXEMPT",
     ): "the file names the historical values in its own docstring",
     ("test_sdist_exclusions.py", "ALLOWED_ROOT_FILES"): "the sdist allowlist itself",
+    (
+        "test_file_pattern_anchoring.py",
+        "_ALLOWED",
+    ): "glob calls that are not path filters (model ids, AST names, secret names), each with its reason",
     (
         "test_subprocess_encoding_guard.py",
         "EXEMPT_TREES",

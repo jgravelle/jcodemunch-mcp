@@ -307,7 +307,10 @@ PRODUCERS: dict[str, Producer] = {
         ),
         freshness="FreshnessProbe.repo_freshness, four-state (v1.108.180)",
         coverage="index_coverage_meta; complete is tri-state and null never reads as true",
-        integrity="no byte attestation: nothing was served to hash",
+        integrity=(
+            "no byte attestation: an absence serves nothing to hash; the "
+            "matching lines and any `sources` a page carries are not hashed"
+        ),
     ),
 }
 

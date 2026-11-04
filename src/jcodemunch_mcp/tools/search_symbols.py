@@ -5,7 +5,7 @@ import json
 import logging
 import math
 import time
-from fnmatch import fnmatch
+from .. import path_glob as _path_glob
 from typing import Optional
 
 logger = logging.getLogger(__name__)
@@ -157,6 +157,71 @@ def _attach_index_truncation(meta: Optional[dict], index) -> None:
     block = _itm(getattr(index, "file_cap_status", None))
     if block:
         meta["index_truncated"] = block
+
+
+def _attach_no_exact_match(
+    result: dict,
+    query: str,
+    index,
+) -> None:
+    """Mark, in the BODY, an identifier query that no symbol is named.
+
+    ⚠⚠ `_meta.exact_match` already says this (v1.108.173), and `meta_fields: []`
+    is the shipped default, which strips `_meta`: a default install got ten
+    ranked rows and no marker. A reason placed in `_meta` is deleted on a default
+    install, so this one rides the channel the zero-row case already uses --
+    `negative_evidence` and the `⚠ warning` key, which every compact encoder
+    carries (`schema_driven.UNIVERSAL_BODY_JSON`).
+
+    Every exit that returns rows calls this: lexical, semantic and fusion. Rows
+    and their order are not touched.
+
+    ⚠ The warning claims the INDEX has no symbol of that name, so the page is
+    not enough: a filter (`kind=`, `file_pattern=`, ...) or a similarity ranking
+    can leave an exact or a prefix match off the page. The index is classified
+    with the SAME rule as the page (`exact_match_report`, one definition of
+    exact and prefix), so `exact`/`prefix` in the marker are index counts. The
+    page is checked first; the index walk runs only on this rare path.
+
+    ⚠ NOT an absence. Rows were returned, an `ok` verdict state is downgraded to
+    `low_confidence` (the lexical exit's v1.108.173 rule, which the semantic and
+    fusion exits never had, so they said `ok` beside "No symbol named X"), and
+    `session_journal._ABSENCE_VERDICTS` does not list `no_exact_match`, so
+    nothing downstream may cite it as proof.
+    """
+    rows = result.get("results") or []
+    if not rows:
+        return
+    from ..retrieval.query_shape import exact_match_report as _exact_match_report
+
+    page = _exact_match_report(query, rows)
+    if page is None or page["found"]:
+        return
+    report = _exact_match_report(query, index.symbols)
+    if report is None or report["found"] or report["exact"] or report["prefix"]:
+        return
+
+    queried = report["queried"]
+    verdict = (result.get("_meta") or {}).get("verdict")
+    if isinstance(verdict, dict) and verdict.get("state") == "ok":
+        verdict["state"] = "low_confidence"
+        verdict["note"] = page["note"]
+    marker = {
+        "verdict": "no_exact_match",
+        "queried": queried,
+        "exact": report["exact"],
+        "prefix": report["prefix"],
+    }
+    prior = result.get("negative_evidence")
+    if isinstance(prior, dict):
+        # A weak-score `low_confidence_matches` block already said "verify";
+        # this says why. Its scan counts and suggestions are kept.
+        marker.update({k: v for k, v in prior.items() if k not in marker})
+    result["negative_evidence"] = marker
+    result["⚠ warning"] = (
+        f"No symbol named '{queried[:80]}' is in this index; "
+        f"these results share words with it only."
+    )
 
 
 def _get_cache_max() -> int:
@@ -1012,7 +1077,7 @@ def search_symbols(
         if has_filters:
             if kind and sym.get("kind") != kind:
                 continue
-            if file_pattern and not fnmatch(sym.get("file", ""), file_pattern):
+            if file_pattern and not _path_glob.matches(sym.get("file", ""), file_pattern):
                 continue
             if language and sym.get("language") != language:
                 continue
@@ -1132,7 +1197,7 @@ def search_symbols(
             if has_filters:
                 if kind and sym.get("kind") != kind:
                     continue
-                if file_pattern and not fnmatch(sym.get("file", ""), file_pattern):
+                if file_pattern and not _path_glob.matches(sym.get("file", ""), file_pattern):
                     continue
                 if language and sym.get("language") != language:
                     continue
@@ -1360,6 +1425,7 @@ def search_symbols(
                 f"(best score: {negative_evidence['best_match_score']}). "
                 f"Verify before claiming this feature exists."
             )
+    _attach_no_exact_match(result, query, index)
 
     # Feature 5: Cache the result if cacheable
     if _cacheable and _cache_key is not None:
@@ -1604,7 +1670,7 @@ def _search_symbols_semantic(
         if has_filters:
             if kind and sym.get("kind") != kind:
                 continue
-            if file_pattern and not fnmatch(sym.get("file", ""), file_pattern):
+            if file_pattern and not _path_glob.matches(sym.get("file", ""), file_pattern):
                 continue
             if language and sym.get("language") != language:
                 continue
@@ -1928,6 +1994,8 @@ def _search_symbols_semantic(
                 f"(best score: {negative_evidence['best_match_score']}). "
                 f"Verify before claiming this feature exists."
             )
+    # A similarity ranking can leave the named symbol off the page: scan the index.
+    _attach_no_exact_match(result, query, index)
 
     _attach_index_truncation(result.get("_meta"), index)
     return result
@@ -1972,11 +2040,10 @@ def _search_symbols_fusion(
 
     # Apply filters to get candidate symbols
     if has_filters:
-        from fnmatch import fnmatch as _fnmatch
         candidates = [
             sym for sym in index.symbols
             if (not kind or sym.get("kind") == kind)
-            and (not file_pattern or _fnmatch(sym.get("file", ""), file_pattern))
+            and (not file_pattern or _path_glob.matches(sym.get("file", ""), file_pattern))
             and (not language or sym.get("language") == language)
             and (not decorator or any(decorator.lower() in d.lower() for d in (sym.get("decorators") or [])))
         ]
@@ -2356,6 +2423,8 @@ def _search_symbols_fusion(
                 f"(best score: {_vres['negative_evidence']['best_match_score']}). "
                 f"Verify before claiming this feature exists."
             )
+    # Before the cache put, so a replay carries the marker too.
+    _attach_no_exact_match(result, query, index)
 
     _attach_index_truncation(result.get("_meta"), index)
     # A failed channel is not cached: the key holds neither provider nor library

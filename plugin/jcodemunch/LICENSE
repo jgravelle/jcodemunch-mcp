@@ -1,0 +1,96 @@
+jCodeMunch-MCP — Dual-Use License
+Version 1.2 — effective 2026-10-21
+
+Copyright (c) 2024-2026 jMunch, LLC
+All rights reserved.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+NON-COMMERCIAL USE — FREE
+
+Permission is hereby granted, free of charge, to any individual or
+organization using this software solely for personal, academic,
+research, or other non-commercial purposes, to use, copy, and modify
+this software, subject to the conditions below.
+
+REDISTRIBUTION (limited)
+
+You may share verbatim copies of this software for non-commercial
+purposes only, and only if ALL of the following hold:
+
+  (a) You retain this license and every copyright, authorship, and
+      attribution notice, unaltered, in all copies or substantial
+      portions of the software.
+
+  (b) You do not rename, rebrand, or otherwise change the identity of
+      the software, and you do not distribute it under any name other
+      than its original name ("jCodeMunch-MCP").
+
+  (c) You do NOT publish or upload the software or any derivative or
+      portion of it — modified or unmodified — to any public package
+      registry, index, marketplace, or app store (including but not
+      limited to PyPI, npm, crates.io, Maven Central, NuGet, and any
+      similar service).
+
+Any redistribution outside the narrow allowance above — including
+publishing modified, renamed, repackaged, or derivative versions, or
+distribution to any public registry — requires the author's prior
+written permission.
+
+CONDITIONS (all uses)
+
+1. The above copyright notice and this permission notice shall be
+   included in all copies or substantial portions of the software.
+
+2. You may not remove, obscure, or alter any author, copyright, or
+   attribution notice. You may not list any person or entity other
+   than the original author as the author of this software, and you
+   may not represent the original author as the author, publisher,
+   maintainer, sponsor, or endorser of any modified, renamed, or
+   redistributed version. Any modifications made to the software must
+   clearly indicate that they are derived from the original work, and
+   the name of the original author (J. Gravelle) must remain intact.
+
+3. The software may not be used, directly or indirectly, in any
+   product, service, or workflow that generates revenue, is offered
+   commercially, or is used within a for-profit organization to
+   support revenue-generating activities.
+
+NO USE OF NAME OR MARKS
+
+This license grants no right to use the names "jCodeMunch",
+"jCodeMunch-MCP", "Munch", "jMunch", the author's name, or any related
+names or marks, except as strictly required to retain the notices
+above. You may not name any derivative or redistribution in a way that
+incorporates these names or marks or is confusingly similar to them.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+COMMERCIAL USE — PAID LICENSE REQUIRED
+
+Use of this software for any commercial purpose requires a paid
+license. Commercial purposes include, but are not limited to:
+
+- Use within a for-profit company or organization
+- Integration into a product or service offered for a fee
+- Internal tooling that supports revenue-generating operations
+- SaaS, consulting, or agency deployments
+
+Commercial licenses are available at:
+https://j.gravelle.us/jCodeMunch/descriptions.php
+
+  Builder   — $79    (1 developer)
+  Studio    — $349   (up to 5 developers)
+  Platform  — $1,999 (org-wide internal deployment)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+DISCLAIMER
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY
+CLAIM, DAMAGES, OR OTHER LIABILITY ARISING FROM, OUT OF, OR IN
+CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.

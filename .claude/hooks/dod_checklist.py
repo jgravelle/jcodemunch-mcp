@@ -1117,6 +1117,9 @@ def main() -> int:
         *(["--descriptions"] if has_desc else []),
         "--base-ref",
         base,
+        # The PR's surface report, a reviewer input; the script replaces the file.
+        "--summary",
+        str(EVIDENCE / "surface.md"),
     )
     desc_changed = "description changed:" in out
     if rc == 0 and "no surface change" in out and not desc_changed:

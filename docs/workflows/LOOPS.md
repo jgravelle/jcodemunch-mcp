@@ -79,7 +79,7 @@ GitHub release and MCP registry, restart the local server.
 
 1. Fix/feat commits merge, since Aug through our own PRs.
 2. One `release: vX — <thesis>` commit touching `pyproject.toml`,
-   `server.json` (x2), `.claude-plugin/plugin.json`, `uv.lock`,
+   `server.json` (x2), `plugin/jcodemunch/.claude-plugin/plugin.json`, `uv.lock`,
    `whatsnew.json`, `CHANGELOG.md`, `CLAUDE.md`, often `README.md` and
    `ISSUE-HISTORY.md`. Before 08-05 this was two or three commits
    (`9244b36` bump → `986f419` promote CHANGELOG → `5e61a17` record in

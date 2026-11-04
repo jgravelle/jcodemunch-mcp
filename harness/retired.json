@@ -190,6 +190,27 @@
       "replacement": "tests/test_non_code_and_data_ranking.py::test_search_symbols_ranks_functions_above_settings_and_fields",
       "commit": "421c6af5",
       "date": "2026-10-22"
+    },
+    {
+      "path": "tests/test_plugin_manifest_sync.py::test_plugin_description_matches_pyproject",
+      "lesson": "It required the plugin manifest's description to equal pyproject's. That held while the plugin was the package's own manifest at the repo root. In plugin/jcodemunch/ the description is the plugin directory's listing summary, written for a person choosing a plugin, and pyproject's is PyPI's package summary; they may differ by design. What still matters is that the listing is never empty, and that the manifest's version and uvx pin track pyproject, which test_plugin_version_matches_pyproject and test_mcp_config_launches_this_package keep asserting.",
+      "replacement": "tests/test_plugin_manifest_sync.py::test_plugin_description_is_set",
+      "commit": "#1244",
+      "date": "2026-10-28"
+    },
+    {
+      "path": "tests/test_search_text_braces_and_more_files.py::test_a_brace_pattern_also_matches_at_depth_like_any_pattern",
+      "lesson": "It required `{a,c}/mod.py` to match `pkg/a/mod.py`, i.e. a pattern containing `/` to match below the root. That was the defect, not a property: search_text tried every pattern again as `*/` + pattern, and fnmatch's `*` crosses `/`, so `homeassistant/**` also returned `tests/homeassistant/`. The rule now lives in path_glob: a pattern with `/` is anchored at the root, a bare one matches at any depth. What the old test was for, that a brace expansion obeys the same rule as any other pattern, is still asserted.",
+      "replacement": "tests/test_search_text_braces_and_more_files.py::test_a_brace_pattern_with_a_slash_is_anchored_like_any_pattern",
+      "commit": "fix/file-pattern-anchored",
+      "date": "2026-10-29"
+    },
+    {
+      "path": "tests/test_import_resolution_is_memoized.py::test_a_gleam_importer_is_resolved_every_time",
+      "lesson": "It counted `_gleam_source_roots` calls and required one per call, i.e. it asserted the tail memo's mechanism (a Gleam importer skips that memo because the tail step reads the importer's package root). #1317 memoizes the whole answer keyed by importer and specifier, so a repeat with the same importer is correctly answered from memory and the count is 1. What the test protected, that a Gleam answer is never served to an importer in another package, is asserted directly, with the tail memo still holding no Gleam entry.",
+      "replacement": "tests/test_import_resolution_is_memoized.py::test_a_gleam_answer_is_never_shared_between_importers",
+      "commit": "perf/1317-resolution-memo",
+      "date": "2026-11-03"
     }
   ]
 }

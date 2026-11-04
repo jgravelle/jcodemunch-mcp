@@ -88,6 +88,8 @@ ENV_VAR_MAPPING = {
     "JCODEMUNCH_WATCH_IDLE_TIMEOUT": "watch_idle_timeout",
     "JCODEMUNCH_WATCH_LOG": "watch_log",
     "JCODEMUNCH_WATCH_PATHS": "watch_paths",
+    "JCODEMUNCH_WATCH_ALL_SKIP_TEMP": "watch_all_skip_temp",
+    "JCODEMUNCH_WATCH_ALL_MAX_IDLE_DAYS": "watch_all_max_idle_days",
     "JCODEMUNCH_FRESHNESS_MODE": "freshness_mode",
     "JCODEMUNCH_REFRESH_ON_READ": "refresh_on_read",
     "JCODEMUNCH_SUMMARIZER_PROVIDER": "summarizer_provider",
@@ -495,6 +497,8 @@ DEFAULTS = {
     "watch_idle_timeout": None,
     "watch_log": None,
     "watch_paths": [],
+    "watch_all_skip_temp": True,
+    "watch_all_max_idle_days": 14,
     "freshness_mode": "relaxed",
     "strict_timeout_ms": 500,
     # On by default (owner ruling, 2026-10-27): a read may re-index changed
@@ -520,6 +524,7 @@ DEFAULTS = {
     "runtime_ingest_enabled": False,
     "org_ingest_enabled": False,
     "license_key": "",  # jCodeMunch license key; gates the org-rollup (team SKU) feature only
+    "license_reminder": True,  # work-license reminder; false silences it for good (item 650)
     "runtime_ingest_max_body_bytes": 5_242_880,  # 5 MB
     "summarizer_concurrency": 4,
     "summarizer_max_failures": 3,
@@ -605,6 +610,8 @@ CONFIG_TYPES = {
     "watch_idle_timeout": (int, type(None)),
     "watch_log": (str, type(None)),
     "watch_paths": list,
+    "watch_all_skip_temp": bool,
+    "watch_all_max_idle_days": int,
     "freshness_mode": str,
     "strict_timeout_ms": int,
     "refresh_on_read": bool,
@@ -628,6 +635,7 @@ CONFIG_TYPES = {
     "runtime_ingest_enabled": bool,
     "org_ingest_enabled": bool,
     "license_key": str,
+    "license_reminder": bool,
     "runtime_ingest_max_body_bytes": int,
     "summarizer_concurrency": int,
     "summarizer_max_failures": int,
@@ -902,6 +910,7 @@ BOOL_ENV_TYPO_KEEPS_DEFAULT: frozenset[str] = frozenset({
     "skip_virtualenvs",
     "trusted_folders_whitelist_mode",
     "runtime_redact_enabled",
+    "watch_all_skip_temp",
 })
 
 
@@ -2634,6 +2643,12 @@ def generate_template() -> str:
   //   online against the licensing backend (sticky-offline; 14-day grace
   //   for a new org). Also settable via JCODEMUNCH_LICENSE_KEY. Check
   //   status with the `license` CLI.
+  // "license_reminder": true,
+  //   A short work-license reminder, 7 days after the first index and then
+  //   at most every 30 days, on stderr after a CLI command and on the first
+  //   tool answer of a process. Never shown with a license key set. false
+  //   silences it for good: jcodemunch-mcp config set license_reminder false
+  //   (global config only; a project .jcodemunch.jsonc does not set it).
 
   // === Watcher ===
   // "watch": false,
@@ -2658,6 +2673,15 @@ def generate_template() -> str:
   // "watch_log": null,
   //   Path to a file the watcher appends reindex activity to.
   //   null = log to stderr only.
+  // "watch_all_skip_temp": true,
+  //   `watch-all` leaves unwatched any indexed repo under the system temp
+  //   directory or a top-level tmp/temp folder (C:\\tmp, /tmp, /var/tmp).
+  //   Its index stays searchable. false watches them too.
+  // "watch_all_max_idle_days": 14,
+  //   `watch-all` leaves unwatched any indexed repo whose newest indexed
+  //   file AND last indexed commit are both older than this many days.
+  //   The tree is checked too, at most every 10 minutes, so a repo you edit
+  //   or commit in is watched again. 0 = watch every repo.
   // "freshness_mode": "relaxed",
   //   relaxed - Default. Index remains queryable during reindex.
   //             Best for interactive use (IDE, chat).

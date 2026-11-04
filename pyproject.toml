@@ -1,7 +1,7 @@
 [project]
 name = "jcodemunch-mcp"
-version = "1.108.399"
-description = "Token-efficient MCP server for source code exploration via tree-sitter AST parsing"
+version = "1.108.413"
+description = "MCP server that gives AI coding agents the exact function or class they asked for, not the whole file. Runs on your machine, 70+ languages. Free for non-commercial use; commercial use needs a one-time license."
 readme = "README.md"
 requires-python = ">=3.10"
 authors = [
@@ -102,7 +102,7 @@ all = ["anthropic>=0.40.0", "google-generativeai>=0.8.0", "openai>=1.0.0", "pyya
 
 
 [project.scripts]
-jcodemunch-mcp = "jcodemunch_mcp.server:main"
+jcodemunch-mcp = "jcodemunch_mcp.server:cli"
 gcm = "jcodemunch_mcp.groq.cli:main"
 munch-bench = "munch_bench.cli:main"
 
@@ -165,6 +165,9 @@ exclude = [
     # client that describes it so a test can hold the two together; it runs
     # on the meter's web host, never in an installed package.
     "server/",
+    # The Claude Code plugin folder: a manifest, its README, a LICENSE copy and
+    # the skill, for the plugin directory. Nothing a pip install reads.
+    "plugin/",
 ]
 
 [tool.pytest.ini_options]

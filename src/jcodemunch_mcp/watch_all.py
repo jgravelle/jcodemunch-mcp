@@ -24,7 +24,9 @@ import sys
 from pathlib import Path
 from typing import IO, Optional
 
+from . import watch_scope
 from .storage import IndexStore
+from .storage.sqlite_store import SQLiteIndexStore
 from .watcher import (
     DEFAULT_DEBOUNCE_MS,
     WatcherManager,
@@ -81,6 +83,76 @@ def discover_local_repos(storage_path: Optional[str] = None) -> list[str]:
     filtering — one authority, two shapes.
     """
     return list(discover_local_repo_entries(storage_path))
+
+
+def watch_all_scope(
+    storage_path: Optional[str] = None,
+    *,
+    skip_temp: Optional[bool] = None,
+    max_idle_days: Optional[int] = None,
+    entries: "Optional[dict[str, dict]]" = None,
+) -> "tuple[list[str], dict[str, str]]":
+    """(paths watch-all watches, {path: reason} for the ones it leaves).
+
+    Reasons come from `watch_scope.skip_reason`: ``"temp"`` or ``"idle"``.
+    `None` settings read config (`watch_all_skip_temp`,
+    `watch_all_max_idle_days`). `entries` reuses a discovery the caller
+    already made (`get_watch_status`), so it is not paid twice.
+    """
+    cfg_skip, cfg_days = watch_scope.settings()
+    skip_temp = cfg_skip if skip_temp is None else skip_temp
+    max_idle_days = cfg_days if max_idle_days is None else max_idle_days
+    store: Optional[SQLiteIndexStore] = None
+    kept: list[str] = []
+    skipped: dict[str, str] = {}
+    if entries is None:
+        entries = discover_local_repo_entries(storage_path)
+    for folder, entry in entries.items():
+        db_path = None
+        repo_id = (entry.get("repo") or "").strip()
+        if "/" in repo_id:
+            owner, name = repo_id.split("/", 1)
+            try:
+                if store is None:
+                    store = SQLiteIndexStore(base_path=storage_path)
+                db_path = store._db_path(owner, name)
+            except Exception:
+                logger.debug("no index path for %s", repo_id, exc_info=True)
+        reason = watch_scope.skip_reason(
+            folder, entry, db_path, skip_temp=skip_temp, max_idle_days=max_idle_days,
+        )
+        if reason is None:
+            kept.append(folder)
+        else:
+            skipped[folder] = reason
+    return kept, skipped
+
+
+_REASON_TEXT = {
+    watch_scope.SKIP_TEMP: "under a temp folder; watch_all_skip_temp",
+    watch_scope.SKIP_IDLE: "no file or commit change past watch_all_max_idle_days",
+}
+
+
+def _skipped_summary(skipped: "dict[str, str]") -> Optional[str]:
+    if not skipped:
+        return None
+    temp = sum(1 for r in skipped.values() if r == watch_scope.SKIP_TEMP)
+    idle = sum(1 for r in skipped.values() if r == watch_scope.SKIP_IDLE)
+    _, days = watch_scope.settings()
+    parts = []
+    if temp:
+        parts.append(f"{temp} under a temp folder (watch_all_skip_temp)")
+    if idle:
+        parts.append(
+            f"{idle} with no file or commit change in {days} days (watch_all_max_idle_days)"
+        )
+    return (
+        f"jcodemunch-mcp watch-all: not watching {len(skipped)} indexed repo(s): "
+        + "; ".join(parts)
+        + ". Their indexes stay searchable; set the named config key to change this. "
+        "`watch-status` lists them."
+    )
 
 
 def _install_signal_handlers(loop: asyncio.AbstractEventLoop, stop: asyncio.Event) -> None:
@@ -151,12 +223,22 @@ async def watch_all(
     async def _rediscover_loop() -> None:
         while not stop_event.is_set():
             try:
-                discovered = set(discover_local_repos(storage_path))
+                # Off the event loop: a slow git or network drive must not stall
+                # the file events the manager is handling meanwhile.
+                kept, skipped_now = await asyncio.to_thread(watch_all_scope, storage_path)
+                discovered = set(kept)
                 watched = set(manager.list_folders())
                 for folder in sorted(discovered - watched):
                     await manager.add_folder(folder)
                 for folder in sorted(watched - discovered):
                     await manager.remove_folder(folder)
+                    if folder in skipped_now:
+                        _watcher_output(
+                            f"jcodemunch-mcp watch-all: stopped watching {folder} "
+                            f"({_REASON_TEXT.get(skipped_now[folder], skipped_now[folder])}). "
+                            "Its index stays searchable.",
+                            quiet=quiet, log_file_handle=log_file_handle,
+                        )
             except Exception:
                 logger.warning("rediscover pass failed", exc_info=True)
             try:
@@ -166,9 +248,12 @@ async def watch_all(
 
     # Seed discovery before run() starts so initial repos are watched
     # by the time the caller sees log lines.
-    initial = discover_local_repos(storage_path)
+    initial, skipped = watch_all_scope(storage_path)
     for folder in initial:
         await manager.add_folder(folder)
+    skipped_line = _skipped_summary(skipped)
+    if skipped_line:
+        _watcher_output(skipped_line, quiet=quiet, log_file_handle=log_file_handle)
 
     # watch-all is a long-lived foreground daemon: it indexes, then blocks
     # watching for edits. Say so once up front so the post-index silence isn't

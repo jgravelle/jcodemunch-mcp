@@ -143,7 +143,58 @@ def _git(*args: str) -> str:
         return "unknown"
 
 
-def _run(cmd: list[str], *, env: dict | None = None) -> tuple[int, str, float]:
+_PROGRESS_RE = re.compile(r"\[\s*\d+%\]\s*$")
+
+
+class _ProgressEcho:
+    """Which pytest lines the full tier prints while pytest runs.
+
+    A progress line (`....  [ 30%]`) shows how far the run got, and a
+    faulthandler dump names the test that was stuck: `Timeout (0:05:00)!`, then
+    one block per thread (`Thread 0x...` or `Current thread 0x...` and indented
+    `File` lines), the blocks separated by blank lines. The stuck test is in
+    whichever block holds it, often not the first, so the dump ends only at the
+    first line that is none of those. Everything else stays in the captured
+    output and is reported at the end as before, so a passing run's log grows
+    by the progress lines alone.
+    """
+
+    def __init__(self) -> None:
+        self._in_dump = False
+
+    def __call__(self, line: str) -> bool:
+        if self._in_dump:
+            if (
+                not line.strip()
+                or line[:1].isspace()
+                or line.startswith(("Thread 0x", "Current thread 0x"))
+                # Under xdist other workers keep reporting while one dumps, so
+                # a progress line can land inside a dump; it must not end it.
+                or _PROGRESS_RE.search(line)
+            ):
+                return True
+            self._in_dump = False
+        if line.startswith("Timeout ("):
+            self._in_dump = True
+            return True
+        return bool(_PROGRESS_RE.search(line))
+
+
+# pytest's faulthandler plugin dumps every thread's stack when one test runs
+# longer than this. It is well under the CI job's `timeout-minutes`
+# (`ci.test_job_timeout_minutes`), so a hang is named while the job still runs.
+FAULTHANDLER_TIMEOUT_SECONDS = 300
+
+
+def _run(
+    cmd: list[str], *, env: dict | None = None, echo=None
+) -> tuple[int, str, float]:
+    """Run ``cmd`` and return (returncode, combined output, seconds).
+
+    With ``echo`` (a line predicate), stdout and stderr are read as one stream
+    and each line ``echo`` accepts is printed as it arrives. A CI job cancelled
+    at its timeout keeps what was printed; a captured-only run kept nothing.
+    """
     t0 = time.perf_counter()
     e = dict(os.environ)
     e.setdefault("PYTHONPATH", str(REPO / "src"))
@@ -154,6 +205,32 @@ def _run(cmd: list[str], *, env: dict | None = None) -> tuple[int, str, float]:
     e.setdefault("JCODEMUNCH_SHARE_SAVINGS", "0")
     if env:
         e.update(env)
+    if echo is not None:
+        chunks: list[str] = []
+        with subprocess.Popen(
+            cmd,
+            cwd=REPO,
+            env=e,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            bufsize=1,
+        ) as p:
+            assert p.stdout is not None
+            try:
+                for line in p.stdout:
+                    chunks.append(line)
+                    if echo(line.rstrip("\r\n")):
+                        print(line, end="" if line.endswith("\n") else "\n", flush=True)
+            except BaseException:
+                # subprocess.run kills the child on any exception; Popen's
+                # __exit__ would wait on it forever instead.
+                p.kill()
+                raise
+            rc = p.wait()
+        return rc, "".join(chunks), time.perf_counter() - t0
     proc = subprocess.run(
         cmd,
         cwd=REPO,
@@ -557,7 +634,7 @@ AUDIT_ALLOWLIST = HERE / "audit-allowlist.json"
 
 
 def _measure_deps() -> int:
-    """Known advisories in the RUNTIME dependency set (criterion 8), minus unexpired allowlist entries.
+    """Known advisories in the RUNTIME dependency set, extras included (criterion 8), minus unexpired allowlist entries.
 
     pip-audit (OSV/PyPI) reports no severity, so the Floor counts every
     advisory; an entry in harness/audit-allowlist.json needs an id, a reason
@@ -571,6 +648,12 @@ def _measure_deps() -> int:
             "uv",
             "export",
             "--no-dev",
+            # Every extra a user can install (`[semantic]`, `[http]`, `[all]`...),
+            # not only the base install. pip-audit evaluates each pin's markers
+            # for the interpreter AND platform it runs on (CI: ubuntu, Python
+            # 3.12), so a pin limited to another Python version or another
+            # platform (a win32-only pin on CI) is not audited here.
+            "--all-extras",
             "--no-hashes",
             "--format",
             "requirements-txt",
@@ -654,7 +737,7 @@ DELEGATED = {
     "ci.skips_ubuntu": "this runner / pr-gate.yml full tier, pytest summary",
     "ci.skips_windows": "this runner / pr-gate.yml full tier, pytest summary",
     "suite.full_seconds_ci_windows": "harness full tier on a GitHub windows runner",
-    "suite.full_seconds_ci_ubuntu_py310": "harness full tier on the GitHub ubuntu runner under Python 3.10",
+    "suite.full_seconds_ci_ubuntu_ctrace": "harness full tier on a GitHub ubuntu runner where coverage runs its C tracer",
     "suite.fast_skips_max": "harness fast tier, pytest summary",
 }
 
@@ -741,20 +824,61 @@ def _skips_floor_id() -> str:
     return "ci.skips_windows" if sys.platform.startswith("win") else "ci.skips_ubuntu"
 
 
+def _coverage_core_env() -> dict:
+    """The coverage core the full tier asks pytest for (see `tier_full`)."""
+    return {"COVERAGE_CORE": os.environ.get("COVERAGE_CORE", "sysmon")}
+
+
+def _coverage_core() -> str | None:
+    """The core coverage will actually run under the full tier, or None if unknown.
+
+    Asks coverage's own `Core` with the environment `tier_full` passes, so the
+    answer is coverage's decision (sysmon, or its fallback where
+    `sys.monitoring` is not usable), not a copy of it keyed on the Python
+    version.
+    """
+    try:
+        from coverage.config import read_coverage_config
+        from coverage.core import Core
+
+        def quiet(*_a, **_k):
+            return None
+
+        cfg = read_coverage_config(config_file=False, warn=quiet)
+        cfg.core = _coverage_core_env()["COVERAGE_CORE"]
+        core = Core(
+            warn=quiet, debug=None, config=cfg, dynamic_contexts=False, metacov=False
+        )
+        return {
+            "SysMonitor": "sysmon",
+            "CTracer": "ctrace",
+            "PyTracer": "pytrace",
+        }.get(core.tracer_class.__name__)
+    except Exception as exc:
+        # UNKNOWN: the caller keeps the tighter Floor. Said on stderr so a
+        # surprising Floor choice has a visible cause.
+        print(
+            f"   coverage core: unknown ({type(exc).__name__}: {exc})", file=sys.stderr
+        )
+        return None
+
+
 def _full_wall_floor_id() -> str:
     """Which full-tier wall Floor this runner is judged by.
 
     A GitHub-hosted windows runner is ~3x this box on the full tier
-    (docs/cicd/FINDINGS.md C-9). The ubuntu Python 3.10 leg has its own Floor
-    (L-232): its median sat just under the shared one and tripped it with every
-    test passing. Every other ubuntu leg and every non-CI run keeps
-    `suite.full_seconds`.
+    (docs/cicd/FINDINGS.md C-9). An ubuntu leg where coverage runs its C tracer
+    (Python 3.10 and 3.11, where `sys.monitoring` is not usable) has its own
+    Floor (L-232): the 3.10 leg's median sat just under the shared one and
+    tripped it with every test passing, and the 3.11 leg runs the same tracer.
+    A sysmon ubuntu leg and every non-CI run keep `suite.full_seconds`. An
+    unknown core keeps the shared Floor, the tighter of the two.
     """
     if os.environ.get("GITHUB_ACTIONS"):
         if sys.platform.startswith("win"):
             return "suite.full_seconds_ci_windows"
-        if sys.platform.startswith("linux") and sys.version_info[:2] == (3, 10):
-            return "suite.full_seconds_ci_ubuntu_py310"
+        if sys.platform.startswith("linux") and _coverage_core() == "ctrace":
+            return "suite.full_seconds_ci_ubuntu_ctrace"
     return "suite.full_seconds"
 
 
@@ -850,7 +974,7 @@ def tier_full(result: dict) -> bool:
     # ⚠ `setdefault`, so `COVERAGE_CORE=ctrace ... -m harness full` still forces
     # the old tracer -- the comparison above has to stay reproducible by whoever
     # doubts it.
-    cov_env = {"COVERAGE_CORE": os.environ.get("COVERAGE_CORE", "sysmon")}
+    cov_env = _coverage_core_env()
     rc, out, secs = _run(
         [
             PY,
@@ -862,11 +986,14 @@ def tier_full(result: dict) -> bool:
             "no:cacheprovider",
             *_xdist_args(),
             "--tb=short",
+            "-o",
+            f"faulthandler_timeout={FAULTHANDLER_TIMEOUT_SECONDS}",
             "--cov=src",
             "--cov-report=term",
             f"--cov-fail-under={cov}",
         ],
         env=cov_env,
+        echo=_ProgressEcho(),
     )
     summ = _pytest_summary(out)
     print("  ", summ["line"])

@@ -1,14 +1,25 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.jgravelle/jcodemunch-mcp",
-  "title": "jCodemunch MCP",
-  "description": "Retrieves code by symbol via tree-sitter. 96.2% fewer tokens per lookup than grep-and-read.",
-  "version": "1.108.399",
+  "title": "jCodeMunch MCP",
+  "description": "Gives AI agents the function they asked for, not the file. Commercial use needs a license.",
+  "websiteUrl": "https://jcodemunch.com",
+  "icons": [
+    {
+      "src": "https://raw.githubusercontent.com/jgravelle/jcodemunch-mcp/main/plugin/jcodemunch/icon.svg",
+      "mimeType": "image/svg+xml",
+      "sizes": [
+        "any"
+      ]
+    }
+  ],
+  "version": "1.108.413",
   "packages": [
     {
       "registryType": "pypi",
       "identifier": "jcodemunch-mcp",
-      "version": "1.108.399",
+      "runtimeHint": "uvx",
+      "version": "1.108.413",
       "transport": {
         "type": "stdio"
       }

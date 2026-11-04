@@ -19,8 +19,9 @@ to whoever owns that login.
    a disagreement, drafts the notes, and does step 1 for you, then stops
    (`docs/workflows/DESIGN.md` §2.3). Steps 2-4 stay yours; the session's
    deny list refuses them.
-1. Open the release PR: bump the seven pin sites (`pyproject.toml`,
-   `server.json` x2, `.claude-plugin/plugin.json`, `uv.lock` name-scoped
+1. Open the release PR: bump the eight pin sites (`pyproject.toml`,
+   `server.json` x2, `plugin/jcodemunch/.claude-plugin/plugin.json` version and
+   its `uvx` pin, `uv.lock` name-scoped
    line, `whatsnew.json` current + entry), write the `## [X.Y.Z]` block in
    `CHANGELOG.md`, rotate CLAUDE.md Current State, label the PR `release`.
    The gate's `done: version pins` check refuses a `release` label without a
@@ -34,14 +35,23 @@ to whoever owns that login.
    gh workflow run release.yml -R jgravelle/jcodemunch-mcp -f version=X.Y.Z -f dry_run=false
    ```
 
-   The workflow: pre-flight on `main`'s HEAD (required checks green, pins,
+   The workflow: pre-flight on `main`'s HEAD (every check on HEAD green,
+   waiting up to `CI_WAIT_SECONDS` in `scripts/release_preflight.py` for one
+   still running; a Nightly run still going at
+   the end is named as "not waited for" and does not hold the release, C-28;
+   pins,
    changelog, tag absent, PyPI absent, no MERGEABLE CLEAN contributor PR
    unless our latest review requests changes on its current head, C-25),
    build once, Test PyPI, clean-venv smoke on ubuntu and windows, tag, PyPI,
    post-publish smoke from PyPI with the tool count recomputed, GitHub
    release from the CHANGELOG block, MCP registry.
-4. Read the run to the end. A P0 issue means §3. Then Practice 11:
-   reinstall and restart the local server.
+4. Read the run to the end. A P0 issue means §3. If the pre-flight's `ci`
+   row names a Nightly run as "not waited for", read that run to its end too:
+   a failure there opens a `drift` issue after the release, not before. Then
+   Practice 11: reinstall and restart the local server.
+   Nightly is scheduled for 04:00 UTC on `main`'s HEAD and usually runs
+   04:10-04:35 (GitHub delays scheduled runs by an unbounded amount), so a
+   dispatch outside that window usually avoids the case.
 
 `dry_run=true` (the default until the first real publish) stops before any
 upload, tag, release or registry write and smokes the built wheel instead.

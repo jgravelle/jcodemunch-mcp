@@ -23,8 +23,8 @@ import json
 from .. import schema_driven as sd
 
 TOOLS = ("search_text",)
-ENCODING_ID = "st4"  # st4: `more_files` table + its three scalars; st3: enclosing-symbol columns, body `truncated`/`timed_out`/`note`
-LEGACY_ENCODING_IDS = ("st1", "st2", "st3")
+ENCODING_ID = "st5"  # st5: `sources` table + its three scalars; st4: `more_files` table + its three scalars; st3: enclosing-symbol columns, body `truncated`/`timed_out`/`note`
+LEGACY_ENCODING_IDS = ("st1", "st2", "st3", "st4")
 
 # Internal flat row shape used on the wire. `results` (nested) is pre-flattened
 # into this key on encode, and regrouped back into `results` on decode. The
@@ -47,10 +47,17 @@ _TABLES = [
         intern=["file"],
         types={"matches": "int"},
     ),
+    # The source of the few small symbols a page's matches sit in.
+    sd.TableSpec(
+        key="sources",
+        tag="sr",
+        cols=["id", "source"],
+    ),
 ]
 _SCALARS = (
     "result_count", "truncated", "timed_out", "note", "query", "repo",
     "more_files_total", "more_files_truncated", "more_files_complete",
+    "sources_total", "sources_omitted", "sources_omitted_reason",
 )
 _META = (
     "timing_ms",
@@ -69,6 +76,8 @@ _SCALAR_TYPES: dict[str, str] = {
     "more_files_total": "int",
     "more_files_truncated": "bool",
     "more_files_complete": "bool",
+    "sources_total": "int",
+    "sources_omitted": "int",
     "_meta.timing_ms": "float",
     "_meta.files_searched": "int",
     "_meta.truncated": "bool",
@@ -153,4 +162,8 @@ def decode(payload: str) -> dict:
         meta_keys=_META, meta_json_blobs=_META_JSON,
         scalar_types=_SCALAR_TYPES,
     )
+    # An absent `sources` (too many symbols, or none) decodes as an empty
+    # table; the producer omits the key in that case, so the decode does too.
+    if not decoded.get("sources"):
+        decoded.pop("sources", None)
     return _regroup(decoded)
