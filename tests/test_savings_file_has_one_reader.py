@@ -113,3 +113,41 @@ def test_no_other_function_parses_the_savings_file():
                         f"{path.relative_to(SRC)}:{call.lineno} {func.name}"
                     )
     assert not offenders, offenders
+
+
+# --- a refused file is not an absent one ---------------------------------------
+
+
+def _agg():
+    return receipt.aggregate([])
+
+
+def test_receipt_says_why_a_refused_file_gives_no_figure(tmp_path):
+    _write(tmp_path, '{"total_tokens_saved": Infinity}')
+    why = receipt.lifetime_meter_refusal(tmp_path)
+    assert why == "holds a total that is not a non-negative number"
+    text = receipt.render_text(_agg(), days=30, model="sonnet", meter=None, meter_refused=why)
+    assert "Lifetime meter not shown" in text and why in text
+    assert "No lifetime meter data yet" not in text
+    payload = json.loads(receipt.render_json(_agg(), model="sonnet", meter=None, meter_refused=why))
+    assert payload["lifetime"] == {"refused": why}
+
+
+def test_receipt_reports_no_file_as_no_data_yet(tmp_path):
+    assert receipt.lifetime_meter_refusal(tmp_path) is None
+    text = receipt.render_text(_agg(), days=30, model="sonnet", meter=None, meter_refused=None)
+    assert "No lifetime meter data yet" in text
+    payload = json.loads(receipt.render_json(_agg(), model="sonnet", meter=None))
+    assert "lifetime" not in payload
+
+
+def test_a_zero_byte_file_is_refused_not_absent(tmp_path):
+    _write(tmp_path, "")
+    assert receipt.lifetime_meter(tmp_path) is None
+    assert receipt.lifetime_meter_refusal(tmp_path) == "is not valid JSON"
+    assert diagnose._savings(tmp_path) is None
+
+
+def test_a_good_file_has_no_refusal(tmp_path):
+    _write(tmp_path, '{"total_tokens_saved": 5}')
+    assert receipt.lifetime_meter_refusal(tmp_path) is None
