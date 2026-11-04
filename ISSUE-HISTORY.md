@@ -3092,3 +3092,9 @@ The 1.108.410 entry, verbatim as it stood in `CLAUDE.md`:
 The 1.108.411 entry, verbatim as it stood in `CLAUDE.md`:
 
 - **Prior (1.108.411):** **a C or C++ #include resolves where the compiler finds it, and Go callers in the same package are found** (#1315, #1313): a C-family include tries the importer's folder, the root, `include/`, `src/`; a miss resolves to nothing; who-calls, blast radius and impact preview count a Go file's same-directory siblings as callers. Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-04, release 1.108.415)
+
+The 1.108.412 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.412):** **graph tools resolve each import once per loaded index, and a savings file holding the wrong type is refused, not frozen** (#1317, #1320, #1322): `resolve_specifier` remembers its whole answer per file set, alias map and PSR-4 map, keyed by importer and specifier, so a graph tool after the first call on an index skips the resolve; `_read_ledger` refuses a `_savings.json` holding the wrong type wherever the merge adds a number, with #1309's warning and recovery. Full text: `CHANGELOG.md`.

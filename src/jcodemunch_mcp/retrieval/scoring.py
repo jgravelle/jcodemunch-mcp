@@ -358,17 +358,50 @@ def is_data_symbol(sym: dict) -> bool:
     return any(c.isupper() for c in name) and name == name.upper()
 
 
+# Directories that hold copies of a library's code written to teach it:
+# tutorial snippets, runnable examples, demo apps. They reuse the library's
+# names (`docs_src/.../tutorial001.py::GzipRoute.get_route_handler` beside
+# `fastapi/routing.py`), and there are many of them, so a question about the
+# library returned the copies first. A directory component is matched, never
+# the filename, case-insensitively. `docs` is left out on purpose: a docs
+# directory can hold a site's own source.
+_EXAMPLE_DIRS = frozenset({
+    "example", "examples", "docs_src", "sample", "samples",
+    "demo", "demos", "tutorial", "tutorials",
+})
+
+# Words that make a query ABOUT examples; with one present they are not
+# weighted. Stems are listed because `query_terms` adds them.
+_EXAMPLE_INTENT = frozenset({
+    "example", "examples", "exampl", "sample", "samples", "demo", "demos",
+    "tutorial", "tutorials", "snippet", "snippets", "docs", "doc", "documentation",
+})
+
+# The multiplier for a symbol in an example directory: the test-file weight.
+# Chosen, not tuned. Only RANKING reads it, as with every factor here.
+EXAMPLE_WEIGHT = TEST_SYMBOL_WEIGHT
+
+
+def is_example_path(file_path: str) -> bool:
+    """True when a directory on the path names example or tutorial code."""
+    parts = [p for p in (file_path or "").replace("\\", "/").split("/") if p]
+    return any(p.lower() in _EXAMPLE_DIRS for p in parts[:-1])
+
+
 def rank_factor(sym: dict, terms: list[str]) -> tuple[float, str | None]:
     """The ranking multiplier for ``sym`` on this query, and why.
 
     One reason applies, the first that matches: ``test_file``
-    (`test_file_factor`), ``non_code_file`` (a NON_CODE_LANGUAGES symbol on a
-    query with no configuration, or styling, word) or ``data_kind``
-    (`is_data_symbol`, on a query with no value word). ``(1.0, None)``
-    otherwise."""
+    (`test_file_factor`), ``example_file`` (`is_example_path`, on a query
+    with no example word), ``non_code_file`` (a NON_CODE_LANGUAGES
+    symbol on a query with no configuration, or styling, word) or
+    ``data_kind`` (`is_data_symbol`, on a query with no value word).
+    ``(1.0, None)`` otherwise."""
     weight = test_file_factor(sym, terms)
     if weight != 1.0:
         return weight, "test_file"
+    if is_example_path(sym.get("file") or "") and not any(t in _EXAMPLE_INTENT for t in terms):
+        return EXAMPLE_WEIGHT, "example_file"
     lang = (sym.get("language") or "").lower()
     if lang in NON_CODE_LANGUAGES:
         intent = _CONFIG_INTENT if lang in _CONFIG_LANGUAGES else _STYLE_INTENT
