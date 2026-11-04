@@ -30,6 +30,8 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+from .file_sizes import ContentSizes, carry_fallback, sizes_from_content  # noqa: E402
+
 # `context_metadata` key naming the context providers a time budget cut on the
 # last full pass (L-190). Written by `tools/index_folder.py`; a delta save keeps
 # it (see `_incremental_save_locked`), and only a full save can end it.
@@ -1340,6 +1342,9 @@ class SQLiteIndexStore:
             return
 
         file_sizes = {fp: len(content.encode("utf-8")) for fp, content in raw_files.items()}
+        file_sizes = sizes_from_content(
+            file_sizes, [*changed_files, *new_files], self._content_dir_or_none(owner, name)
+        )
 
         conn = self._connect(db_path)
         try:
@@ -1594,7 +1599,9 @@ class SQLiteIndexStore:
         composed_mtimes = _patch(base_index.file_mtimes, delta_mtimes, files_to_remove)
         composed_languages = _patch(base_index.file_languages, delta_languages, files_to_remove)
         composed_summaries = _patch(base_index.file_summaries, delta_summaries, files_to_remove)
-        composed_sizes = _patch(base_index.file_sizes, delta_sizes, files_to_remove)
+        composed_sizes = carry_fallback(
+            base_index.file_sizes, _patch(base_index.file_sizes, delta_sizes, files_to_remove)
+        )
 
         base_imports = base_index.imports if base_index.imports is not None else {}
         composed_imports = _patch(base_imports, delta_imports, files_to_remove)
@@ -1716,6 +1723,11 @@ class SQLiteIndexStore:
             languages = lang_counts
 
         file_sizes = {fp: len(content.encode("utf-8")) for fp, content in raw_files.items()}
+        # A full index writes contents to the content dir and passes none here,
+        # so without this every file it wrote stored no size (see file_sizes.py).
+        file_sizes = sizes_from_content(
+            file_sizes, normalized_source_files, self._content_dir_or_none(owner, name)
+        )
 
         index = CodeIndex(
             repo=f"{owner}/{name}", owner=owner, name=name,
@@ -3351,6 +3363,14 @@ class SQLiteIndexStore:
 
     # ── Content cache helpers (reused from IndexStore) ──────────────
 
+    def _content_dir_or_none(self, owner: str, name: str) -> Optional[Path]:
+        """The content dir, or None when the slot's guard refuses it (sizes then stay unknown)."""
+        try:
+            return self._content_dir(owner, name)
+        except Exception:
+            logger.debug("content dir unavailable for %s/%s", owner, name, exc_info=True)
+            return None
+
     def _content_dir(self, owner: str, name: str) -> Path:
         """Path to raw content directory. Guarded like ``_db_path``: the
         directory belongs to whichever repository the slot's index records."""
@@ -3639,7 +3659,9 @@ class SQLiteIndexStore:
         new_file_languages = _patch_dict(old.file_languages, file_languages, files_to_remove)
         new_file_summaries = _patch_dict(old.file_summaries, file_summaries, files_to_remove)
         new_file_blob_shas = _patch_dict(old.file_blob_shas, file_blob_shas, files_to_remove)
-        new_file_sizes = _patch_dict(old.file_sizes, file_sizes, files_to_remove)
+        new_file_sizes = carry_fallback(
+            old.file_sizes, _patch_dict(old.file_sizes, file_sizes, files_to_remove)
+        )
 
         if old.imports is not None:
             new_imports: Optional[dict] = _patch_dict(old.imports, imports, files_to_remove)
@@ -3792,7 +3814,7 @@ class SQLiteIndexStore:
             context_metadata=context_metadata,
             file_blob_shas=file_blob_shas,
             file_mtimes=file_mtimes,
-            file_sizes=file_sizes,
+            file_sizes=ContentSizes(file_sizes, self._content_dir_or_none(owner, name)),
             package_names=package_names,
             file_cap_status=file_cap_status,
             coverage=coverage,
