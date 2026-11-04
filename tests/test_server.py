@@ -889,9 +889,9 @@ async def test_tier_controls_call_time_allowed_without_escape_hatch():
 
         result = await call_tool("set_tool_tier", {"tier": "core"})
         payload = json.loads(result[0].text)
-        # Tool actually runs (no project-disabled error). It may succeed or
-        # return a tier-related error, but NOT the "disabled in this project"
-        # message that the escape hatch unlocks.
+        # Tool actually runs (no turned-off refusal). It may succeed or
+        # return a tier-related error, but NOT the 'disabled_tools' refusal
+        # that the escape hatch unlocks.
         if "error" in payload:
             assert "disabled_tools" not in payload["error"]
     finally:

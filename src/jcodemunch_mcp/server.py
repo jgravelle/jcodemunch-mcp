@@ -5790,6 +5790,18 @@ def _normalize_order_args(action: str, args: dict) -> dict:
     return out
 
 
+def _refused_as_disabled(name: str, repo: Optional[str]) -> bool:
+    """Would ``call_tool`` refuse ``name`` for ``repo`` because it is turned off?
+
+    The call-time rule and the suggestion pool both ask this, so ``order``
+    never suggests what it would refuse, and keeps suggesting a tier control a
+    user listed but that still runs (issue #299's safety net).
+    """
+    allow_disable_tier = config_module.get("allow_disabling_tier_controls", False, repo=repo)
+    protected = frozenset() if allow_disable_tier else _UNDISABLEABLE_TOOLS
+    return name not in protected and config_module.is_tool_disabled(name, repo=repo)
+
+
 async def _handle_order(arguments: dict) -> list[TextContent] | CallToolResult:
     """order(action, args): validate against the catalog + charter gate, then
     re-enter the normal pipeline for the resolved action."""
@@ -5799,7 +5811,8 @@ async def _handle_order(arguments: dict) -> list[TextContent] | CallToolResult:
         return _error_call_result(json.dumps({"error": "order 'args' must be an object."}, indent=2))
     allow = bool(arguments.get("allow_state_change", False))
     names = _catalog_names()
-    suggest = {n for n in names if not config_module.is_tool_disabled(n)}
+    repo = args.get("repo") if isinstance(args.get("repo"), str) else None
+    suggest = {n for n in names if not _refused_as_disabled(n, repo)}
     err = _counter.order_gate(action, names, allow, suggest_from=suggest)
     if err is not None:
         return _error_call_result(json.dumps({"error": err, "tool": "order"}, indent=2))
@@ -6256,28 +6269,25 @@ async def _call_tool_impl(name: str, arguments: dict) -> list[TextContent] | Cal
         # rejection happens here since schema is global (can't be changed per-project).
         # `allow_disabling_tier_controls=true` lets users opt out of the
         # _UNDISABLEABLE_TOOLS safety net (issue #299).
-        allow_disable_tier = config_module.get("allow_disabling_tier_controls", False, repo=repo_arg)
-        protected_at_call = frozenset() if allow_disable_tier else _UNDISABLEABLE_TOOLS
-        if name not in protected_at_call and config_module.is_tool_disabled(name, repo=repo_arg):
+        if _refused_as_disabled(name, repo_arg):
             source = config_module.disabled_tool_source(name, repo=repo_arg)
-            if source == "default":
-                why = (
-                    f"Tool '{name}' is turned off by default: the shipped 'disabled_tools' "
-                    f"setting lists it."
-                )
-            else:
-                where = (
-                    "this project's .jcodemunch.jsonc" if source == "project"
-                    else "the global config.jsonc"
-                )
-                why = (
-                    f"Tool '{name}' is turned off: the user listed it in 'disabled_tools' "
-                    f"in {where}."
-                )
+            where = (
+                "this project's .jcodemunch.jsonc" if source == "project"
+                else "the global config.jsonc"
+            )
+            # On the counter surface a hidden tool is named the way it is called.
+            label = (
+                _counter.as_order_call(name) if _effective_surface() == "counter"
+                else f"Tool '{name}'"
+            )
+            ships = (
+                " It ships turned off; the package's default list names it."
+                if config_module.ships_disabled(name) else ""
+            )
             return _fail(json.dumps({
                 "error": (
-                    f"{why} Ask the user whether to turn it back on; "
-                    f"do not edit that setting yourself."
+                    f"{label} is turned off: it is listed in 'disabled_tools' in {where}.{ships} "
+                    f"Ask the user whether to turn it back on; do not edit that setting yourself."
                 )
             }, indent=2))
 

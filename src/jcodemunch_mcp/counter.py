@@ -135,6 +135,30 @@ def retired_hint(name: str) -> Optional[str]:
     return f"It was replaced by {new}; call {new} with {arg}."
 
 
+def as_order_call(name: str) -> str:
+    """How an action is called through the front door: ``order(action="name")``.
+
+    Codex, VS Code and Claude Code refuse a tool name the server did not list,
+    so on the counter surface a bare hidden name in a reply is a call that fails.
+    """
+    return f'order(action="{name}")'
+
+
+def render_names(text: str, names: Iterable[str]) -> str:
+    """``text`` with each of ``names`` that stands as a token rewritten as an order call.
+
+    A name already inside ``order(action="...")`` is left alone. Longest names
+    first, so ``get_symbol_source`` is never split by ``get_symbol``.
+    """
+    from .word_rule import word_pattern
+
+    for name in sorted(set(names), key=len, reverse=True):
+        call = as_order_call(name)
+        pat = re.compile(r'(?<!action=")' + word_pattern(name) + r'(?!")')
+        text = pat.sub(call, text)
+    return text
+
+
 def _fold_action(action: str) -> str:
     return re.sub(r"[\s\-]+", "_", action.strip().lower()).strip("_")
 
@@ -192,7 +216,8 @@ def order_gate(
     if action not in names:
         hint = retired_hint(action)
         if hint is not None:
-            return f"Unknown action '{action}'. {hint}"
+            new = RETIRED_TOOL_NAMES[action][0]
+            return f"Unknown action '{action}'. {render_names(hint, [new])}"
         # Suggest only what would run: a turned-off tool stays dispatchable (so
         # its own reply explains it) but is never offered as the next call.
         pool = set(suggest_from) if suggest_from is not None else names
@@ -200,13 +225,13 @@ def order_gate(
         if near:
             return (
                 f"Unknown action '{action}'. Did you mean "
-                + " or ".join(f"'{a}'" for a in near)
+                + " or ".join(as_order_call(a) for a in near)
                 + "? Call 'menu' (optionally with a query) to discover valid actions."
             )
         if starts_many_actions(action, pool):
             return (
                 f"Unknown action '{action}'. Several actions start with it; call "
-                f"'menu' with query '{action}' to see them."
+                f"'menu' with query '{_fold_action(action)}' to see them."
             )
         return (
             f"Unknown action '{action}'. Call 'menu' (optionally with a query) "

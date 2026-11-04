@@ -1503,13 +1503,15 @@ def is_tool_disabled(tool_name: str, repo: str | None = None) -> bool:
 
 
 def disabled_tool_source(tool_name: str, repo: str | None = None) -> str | None:
-    """What turned ``tool_name`` off: "project", "global", "default", or None.
+    """Which file lists ``tool_name`` in ``disabled_tools``: "project", "global", or None.
 
-    The ONE resolver for ``disabled_tools``; :func:`is_tool_disabled` asks it.
     Follows :func:`get`'s resolution: a project file that declares the key
-    replaces the global list. "default" is a global list still equal to the
-    shipped ``DEFAULTS`` value, so a reply never says the user turned off a
-    tool that the package turned off.
+    replaces the global list. :func:`is_tool_disabled` asks this, so the
+    call-time refusal and its explanation cannot disagree.
+
+    It says WHERE the setting is, never WHO wrote it: the fresh-config template
+    copies the shipped list into the user's own file, so a list cannot tell a
+    user's choice from the package's. :func:`ships_disabled` is the other fact.
     """
     _ensure_loaded()
     if repo:
@@ -1517,13 +1519,12 @@ def disabled_tool_source(tool_name: str, repo: str | None = None) -> str | None:
         project = _PROJECT_CONFIGS.get(resolved) if resolved else None
         if project is not None and "disabled_tools" in project:
             return "project" if tool_name in (project["disabled_tools"] or []) else None
-    current = _GLOBAL_CONFIG.get("disabled_tools") or []
-    if tool_name not in current:
-        return None
-    shipped = DEFAULTS.get("disabled_tools") or []
-    if tool_name in shipped and list(current) == list(shipped):
-        return "default"
-    return "global"
+    return "global" if tool_name in (_GLOBAL_CONFIG.get("disabled_tools") or []) else None
+
+
+def ships_disabled(tool_name: str) -> bool:
+    """True when the package's own default ``disabled_tools`` lists ``tool_name``."""
+    return tool_name in (DEFAULTS.get("disabled_tools") or [])
 
 
 def is_language_enabled(language: str, repo: str | None = None) -> bool:
