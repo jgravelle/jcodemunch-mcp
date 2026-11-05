@@ -4,10 +4,11 @@ The opt-in Grep-answer hook used to read one 20-line `search_text` page and
 decline anything cut short, so it answered only the Greps that are cheapest to
 run as written and never a large one. It now counts the whole match set first.
 Under both thresholds (matching lines, matching files) the Grep runs untouched.
-At or over either one the hook answers with every match: every line while the
-page fits, otherwise every match counted by file and by the function or class
-it sits in. A page that drops matches is never sent, and a match set over the
-hook's scan cap lets the Grep run.
+At or over either one the hook answers by counting every match: by file and by
+the function or class it sits in, then by file alone, then the busiest files
+with the rest summed, whichever is the largest that fits. A page that drops
+matches is never sent, and a match set over the hook's scan cap lets the Grep
+run.
 """
 
 from __future__ import annotations
@@ -131,14 +132,71 @@ def test_the_file_threshold_answers(make_repo, monkeypatch):
     assert _ask(below)[0] != "deny"
 
 
-def test_more_than_one_page_is_answered_with_every_line(make_repo, monkeypatch):
+def test_more_than_one_page_is_counted_whole(make_repo, monkeypatch):
     _gate(monkeypatch, 1, 1)
     proj, markers = make_repo(files=3, per_func=10)
     assert len(markers) == 30  # over search_text's 20-line default page
     decision, text = _ask(proj)
     assert decision == "deny"
-    missing = [m for m in markers if m not in text]
-    assert not missing, f"answer dropped {len(missing)} of {len(markers)} matches"
+    body = _grouped(text)
+    assert body["result_count"] == 30
+    assert sum(g["matches"] for g in body["groups"]) == 30
+
+
+def test_the_answer_counts_and_does_not_list_lines_that_would_fit(
+    make_repo, monkeypatch
+):
+    # Measured 2026-11-05: the matching lines never cost less than the Grep, so
+    # the counted form is sent even when every line would fit.
+    _gate(monkeypatch, 1, 1)
+    proj, markers = make_repo(files=2, per_func=3)
+    decision, text = _ask(proj)
+    assert decision == "deny"
+    assert "groups" in _grouped(text)
+    assert not any(m in text for m in markers)
+
+
+def test_counts_by_file_when_symbols_do_not_fit(make_repo, monkeypatch):
+    _gate(monkeypatch, 1, 1)
+    proj, markers = make_repo(files=6, funcs=4, per_func=3)
+    full = _grouped(_ask(proj, session="probe")[1])
+    # A cap between the per-file form and the by-symbol form.
+    by_file = json.dumps(
+        {
+            "result_count": full["result_count"],
+            "file_count": full["file_count"],
+            "files": [
+                {"file": g["file"], "matches": g["matches"]} for g in full["groups"]
+            ],
+        },
+        separators=(",", ":"),
+    )
+    monkeypatch.setattr(grep_answer, "MAX_ANSWER_CHARS", len(by_file) + 5)
+    decision, text = _ask(proj)
+    assert decision == "deny"
+    body = _grouped(text)
+    assert "groups" not in body and len(body["files"]) == 6
+    assert sum(f["matches"] for f in body["files"]) == len(markers)
+    assert "by file." in text.split("\n", 1)[0]
+
+
+def test_a_very_large_set_lists_the_busiest_files_and_sums_the_rest(
+    make_repo, monkeypatch
+):
+    _gate(monkeypatch, 1, 1)
+    proj, markers = make_repo(files=12, per_func=2)
+    monkeypatch.setattr(grep_answer, "MAX_ANSWER_CHARS", 300)
+    decision, text = _ask(proj)
+    assert decision == "deny"
+    body = _grouped(text)
+    assert len(text.split("\n", 1)[1]) <= 300
+    assert 0 < len(body["files"]) < 12
+    assert body["other_files"] == 12 - len(body["files"])
+    assert (
+        sum(f["matches"] for f in body["files"]) + body["other_matches"]
+        == body["result_count"]
+        == len(markers)
+    )
 
 
 def test_lines_that_do_not_fit_are_counted_by_file_and_symbol(make_repo, monkeypatch):
@@ -164,9 +222,9 @@ def test_lines_that_do_not_fit_are_counted_by_file_and_symbol(make_repo, monkeyp
     assert not any(m in text for m in markers)
 
 
-def test_an_answer_that_fits_in_neither_form_lets_the_grep_run(make_repo, monkeypatch):
+def test_an_answer_whose_totals_do_not_fit_lets_the_grep_run(make_repo, monkeypatch):
     _gate(monkeypatch, 1, 1)
-    monkeypatch.setattr(grep_answer, "MAX_ANSWER_CHARS", 120)
+    monkeypatch.setattr(grep_answer, "MAX_ANSWER_CHARS", 20)
     proj, _ = make_repo(files=4, funcs=2, per_func=25, width=180)
     assert _ask(proj)[0] != "deny"
 

@@ -8,10 +8,12 @@ and the agent's next turn reads it instead of asking for it.
 It answers only a large Grep. The whole match set is collected first; when it
 is under both size thresholds (matching lines, matching files) the Grep runs
 untouched, because a small Grep is the agent's cheap path and an answer there
-saves nothing. At or over either threshold the answer is the whole match set:
-every matching line while that fits the size cap, otherwise every match
-counted by file and by the function or class it sits in, with each symbol's id
-and span. A page that drops matches is never sent.
+saves nothing. At or over either threshold the answer counts the whole match
+set without the lines: by file and by the function or class each match sits
+in, with each symbol's id and span. When that does not fit the size cap it
+counts by file only, and then lists the busiest files and sums the rest. Every
+form counts every match; a page that drops matches is never sent. (Measured
+2026-11-05: the matching lines themselves never cost less than the Grep.)
 
 It answers at most once per (session, search root, Grep arguments): the same
 Grep sent again runs normally, which is the escape hatch to raw output. It
@@ -19,8 +21,7 @@ answers nothing, and the Grep runs untouched, when the switch is off, the
 search root is not an indexed repo, the arguments have no index translation
 (file type, multiline, context lines, paging, a count, a `**` glob), an indexed
 file changed on disk since it was indexed, or the search errors, finds nothing,
-is cut short (time budget, the scan cap, unreadable files) or fits the size cap
-in neither form.
+or is cut short (time budget, the scan cap, unreadable files).
 
 The answer says what it is: a case-insensitive search of the files the index
 holds, as they were indexed. Files the index does not cover (most docs, config
@@ -59,7 +60,14 @@ _STATE_FILE = "_grep_answered.json"
 _ON = {"1", "true", "yes", "on"}
 # Grep arguments whose output the index answer cannot reproduce.
 _UNTRANSLATABLE = (
-    "type", "multiline", "-A", "-B", "-C", "context", "head_limit", "offset",
+    "type",
+    "multiline",
+    "-A",
+    "-B",
+    "-C",
+    "context",
+    "head_limit",
+    "offset",
 )
 _REGEX_CHARS = re.compile(r"[\\^$.|?*+()\[\]{}]")
 
@@ -301,7 +309,7 @@ def answer_grep(tool_input: dict, cwd: str, session_id: str) -> "str | None":
     )
     if out is None:
         return None
-    repo, res = out
+    _repo, res = out
     if not _complete(res):
         return None
     line_count = res.get("result_count") or 0
@@ -323,31 +331,78 @@ def answer_grep(tool_input: dict, cwd: str, session_id: str) -> "str | None":
         "config and data) and files added since were not searched."
     )
     retry = "Send the same Grep again to run it as written."
-    try:
-        from ...encoding import encode_response
-
-        payload, _ = encode_response("search_text", res, repo=repo)
-    except Exception:
-        logger.debug("grep-answer encoding failed", exc_info=True)
+    body = _counted(res)
+    if body is None:
         return None
-    if not isinstance(payload, str):
-        payload = json.dumps(payload, separators=(",", ":"), default=str)
-    if len(payload) <= MAX_ANSWER_CHARS:
-        text = f"{ANSWER_MARKER}: {scope} {retry}\n{payload}"
-    else:
-        grouped = json.dumps(_grouped(res), separators=(",", ":"), default=str)
-        if len(grouped) > MAX_ANSWER_CHARS:
-            return None
-        text = (
-            f"{ANSWER_MARKER}: {scope} All {line_count} matching lines in "
-            f"{file_count} files are counted below, by file and by the function or "
-            "class they sit in; the lines themselves did not fit and are not shown. "
-            f"get_symbol_source with an id reads that symbol. {retry}\n{grouped}"
+    form, payload = body
+    if form == "symbols":
+        how = (
+            "by file and by the function or class they sit in. "
+            "get_symbol_source with an id reads that symbol."
         )
+    elif form == "files":
+        how = "by file."
+    else:
+        how = (
+            "by file for the files with the most matches; `other_files` and "
+            "`other_matches` count the rest."
+        )
+    text = (
+        f"{ANSWER_MARKER}: {scope} All {line_count} matching lines in "
+        f"{file_count} files are counted below, {how} The lines themselves are "
+        f"not shown. {retry}\n{payload}"
+    )
     _remember(key)
     elapsed = time.monotonic() - started
     logger.debug("grep-answer answered in %.3fs", elapsed)
     return text
+
+
+def _dump(obj) -> str:
+    return json.dumps(obj, separators=(",", ":"), default=str)
+
+
+def _counted(res: dict):
+    """(form, JSON) for the largest counted form that fits MAX_ANSWER_CHARS.
+
+    Every form counts the whole match set; a smaller form drops detail, never
+    matches. "symbols" counts by file and enclosing symbol; "files" by file;
+    "top_files" lists the busiest files and sums the rest. None only when not
+    even the totals fit.
+    """
+    grouped = _grouped(res)
+    text = _dump(grouped)
+    if len(text) <= MAX_ANSWER_CHARS:
+        return "symbols", text
+    files = [{"file": g["file"], "matches": g["matches"]} for g in grouped["groups"]]
+    head = {
+        "result_count": grouped["result_count"],
+        "file_count": grouped["file_count"],
+    }
+    text = _dump({**head, "files": files})
+    if len(text) <= MAX_ANSWER_CHARS:
+        return "files", text
+    ranked = sorted(files, key=lambda f: (-f["matches"], str(f["file"])))
+    total = grouped["result_count"]
+    # Largest prefix of the busiest files that fits, found by bisection.
+    lo, hi, best = 0, len(ranked), None
+    while lo <= hi:
+        mid = (lo + hi) // 2
+        shown = ranked[:mid]
+        rest = ranked[mid:]
+        cand = _dump(
+            {
+                **head,
+                "files": shown,
+                "other_files": len(rest),
+                "other_matches": total - sum(f["matches"] for f in shown),
+            }
+        )
+        if len(cand) <= MAX_ANSWER_CHARS:
+            best, lo = cand, mid + 1
+        else:
+            hi = mid - 1
+    return ("top_files", best) if best is not None else None
 
 
 def _grouped(res: dict) -> dict:
@@ -366,12 +421,15 @@ def _grouped(res: dict) -> dict:
             if not sym_id:
                 outside += 1
                 continue
-            entry = symbols.setdefault(sym_id, {
-                "id": sym_id,
-                "line": enclosing.get("line"),
-                "end_line": enclosing.get("end_line"),
-                "matches": 0,
-            })
+            entry = symbols.setdefault(
+                sym_id,
+                {
+                    "id": sym_id,
+                    "line": enclosing.get("line"),
+                    "end_line": enclosing.get("end_line"),
+                    "matches": 0,
+                },
+            )
             entry["matches"] += 1
         row = {
             "file": group.get("file"),
