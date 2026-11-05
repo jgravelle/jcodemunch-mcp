@@ -1219,14 +1219,12 @@ def run_index(*, dry_run: bool = False) -> str:
 
     try:
         from ..tools.index_folder import index_folder
-        from ..security import get_cli_max_folder_files
+        from ..security import get_cli_folder_cap
 
+        cap, cap_key = get_cli_folder_cap(str(Path(cwd).resolve()))
         return _index_summary(
             cwd,
-            index_folder(
-                path=cwd,
-                max_folder_files=get_cli_max_folder_files(repo=str(Path(cwd).resolve())),
-            ),
+            index_folder(path=cwd, max_folder_files=cap, cap_key=cap_key),
         )
     except Exception as e:
         return f"  indexing failed: {e}"

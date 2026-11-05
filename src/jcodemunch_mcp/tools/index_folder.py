@@ -32,6 +32,9 @@ from ..security import (
     DEFAULT_MAX_FILE_SIZE,
     get_max_file_size,
     get_max_folder_files,
+    get_cli_folder_cap,
+    cap_label,
+    cap_remedy,
     get_extra_ignore_patterns,
     get_respect_cachedir_tag,
     get_skip_directories,
@@ -71,7 +74,9 @@ from ..path_map import parse_path_map, remap
 SKIP_FILES_REGEX = re.compile("(" + "|".join(re.escape(p) for p in SKIP_FILES) + ")$")
 
 
-def _file_cap_report(skip_counts: dict, max_files: int) -> dict:
+def _file_cap_report(
+    skip_counts: dict, max_files: int, cap_key: Optional[str] = None
+) -> dict:
     """Summarise whether the max_folder_files walk cap dropped files (#366).
 
     Returns the full truncation block when the cap was hit, else
@@ -87,11 +92,26 @@ def _file_cap_report(skip_counts: dict, max_files: int) -> dict:
         "files_indexed": max_files,
         "files_skipped_cap": dropped,
         "max_folder_files": max_files,
+        # The key that set this cap, when it is not max_folder_files (the
+        # command line's cli_max_folder_files): the advice raises that one.
+        **({"cap_key": cap_key} if cap_key and cap_key != "max_folder_files" else {}),
     }
 
 
+def _with_cli_remedy(cap: dict, folder_path: Path) -> dict:
+    """A cap status over kept files, with the command line's cap that re-parses them."""
+    if not cap.get("truncated"):
+        return cap
+    cli_cap, cli_key = get_cli_folder_cap(str(folder_path))
+    return {**cap, "cli_cap": cli_cap, "cli_cap_key": cli_key}
+
+
 def _cap_kept_warning(
-    rebuild_reason: Optional[str], max_files: int, stale: int = 0
+    rebuild_reason: Optional[str],
+    max_files: int,
+    folder_path: Path,
+    discovered: int,
+    stale: int = 0,
 ) -> str:
     """Why a capped call kept files it did not re-parse, and the call that does."""
     head = f"A full re-parse was due ({rebuild_reason}), but this" if rebuild_reason else "This"
@@ -101,10 +121,14 @@ def _cap_kept_warning(
         if stale
         else ""
     )
+    remedy = cap_remedy(
+        _with_cli_remedy(
+            {"truncated": True, "files_discovered": discovered}, folder_path
+        )
+    )
     return (
         f"{head} call's file cap ({max_files}) is below the files the index holds, so "
-        f"it kept the files past the cap as they were last parsed.{changed} Run "
-        "`jcodemunch-mcp index` (its cap is cli_max_folder_files) to re-parse every file."
+        f"it kept the files past the cap as they were last parsed.{changed} {remedy}"
     )
 
 
@@ -183,9 +207,13 @@ def _attach_cap_report(result: dict, cap: Optional[dict]) -> None:
     result.setdefault("warnings", []).append(
         f"File cap reached: {cap['files_discovered']} files discovered, "
         f"{cap['files_indexed']} indexed, {cap['files_skipped_cap']} dropped "
-        f"(max_folder_files={cap['max_folder_files']}). Entire files are missing "
-        f"from the index. Raise max_folder_files in config.jsonc (or set "
-        f"JCODEMUNCH_MAX_FOLDER_FILES) and re-index, or narrow the path."
+        f"({cap_label(cap)}={cap['max_folder_files']}). Entire files are missing "
+        "from the index. "
+        + (
+            cap_remedy(cap)
+            or "Raise max_folder_files in config.jsonc (or set "
+            "JCODEMUNCH_MAX_FOLDER_FILES) and re-index, or narrow the path."
+        )
     )
 
 
@@ -1860,6 +1888,7 @@ def index_folder(
     max_size: Optional[int] = None,
     paths_honor_gitignore: bool = True,
     max_folder_files: Optional[int] = None,
+    cap_key: Optional[str] = None,
 ) -> dict:
     """Index a local folder containing source code.
 
@@ -2684,7 +2713,9 @@ def index_folder(
         # Truncation status for this walk (#366). Persisted on every save path so a
         # silently-capped index is loud in the index result, in resolve_repo, and
         # in query _meta. Always a dict (self-heals when a raised cap clears it).
-        _cap_status = _file_cap_report(skip_counts, max_files)
+        _cap_status = _file_cap_report(skip_counts, max_files, cap_key)
+        # Files this walk found (before the cap), for the kept-files advice.
+        _cap_walk_discovered = int(_cap_status.get("files_discovered") or len(source_files))
         # Files the walk accepted and the cap then cut, in the stored key form.
         # They exist and are wanted, so a capped call must not delete them from
         # an index that already holds them (built under a higher cap: the CLI's).
@@ -3139,7 +3170,9 @@ def index_folder(
             incremental = True
             if PARSER_UPGRADE_WARNING in warnings:
                 warnings.remove(PARSER_UPGRADE_WARNING)
-            _cap_rebuild_warning = _cap_kept_warning(rebuild_reason, max_files)
+            _cap_rebuild_warning = _cap_kept_warning(
+                rebuild_reason, max_files, folder_path, _cap_walk_discovered
+            )
             _cap_fallback_reason = rebuild_reason
             warnings.append(_cap_rebuild_warning)
             rebuild_reason = None
@@ -3173,14 +3206,18 @@ def index_folder(
                 _cap_status = _cap_status_for_kept(
                     _cap_status, _cap_dropped_rels, _inc_stored - _cap_stale,
                 )
+                if _inc_kept:
+                    _cap_status = _with_cli_remedy(_cap_status, folder_path)
                 if _inc_kept and _cap_rebuild_warning is None:
                     _cap_rebuild_warning = _cap_kept_warning(
-                        None, max_files, len(_cap_stale)
+                        None, max_files, folder_path, _cap_walk_discovered,
+                        len(_cap_stale),
                     )
                     warnings.append(_cap_rebuild_warning)
                 elif _cap_rebuild_warning is not None and _cap_stale:
                     _updated = _cap_kept_warning(
-                        _cap_fallback_reason, max_files, len(_cap_stale)
+                        _cap_fallback_reason, max_files, folder_path,
+                        _cap_walk_discovered, len(_cap_stale),
                     )
                     warnings[warnings.index(_cap_rebuild_warning)] = _updated
                     _cap_rebuild_warning = _updated
@@ -3782,14 +3819,20 @@ def index_folder(
                     _cap_stale = _stale_kept(
                         _cap_dropped_paths, folder_path, _cap_base, _cap_keep
                     )
-                    _cap_status = _cap_status_for_kept(
-                        _cap_status, _cap_dropped_rels,
-                        set(_save_source_files) - _cap_stale,
+                    _cap_status = _with_cli_remedy(
+                        _cap_status_for_kept(
+                            _cap_status, _cap_dropped_rels,
+                            set(_save_source_files) - _cap_stale,
+                        ),
+                        folder_path,
                     )
                     if PARSER_UPGRADE_WARNING in warnings:
                         warnings.remove(PARSER_UPGRADE_WARNING)
                     warnings.append(
-                        _cap_kept_warning(rebuild_reason, max_files, len(_cap_stale))
+                        _cap_kept_warning(
+                            rebuild_reason, max_files, folder_path,
+                            _cap_walk_discovered, len(_cap_stale),
+                        )
                     )
                 logger.info(
                     "v1.96 subdir merge: %d carried + %d new = %d files "

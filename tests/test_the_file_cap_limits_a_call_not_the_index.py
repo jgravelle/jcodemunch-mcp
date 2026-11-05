@@ -729,3 +729,99 @@ def test_the_cli_cap_names_the_key_that_set_it(tree, monkeypatch, in_call, cli, 
     monkeypatch.setitem(config_module._GLOBAL_CONFIG, "cli_max_folder_files", cli)
     assert get_cli_folder_cap(str(tree)) == expect
     assert get_cli_max_folder_files(repo=str(tree)) == expect[0]
+
+
+# --- every reader of the cap status names the cap that applies ------------
+
+
+def _answer_line(repo: str):
+    from jcodemunch_mcp.retrieval.verdict import (
+        index_truncation_meta,
+        index_truncation_warning,
+    )
+
+    return index_truncation_warning(index_truncation_meta(_load(repo).file_cap_status))
+
+
+def test_a_changed_kept_file_names_the_command_that_re_reads_it(cli_built):
+    """The CLI cap covers the repo, so the step is to run it, in the result, in
+    resolve_repo and in a search's answer line alike."""
+    from jcodemunch_mcp.tools.resolve_repo import resolve_repo
+
+    root, repo = cli_built
+    _edit(root / "pkg" / "m6.py", "added_past_cap")
+    res = _in_call(root)
+    step = "Run `jcodemunch-mcp index` to re-parse every file."
+    assert any(step in w for w in res.get("warnings") or []), res
+    assert step in resolve_repo(str(root))["truncation_warning"]
+    assert step in _answer_line(repo)
+
+
+def test_a_cli_cap_below_the_repo_says_to_raise_it_before_running_it(
+    cli_built, monkeypatch
+):
+    """The user lowers max_folder_files and leaves the CLI key at its default, so
+    max_folder_files binds the command line too. Running `index` alone would
+    keep m6 stale and the advice would loop: it names the key and the count."""
+    from jcodemunch_mcp.security import get_cli_folder_cap
+    from jcodemunch_mcp.tools.resolve_repo import resolve_repo
+
+    root, repo = cli_built
+    monkeypatch.setitem(config_module._GLOBAL_CONFIG, "max_folder_files", 3)
+    monkeypatch.setitem(config_module._GLOBAL_CONFIG, "cli_max_folder_files", 30000)
+    cap, key = get_cli_folder_cap(str(root))
+    assert (cap, key) == (3, "max_folder_files"), "precondition"
+    _edit(root / "pkg" / "m6.py", "added_past_cap")
+    res = _in_call(root, max_folder_files=cap, cap_key=key)  # what `init` does
+    step = f"to at least {N}, then run `jcodemunch-mcp index`."
+    advice = (
+        "Raise max_folder_files in config.jsonc (or set JCODEMUNCH_MAX_FOLDER_FILES) "
+    )
+    assert any(advice + step in w for w in res.get("warnings") or []), res
+    assert not any("to re-parse every file" in w for w in res.get("warnings") or [])
+    assert advice + step in resolve_repo(str(root))["truncation_warning"]
+    assert step in _answer_line(repo)
+
+
+def test_the_index_subcommand_result_names_the_cli_cap(tree, capsys):
+    """The result JSON and resolve_repo say what stderr says: the CLI cap set
+    the limit, so its key is the one to raise."""
+    import os
+
+    from jcodemunch_mcp import server
+    from jcodemunch_mcp.tools.resolve_repo import resolve_repo
+
+    store = Path(os.environ["CODE_INDEX_PATH"])
+    store.mkdir(parents=True, exist_ok=True)
+    (store / "config.jsonc").write_text(
+        json.dumps({"max_folder_files": 3, "cli_max_folder_files": 5}),
+        encoding="utf-8",
+    )
+    try:
+        server.main(["index", str(tree)])
+    except SystemExit as exc:
+        assert not exc.code, exc.code
+    out = capsys.readouterr().out
+    res = json.loads(out[out.index("{") :])
+    cap_lines = [w for w in res.get("warnings") or [] if "File cap reached" in w]
+    assert cap_lines and "(cli_max_folder_files=5)" in cap_lines[0], res
+    assert "Raise cli_max_folder_files in config.jsonc" in cap_lines[0]
+    assert "JCODEMUNCH_MAX_FOLDER_FILES" not in cap_lines[0]
+    warn = resolve_repo(str(tree))["truncation_warning"]
+    assert "(cli_max_folder_files=5)" in warn and "Raise cli_max_folder_files" in warn
+
+
+def test_an_agent_capped_index_keeps_its_advice_word_for_word(tree):
+    """The plain case: no CLI index, no kept files. Its text does not move."""
+    from jcodemunch_mcp.tools.resolve_repo import resolve_repo
+
+    repo = _in_call(tree)["repo"]
+    assert "cap_key" not in _load(repo).file_cap_status
+    assert resolve_repo(str(tree))["truncation_warning"].endswith(
+        "Raise max_folder_files in config.jsonc (or set "
+        "JCODEMUNCH_MAX_FOLDER_FILES) and re-index."
+    )
+    assert _answer_line(repo).endswith(
+        "Raise max_folder_files in config.jsonc, or set "
+        "JCODEMUNCH_MAX_FOLDER_FILES, and re-index to search the rest."
+    )

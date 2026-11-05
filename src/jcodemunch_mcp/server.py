@@ -1398,13 +1398,15 @@ def _warn_capped_index(
     # A local `index` names the key that bound its cap (`cap_key`, from
     # get_cli_folder_cap). cli_max_folder_files has no env var, and raising
     # max_folder_files when it did not bind would only raise the agent's cap.
+    from .security import cap_raise_advice
+
     if not local:
-        key, env = "max_index_files", "JCODEMUNCH_MAX_INDEX_FILES"
+        key = "max_index_files"
     elif cap_key == "cli_max_folder_files":
-        key, env = cap_key, None
+        key = cap_key
     else:
-        key, env = "max_folder_files", "JCODEMUNCH_MAX_FOLDER_FILES"
-    raise_it = f"Raise {key} in config.jsonc" + (f" (or set {env})" if env else "")
+        key = "max_folder_files"
+    raise_it = cap_raise_advice(key)
     print(
         f"jcodemunch-mcp: warning: the index holds {result.get('files_indexed')} of "
         f"{result.get('files_discovered')} files; {skipped} were left out by the "
@@ -11880,6 +11882,7 @@ def main(argv: Optional[list[str]] = None):
             result = _index_folder(
                 path=t,
                 max_folder_files=_cap,
+                cap_key=_cap_key,
                 use_ai_summaries=use_ai,
                 storage_path=os.environ.get("CODE_INDEX_PATH"),
                 extra_ignore_patterns=args.extra_ignore,

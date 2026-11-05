@@ -80,6 +80,8 @@ def test_every_behaviour_knob_reaches_the_watcher():
                             "`index`; a watcher's capped walk never deletes the "
                             "files its cap skipped, and it re-parses a changed "
                             "file past the cap from its event",
+        "cap_key": "names the config key behind `max_folder_files` for the "
+                   "cap advice; passed only with it, by `init` and `index`",
     }
     expected = offered - set(not_the_watchers_to_set)
     reachable = _knobs(_CHAIN["watch_folders"]) | {"paths"}
