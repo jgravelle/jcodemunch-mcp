@@ -207,6 +207,8 @@ def test_the_hook_freshness_check_does_not_load_the_full_index(indexed, full_loa
 def test_the_hook_answer_does_not_load_the_full_index(indexed, full_loads, monkeypatch):
     _, _, src = indexed
     monkeypatch.setenv("JCODEMUNCH_HOOK_GREP_ANSWER", "1")
+    # The hook answers only at or over its size gate; this repo is small.
+    monkeypatch.setenv("JCODEMUNCH_HOOK_GREP_ANSWER_MIN_LINES", "1")
     _cold()
     assert grep_answer.answer_grep({"pattern": "beacon"}, str(src), "s-cold")
     assert full_loads == []
@@ -215,6 +217,8 @@ def test_the_hook_answer_does_not_load_the_full_index(indexed, full_loads, monke
 def test_the_hook_logs_each_stage_at_debug(indexed, monkeypatch, caplog):
     _, _, src = indexed
     monkeypatch.setenv("JCODEMUNCH_HOOK_GREP_ANSWER", "1")
+    # The hook answers only at or over its size gate; this repo is small.
+    monkeypatch.setenv("JCODEMUNCH_HOOK_GREP_ANSWER_MIN_LINES", "1")
     _cold()
     with caplog.at_level(logging.DEBUG, logger=grep_answer.logger.name):
         out = grep_answer.answer_grep({"pattern": "beacon"}, str(src), "s-stage")
