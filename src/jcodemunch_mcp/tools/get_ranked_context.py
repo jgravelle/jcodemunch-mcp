@@ -14,6 +14,7 @@ from ..retrieval.scoring import rank_factor
 from .search_symbols import (
     _bm25_score,
     _NEGATIVE_EVIDENCE_THRESHOLD,
+    _attach_index_truncation,
     BYTES_PER_TOKEN,
     ensure_bm25_cache,
 )
@@ -420,6 +421,7 @@ def get_ranked_context(
                 "total_tokens_saved": 0,
             },
         }
+        _attach_index_truncation(result["_meta"], index)
         # This path asserts "Do not claim this feature exists" in prose, and
         # until #377 item 6 it did so with none of the machinery that decides
         # whether such a claim is allowed: no verdict, no freshness, no
@@ -584,6 +586,7 @@ def get_ranked_context(
     )
     _probe.annotate(context_items)
     result["_meta"]["freshness"] = _probe.summary(context_items)
+    _attach_index_truncation(result["_meta"], index)
     _attach_confidence(result, context_items, is_stale=_probe.repo_is_stale)
     from ..retrieval.verdict import build_verdict as _build_verdict
     from ..retrieval.verdict import index_changed_since_load as _index_changed_since_load
@@ -828,6 +831,7 @@ def _get_ranked_context_fusion(
         file_rel = sid.split("::", 1)[0] if "::" in sid else ""
         item["_freshness"] = _probe.classify(file_rel)
     fusion_result["_meta"]["freshness"] = _probe.summary(context_items)
+    _attach_index_truncation(fusion_result["_meta"], index)
     # v1.108.187. This exit passed NO ledger features, so `top1_score`, `top2_score`
     # and `identity_hit` were recorded as their defaults on every row it has ever
     # written — three of regret's six signals read those columns, and a default is
