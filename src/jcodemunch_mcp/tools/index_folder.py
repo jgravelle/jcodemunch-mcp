@@ -112,6 +112,7 @@ def _cap_kept_warning(
     folder_path: Path,
     discovered: int,
     stale: int = 0,
+    cap_key: Optional[str] = None,
 ) -> str:
     """Why a capped call kept files it did not re-parse, and the call that does."""
     head = f"A full re-parse was due ({rebuild_reason}), but this" if rebuild_reason else "This"
@@ -127,7 +128,7 @@ def _cap_kept_warning(
         )
     )
     return (
-        f"{head} call's file cap ({max_files}) is below the files the index holds, so "
+        f"{head} call's file cap ({cap_key or 'max_folder_files'} = {max_files}) is below the files the index holds, so "
         f"it kept the files past the cap as they were last parsed.{changed} {remedy}"
     )
 
@@ -204,6 +205,11 @@ def _attach_cap_report(result: dict, cap: Optional[dict]) -> None:
     result["files_discovered"] = cap["files_discovered"]
     result["files_indexed"] = cap["files_indexed"]
     result["files_skipped_cap"] = cap["files_skipped_cap"]
+    # The cap and the key that set it, so a reader of the result (init's
+    # summary line) names them the way the stored status does.
+    result["max_folder_files"] = cap["max_folder_files"]
+    if cap.get("cap_key"):
+        result["cap_key"] = cap["cap_key"]
     result.setdefault("warnings", []).append(
         f"File cap reached: {cap['files_discovered']} files discovered, "
         f"{cap['files_indexed']} indexed, {cap['files_skipped_cap']} dropped "
@@ -1511,6 +1517,7 @@ def resolve_explicit_paths(
     max_size: Optional[int] = None,
     follow_symlinks: bool = False,
     honor_gitignore: bool = True,
+    cap_dropped: Optional[list] = None,
 ) -> tuple[list[Path], list[str], dict[str, int], list[str]]:
     """Materialise a caller-supplied list of paths into the (files, warnings,
     skip_counts, requested_rels) shape that the standard indexing pipeline
@@ -1540,6 +1547,12 @@ def resolve_explicit_paths(
     Used by ``index_folder(paths=...)`` so agents can re-index exactly the
     files they already know about (git-diff list, edited-files list,
     rg-matched list) without paying the cost of a full directory walk.
+
+    ``cap_dropped``, like ``discover_local_files``'s, receives the files the
+    listed entries resolved to and the cap then cut. A capped call must not
+    delete those from an index built under a higher cap, so they are recorded,
+    never silently left out by stopping early; ``skip_counts["file_limit"]``
+    counts them.
     """
     # Same resolve-on-entry rule as discover_local_files: the explicit-paths
     # route is a second walk entry point, and a cap that applies to one and not
@@ -1554,10 +1567,16 @@ def resolve_explicit_paths(
 
     cap = max_files if max_files is not None else 10_000_000
     gitignore_cache: dict = {}
+    # Files accepted after the cap filled: cut, not absent (see cap_dropped).
+    overflow: list[Path] = []
+
+    def _place(f: Path) -> None:
+        if len(files) < cap:
+            files.append(f)
+        else:
+            overflow.append(f)
 
     for raw in paths:
-        if len(files) >= cap:
-            break
         if not isinstance(raw, str) or not raw.strip():
             warnings.append(f"Skipped empty/non-string path: {raw!r}")
             continue
@@ -1585,29 +1604,33 @@ def resolve_explicit_paths(
             continue
 
         if p.is_dir():
-            remaining = cap - len(files)
+            # The subtree walk keeps its own cut list, so nothing past the cap
+            # is lost; _place decides what this call keeps. (A max_files of 0
+            # is refused by the resolver, hence the floor of 1.)
+            sub_dropped: list[Path] = []
             sub_files, sub_warnings, sub_skip = discover_local_files(
                 p,
-                max_files=remaining,
+                max_files=max(1, cap - len(files)),
                 max_size=max_size,
                 follow_symlinks=follow_symlinks,
+                cap_dropped=sub_dropped,
             )
             warnings.extend(sub_warnings)
             for k, v in sub_skip.items():
+                if k == "file_limit":
+                    continue  # recounted below from what this call cut
                 skip_counts[k] = skip_counts.get(k, 0) + v
             # The subtree walk reads the .gitignore files inside ``p``; the
             # ones above it, up to ``walk_root``, are applied here.
             above = _gitignore_specs_on_path(walk_root, p) if honor_gitignore and p != walk_root else []
-            for f in sub_files:
+            for f in list(sub_files) + sub_dropped:
                 fr = f.resolve()
                 if above and _is_gitignored_fast(str(fr), above):
                     skip_counts["gitignore"] = skip_counts.get("gitignore", 0) + 1
                     continue
                 if fr not in seen:
                     seen.add(fr)
-                    files.append(f)
-                    if len(files) >= cap:
-                        break
+                    _place(f)
             continue
 
         if not p.is_file():
@@ -1660,9 +1683,13 @@ def resolve_explicit_paths(
         pr = p.resolve()
         if pr not in seen:
             seen.add(pr)
-            files.append(p)
+            _place(p)
 
-    return files[:cap], warnings, skip_counts, requested_rels
+    if overflow:
+        skip_counts["file_limit"] = len(overflow)
+        if cap_dropped is not None:
+            cap_dropped.extend(overflow)
+    return files, warnings, skip_counts, requested_rels
 
 
 def discover_local_files(
@@ -2697,6 +2724,7 @@ def index_folder(
                 max_size=max_size,
                 follow_symlinks=follow_symlinks,
                 honor_gitignore=paths_honor_gitignore,
+                cap_dropped=_cap_dropped_paths,
             )
         else:
             source_files, discover_warnings, skip_counts = discover_local_files(
@@ -3171,7 +3199,8 @@ def index_folder(
             if PARSER_UPGRADE_WARNING in warnings:
                 warnings.remove(PARSER_UPGRADE_WARNING)
             _cap_rebuild_warning = _cap_kept_warning(
-                rebuild_reason, max_files, folder_path, _cap_walk_discovered
+                rebuild_reason, max_files, folder_path, _cap_walk_discovered,
+                cap_key=cap_key,
             )
             _cap_fallback_reason = rebuild_reason
             warnings.append(_cap_rebuild_warning)
@@ -3211,13 +3240,13 @@ def index_folder(
                 if _inc_kept and _cap_rebuild_warning is None:
                     _cap_rebuild_warning = _cap_kept_warning(
                         None, max_files, folder_path, _cap_walk_discovered,
-                        len(_cap_stale),
+                        len(_cap_stale), cap_key=cap_key,
                     )
                     warnings.append(_cap_rebuild_warning)
                 elif _cap_rebuild_warning is not None and _cap_stale:
                     _updated = _cap_kept_warning(
                         _cap_fallback_reason, max_files, folder_path,
-                        _cap_walk_discovered, len(_cap_stale),
+                        _cap_walk_discovered, len(_cap_stale), cap_key=cap_key,
                     )
                     warnings[warnings.index(_cap_rebuild_warning)] = _updated
                     _cap_rebuild_warning = _updated
@@ -3242,7 +3271,10 @@ def index_folder(
                         fp for fp in old_files
                         if any(fp == req or fp.startswith(req + "/") for req in requested_rels)
                     }
-                deleted = sorted(covered - set(file_mtimes))
+                # Files this call's cap cut are not deleted here either: the
+                # rescope recomputes `deleted`, so the cap exclusion above has
+                # to be applied again.
+                deleted = sorted(covered - set(file_mtimes) - _cap_dropped_rels)
 
                 # v1.108.259 (#395): re-parse the listed files even when their
                 # content is unchanged. `detect_changes_with_mtimes` compares
@@ -3831,7 +3863,7 @@ def index_folder(
                     warnings.append(
                         _cap_kept_warning(
                             rebuild_reason, max_files, folder_path,
-                            _cap_walk_discovered, len(_cap_stale),
+                            _cap_walk_discovered, len(_cap_stale), cap_key=cap_key,
                         )
                     )
                 logger.info(

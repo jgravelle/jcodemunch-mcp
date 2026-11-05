@@ -825,3 +825,64 @@ def test_an_agent_capped_index_keeps_its_advice_word_for_word(tree):
         "Raise max_folder_files in config.jsonc, or set "
         "JCODEMUNCH_MAX_FOLDER_FILES, and re-index to search the rest."
     )
+
+
+# --- an agent's explicit paths= list over a CLI-built index ------------------
+
+
+@pytest.mark.parametrize("listed", [["."], ["pkg"], ["pkg/"]])
+def test_an_agent_paths_call_keeps_the_files_its_cap_cut(cli_built, listed):
+    """`paths=` is an MCP argument. Its resolver cut the list at the in-call cap
+    and threw the rest away, so the rescope read every file past the cap as
+    deleted: 8 stored, 3 left."""
+    root, repo = cli_built
+    res = _in_call(root, paths=listed)
+    assert len(_files(repo)) == N, (
+        f"paths={listed} shrank a CLI-built index to {len(_files(repo))} files"
+    )
+    assert not res.get("deleted"), res.get("deleted")
+
+
+def test_an_agent_paths_call_still_drops_a_listed_file_deleted_on_disk(cli_built):
+    root, repo = cli_built
+    (root / "pkg" / "m6.py").unlink()
+    _in_call(root, paths=["pkg"])
+    assert "pkg/m6.py" not in _files(repo)
+    assert len(_files(repo)) == N - 1
+
+
+def test_the_paths_resolver_reports_what_its_cap_cut(tree):
+    from jcodemunch_mcp.tools.index_folder import resolve_explicit_paths
+
+    dropped: list = []
+    files, _w, skips, _r = resolve_explicit_paths(
+        tree, ["pkg", "pkg/m7.py"], max_files=3, cap_dropped=dropped
+    )
+    assert len(files) == 3
+    assert len(dropped) == N - 3
+    assert skips.get("file_limit") == N - 3
+    assert not {f.resolve() for f in files} & {f.resolve() for f in dropped}
+
+
+# --- every cap message names the key that set it ------------------------------
+
+
+def test_init_names_the_key_that_capped_it(tree, monkeypatch):
+    from jcodemunch_mcp.cli.init import run_index
+    import os
+
+    monkeypatch.setitem(config_module._GLOBAL_CONFIG, "cli_max_folder_files", 5)
+    cwd = Path.cwd()
+    os.chdir(tree)
+    try:
+        msg = run_index()
+    finally:
+        os.chdir(cwd)
+    assert "cli_max_folder_files = 5" in msg, msg
+    assert "raise cli_max_folder_files in config.jsonc" in msg, msg
+
+
+def test_the_kept_files_warning_names_the_in_call_key(cli_built):
+    root, _repo = cli_built
+    warnings = " ".join(_in_call(root).get("warnings") or [])
+    assert "file cap (max_folder_files = 3)" in warnings, warnings

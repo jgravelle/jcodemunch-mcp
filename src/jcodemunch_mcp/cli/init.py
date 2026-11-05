@@ -1255,8 +1255,23 @@ def _index_summary(cwd: str, result: dict) -> str:
         parts.append(f"{result['symbol_count']} symbols")
     detail = ", ".join(parts)
     if result.get("truncated"):
-        capped = "the file cap was reached, {} of {} files are in the index".format(
-            result.get("files_indexed", "some"), result.get("files_discovered", "the")
+        from ..security import cap_label, cap_raise_advice
+
+        # Name the key that set the cap and how to raise it, as every other cap
+        # message does: the obvious guess, max_folder_files, would also raise
+        # an agent's in-call cap, which is kept low on purpose.
+        key = cap_label(result)
+        value = result.get("max_folder_files")
+        named = f"{key} = {value}" if isinstance(value, int) else key
+        advice = cap_raise_advice(key)
+        capped = (
+            "the file cap ({}) was reached, {} of {} files are in the index; "
+            "{} to index the rest"
+        ).format(
+            named,
+            result.get("files_indexed", "some"),
+            result.get("files_discovered", "the"),
+            advice[0].lower() + advice[1:],
         )
         detail = f"{detail}; {capped}" if detail else capped
     if unchanged:
