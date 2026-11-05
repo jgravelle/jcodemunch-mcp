@@ -3116,3 +3116,9 @@ The 1.108.414 entry, verbatim as it stood in `CLAUDE.md`:
 The 1.108.415 entry, verbatim as it stood in `CLAUDE.md`:
 
 - **Prior (1.108.415):** **a search for library code ranks the library above its tutorial and example copies** (#1324): `search_symbols` weights a symbol under an example, tutorial, sample or demo directory down when the query isn't about examples, the way it already weighted tests; a served debug row names the weight under `score_breakdown`. Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-05, release 1.108.419)
+
+The 1.108.416 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.416):** **a search credits the tokens it saved on a fresh install's index** (#1330): a full save and a branch save store a size for every file from the content folder, and an index built before the fix reads a missing size from its content copy, so `search_symbols` and five other read tools credit savings without a re-index. Full text: `CHANGELOG.md`.
