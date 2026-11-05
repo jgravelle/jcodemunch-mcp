@@ -1,6 +1,12 @@
 {
-  "current": "1.108.418",
+  "current": "1.108.419",
   "entries": [
+    {
+      "version": "1.108.419",
+      "date": "2026-11-05",
+      "title": "the file cap limits what one call parses, not what the index keeps",
+      "summary": "An agent's capped index call no longer shrinks an index the command line built past the cap, and the opt-in Grep answer counts every match of a large Grep."
+    },
     {
       "version": "1.108.418",
       "date": "2026-11-05",
