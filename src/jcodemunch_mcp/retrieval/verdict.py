@@ -48,6 +48,29 @@ def index_truncation_meta(cap: Optional[dict]) -> Optional[dict]:
     }
 
 
+def index_truncation_warning(block: Optional[dict]) -> Optional[str]:
+    """The answer-body line for a result drawn from a capped index, or None.
+
+    ``block`` is the ``_meta.index_truncated`` dict from :func:`index_truncation_meta`.
+    The dispatcher puts this line in the BODY because ``meta_fields: []``, the
+    shipped default, strips ``_meta``: without it a search that finds something
+    on a capped index reads as a search of the whole repo.
+    """
+    if not isinstance(block, dict) or not block.get("truncated"):
+        return None
+    indexed, discovered = block.get("files_indexed"), block.get("files_discovered")
+    held = (
+        f"{indexed:,} of {discovered:,} files"
+        if isinstance(indexed, int) and isinstance(discovered, int)
+        else "only part of the repo's files"
+    )
+    return (
+        f"This index holds {held} (the max_folder_files cap), so these results come "
+        "only from those files. Raise max_folder_files in config.jsonc, or set "
+        "JCODEMUNCH_MAX_FOLDER_FILES, and re-index to search the rest."
+    )
+
+
 # Version pin for the confidence/score heuristics the verdict reports.
 # Bump whenever the scoring formula (BM25 blending, thresholds, seeding
 # floors) changes, so calibration claims tie to the scorer that produced
