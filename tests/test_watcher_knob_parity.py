@@ -76,6 +76,10 @@ def test_every_behaviour_knob_reaches_the_watcher():
         "paths_honor_gitignore": "applies only to `paths=`, which the watcher "
                                  "never passes; index_dependency alone sets it, "
                                  "for its own pre-filtered snapshot",
+        "max_folder_files": "the command line's own cap, passed only by `init` and "
+                            "`index`; a watcher's capped walk never deletes the "
+                            "files its cap skipped, and it re-parses a changed "
+                            "file past the cap from its event",
     }
     expected = offered - set(not_the_watchers_to_set)
     reachable = _knobs(_CHAIN["watch_folders"]) | {"paths"}
