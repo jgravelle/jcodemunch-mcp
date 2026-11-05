@@ -693,7 +693,7 @@ def _get_ranked_context_fusion(
         # v1.108.179; this is the exit that was missed.
         from ..retrieval.verdict import retrieval_verdict_for_index as _rv
         elapsed = (time.perf_counter() - start) * 1000
-        return {
+        _empty_scope = {
             "context_items": [],
             "total_tokens": 0,
             "budget_tokens": token_budget,
@@ -723,6 +723,8 @@ def _get_ranked_context_fusion(
                 )["verdict"],
             },
         }
+        _attach_index_truncation(_empty_scope["_meta"], index)
+        return _empty_scope
 
     # Centrality for BM25 tiebreaker
     cache = index._bm25_cache

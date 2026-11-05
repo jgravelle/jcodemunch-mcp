@@ -5,7 +5,7 @@ search tools reported that as `_meta.index_truncated`, and `meta_fields: []`,
 the shipped default, strips `_meta`. A search that finds nothing already got an
 absence refusal that survives the strip; a search that finds something returned
 hits from the indexed part and said nothing about the files it never read. On a
-large repo (2,000 of 28,141 files) that is most of the repo.
+large repo that is most of the repo.
 
 The line rides in the BODY as `index_warning`, a key every compact encoder
 carries, and these tests read it through `server.call_tool` on the default
@@ -119,6 +119,26 @@ async def test_a_complete_index_carries_no_line(complete, monkeypatch, tool, arg
     body = await _call(tool, {"repo": complete, **args}, "json")
     assert body.get(rows), "precondition"
     assert "index_warning" not in body
+
+
+@pytest.mark.parametrize("fusion", [False, True], ids=["ranked", "fusion"])
+@pytest.mark.asyncio
+async def test_a_ranked_no_match_on_a_capped_index_is_not_citable_absence(capped, monkeypatch, fusion):
+    """`get_ranked_context` now reports the cap, so its no-match answer cannot be cited as absence."""
+    _meta_fields(monkeypatch, [])
+    args = {"repo": capped, "query": "qxzvvwyjkkbb_cap", "fusion": fusion}
+    body = await _call("get_ranked_context", args, "json")
+    assert not body.get("context_items"), "precondition: nothing matched"
+    carrier = (body.get("_meta") or {}).get("absence_evidence")
+    assert carrier and carrier["citable"] is False, carrier
+    assert "3 of 5 files" in (body.get("index_warning") or "")
+
+
+@pytest.mark.asyncio
+async def test_a_ranked_no_match_on_a_complete_index_stays_citable(complete, monkeypatch):
+    _meta_fields(monkeypatch, [])
+    body = await _call("get_ranked_context", {"repo": complete, "query": "qxzvvwyjkkbb_cap"}, "json")
+    assert body["_meta"]["absence_evidence"]["citable"] is True
 
 
 @pytest.mark.asyncio
