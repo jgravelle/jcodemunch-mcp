@@ -345,17 +345,27 @@ def test_a_watcher_save_while_a_parser_upgrade_is_due_keeps_every_file(
     cli_built, monkeypatch
 ):
     """The fast path steps aside for the upgrade and the full walk runs with the
-    event still attached: it must keep the files the cap skipped too."""
+    event still attached: it keeps the files the cap skipped and still re-reads
+    the one the event names, although that one is past the cap."""
     from jcodemunch_mcp.reindex_state import WatcherChange
-    from jcodemunch_mcp.storage import sqlite_store
     from jcodemunch_mcp.tools import index_folder as mod
 
     root, repo = cli_built
     before = getattr(_load(repo), "parser_generation", None)
-    monkeypatch.setattr(mod, "_needs_parser_upgrade", lambda idx: True)
-    monkeypatch.setattr(sqlite_store, "_PARSER_GENERATION", int(before or 0) + 1)
+    _raise_parser_generation(monkeypatch, before)
     p = root / "pkg" / "m5.py"
-    p.write_text("def fn5():" + chr(10) + "    return 55" + chr(10), encoding="utf-8")
+    p.write_text(
+        "def fn5():"
+        + chr(10)
+        + "    return 55"
+        + chr(10)
+        + chr(10)
+        + "def added5():"
+        + chr(10)
+        + "    return 1"
+        + chr(10),
+        encoding="utf-8",
+    )
     res = _in_call(
         root,
         incremental=True,
@@ -364,8 +374,29 @@ def test_a_watcher_save_while_a_parser_upgrade_is_due_keeps_every_file(
     assert len(_files(repo)) == N, (
         "a watcher save with an upgrade due dropped the files past the cap"
     )
+    assert "added5" in _names(repo), "the edit to a file past the cap was dropped"
     assert mod.PARSER_UPGRADE_WARNING not in res.get("warnings", [])
     assert getattr(_load(repo), "parser_generation", None) == before
+
+
+def _raise_parser_generation(monkeypatch, before) -> None:
+    """Make a parser upgrade due through the real gate: every reader of the
+    constant sees one more than the stored generation, so a save that stamps
+    the generation records a value the tests can tell apart."""
+    from jcodemunch_mcp.storage import index_store, sqlite_store
+    from jcodemunch_mcp.tools import index_folder as mod
+
+    bumped = int(before or 0) + 1
+    monkeypatch.setattr(index_store, "PARSER_GENERATION", bumped)
+    monkeypatch.setattr(sqlite_store, "_PARSER_GENERATION", bumped)
+    monkeypatch.setattr(mod, "PARSER_GENERATION", bumped)
+
+
+def _coverage(repo: str) -> dict:
+    from jcodemunch_mcp.storage import IndexStore
+
+    owner, name = repo.split("/", 1)
+    return IndexStore()._sqlite.get_coverage(owner, name)
 
 
 def _git_tree(tree):
@@ -407,6 +438,49 @@ def test_the_root_marker_rebuild_keeps_the_files_the_cap_skipped(tree):
     assert len(_files(repo)) == N, (
         "the root-marker rebuild dropped the files past the cap"
     )
+    assert any("jcodemunch-mcp index" in w for w in res.get("warnings", []))
+
+
+def test_a_carrying_rebuild_with_an_upgrade_due_keeps_the_older_generation(
+    tree, monkeypatch
+):
+    """The full save that keeps files past the cap records the generation those
+    files were parsed by, so the upgrade stays due."""
+    root = _git_tree(tree)
+    repo = _cli_index(root / "pkg")
+    before = getattr(_load(repo), "parser_generation", None)
+    _raise_parser_generation(monkeypatch, before)
+    _in_call(root)
+    assert len(_files(repo)) == N
+    assert getattr(_load(repo), "parser_generation", None) == before
+
+
+def test_coverage_counts_the_kept_files_as_present(tree):
+    """The coverage record and the cap status describe the same index: one that
+    holds every file, so neither says the cap withheld any."""
+    from jcodemunch_mcp.tools.resolve_repo import resolve_repo
+
+    root = _git_tree(tree)
+    repo = _cli_index(root / "pkg")
+    _in_call(root)  # the carrying full save
+    cov = _coverage(repo)
+    assert cov.get("files_indexed") == N, cov
+    assert "file_limit" not in (cov.get("withheld") or {}), cov
+    assert cov.get("complete") is True, cov
+    assert "truncation_warning" not in resolve_repo(str(root))
+    _in_call(root)  # the incremental path over the same index
+    cov = _coverage(repo)
+    assert cov.get("complete") is True, cov
+
+
+def test_a_first_subdir_walk_with_incremental_false_says_what_it_kept(tree):
+    root = _git_tree(tree)
+    repo = _cli_index(root)
+    res = _in_call(root / "pkg", incremental=False)
+    assert len(_files(repo)) == N
+    assert any("jcodemunch-mcp index" in w for w in res.get("warnings", [])), res.get(
+        "warnings"
+    )
 
 
 def test_a_subdir_walk_still_drops_a_file_deleted_on_disk(tree):
@@ -418,10 +492,10 @@ def test_a_subdir_walk_still_drops_a_file_deleted_on_disk(tree):
     assert len(_files(repo)) == N - 1
 
 
-def test_an_explicit_full_reindex_under_the_cap_says_it_was_asked_for(cli_built):
+def test_an_explicit_full_reindex_under_the_cap_names_no_wrong_cause(cli_built):
     root, repo = cli_built
     res = _in_call(root, incremental=False)
     assert len(_files(repo)) == N
-    assert any("A full re-index was asked for" in w for w in res.get("warnings", [])), (
-        res.get("warnings")
-    )
+    kept = [w for w in res.get("warnings", []) if "jcodemunch-mcp index" in w]
+    assert kept, res.get("warnings")
+    assert not any("cache invalidated" in w for w in kept), kept

@@ -92,10 +92,10 @@ def _file_cap_report(skip_counts: dict, max_files: int) -> dict:
 
 def _cap_kept_warning(rebuild_reason: Optional[str], max_files: int) -> str:
     """Why a capped call kept files it did not re-parse, and the call that does."""
-    why = f"A full re-parse was due ({rebuild_reason})" if rebuild_reason else "A full re-index was asked for"
+    head = f"A full re-parse was due ({rebuild_reason}), but this" if rebuild_reason else "This"
     return (
-        f"{why}, but this call's file cap ({max_files}) is below the files the index "
-        "holds, so it kept the files past the cap as they were last parsed. Run "
+        f"{head} call's file cap ({max_files}) is below the files the index holds, so "
+        "it kept the files past the cap as they were last parsed. Run "
         "`jcodemunch-mcp index` (its cap is cli_max_folder_files) to re-parse every file."
     )
 
@@ -226,6 +226,21 @@ def _coverage_report(
         int(files_indexed) == int(files_accepted) and not drops and not withheld
     )
     return report
+
+
+def _coverage_counts_with_kept(
+    skip_counts: dict, files_accepted: int, kept: int
+) -> tuple[dict, int]:
+    """The coverage inputs of a walk whose save kept ``kept`` files its cap cut.
+
+    Those files are in the index, as last parsed, so they are neither withheld
+    nor missing: move them from the cap's skip count to the accepted count.
+    """
+    if not kept:
+        return skip_counts, files_accepted
+    adjusted = dict(skip_counts or {})
+    adjusted["file_limit"] = max(0, int(adjusted.get("file_limit", 0) or 0) - kept)
+    return adjusted, int(files_accepted) + kept
 
 
 def _record_coverage(
@@ -2622,6 +2637,34 @@ def index_folder(
                 _cap_dropped_rels.add(_p.relative_to(folder_path).as_posix())
             except ValueError:
                 continue
+        # A watcher event names the files it saw change. One past the cap is
+        # re-read like the rest: when this call reaches the full walk (a parser
+        # upgrade is due) the cap would otherwise keep the old copy and drop
+        # the edit until the next command-line index.
+        if _cap_dropped_rels and changed_paths:
+            _by_rel = {}
+            for _p in _cap_dropped_paths:
+                try:
+                    _by_rel[_p.relative_to(folder_path).as_posix()] = _p
+                except ValueError:
+                    continue
+            _promoted = 0
+            for _ch in changed_paths:
+                if getattr(_ch, "change_type", "") == "deleted":
+                    continue
+                try:
+                    _rel = (
+                        Path(getattr(_ch, "path", _ch)).resolve().relative_to(folder_path).as_posix()
+                    )
+                except (ValueError, OSError, TypeError):
+                    continue
+                if _rel in _cap_dropped_rels and _rel in _by_rel:
+                    _cap_dropped_rels.discard(_rel)
+                    source_files.append(_by_rel[_rel])
+                    _promoted += 1
+            if _promoted:
+                skip_counts = dict(skip_counts)
+                skip_counts["file_limit"] = max(0, int(skip_counts.get("file_limit", 0) or 0) - _promoted)
 
         # Warn when no root .gitignore is present and the file count is large —
         # a common cause of bloated indexes that then overflow get_file_tree.
@@ -3252,16 +3295,20 @@ def index_folder(
             # This path did a full discovery walk (paths=None), so the skip
             # counts describe the whole corpus — refresh the coverage contract.
             if paths is None:
+                _cov_skips, _cov_accepted = _coverage_counts_with_kept(
+                    skip_counts, len(source_files),
+                    len(_cap_dropped_rels & set(updated_mtimes)),
+                )
                 _record_coverage(
                     store, owner, repo_name,
-                    skip_counts,
+                    _cov_skips,
                     # The COMPOSED file set (carried + changed + new - deleted),
                     # not the walk's accepted list: on this path they are only
                     # equal if nothing was dropped, which is the thing being
                     # measured.
                     len(updated_mtimes),
                     len(incremental_no_symbols),
-                    files_accepted=len(source_files),
+                    files_accepted=_cov_accepted,
                     post_discovery_drops=post_discovery_drops,
                 )
 
@@ -3456,6 +3503,7 @@ def index_folder(
         _cut_now = set(_provider_cut_names(folder_path))
         if _merge_with_existing is not None or _is_branch_delta:
             _cut_now |= set(_stored_provider_cut(existing_index))
+        _cap_keep: set = set()
         full_context_metadata = _stamp_provider_cut(
             full_context_metadata, sorted(_cut_now),
             existing_index, carry_existing=False,
@@ -3631,10 +3679,9 @@ def index_folder(
                     _cap_status = _cap_status_for_kept(
                         _cap_status, _cap_dropped_rels, set(_save_source_files)
                     )
-                    if PARSER_UPGRADE_WARNING in warnings or rebuild_reason:
-                        if PARSER_UPGRADE_WARNING in warnings:
-                            warnings.remove(PARSER_UPGRADE_WARNING)
-                        warnings.append(_cap_kept_warning(rebuild_reason, max_files))
+                    if PARSER_UPGRADE_WARNING in warnings:
+                        warnings.remove(PARSER_UPGRADE_WARNING)
+                    warnings.append(_cap_kept_warning(rebuild_reason, max_files))
                 logger.info(
                     "v1.96 subdir merge: %d carried + %d new = %d files "
                     "(%d source_roots: %s)",
@@ -3671,10 +3718,13 @@ def index_folder(
         # Full-save paths above all followed a full discovery walk (paths=None);
         # record the coverage contract the verdicts disclose at query time.
         if paths is None:
+            _cov_skips, _cov_accepted = _coverage_counts_with_kept(
+                skip_counts, len(source_files), len(_cap_keep)
+            )
             _record_coverage(
                 store, owner, repo_name,
-                skip_counts, len(source_file_list), len(no_symbols_files),
-                files_accepted=len(source_files),
+                _cov_skips, len(source_file_list) + len(_cap_keep), len(no_symbols_files),
+                files_accepted=_cov_accepted,
                 post_discovery_drops=post_discovery_drops,
             )
 
