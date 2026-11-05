@@ -90,6 +90,16 @@ def _file_cap_report(skip_counts: dict, max_files: int) -> dict:
     }
 
 
+def _cap_kept_warning(rebuild_reason: Optional[str], max_files: int) -> str:
+    """Why a capped call kept files it did not re-parse, and the call that does."""
+    why = f"A full re-parse was due ({rebuild_reason})" if rebuild_reason else "A full re-index was asked for"
+    return (
+        f"{why}, but this call's file cap ({max_files}) is below the files the index "
+        "holds, so it kept the files past the cap as they were last parsed. Run "
+        "`jcodemunch-mcp index` (its cap is cli_max_folder_files) to re-parse every file."
+    )
+
+
 def _cap_status_for_kept(cap: dict, dropped: set, stored: set) -> dict:
     """The cap status of an index that kept the files this walk's cap cut.
 
@@ -921,16 +931,24 @@ def _merge_subdir_into_existing(
     new_file_imports: dict,
     new_context_metadata: dict,
     new_pkg_names: list[str],
+    keep: Optional[set] = None,
+    carry_outside_prefix: bool = True,
 ) -> dict:
     """Merge a fresh subdir walk into an existing v1.96 index.
 
     Files in ``existing`` outside ``walk_prefix`` carry over unchanged;
     everything else is replaced by the fresh walk.  Returns a dict with
     the merged state, suitable for splat into ``save_index`` keyword args.
+
+    ``keep`` names stored files that also carry over although they are inside
+    the walk: the files this walk's file cap cut. ``carry_outside_prefix=False``
+    carries only those, for a full save that is not a subdir merge.
     """
+    _keep = set(keep or ())
     carry_files = [
         f for f in existing.source_files
-        if _file_outside_walk_prefix(f, walk_prefix)
+        if (carry_outside_prefix and _file_outside_walk_prefix(f, walk_prefix))
+        or f in _keep
     ]
     carry_set = set(carry_files)
 
@@ -3013,7 +3031,6 @@ def index_folder(
             and existing_index is not None
             and _cap_dropped_rels
             and paths is None
-            and changed_paths is None
             and _merge_with_existing is None
             and not _rebuild_for_root_marker
             and _cap_dropped_rels & set(getattr(existing_index, "source_files", None) or [])
@@ -3021,12 +3038,7 @@ def index_folder(
             incremental = True
             if PARSER_UPGRADE_WARNING in warnings:
                 warnings.remove(PARSER_UPGRADE_WARNING)
-            _cap_rebuild_warning = (
-                f"A full re-parse was due ({rebuild_reason or 'cache invalidated'}), but this "
-                f"call's file cap ({max_files}) is below the files the index holds, so it "
-                "updated changed files only and kept the rest. Run `jcodemunch-mcp index` "
-                "(its cap is cli_max_folder_files) to re-parse every file."
-            )
+            _cap_rebuild_warning = _cap_kept_warning(rebuild_reason, max_files)
             warnings.append(_cap_rebuild_warning)
             rebuild_reason = None
 
@@ -3558,10 +3570,26 @@ def index_folder(
             _save_context_metadata = full_context_metadata
             _save_pkg_names = _pkg_names
             _save_source_roots = [walk_prefix] if walk_prefix else [""]
+            _save_parser_generation: Optional[int] = None
 
-            if _merge_with_existing is not None:
+            # Every full save replaces the stored files inside this walk with
+            # what the walk parsed, so a file the cap cut would leave the index.
+            # Keep the stored copy of each one, whichever route led here: a
+            # subdir merge, the root-marker rebuild, a forced rebuild the
+            # incremental fallback above did not take. A file gone from disk or
+            # newly excluded is not in the cut set and still leaves.
+            _cap_base = _merge_with_existing if _merge_with_existing is not None else existing_index
+            _cap_keep = (
+                _cap_dropped_rels & set(getattr(_cap_base, "source_files", None) or [])
+                # A v1.95 index keys its files from a subdir, not the git root,
+                # so its names cannot be matched to this walk's: it is rebuilt.
+                if _cap_base is not None and paths is None and not _v195_legacy_rebuild
+                else set()
+            )
+
+            if _merge_with_existing is not None or _cap_keep:
                 merged = _merge_subdir_into_existing(
-                    existing=_merge_with_existing,
+                    existing=_cap_base,
                     walk_prefix=walk_prefix,
                     new_source_files=source_file_list,
                     new_symbols=all_symbols,
@@ -3572,6 +3600,8 @@ def index_folder(
                     new_file_imports=file_imports,
                     new_context_metadata=full_context_metadata or {},
                     new_pkg_names=_pkg_names or [],
+                    keep=_cap_keep,
+                    carry_outside_prefix=_merge_with_existing is not None,
                 )
                 _save_source_files = merged["source_files"]
                 # Carried symbols (dicts) + freshly parsed Symbols.
@@ -3585,9 +3615,26 @@ def index_folder(
                 _save_file_mtimes = merged["file_mtimes"]
                 _save_imports = merged["imports"]
                 _save_languages = merged["languages"]
-                _save_context_metadata = merged["context_metadata"]
-                _save_pkg_names = merged["package_names"]
-                _save_source_roots = merged["source_roots"]
+                if _merge_with_existing is not None:
+                    # Only a subdir merge overlays the old metadata: a full walk
+                    # re-ran every provider, so its record replaces the stored one.
+                    _save_context_metadata = merged["context_metadata"]
+                    _save_pkg_names = merged["package_names"]
+                    _save_source_roots = merged["source_roots"]
+                if _cap_keep:
+                    # The kept files were parsed by an older run: record the
+                    # older generation, so an upgrade still due stays due.
+                    _save_parser_generation = min(
+                        int(getattr(_cap_base, "parser_generation", 0) or 0),
+                        PARSER_GENERATION,
+                    )
+                    _cap_status = _cap_status_for_kept(
+                        _cap_status, _cap_dropped_rels, set(_save_source_files)
+                    )
+                    if PARSER_UPGRADE_WARNING in warnings or rebuild_reason:
+                        if PARSER_UPGRADE_WARNING in warnings:
+                            warnings.remove(PARSER_UPGRADE_WARNING)
+                        warnings.append(_cap_kept_warning(rebuild_reason, max_files))
                 logger.info(
                     "v1.96 subdir merge: %d carried + %d new = %d files "
                     "(%d source_roots: %s)",
@@ -3618,6 +3665,7 @@ def index_folder(
                 git_root=_git_root,
                 source_roots=_save_source_roots,
                 file_cap_status=_cap_status,
+                parser_generation=_save_parser_generation,
             )
 
         # Full-save paths above all followed a full discovery walk (paths=None);

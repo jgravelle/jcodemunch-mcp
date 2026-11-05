@@ -1087,9 +1087,9 @@ def get_max_folder_files(
 
 # The command-line paths (`init`, `jcodemunch-mcp index`, `refresh`) run outside
 # any client's tool timeout, which is the only reason `max_folder_files` is low.
-# Measured on a 24-logical-core laptop (2026-10-28): Home Assistant, 24,347
-# files, indexed cold in 163-1,215 s at 1.38 GB peak; Linux, 75,196 files, took
-# 12.5 GB. 30,000 covers the large application repos without reaching that.
+# Set from cold-index measurements of large repositories: it covers large
+# application repos and stops short of a kernel-sized tree, whose cold index
+# needed several times the memory. Raise it for a larger tree.
 DEFAULT_CLI_MAX_FOLDER_FILES = 30_000
 
 

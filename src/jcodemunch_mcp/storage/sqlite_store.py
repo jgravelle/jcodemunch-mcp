@@ -1691,8 +1691,13 @@ class SQLiteIndexStore:
         git_root: str = "",
         source_roots: Optional[list[str]] = None,
         file_cap_status: Optional[dict] = None,
+        parser_generation: Optional[int] = None,
     ) -> "CodeIndex":
         """Save a full index to SQLite. Replaces all existing data.
+
+        ``parser_generation``: the generation to record, when the save carries
+        files from the old index that this run did not re-parse. Left out, the
+        current generation is recorded.
 
         v1.106.0: serialises against concurrent save_index calls from other
         MCP processes via the ``indexwrite`` lock. SQLite WAL alone makes
@@ -1736,7 +1741,10 @@ class SQLiteIndexStore:
             languages=languages or {},
             symbols=serialized_symbols,
             index_version=cast(int, _INDEX_VERSION),
-            parser_generation=cast(int, _PARSER_GENERATION),
+            parser_generation=(
+                int(parser_generation) if parser_generation is not None
+                else cast(int, _PARSER_GENERATION)
+            ),
             racket_config_digest=_racket_config_digest_for(source_root, languages),
             racket_reader_generation=_racket_reader_generation_for(source_root, languages),
             file_hashes=file_hashes,
