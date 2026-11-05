@@ -364,6 +364,7 @@ DEFAULTS = {
     "skip_virtualenvs": True,
     "response_max_bytes": 1048576,
     "max_folder_files": 2000,
+    "cli_max_folder_files": 30000,
     "max_index_files": 10000,
     "staleness_days": 7,
     "max_results": 500,
@@ -566,6 +567,7 @@ CONFIG_TYPES = {
     "skip_virtualenvs": bool,
     "response_max_bytes": int,
     "max_folder_files": int,
+    "cli_max_folder_files": int,
     "max_index_files": int,
     "staleness_days": int,
     "max_results": int,
@@ -2333,6 +2335,15 @@ def generate_template() -> str:
   //   when the cap drops files the index result, resolve_repo, and search _meta
   //   all report `truncated` with the discovered/indexed counts. Raise this and
   //   re-index if files are missing from results.
+
+  // "cli_max_folder_files": 30000,
+  //   The same cap for an index built from the command line (`init`,
+  //   `jcodemunch-mcp index`, `refresh`), which runs outside any client's tool
+  //   timeout. The larger of this and max_folder_files applies, except that a
+  //   max_folder_files you set binds the command line too while this key is
+  //   left at its default. An agent's later
+  //   re-index of such an index re-reads changed files only within its own cap
+  //   and never deletes the files its cap skipped.
 
   // "gitignore_warn_threshold": 500,
   //   Emit a warning during index_folder when no root .gitignore is found

@@ -1691,8 +1691,13 @@ class SQLiteIndexStore:
         git_root: str = "",
         source_roots: Optional[list[str]] = None,
         file_cap_status: Optional[dict] = None,
+        parser_generation: Optional[int] = None,
     ) -> "CodeIndex":
         """Save a full index to SQLite. Replaces all existing data.
+
+        ``parser_generation``: the generation to record, when the save carries
+        files from the old index that this run did not re-parse. Left out, the
+        current generation is recorded.
 
         v1.106.0: serialises against concurrent save_index calls from other
         MCP processes via the ``indexwrite`` lock. SQLite WAL alone makes
@@ -1736,7 +1741,10 @@ class SQLiteIndexStore:
             languages=languages or {},
             symbols=serialized_symbols,
             index_version=cast(int, _INDEX_VERSION),
-            parser_generation=cast(int, _PARSER_GENERATION),
+            parser_generation=(
+                int(parser_generation) if parser_generation is not None
+                else cast(int, _PARSER_GENERATION)
+            ),
             racket_config_digest=_racket_config_digest_for(source_root, languages),
             racket_reader_generation=_racket_reader_generation_for(source_root, languages),
             file_hashes=file_hashes,
@@ -2990,6 +2998,35 @@ class SQLiteIndexStore:
                         entry.code_index.coverage = coverage or {}
         except Exception:
             logger.debug("Failed to set coverage for %s/%s", owner, name, exc_info=True)
+
+    def set_file_cap_status(self, owner: str, name: str, status: dict) -> None:
+        """Persist the file-cap status alone, for a run that saved nothing else.
+
+        A re-index that found no changed file still walked the tree, and its cap
+        can see files the index lacks (new files past the cap). Best-effort,
+        like ``set_coverage``.
+        """
+        safe_owner = self._safe_repo_component(owner, "owner")
+        safe_name = self._safe_repo_component(name, "name")
+        db_path = self._db_path(safe_owner, safe_name)
+        if not db_path.exists():
+            return
+        try:
+            conn = self._connect(db_path)
+            try:
+                conn.execute(
+                    "INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)",
+                    ("file_cap_status", json.dumps(status or {})),
+                )
+                conn.commit()
+            finally:
+                conn.close()
+            with _cache_lock:
+                for key, entry in _index_cache.items():
+                    if key[0] == owner and key[1] == name:
+                        entry.code_index.file_cap_status = status or {}
+        except Exception:
+            logger.debug("Failed to set file_cap_status for %s/%s", owner, name, exc_info=True)
 
     def stamp_parser_generation(self, owner: str, name: str, generation: int) -> bool:
         """Record that this index's symbols were produced by `generation`.

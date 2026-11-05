@@ -64,6 +64,7 @@ CERTIFICATE_VERSION = "munch.corpus-capability/v1"
 ELIGIBILITY_KEYS = (
     "max_file_size",
     "max_folder_files",
+    "cli_max_folder_files",
     "max_index_files",
     "extra_ignore_patterns",
 )

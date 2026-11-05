@@ -72,7 +72,9 @@ def test_a_run_the_file_cap_cut_short_says_how_many_files_it_holds(project):
     again = init_mod.run_index()
     for line in (first, again):
         assert "?" not in line, line
-        assert "the file cap was reached, 2 of 4 files are in the index" in line, line
+        # The line names the key that set the cap and the step that raises it.
+        assert "the file cap (max_folder_files = 2) was reached, 2 of 4 files are in the index" in line, line
+        assert "raise max_folder_files in config.jsonc" in line, line
     assert "2 files, 2 symbols" in first, first
     assert "up to date" in again, again
 
@@ -92,13 +94,13 @@ def test_a_refused_run_is_not_reported_as_indexed(project):
     ({"success": True, "changed": 0, "new": 0, "deleted": 0},
      "  X is up to date (nothing changed since the last index)"),
     ({"success": True, "file_count": 2, "symbol_count": 3, "truncated": True, "files_indexed": 2, "files_discovered": 4},
-     "  indexed X (2 files, 3 symbols; the file cap was reached, 2 of 4 files are in the index)"),
+     "  indexed X (2 files, 3 symbols; the file cap (max_folder_files) was reached, 2 of 4 files are in the index; raise max_folder_files in config.jsonc (or set JCODEMUNCH_MAX_FOLDER_FILES) to index the rest)"),
     ({"success": True, "changed": 1, "new": 0, "deleted": 0, "symbol_count": 3, "truncated": True, "files_indexed": 2, "files_discovered": 4},
-     "  indexed X (1 changed, 0 new, 0 deleted, 3 symbols; the file cap was reached, 2 of 4 files are in the index)"),
+     "  indexed X (1 changed, 0 new, 0 deleted, 3 symbols; the file cap (max_folder_files) was reached, 2 of 4 files are in the index; raise max_folder_files in config.jsonc (or set JCODEMUNCH_MAX_FOLDER_FILES) to index the rest)"),
     ({"success": True, "changed": 0, "new": 0, "deleted": 0, "truncated": True, "files_indexed": 2, "files_discovered": 4},
-     "  X is up to date (nothing changed since the last index; the file cap was reached, 2 of 4 files are in the index)"),
+     "  X is up to date (nothing changed since the last index; the file cap (max_folder_files) was reached, 2 of 4 files are in the index; raise max_folder_files in config.jsonc (or set JCODEMUNCH_MAX_FOLDER_FILES) to index the rest)"),
     ({"success": True, "truncated": True, "files_indexed": 2, "files_discovered": 4},
-     "  indexed X (the file cap was reached, 2 of 4 files are in the index)"),
+     "  indexed X (the file cap (max_folder_files) was reached, 2 of 4 files are in the index; raise max_folder_files in config.jsonc (or set JCODEMUNCH_MAX_FOLDER_FILES) to index the rest)"),
     # A shape this line has not met carries no invented count.
     ({"success": True}, "  indexed X"),
     ({"success": True, "symbol_count": 5}, "  indexed X (5 symbols)"),
