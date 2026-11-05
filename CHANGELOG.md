@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+### Fixed - a search on a capped index says, in its answer, that the index is partial
+
+`max_folder_files` keeps that many files of a large repo and drops the rest at index time, so on a large repo most files are never read. The index result and `resolve_repo` say so, and a search that finds nothing refuses to call that proof of absence. A search that finds something reported the cap only as `_meta.index_truncated`, and the shipped default `meta_fields: []` strips `_meta`. The agent got hits from the indexed part and no sign that most of the repo was never searched.
+
+The dispatcher now puts one line in the answer body, `index_warning`, whenever a result carries that block: how many files the index holds out of how many it found, and the setting to raise. It is added before the display filter runs, and every compact encoder carries a key named for a warning, so it reaches a default install in both output formats. `get_ranked_context` now reports the cap too, on every answer it returns, so it gets the same line, and its no-match answer on a capped index can no longer be cited as proof of absence. An index under the cap gets nothing new. Tests: `tests/test_a_capped_index_says_so_in_the_answer.py`.
+
 ## [1.108.417] - 2026-11-04 - a wrong call through order names a call that works
 
 ### Changed - a wrong call through `order` names a call that works, and a turned-off tool says to ask the user

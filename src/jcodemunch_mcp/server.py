@@ -7764,6 +7764,22 @@ async def _call_tool_impl(name: str, arguments: dict) -> list[TextContent] | Cal
                 if isinstance(_sym, dict):
                     _sym.pop("content_hash", None)
 
+        # A result drawn from a capped index says so in the BODY, before the
+        # display filter below can strip `_meta.index_truncated`: on the default
+        # `meta_fields: []` a search that found something otherwise read as a
+        # search of the whole repo. `index_warning` is a key every compact
+        # encoder carries (`schema_driven.is_universal_body_key`). A new dict,
+        # because `result` may be an object a cache still holds.
+        try:
+            if isinstance(result, dict) and "index_warning" not in result:
+                from .retrieval.verdict import index_truncation_warning as _itw
+
+                _cap_line = _itw((result.get("_meta") or {}).get("index_truncated"))
+                if _cap_line:
+                    result = {**result, "index_warning": _cap_line}
+        except Exception:
+            logger.debug("index-cap warning attach failed", exc_info=True)
+
         if isinstance(result, dict):
             meta_fields = config_module.get("meta_fields")
             if meta_fields == [] or arguments.get("suppress_meta"):
