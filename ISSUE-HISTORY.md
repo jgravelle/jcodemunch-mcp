@@ -3110,3 +3110,9 @@ The 1.108.413 entry, verbatim as it stood in `CLAUDE.md`:
 The 1.108.414 entry, verbatim as it stood in `CLAUDE.md`:
 
 - **Prior (1.108.414):** **a class comes back as its outline, and an import finds the file in its own language** (#1326, #1327): `get_symbol_source` returns a class with each method collapsed to its signature by default (`class_body="full"` for the whole body, a 1.x default change); an extensionless Ruby or Python import tries the importer's own language's file first. Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-05, release 1.108.418)
+
+The 1.108.415 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.415):** **a search for library code ranks the library above its tutorial and example copies** (#1324): `search_symbols` weights a symbol under an example, tutorial, sample or demo directory down when the query isn't about examples, the way it already weighted tests; a served debug row names the weight under `score_breakdown`. Full text: `CHANGELOG.md`.
