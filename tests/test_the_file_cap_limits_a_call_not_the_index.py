@@ -341,8 +341,9 @@ def test_a_hook_save_of_a_file_past_the_cap_reparses_it_and_keeps_the_rest(cli_b
     assert "added6" in _names(repo)
 
 
+@pytest.mark.parametrize("spelling", ["watcher_change", "legacy_tuple"])
 def test_a_watcher_save_while_a_parser_upgrade_is_due_keeps_every_file(
-    cli_built, monkeypatch
+    cli_built, monkeypatch, spelling
 ):
     """The fast path steps aside for the upgrade and the full walk runs with the
     event still attached: it keeps the files the cap skipped and still re-reads
@@ -366,11 +367,12 @@ def test_a_watcher_save_while_a_parser_upgrade_is_due_keeps_every_file(
         + chr(10),
         encoding="utf-8",
     )
-    res = _in_call(
-        root,
-        incremental=True,
-        changed_paths=[WatcherChange("modified", str(p), "__cache_miss__")],
+    change = (
+        WatcherChange("modified", str(p), "__cache_miss__")
+        if spelling == "watcher_change"
+        else ("modified", str(p))
     )
+    res = _in_call(root, incremental=True, changed_paths=[change])
     assert len(_files(repo)) == N, (
         "a watcher save with an upgrade due dropped the files past the cap"
     )
@@ -468,9 +470,66 @@ def test_coverage_counts_the_kept_files_as_present(tree):
     assert "file_limit" not in (cov.get("withheld") or {}), cov
     assert cov.get("complete") is True, cov
     assert "truncation_warning" not in resolve_repo(str(root))
-    _in_call(root)  # the incremental path over the same index
+    _edit(root / "pkg" / "m0.py", "added0")
+    res = _in_call(root)  # the incremental path over the same index
+    assert res.get("incremental") is True or res.get("performed_incremental") is True, (
+        res
+    )
     cov = _coverage(repo)
+    assert cov.get("files_indexed") == N, cov
     assert cov.get("complete") is True, cov
+
+
+def _edit(path: Path, name: str) -> None:
+    path.write_text(
+        path.read_text(encoding="utf-8")
+        + chr(10)
+        + "def "
+        + name
+        + "():"
+        + chr(10)
+        + "    return 1"
+        + chr(10),
+        encoding="utf-8",
+    )
+
+
+def test_an_agent_reindex_with_an_edit_counts_the_kept_files_as_present(cli_built):
+    """The agent's ordinary re-index: one edit inside the cap, the files past it
+    kept. The coverage record says the index is complete, so absence answers
+    are not refused for it."""
+    root, repo = cli_built
+    _edit(root / "pkg" / "m0.py", "added0")
+    _in_call(root)
+    assert "added0" in _names(repo)
+    cov = _coverage(repo)
+    assert cov.get("files_indexed") == N, cov
+    assert "file_limit" not in (cov.get("withheld") or {}), cov
+    assert cov.get("complete") is True, cov
+
+
+def test_watcher_events_naming_every_file_past_the_cap_clear_the_cap_status(
+    cli_built, monkeypatch
+):
+    """When the events name every file the cap cut, all are parsed now: the
+    stored cap status says nothing is missing, matching the index."""
+    from jcodemunch_mcp.reindex_state import WatcherChange
+    from jcodemunch_mcp.tools.resolve_repo import resolve_repo
+
+    root, repo = cli_built
+    _raise_parser_generation(
+        monkeypatch, getattr(_load(repo), "parser_generation", None)
+    )
+    changes = []
+    for i in range(3, N):
+        f = root / "pkg" / f"m{i}.py"
+        _edit(f, f"added{i}")
+        changes.append(WatcherChange("modified", str(f), "__cache_miss__"))
+    res = _in_call(root, incremental=True, changed_paths=changes)
+    assert len(_files(repo)) == N
+    assert {f"added{i}" for i in range(3, N)} <= _names(repo)
+    assert not res.get("truncated"), res
+    assert "truncation_warning" not in resolve_repo(str(root))
 
 
 def test_a_first_subdir_walk_with_incremental_false_says_what_it_kept(tree):

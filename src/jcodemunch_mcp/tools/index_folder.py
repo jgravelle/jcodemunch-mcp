@@ -1241,6 +1241,17 @@ def _attach_hash_delta(
     result["file_hashes_removed"] = sorted(deleted_files or [])
 
 
+def _watcher_change_parts(item) -> tuple[str, str, str]:
+    """``(change_type, absolute_path, old_hash)`` of one watcher change.
+
+    Accepts a ``WatcherChange`` and the documented legacy tuples
+    ``(change_type, path)`` and ``(change_type, path, old_hash)``.
+    """
+    if isinstance(item, WatcherChange):
+        return item.change_type, item.path, item.old_hash
+    return item[0], item[1], (item[2] if len(item) > 2 else "")
+
+
 def _rel_to_root(abs_path: Path, root: Path) -> Optional[str]:
     """Root-relative posix path for a watcher change, or None if genuinely outside.
 
@@ -2305,16 +2316,8 @@ def index_folder(
                 rel_path_map_fast: dict[str, Path] = {}
 
                 for wc_item in changed_paths:
-                    # Support both WatcherChange (with .change_type/.path/.old_hash)
-                    # and legacy (change_type, path) or (change_type, path, old_hash) tuples
-                    if isinstance(wc_item, WatcherChange):
-                        change_type = wc_item.change_type
-                        abs_path_str = wc_item.path
-                        old_hash = wc_item.old_hash
-                    else:
-                        change_type = wc_item[0]
-                        abs_path_str = wc_item[1]
-                        old_hash = wc_item[2] if len(wc_item) > 2 else ""
+                    # WatcherChange or a legacy (change_type, path[, old_hash]) tuple.
+                    change_type, abs_path_str, old_hash = _watcher_change_parts(wc_item)
 
                     abs_path = Path(abs_path_str)
                     rel_path = _rel_to_root(abs_path, folder_path)
@@ -2650,21 +2653,20 @@ def index_folder(
                     continue
             _promoted = 0
             for _ch in changed_paths:
-                if getattr(_ch, "change_type", "") == "deleted":
+                _ctype, _cpath, _ = _watcher_change_parts(_ch)
+                if _ctype == "deleted":
                     continue
-                try:
-                    _rel = (
-                        Path(getattr(_ch, "path", _ch)).resolve().relative_to(folder_path).as_posix()
-                    )
-                except (ValueError, OSError, TypeError):
-                    continue
-                if _rel in _cap_dropped_rels and _rel in _by_rel:
+                _rel = _rel_to_root(Path(_cpath), folder_path)
+                if _rel is not None and _rel in _cap_dropped_rels and _rel in _by_rel:
                     _cap_dropped_rels.discard(_rel)
                     source_files.append(_by_rel[_rel])
                     _promoted += 1
             if _promoted:
+                # The promoted files are parsed now, so they are neither cut
+                # nor missing: the cap status follows the new count.
                 skip_counts = dict(skip_counts)
                 skip_counts["file_limit"] = max(0, int(skip_counts.get("file_limit", 0) or 0) - _promoted)
+                _cap_status = _file_cap_report(skip_counts, max_files)
 
         # Warn when no root .gitignore is present and the file count is large —
         # a common cause of bloated indexes that then overflow get_file_tree.
@@ -3295,9 +3297,14 @@ def index_folder(
             # This path did a full discovery walk (paths=None), so the skip
             # counts describe the whole corpus — refresh the coverage contract.
             if paths is None:
+                # The files the cap cut and the index kept: `updated_mtimes` is
+                # built from this walk, so it never holds them.
+                _cov_kept = len(
+                    (_cap_dropped_rels & set(getattr(existing_index, "source_files", None) or []))
+                    - set(updated_mtimes)
+                )
                 _cov_skips, _cov_accepted = _coverage_counts_with_kept(
-                    skip_counts, len(source_files),
-                    len(_cap_dropped_rels & set(updated_mtimes)),
+                    skip_counts, len(source_files), _cov_kept,
                 )
                 _record_coverage(
                     store, owner, repo_name,
@@ -3306,7 +3313,7 @@ def index_folder(
                     # not the walk's accepted list: on this path they are only
                     # equal if nothing was dropped, which is the thing being
                     # measured.
-                    len(updated_mtimes),
+                    len(updated_mtimes) + _cov_kept,
                     len(incremental_no_symbols),
                     files_accepted=_cov_accepted,
                     post_discovery_drops=post_discovery_drops,
