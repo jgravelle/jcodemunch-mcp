@@ -154,11 +154,31 @@ def test_every_answer_is_labeled_with_the_lines_saved_and_the_off_switch(
     assert decision == "deny"
     header = text.split("\n", 1)[0]
     assert header.startswith(grep_answer.ANSWER_MARKER)
-    assert f"in place of {len(markers)} lines of Grep output" in header
+    # It names what it counted, not a Grep output it never saw: Grep's
+    # default mode lists files, and it is case-sensitive unless told not
+    # to be.
+    assert f"{len(markers)} lines in 3 files match it, case-insensitively" in header
+    assert "lines of Grep output" not in header
     assert grep_answer.OFF_SWITCH in header
     # The off switch it names does turn the answers off.
     monkeypatch.setenv("JCODEMUNCH_HOOK_GREP_ANSWER", "0")
     assert _ask(proj, session="s2")[0] != "deny"
+
+
+def test_a_capped_index_lets_the_grep_run(make_repo, monkeypatch):
+    # An index the file cap cut short holds only part of the tree, so a count
+    # from it would call a part the whole. The Grep searches the whole tree.
+    from jcodemunch_mcp import config as config_module
+
+    _gate(monkeypatch, 1, 1)
+    monkeypatch.delenv("JCODEMUNCH_MAX_FOLDER_FILES", raising=False)
+    monkeypatch.setitem(config_module._GLOBAL_CONFIG, "max_folder_files", 2)
+    capped, _ = make_repo(files=4)
+    monkeypatch.setitem(config_module._GLOBAL_CONFIG, "max_folder_files", 2000)
+    whole, _ = make_repo(files=4)
+    assert _ask(whole)[0] == "deny"
+    decision, text = _ask(capped)
+    assert decision != "deny" and grep_answer.ANSWER_MARKER not in text
 
 
 def test_more_than_one_page_is_counted_whole(make_repo, monkeypatch):

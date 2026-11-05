@@ -201,6 +201,9 @@ def _complete(res) -> bool:
         return False
     if (verdict.get("coverage") or {}).get("complete") is False:
         return False
+    # A capped index holds part of the tree; a count over it is not the whole.
+    if (res.get("_meta") or {}).get("index_truncated"):
+        return False
     return True
 
 
@@ -354,13 +357,15 @@ def answer_grep(tool_input: dict, cwd: str, session_id: str) -> "str | None":
             "by file for the files with the most matches; `other_files` and "
             "`other_matches` count the rest."
         )
-    # The label, the lines saved and the off switch come first, so a reader
-    # never takes the answer for the Grep's own output.
+    # The label, what was counted and the off switch come first, so a reader
+    # never takes the answer for the Grep's own output. The count is what the
+    # index matched, not what the Grep would print: its default mode lists
+    # files, and it is case-sensitive unless told not to be.
     text = (
-        f"{ANSWER_MARKER}, in place of {line_count} lines of Grep output. "
-        f"{OFF_SWITCH} {scope} All {line_count} matching lines in "
-        f"{file_count} files are counted below, {how} The lines themselves are "
-        f"not shown. {retry}\n{payload}"
+        f"{ANSWER_MARKER} in place of this Grep: {line_count} lines in "
+        f"{file_count} files match it, case-insensitively. "
+        f"{OFF_SWITCH} {scope} All {line_count} are counted below, {how} "
+        f"The lines themselves are not shown. {retry}\n{payload}"
     )
     _remember(key)
     elapsed = time.monotonic() - started
