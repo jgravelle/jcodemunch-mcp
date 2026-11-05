@@ -3452,9 +3452,12 @@ def index_folder(
                     # Refresh the package registry so a manifest add/rename on
                     # the incremental path isn't stale until a full reindex (W7).
                     package_names=_extract_package_names(str(folder_path)),
-                    # This path did a full discovery walk, so refresh the cap
-                    # status (self-heals when a raised cap now clears it) (#366).
-                    file_cap_status=_cap_status,
+                    # A whole-tree walk refreshes the cap status (self-heals
+                    # when a raised cap now clears it) (#366). A path list
+                    # never sees the whole tree, so it keeps the stored one:
+                    # its own status always reads untruncated, and writing it
+                    # made a capped index read as complete.
+                    file_cap_status=_cap_status if paths is None else None,
                 )
 
             # This path did a full discovery walk (paths=None), so the skip

@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed - re-indexing one file by path keeps a partial index marked partial
+
+An index the file cap cut short stores that it is partial, and every search over it says so, so a name it can't find is not reported as absent. An `index_folder` call with `paths=[...]` re-reads only the files it names and never walks the tree, so it can't tell whether the cap still cuts it. It wrote its own cap status anyway, which always reads untruncated: one edited file saved this way, the usual step after an edit, made a partial index read as complete, and searches stopped saying it was partial. A path-list save now keeps the stored status; only a walk of the whole tree changes it, which still clears it once a raised cap covers every file.
+
 ### Changed - the opt-in Grep answer counts every match of a large Grep, and leaves a small one to run
 
 With `JCODEMUNCH_HOOK_GREP_ANSWER=1`, the PreToolUse hook answers a Grep from the index inside the refusal. It read one default `search_text` page and declined any page cut short, so it answered only Greps matching a page's worth of lines or fewer. Those are the Greps that are cheapest to run as written, and a Grep large enough for the index to save something was always declined.
