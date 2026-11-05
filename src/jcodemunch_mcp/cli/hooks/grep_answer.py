@@ -42,6 +42,8 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 ANSWER_MARKER = "Answered from the jCodeMunch index"
+# Named in every answer: the one setting that turns the answers off.
+OFF_SWITCH = "Set JCODEMUNCH_HOOK_GREP_ANSWER=0 to turn these answers off."
 # Seeded, not calibrated: past this the hook gives up and the Grep runs.
 DEFAULT_BUDGET_SECONDS = 4.0
 # A page bigger than this is not put into a refusal: the Grep runs instead.
@@ -352,8 +354,11 @@ def answer_grep(tool_input: dict, cwd: str, session_id: str) -> "str | None":
             "by file for the files with the most matches; `other_files` and "
             "`other_matches` count the rest."
         )
+    # The label, the lines saved and the off switch come first, so a reader
+    # never takes the answer for the Grep's own output.
     text = (
-        f"{ANSWER_MARKER}: {scope} All {line_count} matching lines in "
+        f"{ANSWER_MARKER}, in place of {line_count} lines of Grep output. "
+        f"{OFF_SWITCH} {scope} All {line_count} matching lines in "
         f"{file_count} files are counted below, {how} The lines themselves are "
         f"not shown. {retry}\n{payload}"
     )

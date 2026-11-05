@@ -145,6 +145,22 @@ def test_by_default_the_file_count_alone_does_not_answer(make_repo, monkeypatch)
     assert _ask(many_lines)[0] == "deny"
 
 
+def test_every_answer_is_labeled_with_the_lines_saved_and_the_off_switch(
+    make_repo, monkeypatch
+):
+    _gate(monkeypatch, 1, 1)
+    proj, markers = make_repo(files=3, per_func=4)
+    decision, text = _ask(proj)
+    assert decision == "deny"
+    header = text.split("\n", 1)[0]
+    assert header.startswith(grep_answer.ANSWER_MARKER)
+    assert f"in place of {len(markers)} lines of Grep output" in header
+    assert grep_answer.OFF_SWITCH in header
+    # The off switch it names does turn the answers off.
+    monkeypatch.setenv("JCODEMUNCH_HOOK_GREP_ANSWER", "0")
+    assert _ask(proj, session="s2")[0] != "deny"
+
+
 def test_more_than_one_page_is_counted_whole(make_repo, monkeypatch):
     _gate(monkeypatch, 1, 1)
     proj, markers = make_repo(files=3, per_func=10)
