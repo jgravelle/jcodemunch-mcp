@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed - `receipt` and `diagnose` read the savings file the way the meter does
+
+`receipt`'s lifetime figure and `diagnose`'s savings report each parsed `_savings.json` by their own rules, beside `token_tracker._read_ledger`, the reader the meter uses. #1309 and its follow-up taught that reader to refuse a file whose totals or tables the meter cannot add to; the other two never learned it. So `receipt` took `true` as a total and crashed with `OverflowError` on `{"total_tokens_saved": Infinity}` and `ValueError` on `NaN`, and `diagnose` reported a file the meter refuses as readable. Both now read through `_read_ledger`: a file the meter refuses gives no lifetime figure in `receipt` and no figure in `diagnose`, and a file that starts with a byte-order mark is read, as the meter reads it. `receipt` says why such a file gives no figure (a `lifetime.refused` reason in a JSON export) rather than reporting that nothing has been recorded yet. `diagnose --include-anon-id` reports no id from a file the meter refuses, since that file is not the one the meter adds to. A test fails if any function that names `_savings.json` in code parses it with `json.load` itself. Found while fixing #1309's follow-up. Tests: `tests/test_savings_file_has_one_reader.py`.
+
 ### Fixed - a search on a capped index says, in its answer, that the index is partial
 
 `max_folder_files` keeps that many files of a large repo and drops the rest at index time, so on a large repo most files are never read. The index result and `resolve_repo` say so, and a search that finds nothing refuses to call that proof of absence. A search that finds something reported the cap only as `_meta.index_truncated`, and the shipped default `meta_fields: []` strips `_meta`. The agent got hits from the indexed part and no sign that most of the repo was never searched.
