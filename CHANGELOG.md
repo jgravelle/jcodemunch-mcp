@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.418] - 2026-11-05 - a search on a capped index says, in its answer, that the index is partial
+
 ### Fixed - a search on a capped index says, in its answer, that the index is partial
 
 `max_folder_files` keeps that many files of a large repo and drops the rest at index time, so on a large repo most files are never read. The index result and `resolve_repo` say so, and a search that finds nothing refuses to call that proof of absence. A search that finds something reported the cap only as `_meta.index_truncated`, and the shipped default `meta_fields: []` strips `_meta`. The agent got hits from the indexed part and no sign that most of the repo was never searched.
