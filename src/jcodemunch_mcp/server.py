@@ -1378,7 +1378,9 @@ def _index_target_is_local(target: str) -> bool:
     )
 
 
-def _warn_capped_index(result: object, *, local: bool) -> None:
+def _warn_capped_index(
+    result: object, *, local: bool, cap_key: Optional[str] = None
+) -> None:
     """Tell the person at the terminal, on stderr, that the file cap dropped files.
 
     The result JSON already says so, but a capped index still reports success
@@ -1393,15 +1395,22 @@ def _warn_capped_index(result: object, *, local: bool) -> None:
         return
     if skipped <= 0:
         return
-    key, env = (
-        ("max_folder_files", "JCODEMUNCH_MAX_FOLDER_FILES")
-        if local
-        else ("max_index_files", "JCODEMUNCH_MAX_INDEX_FILES")
-    )
+    # A local `index` names the key that bound its cap (`cap_key`, from
+    # get_cli_folder_cap). cli_max_folder_files has no env var, and raising
+    # max_folder_files when it did not bind would only raise the agent's cap.
+    from .security import cap_raise_advice
+
+    if not local:
+        key = "max_index_files"
+    elif cap_key == "cli_max_folder_files":
+        key = cap_key
+    else:
+        key = "max_folder_files"
+    raise_it = cap_raise_advice(key)
     print(
         f"jcodemunch-mcp: warning: the index holds {result.get('files_indexed')} of "
         f"{result.get('files_discovered')} files; {skipped} were left out by the "
-        f"{key} cap. Raise {key} in config.jsonc (or set {env}) and index again.",
+        f"{key} cap. {raise_it} and index again.",
         file=sys.stderr,
     )
 
@@ -9180,6 +9189,7 @@ def _run_config(check: bool = False, init: bool = False, upgrade: bool = False) 
     # exists to spare people (#375, @dkiaulakis).
     row("max_file_size", _cfg.get("max_file_size", 512000), _detect_source("max_file_size", 512000))
     row("max_folder_files", _cfg.get("max_folder_files", 2000), _detect_source("max_folder_files", 2000))
+    row("cli_max_folder_files", _cfg.get("cli_max_folder_files", 30000), _detect_source("cli_max_folder_files", 30000))
     row("max_index_files", _cfg.get("max_index_files", 10000), _detect_source("max_index_files", 10000))
     row("staleness_days", _cfg.get("staleness_days", 7), _detect_source("staleness_days", 7))
     row("max_results", _cfg.get("max_results", 500), _detect_source("max_results", 500))
@@ -11862,10 +11872,17 @@ def main(argv: Optional[list[str]] = None):
 
         is_local = _index_target_is_local(t)
         identity_mode = getattr(args, "identity_mode", "config")
+        # The key that set the CLI cap, for the stderr warning: one resolver
+        # answers both, so the warning names the cap that was applied.
+        _cap_key: Optional[str] = None
         if is_local:
             from .tools.index_folder import index_folder as _index_folder
+            from .security import get_cli_folder_cap as _cli_cap
+            _cap, _cap_key = _cli_cap(repo=str(Path(t).resolve()))
             result = _index_folder(
                 path=t,
+                max_folder_files=_cap,
+                cap_key=_cap_key,
                 use_ai_summaries=use_ai,
                 storage_path=os.environ.get("CODE_INDEX_PATH"),
                 extra_ignore_patterns=args.extra_ignore,
@@ -11897,7 +11914,7 @@ def main(argv: Optional[list[str]] = None):
                 storage_path=os.environ.get("CODE_INDEX_PATH"),
             ))
         print(_json.dumps(result, indent=2))
-        _warn_capped_index(result, local=is_local)
+        _warn_capped_index(result, local=is_local, cap_key=_cap_key)
         if not result.get("success"):
             sys.exit(1)
     elif args.command == "index-file":

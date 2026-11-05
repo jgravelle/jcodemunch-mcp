@@ -51,6 +51,7 @@ jcodemunch-mcp config --check
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | `max_folder_files` | int | `2000` | Maximum files indexed for local folders. Lower than repo default because folder indexing runs synchronously within the MCP timeout window. |
+| `cli_max_folder_files` | int | `30000` | The same cap for an index built from the command line (`init`, `jcodemunch-mcp index`, `refresh`), which runs outside any client's tool timeout. The larger of this and `max_folder_files` applies. If you set `max_folder_files` and leave this at its default, the command line keeps using `max_folder_files`; writing the default value, 30000, counts the same as leaving it out. An agent's later re-index of a larger index re-reads changed files within its own cap and never deletes the files its cap skipped. |
 | `max_index_files` | int | `10000` | Maximum files indexed for GitHub repos (async, no timeout constraint). |
 | `use_ai_summaries` | bool or str | `"auto"` | Enable AI-generated symbol summaries. `"auto"` (default) uses AI when a provider is detected, else falls back to signature-only summaries. `true`/`false` force the choice. Requires an API key (Anthropic, Google, or local LLM). |
 | `summarizer_concurrency` | int | `4` | Parallel batch requests to the AI summarizer. |
