@@ -46,10 +46,13 @@ ANSWER_MARKER = "Answered from the jCodeMunch index"
 DEFAULT_BUDGET_SECONDS = 4.0
 # A page bigger than this is not put into a refusal: the Grep runs instead.
 MAX_ANSWER_CHARS = 8000
-# Seeded, not calibrated: a Grep under both is left to run. Overridden by
-# JCODEMUNCH_HOOK_GREP_ANSWER_MIN_LINES / _MIN_FILES.
-DEFAULT_MIN_LINES = 50
-DEFAULT_MIN_FILES = 10
+# Measured 2026-11-05 on build d6ba90f0 by the method fixed before the run:
+# the smallest line count at which the answer was smaller than the Grep's
+# output for at least 90% of the queries at or above it. No file count met
+# that rule, so the file arm is off (None) unless
+# JCODEMUNCH_HOOK_GREP_ANSWER_MIN_FILES sets it. Both are overridable.
+DEFAULT_MIN_LINES = 66
+DEFAULT_MIN_FILES = None
 # The most matching lines collected to answer one Grep. A match set that
 # reaches it is not answered, since search_text marks the page truncated there
 # and the count could be partial.
@@ -91,7 +94,7 @@ def _budget_seconds() -> float:
     return val if val > 0 else DEFAULT_BUDGET_SECONDS
 
 
-def _positive_int_env(name: str, default: int) -> int:
+def _positive_int_env(name: str, default):
     """A positive integer from the environment; anything else is the default,
     so a typo cannot switch the size gate off."""
     raw = os.environ.get(name, "").strip()
@@ -105,7 +108,8 @@ def _min_lines() -> int:
     return _positive_int_env("JCODEMUNCH_HOOK_GREP_ANSWER_MIN_LINES", DEFAULT_MIN_LINES)
 
 
-def _min_files() -> int:
+def _min_files() -> "int | None":
+    """None means the file count alone never answers a Grep."""
     return _positive_int_env("JCODEMUNCH_HOOK_GREP_ANSWER_MIN_FILES", DEFAULT_MIN_FILES)
 
 
@@ -314,7 +318,8 @@ def answer_grep(tool_input: dict, cwd: str, session_id: str) -> "str | None":
         return None
     line_count = res.get("result_count") or 0
     file_count = len(res.get("results") or [])
-    if line_count < _min_lines() and file_count < _min_files():
+    min_files = _min_files()
+    if line_count < _min_lines() and (min_files is None or file_count < min_files):
         return None  # A small Grep is the cheap path; not remembered.
     res = {k: v for k, v in res.items() if k != "_meta"}
     try:

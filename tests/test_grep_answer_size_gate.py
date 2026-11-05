@@ -132,6 +132,19 @@ def test_the_file_threshold_answers(make_repo, monkeypatch):
     assert _ask(below)[0] != "deny"
 
 
+def test_by_default_the_file_count_alone_does_not_answer(make_repo, monkeypatch):
+    # No file count met the threshold rule, so only the line count answers
+    # unless JCODEMUNCH_HOOK_GREP_ANSWER_MIN_FILES sets one.
+    assert grep_answer.DEFAULT_MIN_FILES is None
+    monkeypatch.setenv(
+        "JCODEMUNCH_HOOK_GREP_ANSWER_MIN_LINES", str(grep_answer.DEFAULT_MIN_LINES)
+    )
+    many_files, _ = make_repo(files=30)
+    assert _ask(many_files)[0] != "deny"
+    many_lines, _ = make_repo(per_func=grep_answer.DEFAULT_MIN_LINES)
+    assert _ask(many_lines)[0] == "deny"
+
+
 def test_more_than_one_page_is_counted_whole(make_repo, monkeypatch):
     _gate(monkeypatch, 1, 1)
     proj, markers = make_repo(files=3, per_func=10)
