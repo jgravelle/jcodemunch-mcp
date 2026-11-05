@@ -59,13 +59,36 @@ def capped(tmp_path, monkeypatch):
     return root, repo
 
 
-@pytest.mark.parametrize("spelling", ["pkg/m0.py", "pkg"])
-def test_an_edited_file_saved_by_path_keeps_the_index_partial(capped, spelling):
-    root, repo = capped
+def _edit_m0(root) -> None:
     (root / "pkg" / "m0.py").write_text(
         "def fn0():\n    return 'edited'\n", encoding="utf-8"
     )
-    assert _index(root, paths=[spelling])["success"]
+
+
+def test_an_edited_file_saved_by_path_keeps_the_index_partial(capped):
+    # The incremental save route.
+    root, repo = capped
+    _edit_m0(root)
+    assert _index(root, paths=["pkg/m0.py"])["success"]
+    assert _cap(repo).get("truncated") is True
+
+
+def test_a_non_incremental_path_save_keeps_the_index_partial(capped):
+    # The full save route, reached by a path list with incremental=False.
+    root, repo = capped
+    _edit_m0(root)
+    assert _index(root, paths=["pkg/m0.py"], incremental=False)["success"]
+    assert _cap(repo).get("truncated") is True
+
+
+def test_a_path_save_during_a_parser_upgrade_keeps_the_index_partial(capped, monkeypatch):
+    # The full save route, reached when the stored index predates the parser.
+    import jcodemunch_mcp.tools.index_folder as index_folder_module
+
+    root, repo = capped
+    monkeypatch.setattr(index_folder_module, "_needs_parser_upgrade", lambda _idx: True)
+    _edit_m0(root)
+    assert _index(root, paths=["pkg/m0.py"])["success"]
     assert _cap(repo).get("truncated") is True
 
 

@@ -162,6 +162,20 @@ def _stale_kept(dropped_paths: list, folder_path: Path, index, rels: set) -> set
     return stale
 
 
+def _cap_status_to_save(cap: dict, paths, existing) -> dict:
+    """The cap status a save records: this call's, or the stored one.
+
+    Only a walk of the whole tree can tell whether the cap still cuts the
+    repo. A path list re-reads the files it names, so its own status says
+    nothing about the rest; writing it made a partial index read as complete.
+    Every save route asks this one rule. With no stored index there is
+    nothing to keep, so the call's own status is recorded.
+    """
+    if paths is None or existing is None:
+        return cap
+    return dict(getattr(existing, "file_cap_status", None) or {})
+
+
 def _cap_status_after_promotion(cap: dict, promoted: int) -> dict:
     """The cap status once ``promoted`` cut files were parsed after all.
 
@@ -3453,11 +3467,9 @@ def index_folder(
                     # the incremental path isn't stale until a full reindex (W7).
                     package_names=_extract_package_names(str(folder_path)),
                     # A whole-tree walk refreshes the cap status (self-heals
-                    # when a raised cap now clears it) (#366). A path list
-                    # never sees the whole tree, so it keeps the stored one:
-                    # its own status always reads untruncated, and writing it
-                    # made a capped index read as complete.
-                    file_cap_status=_cap_status if paths is None else None,
+                    # when a raised cap now clears it) (#366); a path list
+                    # keeps the stored one.
+                    file_cap_status=_cap_status_to_save(_cap_status, paths, existing_index),
                 )
 
             # This path did a full discovery walk (paths=None), so the skip
@@ -3774,7 +3786,7 @@ def index_folder(
                     display_name=folder_path.name, imports=file_imports,
                     context_metadata=full_context_metadata, file_mtimes=file_mtimes,
                     package_names=_pkg_names, git_root=_git_root,
-                    file_cap_status=_cap_status,
+                    file_cap_status=_cap_status_to_save(_cap_status, paths, base_index),
                 )
         else:
             # v1.96: when an existing v1.96-format index covers the same
@@ -3898,7 +3910,7 @@ def index_folder(
                 package_names=_save_pkg_names,
                 git_root=_git_root,
                 source_roots=_save_source_roots,
-                file_cap_status=_cap_status,
+                file_cap_status=_cap_status_to_save(_cap_status, paths, existing_index),
                 parser_generation=_save_parser_generation,
             )
 
