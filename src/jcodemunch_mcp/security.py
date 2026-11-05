@@ -1085,6 +1085,43 @@ def get_max_folder_files(
     return DEFAULT_MAX_FOLDER_FILES
 
 
+# The command-line paths (`init`, `jcodemunch-mcp index`, `refresh`) run outside
+# any client's tool timeout, which is the only reason `max_folder_files` is low.
+# Measured on a 24-logical-core laptop (2026-10-28): Home Assistant, 24,347
+# files, indexed cold in 163-1,215 s at 1.38 GB peak; Linux, 75,196 files, took
+# 12.5 GB. 30,000 covers the large application repos without reaching that.
+DEFAULT_CLI_MAX_FOLDER_FILES = 30_000
+
+
+def get_cli_max_folder_files(repo: Optional[str] = None) -> int:
+    """The file cap for an index built from the command line.
+
+    The larger of ``cli_max_folder_files`` and the in-call cap: a CLI index is
+    never smaller than an agent's would be. An index built past the in-call cap
+    keeps its files when an agent re-indexes later, because a capped call never
+    deletes a file its cap skipped (``index_folder``).
+
+    A user who set ``max_folder_files`` and left ``cli_max_folder_files`` at its
+    default chose a cap before the CLI had its own, so the CLI keeps using it,
+    as it did before this key existed. "Set" is read as "not the default
+    value": a cap set to exactly the default gets the CLI default, which only
+    raises it.
+
+    ``repo`` is the folder about to be indexed. Its ``.jcodemunch.jsonc`` is
+    loaded here, because the CLI asks before ``index_folder`` would load it, and
+    a project's own cap read after the CLI has chosen one is read too late.
+    """
+    if repo and Path(repo).is_dir():
+        _config.load_project_config(repo)
+    in_call = get_max_folder_files(repo=repo)
+    value = _config.get("cli_max_folder_files", repo=repo)
+    cli_set = isinstance(value, int) and value > 0 and value != DEFAULT_CLI_MAX_FOLDER_FILES
+    if not cli_set and in_call != DEFAULT_MAX_FOLDER_FILES:
+        return in_call
+    cli = value if isinstance(value, int) and value > 0 else DEFAULT_CLI_MAX_FOLDER_FILES
+    return max(in_call, cli)
+
+
 def should_exclude_file(
     file_path: Path,
     root: Path,

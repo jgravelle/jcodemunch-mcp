@@ -90,6 +90,21 @@ def _file_cap_report(skip_counts: dict, max_files: int) -> dict:
     }
 
 
+def _cap_status_for_kept(cap: dict, dropped: set, stored: set) -> dict:
+    """The cap status of an index that kept the files this walk's cap cut.
+
+    A capped call over an index built past its cap keeps those files, so the
+    index holds more than the walk parsed: report what the index holds.
+    """
+    if not cap.get("truncated"):
+        return cap
+    missing = len(dropped - stored)
+    if missing == 0:
+        return {"truncated": False}
+    discovered = int(cap.get("files_discovered") or 0)
+    return {**cap, "files_indexed": discovered - missing, "files_skipped_cap": missing}
+
+
 def _attach_cap_report(result: dict, cap: Optional[dict]) -> None:
     """Surface a file-cap truncation in an index result dict (#366).
 
@@ -1530,6 +1545,7 @@ def discover_local_files(
     max_size: Optional[int] = None,
     extra_ignore_patterns: Optional[list[str]] = None,
     follow_symlinks: bool = False,
+    cap_dropped: Optional[list] = None,
 ) -> tuple[list[Path], list[str], dict[str, int]]:
     """Discover source files in a local folder with security filtering.
 
@@ -1541,6 +1557,8 @@ def discover_local_files(
         follow_symlinks: Whether to include symlinked files in indexing.
             Symlinked directories are never followed to prevent infinite
             loops from circular symlinks. Default False for safety.
+        cap_dropped: When given, receives the files the walk accepted and the
+            file cap then cut, so a caller can tell a skipped file from a gone one.
 
     Returns:
         Tuple of (list of Path objects for source files, list of warning strings).
@@ -1702,6 +1720,8 @@ def discover_local_files(
             return (len(priority_dirs), rel_path.count("/"), rel_path)
 
         files.sort(key=priority_key)
+        if cap_dropped is not None:
+            cap_dropped.extend(files[max_files:])
         files = files[:max_files]
 
     return files, warnings, skip_counts
@@ -1741,6 +1761,7 @@ def index_folder(
     force_reparse: bool = False,
     max_size: Optional[int] = None,
     paths_honor_gitignore: bool = True,
+    max_folder_files: Optional[int] = None,
 ) -> dict:
     """Index a local folder containing source code.
 
@@ -1825,6 +1846,8 @@ def index_folder(
     # learn that the operation it requested was substituted for another one.
     _requested_incremental = incremental
     rebuild_reason: Optional[str] = None
+    # Set by the one rebuild that must stay a rebuild under the cap (see below).
+    _rebuild_for_root_marker = False
     trusted_folders = _config.get("trusted_folders", [], repo=str(folder_path))
     whitelist_mode = _config.get(
         "trusted_folders_whitelist_mode", True, repo=str(folder_path)
@@ -1980,7 +2003,9 @@ def index_folder(
     # `walk_root`, matching both `load_project_config` above and the key
     # `_discover_source_files` builds, and it is read BEFORE the git-root
     # retarget moves `folder_path`.
-    max_files = get_max_folder_files(repo=str(walk_root.resolve()))
+    # A command-line caller passes its own, higher cap
+    # (`security.get_cli_max_folder_files`); an agent's call never does.
+    max_files = get_max_folder_files(max_folder_files, repo=str(walk_root.resolve()))
 
     try:
         t0 = time.monotonic()
@@ -2544,6 +2569,7 @@ def index_folder(
         # entries. Validation matches the walk path (outside-root, traversal,
         # symlink-escape, oversize, unsupported-extension all warn-and-skip).
         requested_rels: Optional[list[str]] = None
+        _cap_dropped_paths: list[Path] = []
         if paths is not None:
             source_files, discover_warnings, skip_counts, requested_rels = resolve_explicit_paths(
                 walk_root,
@@ -2560,6 +2586,7 @@ def index_folder(
                 max_size=max_size,
                 extra_ignore_patterns=_merged_ignore or None,
                 follow_symlinks=follow_symlinks,
+                cap_dropped=_cap_dropped_paths,
             )
         warnings.extend(discover_warnings)
         logger.info("Discovery skip counts: %s", skip_counts)
@@ -2568,6 +2595,15 @@ def index_folder(
         # silently-capped index is loud in the index result, in resolve_repo, and
         # in query _meta. Always a dict (self-heals when a raised cap clears it).
         _cap_status = _file_cap_report(skip_counts, max_files)
+        # Files the walk accepted and the cap then cut, in the stored key form.
+        # They exist and are wanted, so a capped call must not delete them from
+        # an index that already holds them (built under a higher cap: the CLI's).
+        _cap_dropped_rels: set[str] = set()
+        for _p in _cap_dropped_paths:
+            try:
+                _cap_dropped_rels.add(_p.relative_to(folder_path).as_posix())
+            except ValueError:
+                continue
 
         # Warn when no root .gitignore is present and the file count is large —
         # a common cause of bloated indexes that then overflow get_file_tree.
@@ -2692,6 +2728,7 @@ def index_folder(
                 # upgrading is a rebuild for anyone whose index was last written
                 # by a subdir walk. It happens once per index, not per run.
                 incremental = False
+                _rebuild_for_root_marker = True
                 logger.info(
                     "index_folder: full-root walk supersedes partial source_roots "
                     "for %s/%s; rebuilding once to establish the full-root marker",
@@ -2966,6 +3003,33 @@ def index_folder(
             and not _is_branch_delta
             and walk_prefix in (getattr(_merge_with_existing, "source_roots", None) or [])
         )
+        _cap_rebuild_warning: Optional[str] = None
+        # A full re-parse replaces the whole stored index with what this walk
+        # found. Under the cap, that would drop every file the cap cut from an
+        # index built past it (by the CLI). Update the changed files instead and
+        # say what is still due; the CLI re-parses everything.
+        if (
+            not incremental
+            and existing_index is not None
+            and _cap_dropped_rels
+            and paths is None
+            and changed_paths is None
+            and _merge_with_existing is None
+            and not _rebuild_for_root_marker
+            and _cap_dropped_rels & set(getattr(existing_index, "source_files", None) or [])
+        ):
+            incremental = True
+            if PARSER_UPGRADE_WARNING in warnings:
+                warnings.remove(PARSER_UPGRADE_WARNING)
+            _cap_rebuild_warning = (
+                f"A full re-parse was due ({rebuild_reason or 'cache invalidated'}), but this "
+                f"call's file cap ({max_files}) is below the files the index holds, so it "
+                "updated changed files only and kept the rest. Run `jcodemunch-mcp index` "
+                "(its cap is cli_max_folder_files) to re-parse every file."
+            )
+            warnings.append(_cap_rebuild_warning)
+            rebuild_reason = None
+
         if incremental and existing_index is not None and (
             _merge_with_existing is None or _subdir_incremental
         ):
@@ -2979,6 +3043,17 @@ def index_folder(
                     fp for fp in deleted
                     if not _file_outside_walk_prefix(fp, walk_prefix)
                 ]
+
+            # The cap cut these files from THIS walk; they are still on disk and
+            # still wanted, so they are not deleted. A file gone from disk or
+            # newly excluded is not in the set and still leaves.
+            if _cap_dropped_rels:
+                deleted = [fp for fp in deleted if fp not in _cap_dropped_rels]
+                _cap_status = _cap_status_for_kept(
+                    _cap_status,
+                    _cap_dropped_rels,
+                    set(getattr(existing_index, "source_files", None) or []),
+                )
 
             # Subset refresh (paths=[...]): detect_changes_with_mtimes diffs the
             # supplied subset against the ENTIRE stored index, so every unlisted
@@ -3043,6 +3118,9 @@ def index_folder(
                 _stamp_incremental_outcome(
                     _no_change_result, _requested_incremental, True
                 )
+                if _cap_rebuild_warning:
+                    # The re-parse that was due did not run: say so even here.
+                    _no_change_result["warnings"] = [_cap_rebuild_warning]
                 # This ran a full discovery walk, so a still-truncated index
                 # stays loud even when nothing changed (#366).
                 _attach_cap_report(_no_change_result, _cap_status)

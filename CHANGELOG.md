@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+### Changed - the file cap limits what one call parses, not what the index keeps
+
+`max_folder_files` (default 2,000) exists because an agent's `index_folder` runs inside one tool call and has to finish before the client gives up. The command line has no such limit, but `init` and `jcodemunch-mcp index` used the same cap, so a large repository indexed from the command line held only its first 2,000 files. The command line now has its own cap, `cli_max_folder_files` (default 30,000), and uses the larger of the two. If you set `max_folder_files` and leave `cli_max_folder_files` at its default, the command line keeps your cap, as before. `refresh` discovers files under the same cap, so it can't mark a re-parse complete after covering only part of a larger index.
+
+Two caps are only safe if an agent's capped call never shrinks an index built past its cap, and before this one did. A full re-index compared the files it found with everything stored, so a file the cap left out counted as deleted. A forced rebuild (a parser upgrade, a cleared cache) replaced the whole index with the capped walk. Lowering `max_folder_files` and re-indexing had the same effect on any index. Now a capped call doesn't delete a file its cap skipped; a file that is gone from disk or newly ignored still leaves. When a full re-parse is due and the index holds files past this call's cap, the call updates the changed files only, keeps the rest, doesn't mark the parser upgrade done, and says to run `jcodemunch-mcp index` to re-parse every file. The kept files stay as they were last parsed until the command line, the watcher or the edit hook re-reads them; both the watcher and the hook re-parse a changed file past the cap. Tests: `tests/test_the_file_cap_limits_a_call_not_the_index.py`.
+
 ## [1.108.417] - 2026-11-04 - a wrong call through order names a call that works
 
 ### Changed - a wrong call through `order` names a call that works, and a turned-off tool says to ask the user

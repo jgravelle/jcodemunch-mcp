@@ -11848,8 +11848,10 @@ def main(argv: Optional[list[str]] = None):
         identity_mode = getattr(args, "identity_mode", "config")
         if is_local:
             from .tools.index_folder import index_folder as _index_folder
+            from .security import get_cli_max_folder_files as _cli_cap
             result = _index_folder(
                 path=t,
+                max_folder_files=_cli_cap(repo=str(Path(t).resolve())),
                 use_ai_summaries=use_ai,
                 storage_path=os.environ.get("CODE_INDEX_PATH"),
                 extra_ignore_patterns=args.extra_ignore,

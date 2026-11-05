@@ -1219,7 +1219,15 @@ def run_index(*, dry_run: bool = False) -> str:
 
     try:
         from ..tools.index_folder import index_folder
-        return _index_summary(cwd, index_folder(path=cwd))
+        from ..security import get_cli_max_folder_files
+
+        return _index_summary(
+            cwd,
+            index_folder(
+                path=cwd,
+                max_folder_files=get_cli_max_folder_files(repo=str(Path(cwd).resolve())),
+            ),
+        )
     except Exception as e:
         return f"  indexing failed: {e}"
 
