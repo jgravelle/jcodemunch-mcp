@@ -90,14 +90,51 @@ def _file_cap_report(skip_counts: dict, max_files: int) -> dict:
     }
 
 
-def _cap_kept_warning(rebuild_reason: Optional[str], max_files: int) -> str:
+def _cap_kept_warning(
+    rebuild_reason: Optional[str], max_files: int, stale: int = 0
+) -> str:
     """Why a capped call kept files it did not re-parse, and the call that does."""
     head = f"A full re-parse was due ({rebuild_reason}), but this" if rebuild_reason else "This"
+    changed = (
+        f" {stale} of them changed on disk since, so a search can't treat a name as "
+        "absent until they're re-parsed."
+        if stale
+        else ""
+    )
     return (
         f"{head} call's file cap ({max_files}) is below the files the index holds, so "
-        "it kept the files past the cap as they were last parsed. Run "
+        f"it kept the files past the cap as they were last parsed.{changed} Run "
         "`jcodemunch-mcp index` (its cap is cli_max_folder_files) to re-parse every file."
     )
+
+
+def _stale_kept(dropped_paths: list, folder_path: Path, index, rels: set) -> set:
+    """The kept files (``rels``) whose disk copy may differ from the stored parse.
+
+    A kept file was not re-read by this call, so it counts as present only when
+    its mtime still equals the one stored with it. A file with no stored mtime,
+    or one that can't be read, is UNKNOWN and counts as not verified.
+    """
+    if not rels:
+        return set()
+    stored = getattr(index, "file_mtimes", None) or {}
+    stale: set = set()
+    for _p in dropped_paths:
+        try:
+            rel = _p.relative_to(folder_path).as_posix()
+        except ValueError:
+            continue
+        if rel not in rels:
+            continue
+        want = stored.get(rel)
+        try:
+            have = os.stat(_p).st_mtime_ns
+        except OSError:
+            stale.add(rel)
+            continue
+        if want is None or int(want) != have:
+            stale.add(rel)
+    return stale
 
 
 def _cap_status_after_promotion(cap: dict, promoted: int) -> dict:
@@ -3084,6 +3121,8 @@ def index_folder(
             and walk_prefix in (getattr(_merge_with_existing, "source_roots", None) or [])
         )
         _cap_rebuild_warning: Optional[str] = None
+        _cap_fallback_reason: Optional[str] = None
+        _cap_stale: set = set()
         # A full re-parse replaces the whole stored index with what this walk
         # found. Under the cap, that would drop every file the cap cut from an
         # index built past it (by the CLI). Update the changed files instead and
@@ -3101,6 +3140,7 @@ def index_folder(
             if PARSER_UPGRADE_WARNING in warnings:
                 warnings.remove(PARSER_UPGRADE_WARNING)
             _cap_rebuild_warning = _cap_kept_warning(rebuild_reason, max_files)
+            _cap_fallback_reason = rebuild_reason
             warnings.append(_cap_rebuild_warning)
             rebuild_reason = None
 
@@ -3123,11 +3163,27 @@ def index_folder(
             # newly excluded is not in the set and still leaves.
             if _cap_dropped_rels:
                 deleted = [fp for fp in deleted if fp not in _cap_dropped_rels]
-                _cap_status = _cap_status_for_kept(
-                    _cap_status,
-                    _cap_dropped_rels,
-                    set(getattr(existing_index, "source_files", None) or []),
+                _inc_stored = set(getattr(existing_index, "source_files", None) or [])
+                _inc_kept = _cap_dropped_rels & _inc_stored
+                # A kept file this call did not re-read is present only if it
+                # has not changed since it was parsed: the rest count as cut.
+                _cap_stale = _stale_kept(
+                    _cap_dropped_paths, folder_path, existing_index, _inc_kept
                 )
+                _cap_status = _cap_status_for_kept(
+                    _cap_status, _cap_dropped_rels, _inc_stored - _cap_stale,
+                )
+                if _inc_kept and _cap_rebuild_warning is None:
+                    _cap_rebuild_warning = _cap_kept_warning(
+                        None, max_files, len(_cap_stale)
+                    )
+                    warnings.append(_cap_rebuild_warning)
+                elif _cap_rebuild_warning is not None and _cap_stale:
+                    _updated = _cap_kept_warning(
+                        _cap_fallback_reason, max_files, len(_cap_stale)
+                    )
+                    warnings[warnings.index(_cap_rebuild_warning)] = _updated
+                    _cap_rebuild_warning = _updated
 
             # Subset refresh (paths=[...]): detect_changes_with_mtimes diffs the
             # supplied subset against the ENTIRE stored index, so every unlisted
@@ -3204,6 +3260,7 @@ def index_folder(
                     _nc_kept = len(
                         (_cap_dropped_rels & set(getattr(existing_index, "source_files", None) or []))
                         - set(updated_mtimes)
+                        - _cap_stale
                     )
                     _nc_skips, _nc_accepted = _coverage_counts_with_kept(
                         skip_counts, len(source_files), _nc_kept
@@ -3339,6 +3396,7 @@ def index_folder(
                 _cov_kept = len(
                     (_cap_dropped_rels & set(getattr(existing_index, "source_files", None) or []))
                     - set(updated_mtimes)
+                    - _cap_stale
                 )
                 _cov_skips, _cov_accepted = _coverage_counts_with_kept(
                     skip_counts, len(source_files), _cov_kept,
@@ -3720,12 +3778,19 @@ def index_folder(
                         int(getattr(_cap_base, "parser_generation", 0) or 0),
                         PARSER_GENERATION,
                     )
+                    # Kept, but present only if unchanged since that parse.
+                    _cap_stale = _stale_kept(
+                        _cap_dropped_paths, folder_path, _cap_base, _cap_keep
+                    )
                     _cap_status = _cap_status_for_kept(
-                        _cap_status, _cap_dropped_rels, set(_save_source_files)
+                        _cap_status, _cap_dropped_rels,
+                        set(_save_source_files) - _cap_stale,
                     )
                     if PARSER_UPGRADE_WARNING in warnings:
                         warnings.remove(PARSER_UPGRADE_WARNING)
-                    warnings.append(_cap_kept_warning(rebuild_reason, max_files))
+                    warnings.append(
+                        _cap_kept_warning(rebuild_reason, max_files, len(_cap_stale))
+                    )
                 logger.info(
                     "v1.96 subdir merge: %d carried + %d new = %d files "
                     "(%d source_roots: %s)",
@@ -3762,12 +3827,13 @@ def index_folder(
         # Full-save paths above all followed a full discovery walk (paths=None);
         # record the coverage contract the verdicts disclose at query time.
         if paths is None:
+            _cov_kept_n = len(_cap_keep - _cap_stale)
             _cov_skips, _cov_accepted = _coverage_counts_with_kept(
-                skip_counts, len(source_files), len(_cap_keep)
+                skip_counts, len(source_files), _cov_kept_n
             )
             _record_coverage(
                 store, owner, repo_name,
-                _cov_skips, len(source_file_list) + len(_cap_keep), len(no_symbols_files),
+                _cov_skips, len(source_file_list) + _cov_kept_n, len(no_symbols_files),
                 files_accepted=_cov_accepted,
                 post_discovery_drops=post_discovery_drops,
             )

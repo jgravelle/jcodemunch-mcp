@@ -606,3 +606,126 @@ def test_a_promoted_watcher_file_moves_from_skipped_to_indexed(tree, monkeypatch
     assert cap.get("files_discovered") == N, cap
     assert cap.get("files_indexed") == 4, cap
     assert cap.get("files_skipped_cap") == N - 4, cap
+
+
+# --- a kept file counts as present only while it is unchanged -------------
+
+
+def _absence_is_refused(repo: str, needle: str) -> bool:
+    from jcodemunch_mcp.tools.search_text import search_text
+
+    res = search_text(repo=repo, query=needle)
+    assert not res.get("result_count"), "precondition: the needle is not indexed"
+    return bool(((res.get("_meta") or {}).get("verdict") or {}).get("absence_refused"))
+
+
+def test_an_edit_past_the_cap_with_nothing_else_changed_refuses_absence(cli_built):
+    """The agent re-index sees no change inside its cap (the no-change exit) and
+    keeps m6 as last parsed. m6 now holds a name the index lacks, so a search
+    must not call that name absent."""
+    root, repo = cli_built
+    _edit(root / "pkg" / "m6.py", "added_past_cap")
+    res = _in_call(root)
+    assert any("1 of them changed" in w for w in res.get("warnings") or []), res
+    assert _coverage(repo).get("complete") is False, _coverage(repo)
+    assert _load(repo).file_cap_status.get("truncated") is True
+    assert _absence_is_refused(repo, "added_past_cap")
+
+
+def test_an_edit_past_the_cap_beside_an_edit_inside_it_refuses_absence(cli_built):
+    """The incremental save route: one edit inside the cap, one past it."""
+    root, repo = cli_built
+    _edit(root / "pkg" / "m0.py", "added0")
+    _edit(root / "pkg" / "m6.py", "added_past_cap")
+    res = _in_call(root)
+    assert "added0" in _names(repo)
+    assert any("1 of them changed" in w for w in res.get("warnings") or []), res
+    cov = _coverage(repo)
+    assert cov.get("complete") is False and cov.get("files_indexed") == N - 1, cov
+    assert _absence_is_refused(repo, "added_past_cap")
+
+
+def test_an_edit_past_the_cap_under_a_forced_rebuild_refuses_absence(cli_built):
+    """The full-save carrying route."""
+    from jcodemunch_mcp.tools.invalidate_cache import _force_full_reindex
+
+    root, repo = cli_built
+    _edit(root / "pkg" / "m6.py", "added_past_cap")
+    _force_full_reindex.add(repo)
+    try:
+        res = _in_call(root, incremental=False)
+    finally:
+        _force_full_reindex.discard(repo)
+    assert len(_files(repo)) == N
+    assert any("1 of them changed" in w for w in res.get("warnings") or []), res
+    assert _coverage(repo).get("complete") is False, _coverage(repo)
+    assert _absence_is_refused(repo, "added_past_cap")
+
+
+def test_unchanged_kept_files_still_count_as_present_and_the_carry_warns(cli_built):
+    """The control: nothing past the cap changed, so coverage stays complete,
+    and the carry is still named in the result."""
+    root, repo = cli_built
+    _edit(root / "pkg" / "m0.py", "added0")
+    res = _in_call(root)
+    assert any("kept the files past the cap" in w for w in res.get("warnings") or []), (
+        res
+    )
+    assert not any("changed on disk" in w for w in res.get("warnings") or []), res
+    assert _coverage(repo).get("complete") is True, _coverage(repo)
+    res = _in_call(root)  # the no-change exit carries too
+    assert any("kept the files past the cap" in w for w in res.get("warnings") or []), (
+        res
+    )
+
+
+# --- the CLI cap is named where it binds ---------------------------------
+
+
+def test_the_index_subcommand_cap_warning_names_the_cli_cap(tree, capsys):
+    """Raising max_folder_files would also raise the agent's in-call cap, so the
+    warning after `index` names the key that bound it."""
+    import os
+
+    from jcodemunch_mcp import server
+
+    store = Path(os.environ["CODE_INDEX_PATH"])
+    store.mkdir(parents=True, exist_ok=True)
+    (store / "config.jsonc").write_text(
+        json.dumps({"max_folder_files": 3, "cli_max_folder_files": 5}),
+        encoding="utf-8",
+    )
+    try:
+        server.main(["index", str(tree)])
+    except SystemExit as exc:
+        assert not exc.code, exc.code
+    err = capsys.readouterr().err
+    assert "cli_max_folder_files" in err, err
+    assert "JCODEMUNCH_MAX_FOLDER_FILES" not in err, err
+
+
+def test_the_cli_cap_is_a_corpus_eligibility_key():
+    """It decides which files enter a CLI-built index, so two installs that
+    differ only there must not share a capability certificate."""
+    from jcodemunch_mcp.evidence.capability import ELIGIBILITY_KEYS
+
+    assert "cli_max_folder_files" in ELIGIBILITY_KEYS
+
+
+@pytest.mark.parametrize(
+    ("in_call", "cli", "expect"),
+    [
+        (3, 10, (10, "cli_max_folder_files")),
+        (12, 10, (12, "max_folder_files")),
+        (3, 30000, (3, "max_folder_files")),
+    ],
+)
+def test_the_cli_cap_names_the_key_that_set_it(tree, monkeypatch, in_call, cli, expect):
+    """The warning raises the key that bound: the CLI key, an in-call cap above
+    it, or a user's cap with the CLI key left at its default."""
+    from jcodemunch_mcp.security import get_cli_folder_cap, get_cli_max_folder_files
+
+    monkeypatch.setitem(config_module._GLOBAL_CONFIG, "max_folder_files", in_call)
+    monkeypatch.setitem(config_module._GLOBAL_CONFIG, "cli_max_folder_files", cli)
+    assert get_cli_folder_cap(str(tree)) == expect
+    assert get_cli_max_folder_files(repo=str(tree)) == expect[0]

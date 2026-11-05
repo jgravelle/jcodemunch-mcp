@@ -1087,9 +1087,9 @@ def get_max_folder_files(
 
 # The command-line paths (`init`, `jcodemunch-mcp index`, `refresh`) run outside
 # any client's tool timeout, which is the only reason `max_folder_files` is low.
-# Set from cold-index measurements of large repositories: it covers large
-# application repos and stops short of a kernel-sized tree, whose cold index
-# needed several times the memory. Raise it for a larger tree.
+# A design default, not a measured ceiling: it is meant to cover a large
+# application repo and stop short of a kernel-sized tree. Raise it for a
+# larger tree.
 DEFAULT_CLI_MAX_FOLDER_FILES = 30_000
 
 
@@ -1111,15 +1111,27 @@ def get_cli_max_folder_files(repo: Optional[str] = None) -> int:
     loaded here, because the CLI asks before ``index_folder`` would load it, and
     a project's own cap read after the CLI has chosen one is read too late.
     """
+    return get_cli_folder_cap(repo)[0]
+
+
+def get_cli_folder_cap(repo: Optional[str] = None) -> tuple[int, str]:
+    """The command-line file cap and the config key that set it.
+
+    The key is what a person raises to index more files from the command line:
+    ``max_folder_files`` when the in-call cap binds, ``cli_max_folder_files``
+    otherwise. Same rule as ``get_cli_max_folder_files``, which reads it here.
+    """
     if repo and Path(repo).is_dir():
         _config.load_project_config(repo)
     in_call = get_max_folder_files(repo=repo)
     value = _config.get("cli_max_folder_files", repo=repo)
     cli_set = isinstance(value, int) and value > 0 and value != DEFAULT_CLI_MAX_FOLDER_FILES
     if not cli_set and in_call != DEFAULT_MAX_FOLDER_FILES:
-        return in_call
+        return in_call, "max_folder_files"
     cli = value if isinstance(value, int) and value > 0 else DEFAULT_CLI_MAX_FOLDER_FILES
-    return max(in_call, cli)
+    if in_call > cli:
+        return in_call, "max_folder_files"
+    return cli, "cli_max_folder_files"
 
 
 def should_exclude_file(
