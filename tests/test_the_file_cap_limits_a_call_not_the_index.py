@@ -558,3 +558,51 @@ def test_an_explicit_full_reindex_under_the_cap_names_no_wrong_cause(cli_built):
     kept = [w for w in res.get("warnings", []) if "jcodemunch-mcp index" in w]
     assert kept, res.get("warnings")
     assert not any("cache invalidated" in w for w in kept), kept
+
+
+def _write_module(path: Path, i: int) -> None:
+    path.write_text(
+        "def fn" + str(i) + "():" + chr(10) + "    return " + str(i) + chr(10),
+        encoding="utf-8",
+    )
+
+
+def test_new_files_past_the_cap_with_no_edit_are_reported_missing(cli_built):
+    """No file the index holds changed, but two new ones sit past the cap: the
+    stored cap status and coverage say the index is partial, as it is."""
+    from jcodemunch_mcp.tools.resolve_repo import resolve_repo
+
+    root, repo = cli_built
+    for i in (N, N + 1):
+        _write_module(root / "pkg" / f"m{i}.py", i)
+    _in_call(root)
+    assert len(_files(repo)) == N
+    cap = _load(repo).file_cap_status
+    assert cap.get("truncated") is True and cap.get("files_skipped_cap") == 2, cap
+    assert cap.get("files_discovered") == N + 2 and cap.get("files_indexed") == N, cap
+    assert _coverage(repo).get("complete") is False, _coverage(repo)
+    assert "truncation_warning" in resolve_repo(str(root))
+
+
+def test_a_promoted_watcher_file_moves_from_skipped_to_indexed(tree, monkeypatch):
+    """An agent-built capped index, an upgrade due and one event past the cap:
+    the stored numbers describe the index, 4 of 8, not 3 of 7."""
+    from jcodemunch_mcp.reindex_state import WatcherChange
+
+    repo = _in_call(tree)["repo"]
+    assert len(_files(repo)) == 3, "precondition"
+    _raise_parser_generation(
+        monkeypatch, getattr(_load(repo), "parser_generation", None)
+    )
+    p = tree / "pkg" / "m6.py"
+    _edit(p, "added6")
+    _in_call(
+        tree,
+        incremental=True,
+        changed_paths=[WatcherChange("modified", str(p), "__cache_miss__")],
+    )
+    assert len(_files(repo)) == 4
+    cap = _load(repo).file_cap_status
+    assert cap.get("files_discovered") == N, cap
+    assert cap.get("files_indexed") == 4, cap
+    assert cap.get("files_skipped_cap") == N - 4, cap

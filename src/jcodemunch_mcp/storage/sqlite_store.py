@@ -2999,6 +2999,35 @@ class SQLiteIndexStore:
         except Exception:
             logger.debug("Failed to set coverage for %s/%s", owner, name, exc_info=True)
 
+    def set_file_cap_status(self, owner: str, name: str, status: dict) -> None:
+        """Persist the file-cap status alone, for a run that saved nothing else.
+
+        A re-index that found no changed file still walked the tree, and its cap
+        can see files the index lacks (new files past the cap). Best-effort,
+        like ``set_coverage``.
+        """
+        safe_owner = self._safe_repo_component(owner, "owner")
+        safe_name = self._safe_repo_component(name, "name")
+        db_path = self._db_path(safe_owner, safe_name)
+        if not db_path.exists():
+            return
+        try:
+            conn = self._connect(db_path)
+            try:
+                conn.execute(
+                    "INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)",
+                    ("file_cap_status", json.dumps(status or {})),
+                )
+                conn.commit()
+            finally:
+                conn.close()
+            with _cache_lock:
+                for key, entry in _index_cache.items():
+                    if key[0] == owner and key[1] == name:
+                        entry.code_index.file_cap_status = status or {}
+        except Exception:
+            logger.debug("Failed to set file_cap_status for %s/%s", owner, name, exc_info=True)
+
     def stamp_parser_generation(self, owner: str, name: str, generation: int) -> bool:
         """Record that this index's symbols were produced by `generation`.
 

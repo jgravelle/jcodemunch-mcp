@@ -100,6 +100,23 @@ def _cap_kept_warning(rebuild_reason: Optional[str], max_files: int) -> str:
     )
 
 
+def _cap_status_after_promotion(cap: dict, promoted: int) -> dict:
+    """The cap status once ``promoted`` cut files were parsed after all.
+
+    They move from skipped to indexed; the files discovered do not change.
+    """
+    if not cap.get("truncated") or promoted <= 0:
+        return cap
+    skipped = int(cap.get("files_skipped_cap", 0) or 0) - promoted
+    if skipped <= 0:
+        return {"truncated": False}
+    return {
+        **cap,
+        "files_indexed": int(cap.get("files_indexed", 0) or 0) + promoted,
+        "files_skipped_cap": skipped,
+    }
+
+
 def _cap_status_for_kept(cap: dict, dropped: set, stored: set) -> dict:
     """The cap status of an index that kept the files this walk's cap cut.
 
@@ -2666,7 +2683,7 @@ def index_folder(
                 # nor missing: the cap status follows the new count.
                 skip_counts = dict(skip_counts)
                 skip_counts["file_limit"] = max(0, int(skip_counts.get("file_limit", 0) or 0) - _promoted)
-                _cap_status = _file_cap_report(skip_counts, max_files)
+                _cap_status = _cap_status_after_promotion(_cap_status, _promoted)
 
         # Warn when no root .gitignore is present and the file count is large —
         # a common cause of bloated indexes that then overflow get_file_tree.
@@ -3178,6 +3195,26 @@ def index_folder(
                 if _cap_rebuild_warning:
                     # The re-parse that was due did not run: say so even here.
                     _no_change_result["warnings"] = [_cap_rebuild_warning]
+                # Nothing changed, but this walk may still see files the index
+                # lacks: new files past the cap. Record what it saw, so the
+                # stored cap status and coverage stay true to the index.
+                _stored_cap = getattr(existing_index, "file_cap_status", None) or {}
+                if paths is None and _cap_status != _stored_cap:
+                    store._sqlite.set_file_cap_status(owner, repo_name, _cap_status)
+                    _nc_kept = len(
+                        (_cap_dropped_rels & set(getattr(existing_index, "source_files", None) or []))
+                        - set(updated_mtimes)
+                    )
+                    _nc_skips, _nc_accepted = _coverage_counts_with_kept(
+                        skip_counts, len(source_files), _nc_kept
+                    )
+                    _record_coverage(
+                        store, owner, repo_name,
+                        _nc_skips, len(updated_mtimes) + _nc_kept,
+                        int((getattr(existing_index, "coverage", None) or {}).get("no_symbols_count", 0) or 0),
+                        files_accepted=_nc_accepted,
+                        post_discovery_drops=post_discovery_drops,
+                    )
                 # This ran a full discovery walk, so a still-truncated index
                 # stays loud even when nothing changed (#366).
                 _attach_cap_report(_no_change_result, _cap_status)
