@@ -5,13 +5,22 @@ turns: the refused Grep, then the search it was told to make. This module runs
 that search in the hook and returns its page, so the refusal carries the answer
 and the agent's next turn reads it instead of asking for it.
 
-It answers at most once per (session, Grep arguments): the same Grep sent again
-runs normally, which is the escape hatch to raw output. It answers nothing, and
-the Grep runs untouched, when the switch is off, the search root is not an
-indexed repo, the arguments have no index translation (file type, multiline,
-context lines, paging, a count, a `**` glob), an indexed file changed on disk
-since it was indexed, or the search errors, finds nothing, is cut short (time
-budget, result cap, unreadable files) or returns a page over the size cap.
+It answers only a large Grep. The whole match set is collected first; when it
+is under both size thresholds (matching lines, matching files) the Grep runs
+untouched, because a small Grep is the agent's cheap path and an answer there
+saves nothing. At or over either threshold the answer is the whole match set:
+every matching line while that fits the size cap, otherwise every match
+counted by file and by the function or class it sits in, with each symbol's id
+and span. A page that drops matches is never sent.
+
+It answers at most once per (session, search root, Grep arguments): the same
+Grep sent again runs normally, which is the escape hatch to raw output. It
+answers nothing, and the Grep runs untouched, when the switch is off, the
+search root is not an indexed repo, the arguments have no index translation
+(file type, multiline, context lines, paging, a count, a `**` glob), an indexed
+file changed on disk since it was indexed, or the search errors, finds nothing,
+is cut short (time budget, the scan cap, unreadable files) or fits the size cap
+in neither form.
 
 The answer says what it is: a case-insensitive search of the files the index
 holds, as they were indexed. Files the index does not cover (most docs, config
@@ -36,6 +45,13 @@ ANSWER_MARKER = "Answered from the jCodeMunch index"
 DEFAULT_BUDGET_SECONDS = 4.0
 # A page bigger than this is not put into a refusal: the Grep runs instead.
 MAX_ANSWER_CHARS = 8000
+# Seeded, not calibrated: a Grep under both is left to run. Overridden by
+# JCODEMUNCH_HOOK_GREP_ANSWER_MIN_LINES / _MIN_FILES.
+DEFAULT_MIN_LINES = 50
+DEFAULT_MIN_FILES = 10
+# The most matching lines collected to answer one Grep. A larger match set is
+# not answered, since its count would be partial.
+SCAN_LIMIT = 2000
 # Bounded memory of answered Greps, newest kept.
 MAX_REMEMBERED = 200
 _STATE_FILE = "_grep_answered.json"
@@ -66,13 +82,32 @@ def _budget_seconds() -> float:
     return val if val > 0 else DEFAULT_BUDGET_SECONDS
 
 
+def _positive_int_env(name: str, default: int) -> int:
+    """A positive integer from the environment; anything else is the default,
+    so a typo cannot switch the size gate off."""
+    raw = os.environ.get(name, "").strip()
+    if not raw.isdigit() or int(raw) <= 0:
+        return default
+    return int(raw)
+
+
+def _min_lines() -> int:
+    return _positive_int_env("JCODEMUNCH_HOOK_GREP_ANSWER_MIN_LINES", DEFAULT_MIN_LINES)
+
+
+def _min_files() -> int:
+    return _positive_int_env("JCODEMUNCH_HOOK_GREP_ANSWER_MIN_FILES", DEFAULT_MIN_FILES)
+
+
 def _state_path() -> Path:
     base = os.environ.get("CODE_INDEX_PATH") or str(Path.home() / ".code-index")
     return Path(base) / _STATE_FILE
 
 
-def _key(session_id: str, tool_input: dict) -> str:
-    raw = json.dumps([session_id, tool_input], sort_keys=True, default=str)
+def _key(session_id: str, search_root: str, tool_input: dict) -> str:
+    # The root is part of the key: a relative Grep sent from another directory
+    # is a different search, not the escape-hatch retry of the first one.
+    raw = json.dumps([session_id, search_root, tool_input], sort_keys=True, default=str)
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
@@ -208,7 +243,7 @@ def answer_grep(tool_input: dict, cwd: str, session_id: str) -> "str | None":
     if translated is None:
         return None
     search_root, query, is_regex, glob = translated
-    key = _key(session_id or "", tool_input)
+    key = _key(session_id or "", search_root, tool_input)
     if key in _load_state():
         return None  # Answered once already: this Grep is the escape hatch.
 
@@ -248,6 +283,9 @@ def answer_grep(tool_input: dict, cwd: str, session_id: str) -> "str | None":
             file_pattern=file_pattern,
             is_regex=is_regex,
             selective_load=True,
+            # The whole match set, so the gate counts it and the answer can
+            # be whole; past the cap the page is truncated and declined.
+            scan_limit=SCAN_LIMIT,
         )
         return resolved["repo"], res
 
@@ -264,6 +302,10 @@ def answer_grep(tool_input: dict, cwd: str, session_id: str) -> "str | None":
     repo, res = out
     if not _complete(res):
         return None
+    line_count = res.get("result_count") or 0
+    file_count = len(res.get("results") or [])
+    if line_count < _min_lines() and file_count < _min_files():
+        return None  # A small Grep is the cheap path; not remembered.
     res = {k: v for k, v in res.items() if k != "_meta"}
     try:
         from ...redact import is_redaction_enabled, redact_dict
@@ -273,6 +315,12 @@ def answer_grep(tool_input: dict, cwd: str, session_id: str) -> "str | None":
     except Exception:
         logger.debug("grep-answer redaction failed", exc_info=True)
         return None
+    scope = (
+        "search_text, case-insensitive, over the source files the index holds, "
+        "none changed since indexing. Files the index does not hold (most docs, "
+        "config and data) and files added since were not searched."
+    )
+    retry = "Send the same Grep again to run it as written."
     try:
         from ...encoding import encode_response
 
@@ -282,15 +330,57 @@ def answer_grep(tool_input: dict, cwd: str, session_id: str) -> "str | None":
         return None
     if not isinstance(payload, str):
         payload = json.dumps(payload, separators=(",", ":"), default=str)
-    if len(payload) > MAX_ANSWER_CHARS:
-        return None
+    if len(payload) <= MAX_ANSWER_CHARS:
+        text = f"{ANSWER_MARKER}: {scope} {retry}\n{payload}"
+    else:
+        grouped = json.dumps(_grouped(res), separators=(",", ":"), default=str)
+        if len(grouped) > MAX_ANSWER_CHARS:
+            return None
+        text = (
+            f"{ANSWER_MARKER}: {scope} All {line_count} matching lines in "
+            f"{file_count} files are counted below, by file and by the function or "
+            "class they sit in; the lines themselves did not fit and are not shown. "
+            f"get_symbol_source with an id reads that symbol. {retry}\n{grouped}"
+        )
     _remember(key)
     elapsed = time.monotonic() - started
     logger.debug("grep-answer answered in %.3fs", elapsed)
-    return (
-        f"{ANSWER_MARKER}: search_text, case-insensitive, over the source files "
-        "the index holds, none changed since indexing. Files the index does not "
-        "hold (most docs, config and data) and files added since were not "
-        "searched. Send the same Grep again to run it as written.\n"
-        f"{payload}"
-    )
+    return text
+
+
+def _grouped(res: dict) -> dict:
+    """Every match counted by file and by enclosing symbol, without the lines.
+
+    Built from the same whole page as the line form, so the counts are the
+    page's own: per-file counts sum to ``result_count``.
+    """
+    groups = []
+    for group in res.get("results") or []:
+        symbols: dict = {}
+        outside = 0
+        for match in group.get("matches") or []:
+            enclosing = match.get("in") or {}
+            sym_id = enclosing.get("id")
+            if not sym_id:
+                outside += 1
+                continue
+            entry = symbols.setdefault(sym_id, {
+                "id": sym_id,
+                "line": enclosing.get("line"),
+                "end_line": enclosing.get("end_line"),
+                "matches": 0,
+            })
+            entry["matches"] += 1
+        row = {
+            "file": group.get("file"),
+            "matches": len(group.get("matches") or []),
+            "in": list(symbols.values()),
+        }
+        if outside:
+            row["outside_symbols"] = outside
+        groups.append(row)
+    return {
+        "result_count": res.get("result_count") or 0,
+        "file_count": len(groups),
+        "groups": groups,
+    }

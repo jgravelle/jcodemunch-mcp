@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+### Changed - the opt-in Grep answer answers a large Grep whole, and leaves a small one to run
+
+With `JCODEMUNCH_HOOK_GREP_ANSWER=1`, the PreToolUse hook answers a Grep from the index inside the refusal. It read one default `search_text` page and declined any page cut short, so it answered only Greps matching a page's worth of lines or fewer. Those are the Greps that are cheapest to run as written, and a Grep large enough for the index to save something was always declined.
+
+The hook now collects the whole match set first, through a new keyword-only `scan_limit` on `search_text` that the server never passes (the MCP tool's arguments, page size and schema are unchanged). A match set under both size thresholds runs as the Grep it was. At or over either one, the answer is the whole set: every matching line while that fits the answer's size cap, otherwise every match counted by file and by the function or class it sits in, with each symbol's id and span for one `get_symbol_source` call. A count that would be partial (past the scan cap, or fitting in neither form) is never sent; the Grep runs. The thresholds are seeded, not measured, and `JCODEMUNCH_HOOK_GREP_ANSWER_MIN_LINES` and `..._MIN_FILES` override them; a value that is not a positive integer reads as the default, so a typo cannot switch the gate off. The hook stays off by default.
+
+The once-per-Grep memory was keyed on the session and the Grep's arguments only, so the same relative Grep sent from a second repo was taken for the escape-hatch retry of the first and ran unanswered. The search root is part of the key now.
+
 ### Fixed - a search on a capped index says, in its answer, that the index is partial
 
 `max_folder_files` keeps that many files of a large repo and drops the rest at index time, so on a large repo most files are never read. The index result and `resolve_repo` say so, and a search that finds nothing refuses to call that proof of absence. A search that finds something reported the cap only as `_meta.index_truncated`, and the shipped default `meta_fields: []` strips `_meta`. The agent got hits from the indexed part and no sign that most of the repo was never searched.
