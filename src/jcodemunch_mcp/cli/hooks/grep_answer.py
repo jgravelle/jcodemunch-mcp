@@ -49,8 +49,9 @@ MAX_ANSWER_CHARS = 8000
 # JCODEMUNCH_HOOK_GREP_ANSWER_MIN_LINES / _MIN_FILES.
 DEFAULT_MIN_LINES = 50
 DEFAULT_MIN_FILES = 10
-# The most matching lines collected to answer one Grep. A larger match set is
-# not answered, since its count would be partial.
+# The most matching lines collected to answer one Grep. A match set that
+# reaches it is not answered, since search_text marks the page truncated there
+# and the count could be partial.
 SCAN_LIMIT = 2000
 # Bounded memory of answered Greps, newest kept.
 MAX_REMEMBERED = 200
@@ -86,7 +87,8 @@ def _positive_int_env(name: str, default: int) -> int:
     """A positive integer from the environment; anything else is the default,
     so a typo cannot switch the size gate off."""
     raw = os.environ.get(name, "").strip()
-    if not raw.isdigit() or int(raw) <= 0:
+    # isascii: str.isdigit() also accepts digits such as "²" that int() rejects.
+    if not (raw.isascii() and raw.isdigit()) or int(raw) <= 0:
         return default
     return int(raw)
 

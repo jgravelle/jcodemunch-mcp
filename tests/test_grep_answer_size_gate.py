@@ -217,7 +217,7 @@ def test_scan_limit_is_not_an_mcp_argument():
     assert "scan_limit" not in tool.inputSchema.get("properties", {})
 
 
-@pytest.mark.parametrize("raw", ["", " ", "0", "-3", "abc", "2.5", "1e3"])
+@pytest.mark.parametrize("raw", ["", " ", "0", "-3", "abc", "2.5", "1e3", "²", "٣"])
 def test_a_threshold_that_is_not_a_positive_integer_reads_as_the_default(
     monkeypatch, raw
 ):
