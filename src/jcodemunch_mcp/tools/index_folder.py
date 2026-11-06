@@ -165,11 +165,13 @@ def _stale_kept(dropped_paths: list, folder_path: Path, index, rels: set) -> set
 def _cap_status_to_save(cap: dict, paths, existing) -> dict:
     """The cap status a save records: this call's, or the stored one.
 
-    Only a walk of the whole tree can tell whether the cap still cuts the
-    repo. A path list re-reads the files it names, so its own status says
-    nothing about the rest; writing it made a partial index read as complete.
-    Every save route asks this one rule. With no stored index there is
-    nothing to keep, so the call's own status is recorded.
+    A call without a path list walks the whole tree, so its status is
+    current. A call with one is treated as partial even when the list names
+    the whole folder, so it keeps the stored status: writing its own made a
+    partial index read as complete. That errs safe, since a stored
+    `truncated` only makes searches withhold absence claims until the next
+    whole-tree walk. Every save route asks this one rule. With no stored
+    index there is nothing to keep, so the call's own status is recorded.
     """
     if paths is None or existing is None:
         return cap
@@ -3338,8 +3340,9 @@ def index_folder(
                 # lacks: new files past the cap. Record what it saw, so the
                 # stored cap status and coverage stay true to the index.
                 _stored_cap = getattr(existing_index, "file_cap_status", None) or {}
-                if paths is None and _cap_status != _stored_cap:
-                    store._sqlite.set_file_cap_status(owner, repo_name, _cap_status)
+                _cap_to_save = _cap_status_to_save(_cap_status, paths, existing_index)
+                if _cap_to_save != _stored_cap:
+                    store._sqlite.set_file_cap_status(owner, repo_name, _cap_to_save)
                     _nc_kept = len(
                         (_cap_dropped_rels & set(getattr(existing_index, "source_files", None) or []))
                         - set(updated_mtimes)
