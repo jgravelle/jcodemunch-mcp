@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed - the shared parse cache never serves what an older parser emitted
+
+The shared parse cache (`JCODEMUNCH_PARSE_CACHE`, off unless set) stores each file's symbols so that seats on one host parse an identical file once. Its key named the index format and, for Racket, the reader, but not the parser generation, the number a release raises when the extractor's output changes for unchanged bytes. So on a host with the cache set, the re-index a release forces read every file back from the cache, kept the old symbols, and stamped the index as upgraded, which stops it from ever upgrading. An upgrade of tree-sitter, the language pack or the F# grammar inside its allowed range served old entries the same way. The key now carries the parser generation and the installed version of each grammar package, so an entry written by any other parser is a miss and the file is parsed again. A test raises each generation constant in the parser and checks that the key changes, so a new one left out of the key fails it. On a host with the cache set, every stored entry misses once after the upgrade and the file is parsed again; old entries leave through the cache's usual row cap. Installs without the cache are unaffected.
+
 ## [1.108.421] - 2026-11-06 - a starter pack installs in a few megabytes, and a file tree costs a third of the characters
 
 ### Changed - `get_file_tree` sends the same tree in a third to a half of the characters
