@@ -528,49 +528,130 @@ def test_a_summary_write_carries_a_foreign_file_cap_status(indexed, monkeypatch)
     assert (again.file_cap_status or {}).get("reason") == "foreign"
 
 
+def _holds_indexwrite(fn) -> bool:
+    """Whether ``fn`` takes the `indexwrite` lock: a `with` over
+    `held("indexwrite", ...)` in its own body. Decided from the code, never
+    from text, so a docstring saying the function skips the lock exempts
+    nothing."""
+    import ast
+
+    for node in ast.walk(fn):
+        if not isinstance(node, (ast.With, ast.AsyncWith)):
+            continue
+        for item in node.items:
+            call = item.context_expr
+            if not isinstance(call, ast.Call) or not call.args:
+                continue
+            target = call.func
+            name = target.attr if isinstance(target, ast.Attribute) else getattr(target, "id", "")
+            first = call.args[0]
+            if name == "held" and isinstance(first, ast.Constant) and first.value == "indexwrite":
+                return True
+    return False
+
+
+def _meta_keys_written(fn) -> set:
+    import ast
+    import re
+
+    keys: set = set()
+    for call in ast.walk(fn):
+        if not (isinstance(call, ast.Call) and call.args):
+            continue
+        sql = call.args[0]
+        if not (isinstance(sql, ast.Constant) and isinstance(sql.value, str)):
+            continue
+        s = sql.value
+        if " meta" not in s or not re.search(r"INSERT|UPDATE|DELETE", s):
+            continue
+        keys |= set(re.findall(r"'(\w+)'", s))
+        if len(call.args) > 1 and isinstance(call.args[1], ast.Tuple) and call.args[1].elts:
+            first = call.args[1].elts[0]
+            if isinstance(first, ast.Constant) and isinstance(first.value, str):
+                keys.add(first.value)
+            else:
+                keys.add("<non-literal key>")
+        elif len(call.args) > 1:
+            keys.add("<non-literal key>")
+    return keys
+
+
+def _unlocked_meta_writers(text: str) -> dict:
+    """{function: keys} for every function in ``text`` that writes `meta`
+    without holding `indexwrite`. A function that does not take the lock
+    itself counts as holding it only if every call to it sits in a function
+    that does (the `*_locked` bodies and `_write_meta`); migrations run on
+    connect, before any index is cached, and are left out."""
+    import ast
+
+    tree = ast.parse(text)
+    fns = {n.name: n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)}
+    holds = {name: _holds_indexwrite(fn) for name, fn in fns.items()}
+    callers: dict = {name: set() for name in fns}
+    for caller, fn in fns.items():
+        for node in ast.walk(fn):
+            if isinstance(node, ast.Call):
+                target = node.func
+                callee = target.attr if isinstance(target, ast.Attribute) else getattr(target, "id", "")
+                if callee in callers and callee != caller:
+                    callers[callee].add(caller)
+
+    def covered(name, seen=()):
+        if holds.get(name):
+            return True
+        if name in seen or not callers.get(name):
+            return False
+        return all(covered(c, seen + (name,)) for c in callers[name])
+
+    out = {}
+    for name, fn in fns.items():
+        if name.startswith("_migrate_v"):
+            continue
+        keys = _meta_keys_written(fn)
+        if keys and not covered(name):
+            out[name] = keys
+    return out
+
+
 def test_every_meta_key_written_outside_the_lock_is_read_back():
     """A warm index is re-keyed after a locked write only once the meta keys
     that unlocked writers set have been read back. A writer added outside
     `indexwrite` with a new key would be hidden by every re-key until it is
     listed in `_UNLOCKED_META_KEYS`; this finds such writers in the source."""
-    import ast
-    import re
-
     from jcodemunch_mcp.storage import sqlite_store
 
-    path = SRC / "storage" / "sqlite_store.py"
-    text = path.read_text(encoding="utf-8")
-    tree = ast.parse(text)
-    unlocked: dict[str, set[str]] = {}
-    for fn in ast.walk(tree):
-        if not isinstance(fn, ast.FunctionDef):
-            continue
-        if fn.name.startswith("_migrate") or fn.name.endswith("_locked") or fn.name == "_write_meta":
-            continue  # run on connect, or called under `indexwrite`
-        body = ast.get_source_segment(text, fn) or ""
-        if "indexwrite" in body:
-            continue
-        keys: set[str] = set()
-        for call in ast.walk(fn):
-            if not (isinstance(call, ast.Call) and call.args):
-                continue
-            sql = call.args[0]
-            if not (isinstance(sql, ast.Constant) and isinstance(sql.value, str)):
-                continue
-            s = sql.value
-            if " meta" not in s or not re.search(r"INSERT|UPDATE|DELETE", s):
-                continue
-            keys |= set(re.findall(r"'(\w+)'", s))
-            if len(call.args) > 1 and isinstance(call.args[1], ast.Tuple) and call.args[1].elts:
-                first = call.args[1].elts[0]
-                if isinstance(first, ast.Constant) and isinstance(first.value, str):
-                    keys.add(first.value)
-        if keys:
-            unlocked[fn.name] = keys
-    assert {"set_coverage", "set_file_cap_status", "stamp_parser_generation"} <= set(unlocked), unlocked
+    text = (SRC / "storage" / "sqlite_store.py").read_text(encoding="utf-8")
+    unlocked = _unlocked_meta_writers(text)
+    assert {"set_coverage", "set_file_cap_status", "stamp_parser_generation",
+            "heal_pack_index_paths"} <= set(unlocked), unlocked
+    for locked in ("save_index", "incremental_save", "update_symbol_summaries",
+                   "_save_index_locked", "_incremental_save_locked", "_write_meta"):
+        assert locked not in unlocked, locked
     listed = set(sqlite_store._UNLOCKED_META_KEYS)
     missing = {fn: sorted(keys - listed) for fn, keys in unlocked.items() if keys - listed}
     assert missing == {}, f"meta keys written outside indexwrite but never read back: {missing}"
+
+
+def test_the_writer_scan_is_not_fooled_by_a_docstring():
+    """Non-vacuity: a writer whose docstring names the lock it skips, or a
+    helper reachable from an unlocked caller, is still an unlocked writer."""
+    text = (
+        "def held(*a, **k):\n    pass\n\n"
+        "def set_cap_state(conn):\n"
+        "    \"\"\"Does not take indexwrite (L-230).\"\"\"\n"
+        "    conn.execute(\"INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)\", (\"cap_state\", 1))\n\n"
+        "def _write_x_locked(conn):\n"
+        "    conn.execute(\"INSERT OR REPLACE INTO meta (key, value) VALUES ('x_state', 1)\")\n\n"
+        "def locked_caller(conn):\n"
+        "    with held(\"indexwrite\", 't', 's'):\n"
+        "        _write_x_locked(conn)\n\n"
+        "def unlocked_caller(conn):\n"
+        "    _write_x_locked(conn)\n"
+    )
+    found = _unlocked_meta_writers(text)
+    assert found.get("set_cap_state") == {"cap_state"}, found
+    assert found.get("_write_x_locked") == {"x_state"}, found
+    assert "locked_caller" not in found and "unlocked_caller" not in found
 
 
 def test_the_write_back_waits_for_every_call_in_flight(indexed, monkeypatch):

@@ -713,10 +713,19 @@ def _read_unlocked_meta(db_path: Path) -> Optional[dict]:
 _UNLOCKED_META_COMPARE = {
     "coverage": lambda stored, held: (json.loads(stored or "{}") or {}) == (held or {}),
     "file_cap_status": lambda stored, held: (json.loads(stored or "{}") or {}) == (held or {}),
-    "parser_generation": lambda stored, held: str(stored or "") == str(held or ""),
+    "parser_generation": lambda stored, held: _as_generation(stored) == _as_generation(held),
     "source_root": lambda stored, held: bool(stored) == bool(held),
     "git_root": lambda stored, held: bool(stored) == bool(held),
 }
+
+
+def _as_generation(value) -> int:
+    """A stored or held parser generation as an int; absent or unreadable is 0,
+    the value a legacy index carries."""
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return -1
 
 
 def _unlocked_meta_matches(index, meta: dict) -> bool:
