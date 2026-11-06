@@ -162,6 +162,22 @@ def _stale_kept(dropped_paths: list, folder_path: Path, index, rels: set) -> set
     return stale
 
 
+def _cap_status_to_save(cap: dict, paths, existing) -> dict:
+    """The cap status a save records: this call's, or the stored one.
+
+    A call without a path list walks the whole tree, so its status is
+    current. A call with one is treated as partial even when the list names
+    the whole folder, so it keeps the stored status: writing its own made a
+    partial index read as complete. That errs safe, since a stored
+    `truncated` only makes searches withhold absence claims until the next
+    whole-tree walk. Every save route asks this one rule. With no stored
+    index there is nothing to keep, so the call's own status is recorded.
+    """
+    if paths is None or existing is None:
+        return cap
+    return dict(getattr(existing, "file_cap_status", None) or {})
+
+
 def _cap_status_after_promotion(cap: dict, promoted: int) -> dict:
     """The cap status once ``promoted`` cut files were parsed after all.
 
@@ -3324,8 +3340,9 @@ def index_folder(
                 # lacks: new files past the cap. Record what it saw, so the
                 # stored cap status and coverage stay true to the index.
                 _stored_cap = getattr(existing_index, "file_cap_status", None) or {}
-                if paths is None and _cap_status != _stored_cap:
-                    store._sqlite.set_file_cap_status(owner, repo_name, _cap_status)
+                _cap_to_save = _cap_status_to_save(_cap_status, paths, existing_index)
+                if _cap_to_save != _stored_cap:
+                    store._sqlite.set_file_cap_status(owner, repo_name, _cap_to_save)
                     _nc_kept = len(
                         (_cap_dropped_rels & set(getattr(existing_index, "source_files", None) or []))
                         - set(updated_mtimes)
@@ -3452,9 +3469,10 @@ def index_folder(
                     # Refresh the package registry so a manifest add/rename on
                     # the incremental path isn't stale until a full reindex (W7).
                     package_names=_extract_package_names(str(folder_path)),
-                    # This path did a full discovery walk, so refresh the cap
-                    # status (self-heals when a raised cap now clears it) (#366).
-                    file_cap_status=_cap_status,
+                    # A whole-tree walk refreshes the cap status (self-heals
+                    # when a raised cap now clears it) (#366); a path list
+                    # keeps the stored one.
+                    file_cap_status=_cap_status_to_save(_cap_status, paths, existing_index),
                 )
 
             # This path did a full discovery walk (paths=None), so the skip
@@ -3771,7 +3789,7 @@ def index_folder(
                     display_name=folder_path.name, imports=file_imports,
                     context_metadata=full_context_metadata, file_mtimes=file_mtimes,
                     package_names=_pkg_names, git_root=_git_root,
-                    file_cap_status=_cap_status,
+                    file_cap_status=_cap_status_to_save(_cap_status, paths, base_index),
                 )
         else:
             # v1.96: when an existing v1.96-format index covers the same
@@ -3895,7 +3913,7 @@ def index_folder(
                 package_names=_save_pkg_names,
                 git_root=_git_root,
                 source_roots=_save_source_roots,
-                file_cap_status=_cap_status,
+                file_cap_status=_cap_status_to_save(_cap_status, paths, existing_index),
                 parser_generation=_save_parser_generation,
             )
 
