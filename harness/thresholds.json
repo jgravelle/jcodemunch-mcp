@@ -500,7 +500,7 @@
         }
       ],
       "loosened": {
-        "by": "jjg, 2026-11-06 ('ratio', LEDGER L-314); backstop value the session's",
+        "by": "jjg, 2026-11-06 ('ratio', LEDGER L-314); backstop 10.4 approved by jjg, 2026-11-06 ('10.4 ok')",
         "reason": "5.2 -> 10.4: the cold index is judged by index.cold_over_one_file_ratio, which divides out runner speed. This row stays as a backstop at 2x its old floor, for a change that slows cold indexing and one-file reindexing by the same factor, which the ratio cannot see."
       },
       "enforced_by": [
