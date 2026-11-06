@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed - `install-pack` no longer holds a whole pack in memory
+
+`install-pack` read the whole download into memory, wrote it to a temp file, then read each file in the archive whole before writing it out. The free Node.js pack is about to grow from 8 MB to a 150 MB download holding a 759 MB index, now that the pack covers the whole repository, and installing it that way peaked at 1,758 MB of allocations, enough to fail on a small machine or container. The download now goes to the temp file in 1 MB pieces and each archive file is copied the same way, so the same install peaks at 5.7 MB, and the Django pack at 5.5 MB. A download cut off partway, or stopped with Ctrl-C, leaves no temp file behind, and a cut-off one says so. The 120-second timeout is unchanged: it applies to each wait for data, not to the whole download, so a slow link that keeps sending never trips it. Tests: `tests/test_install_pack_streams.py`.
+
 ## [1.108.420] - 2026-11-06 - re-indexing one file by path keeps a partial index marked partial
 
 ### Fixed - re-indexing one file by path keeps a partial index marked partial
