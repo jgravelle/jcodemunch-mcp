@@ -6189,7 +6189,7 @@ def _schedule_bm25_flush() -> None:
         if not _bm25_stats.pending_count():
             return
         task = _bm25_flush_task[0]
-        if task is not None and not task.done():
+        if task is not None and not task.done() and not task.get_loop().is_closed():
             return  # what is queued now is stored by the next one
         _bm25_flush_task[0] = asyncio.get_running_loop().create_task(
             asyncio.to_thread(_bm25_stats.flush_pending)

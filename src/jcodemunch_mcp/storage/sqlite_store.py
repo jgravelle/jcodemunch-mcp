@@ -674,16 +674,73 @@ def store_bm25_stats_for_loaded_index(index, blob: bytes) -> bool:
         return False
 
 
+# Meta keys written by methods that do NOT take `indexwrite` (L-230:
+# `set_coverage`, `stamp_parser_generation`, `heal_pack_index_paths`; #1341
+# added `set_file_cap_status`). One of them can commit inside a locked
+# writer's window, so a path that re-keys a warm index after its own write
+# reads these back first. A test fails when a writer outside the lock writes
+# a key missing from this list.
+_UNLOCKED_META_KEYS = ("coverage", "file_cap_status", "parser_generation", "source_root", "git_root")
+
+
+def _read_unlocked_meta(db_path: Path) -> Optional[dict]:
+    """The `_UNLOCKED_META_KEYS` rows as the .db stands, or None if it moved
+    during the read."""
+    from .generation import connect_readonly
+
+    mtime_ns = _db_mtime_ns(db_path)
+    ro = connect_readonly(db_path)
+    try:
+        placeholders = ",".join("?" * len(_UNLOCKED_META_KEYS))
+        meta = {
+            k: v
+            for k, v in ro.execute(
+                f"SELECT key, value FROM meta WHERE key IN ({placeholders})",
+                _UNLOCKED_META_KEYS,
+            ).fetchall()
+        }
+    finally:
+        ro.close()
+    if _db_mtime_ns(db_path) != mtime_ns:
+        return None
+    meta["_mtime_ns"] = mtime_ns
+    return meta
+
+
+# How each unlocked key is compared with the index attribute of the same name.
+# `heal_pack_index_paths` clears the roots and cached values are remapped, so
+# only the clearing can be compared for those.
+_UNLOCKED_META_COMPARE = {
+    "coverage": lambda stored, held: (json.loads(stored or "{}") or {}) == (held or {}),
+    "file_cap_status": lambda stored, held: (json.loads(stored or "{}") or {}) == (held or {}),
+    "parser_generation": lambda stored, held: str(stored or "") == str(held or ""),
+    "source_root": lambda stored, held: bool(stored) == bool(held),
+    "git_root": lambda stored, held: bool(stored) == bool(held),
+}
+
+
+def _unlocked_meta_matches(index, meta: dict) -> bool:
+    """Whether ``index`` already carries every `_UNLOCKED_META_KEYS` value in
+    ``meta``. A key with no comparison never matches, so a key added to the
+    list without one evicts rather than being skipped."""
+    for key in _UNLOCKED_META_KEYS:
+        compare = _UNLOCKED_META_COMPARE.get(key)
+        if compare is None or not compare(meta.get(key), getattr(index, key, None)):
+            return False
+    return True
+
+
 def _restamp_after_bm25_write(index, db_path: Path, loaded_mtime_ns: int) -> None:
     """Move the warm index to the .db's new mtime, or evict it.
 
     Moving it is what keeps this process from reading its own write as a
     rebuild and reloading the index. It is safe only if nothing else changed:
-    three meta writers do not take `indexwrite` (L-230), so one can commit
-    between our COMMIT and this stat, and re-keying the old entry would hide
-    that write (`coverage` gates absence claims, #566). So their keys are read
-    back from the .db as it stands and compared with the index, the check
-    `_patch_cached_summaries` makes; a difference, a move during the read, or
+    some meta writers do not take `indexwrite` (`_UNLOCKED_META_KEYS`), so one
+    can commit between our COMMIT and this stat, and re-keying the old entry
+    would hide that write (`coverage` gates absence claims, #566;
+    `file_cap_status` marks a partial index, #1341). So those keys are read
+    back from the .db as it stands and compared with the index, as
+    `_patch_cached_summaries` does; a difference, a move during the read, or
     any failure evicts instead, which is never wrong, only slower.
     """
     with _cache_lock:
@@ -693,27 +750,10 @@ def _restamp_after_bm25_write(index, db_path: Path, loaded_mtime_ns: int) -> Non
         ]
     mtime_ns = loaded_mtime_ns
     try:
-        mtime_ns = _db_mtime_ns(db_path)
-        from .generation import connect_readonly
-
-        ro = connect_readonly(db_path)
-        try:
-            meta = {
-                k: v
-                for k, v in ro.execute(
-                    "SELECT key, value FROM meta WHERE key IN "
-                    "('coverage', 'parser_generation', 'source_root', 'git_root')"
-                ).fetchall()
-            }
-        finally:
-            ro.close()
-        same = (
-            _db_mtime_ns(db_path) == mtime_ns
-            and (json.loads(meta.get("coverage") or "{}") or {}) == (getattr(index, "coverage", None) or {})
-            and str(meta.get("parser_generation") or "") == str(getattr(index, "parser_generation", "") or "")
-            and bool(meta.get("source_root")) == bool(getattr(index, "source_root", ""))
-            and bool(meta.get("git_root")) == bool(getattr(index, "git_root", ""))
-        )
+        meta = _read_unlocked_meta(db_path)
+        same = meta is not None and _unlocked_meta_matches(index, meta)
+        if meta is not None:
+            mtime_ns = meta["_mtime_ns"]
     except Exception:
         logger.debug("BM25 write-back: could not re-read meta; evicting", exc_info=True)
         same = False
@@ -2632,23 +2672,11 @@ class SQLiteIndexStore:
             # claims (#566). Read their keys from the .db as it stands now and
             # carry them, the way `incremental_save`'s own patch refreshes
             # `coverage`; if the .db moves during the read, evict instead.
-            mtime_ns = _db_mtime_ns(db_path)
-            from .generation import connect_readonly
-
-            ro = connect_readonly(db_path)
-            try:
-                meta = {
-                    k: v
-                    for k, v in ro.execute(
-                        "SELECT key, value FROM meta WHERE key IN "
-                        "('coverage', 'parser_generation', 'source_root', 'git_root')"
-                    ).fetchall()
-                }
-            finally:
-                ro.close()
-            if _db_mtime_ns(db_path) != mtime_ns:
+            meta = _read_unlocked_meta(db_path)
+            if meta is None:
                 _cache_evict(owner, safe_name)
                 return
+            mtime_ns = meta["_mtime_ns"]
             old = entry.code_index
             # `heal_pack_index_paths` clears the two roots; the cached values
             # are remapped, so only the clearing can be compared.
@@ -2668,6 +2696,8 @@ class SQLiteIndexStore:
                 patched.summaries_generation = str(generation)
             if "coverage" in meta:
                 patched.coverage = json.loads(meta["coverage"] or "{}") or {}
+            if "file_cap_status" in meta:
+                patched.file_cap_status = json.loads(meta["file_cap_status"] or "{}") or {}
             if meta.get("parser_generation"):
                 patched.parser_generation = int(meta["parser_generation"])
             _stamp_load_provenance(patched, db_path, mtime_ns)

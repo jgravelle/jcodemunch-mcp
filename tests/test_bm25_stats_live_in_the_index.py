@@ -40,6 +40,27 @@ def _stats():
     return bm25_stats
 
 
+@pytest.fixture(autouse=True)
+def _no_write_back_carries_over():
+    """The write-back queue and the dispatcher's counters are process-wide."""
+    def reset():
+        try:
+            stats = _stats()
+        except ImportError:
+            return
+        with stats._pending_lock:
+            stats._pending.clear()
+        from jcodemunch_mcp import server
+
+        if hasattr(server, "_bm25_outer_calls"):
+            server._bm25_outer_calls[0] = 0
+            server._bm25_flush_task[0] = None
+
+    reset()
+    yield
+    reset()
+
+
 @pytest.fixture
 def indexed(tmp_path):
     """A small real repo indexed into its own store: (repo_id, store, src)."""
@@ -415,10 +436,15 @@ def test_the_save_time_publish_writes_idf_last():
     assert index._bm25_cache["idf"] == {"a": 1.0}, "a filled cache was overwritten"
 
 
-def test_a_meta_write_after_the_commit_evicts_instead_of_restamping(indexed, monkeypatch):
-    """Three meta writers skip `indexwrite` (L-230). One committing between the
+@pytest.mark.parametrize("key, attr", [
+    ("coverage", "coverage"),
+    ("file_cap_status", "file_cap_status"),
+])
+def test_a_meta_write_after_the_commit_evicts_instead_of_restamping(indexed, monkeypatch, key, attr):
+    """Some meta writers skip `indexwrite`. One committing between the
     write-back's COMMIT and its re-stamp must not be hidden behind the warm
-    index: the coverage it wrote gates absence claims."""
+    index: `coverage` gates absence claims (#566) and `file_cap_status` marks
+    a partial index (#1341)."""
     repo, store, _src = indexed
     db = _db(store)
     _raw_write(db, [("DELETE FROM bm25_stats", ())])
@@ -437,8 +463,8 @@ def test_a_meta_write_after_the_commit_evicts_instead_of_restamping(indexed, mon
             if sql == "COMMIT":
                 foreign = real_connect(str(db), isolation_level=None)
                 foreign.execute(
-                    "INSERT OR REPLACE INTO meta (key, value) VALUES ('coverage', ?)",
-                    (json.dumps({"complete": False, "reason": "foreign"}),),
+                    "INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)",
+                    (key, json.dumps({"complete": False, "truncated": True, "reason": "foreign"})),
                 )
                 foreign.close()
             return out
@@ -455,7 +481,96 @@ def test_a_meta_write_after_the_commit_evicts_instead_of_restamping(indexed, mon
     again, error, _ = load_repo_index_or_error(repo, store)
     assert error is None
     assert again is not index, "the warm index was re-keyed over a write it never saw"
-    assert (again.coverage or {}).get("reason") == "foreign"
+    assert (getattr(again, attr) or {}).get("reason") == "foreign"
+
+
+def test_a_summary_write_carries_a_foreign_file_cap_status(indexed, monkeypatch):
+    """The summary write re-keys the warm index too; a `file_cap_status` an
+    unlocked writer commits inside its window must reach the cached copy."""
+    repo, store, _src = indexed
+    db = _db(store)
+    _fresh(repo, store)
+    from jcodemunch_mcp.storage.sqlite_store import SQLiteIndexStore
+
+    conn = sqlite3.connect(str(db))
+    sid, content_hash = conn.execute(
+        "SELECT id, content_hash FROM symbols WHERE name = 'beta_cleanup'"
+    ).fetchone()
+    conn.close()
+    store_obj = SQLiteIndexStore(base_path=store)
+    real_connect = store_obj._connect
+
+    class Conn:
+        def __init__(self, inner):
+            self._inner = inner
+
+        def __getattr__(self, item):
+            return getattr(self._inner, item)
+
+        def commit(self):
+            self._inner.commit()
+            foreign = sqlite3.connect(str(db), isolation_level=None)
+            foreign.execute(
+                "INSERT OR REPLACE INTO meta (key, value) VALUES ('file_cap_status', ?)",
+                (json.dumps({"truncated": True, "reason": "foreign"}),),
+            )
+            foreign.close()
+
+    monkeypatch.setattr(store_obj, "_connect", lambda path: Conn(real_connect(path)))
+    owner, name = repo.split("/", 1)
+    store_obj.update_symbol_summaries(owner, name, {sid: ("a new summary", content_hash)})
+    monkeypatch.setattr(store_obj, "_connect", real_connect)
+
+    from jcodemunch_mcp.tools._utils import load_repo_index_or_error
+
+    again, error, _ = load_repo_index_or_error(repo, store)
+    assert error is None
+    assert (again.file_cap_status or {}).get("reason") == "foreign"
+
+
+def test_every_meta_key_written_outside_the_lock_is_read_back():
+    """A warm index is re-keyed after a locked write only once the meta keys
+    that unlocked writers set have been read back. A writer added outside
+    `indexwrite` with a new key would be hidden by every re-key until it is
+    listed in `_UNLOCKED_META_KEYS`; this finds such writers in the source."""
+    import ast
+    import re
+
+    from jcodemunch_mcp.storage import sqlite_store
+
+    path = SRC / "storage" / "sqlite_store.py"
+    text = path.read_text(encoding="utf-8")
+    tree = ast.parse(text)
+    unlocked: dict[str, set[str]] = {}
+    for fn in ast.walk(tree):
+        if not isinstance(fn, ast.FunctionDef):
+            continue
+        if fn.name.startswith("_migrate") or fn.name.endswith("_locked") or fn.name == "_write_meta":
+            continue  # run on connect, or called under `indexwrite`
+        body = ast.get_source_segment(text, fn) or ""
+        if "indexwrite" in body:
+            continue
+        keys: set[str] = set()
+        for call in ast.walk(fn):
+            if not (isinstance(call, ast.Call) and call.args):
+                continue
+            sql = call.args[0]
+            if not (isinstance(sql, ast.Constant) and isinstance(sql.value, str)):
+                continue
+            s = sql.value
+            if " meta" not in s or not re.search(r"INSERT|UPDATE|DELETE", s):
+                continue
+            keys |= set(re.findall(r"'(\w+)'", s))
+            if len(call.args) > 1 and isinstance(call.args[1], ast.Tuple) and call.args[1].elts:
+                first = call.args[1].elts[0]
+                if isinstance(first, ast.Constant) and isinstance(first.value, str):
+                    keys.add(first.value)
+        if keys:
+            unlocked[fn.name] = keys
+    assert {"set_coverage", "set_file_cap_status", "stamp_parser_generation"} <= set(unlocked), unlocked
+    listed = set(sqlite_store._UNLOCKED_META_KEYS)
+    missing = {fn: sorted(keys - listed) for fn, keys in unlocked.items() if keys - listed}
+    assert missing == {}, f"meta keys written outside indexwrite but never read back: {missing}"
 
 
 def test_the_write_back_waits_for_every_call_in_flight(indexed, monkeypatch):
