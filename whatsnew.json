@@ -1,6 +1,12 @@
 {
-  "current": "1.108.421",
+  "current": "1.108.422",
   "entries": [
+    {
+      "version": "1.108.422",
+      "date": "2026-11-06",
+      "title": "the shared parse cache never serves what an older parser emitted",
+      "summary": "On a host that sets JCODEMUNCH_PARSE_CACHE, the re-index a parser upgrade forces now parses every file again instead of reading the old symbols back from the cache."
+    },
     {
       "version": "1.108.421",
       "date": "2026-11-06",
