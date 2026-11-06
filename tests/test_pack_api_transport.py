@@ -92,6 +92,7 @@ def test_the_catalog_request_carries_them(mock_httpx):
 def test_the_download_request_carries_them_without_a_key(mock_httpx, tmp_path):
     """The keyless download is the case the issue was filed about: a free pack
     on a seat with no license, which is precisely the audience it exists for."""
+    stream_through_get(mock_httpx)
     resp = MagicMock()
     resp.status_code = 200
     resp.headers = {"content-type": "text/html"}   # what the CDN served

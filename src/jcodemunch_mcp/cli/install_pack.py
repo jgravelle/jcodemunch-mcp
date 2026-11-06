@@ -367,7 +367,7 @@ def _install_pack(
     #
     # The body is streamed to the temp file in chunks, never held whole. The free
     # Node.js pack is a 150 MB download, and holding it (then each archive member)
-    # in memory peaked near 1.9 GB, enough to fail an install on a small machine.
+    # in memory peaked at 1,758 MB, enough to fail an install on a small machine.
     # The timeout is httpx's per-phase timeout: a slow link that keeps sending
     # never trips it, a link that stalls for 120 s does.
     base.mkdir(parents=True, exist_ok=True)
@@ -395,6 +395,12 @@ def _install_pack(
             f"download was cut off. Check your network connection.{_RESET}",
         )
         return 1
+    except BaseException:
+        # Ctrl-C or a full disk partway through a download of up to ~150 MB:
+        # the partial file must not stay behind in the temp directory.
+        if tmp_path is not None:
+            tmp_path.unlink(missing_ok=True)
+        raise
 
     # Error response (JSON)
     if data is not None:

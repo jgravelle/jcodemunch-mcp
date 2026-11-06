@@ -127,6 +127,7 @@ def test_no_member_spelling_writes_outside_the_install_directory(
     defect executes that defect every time you prove the test is not vacuous, so
     the target has to be somewhere the test owns.**
     """
+    stream_through_get(mock_httpx)
     monkeypatch.setenv("JCODEMUNCH_SHARE_SAVINGS", "0")
     base = tmp_path / "install"
     sentinel = tmp_path / "outside"
@@ -166,6 +167,7 @@ def test_no_member_spelling_writes_outside_the_install_directory(
 @patch("jcodemunch_mcp.cli.install_pack.httpx")
 def test_a_drive_absolute_member_is_refused_on_windows(mock_httpx, tmp_path, monkeypatch):
     """The reported attack, on the platform where the name is actually absolute."""
+    stream_through_get(mock_httpx)
     monkeypatch.setenv("JCODEMUNCH_SHARE_SAVINGS", "0")
     target = tmp_path / "outside" / "evil.txt"
     target.parent.mkdir()
