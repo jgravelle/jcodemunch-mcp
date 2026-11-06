@@ -107,38 +107,40 @@ def get_file_tree(
 
 def _build_tree(files: list[str], index, path_prefix: str, include_summaries: bool = False) -> list[dict]:
     """Build nested tree from flat file list."""
-    # Group files by directory
-    root = {}
     symbol_counts = Counter(sym.get("file") for sym in index.symbols if sym.get("file"))
-
+    nodes = []
     for file_path in files:
-        # Remove prefix for relative path
-        rel_path = file_path[len(path_prefix):].lstrip("/")
-        parts = rel_path.split("/")
+        node = {
+            "path": file_path,
+            "type": "file",
+            "language": index.file_languages.get(file_path, ""),
+            "symbol_count": symbol_counts.get(file_path, 0),
+        }
+        if include_summaries:
+            node["summary"] = index.file_summaries.get(file_path, "")
+        nodes.append(node)
+    return nest_file_nodes(nodes, path_prefix)
 
-        # Navigate/create tree
+
+def nest_file_nodes(nodes: list[dict], path_prefix: str) -> list[dict]:
+    """Nest file nodes under their directories, the tree this tool returns.
+
+    The one rule for the tree's shape. The compact encoder sends the file
+    nodes flat and decodes by calling this, so the decoded tree is the tree
+    the tool built rather than a second copy of how it nests.
+    """
+    root: dict = {}
+    for node in nodes:
+        rel_path = node["path"][len(path_prefix):].lstrip("/")
+        parts = rel_path.split("/")
         current = root
         for i, part in enumerate(parts):
-            is_last = i == len(parts) - 1
-
-            if is_last:
-                # File node
-                node = {
-                    "path": file_path,
-                    "type": "file",
-                    "language": index.file_languages.get(file_path, ""),
-                    "symbol_count": symbol_counts.get(file_path, 0),
-                }
-                if include_summaries:
-                    node["summary"] = index.file_summaries.get(file_path, "")
+            if i == len(parts) - 1:
                 current[part] = node
             else:
-                # Directory node
                 if part not in current:
                     current[part] = {"type": "dir", "children": {}}
                 current = current[part]["children"]
-
-    # Convert to list format
     return _dict_to_list(root)
 
 

@@ -15,6 +15,7 @@ from jcodemunch_mcp.cli.install_pack import (
     _mask_license,
     run_install_pack,
 )
+from tests.conftest_helpers import stream_through_get
 
 
 # ── Pack host ─────────────────────────────────────────────────────────────
@@ -125,6 +126,7 @@ def test_a_licensed_listing_has_no_sales_line(mock_httpx, capsys, monkeypatch):
 @patch("jcodemunch_mcp.cli.install_pack.httpx")
 def test_a_listing_with_a_key_on_the_command_line_has_no_sales_line(mock_httpx, capsys, monkeypatch):
     """`install-pack --list --license KEY`: the key arrives as an argument, not config."""
+    stream_through_get(mock_httpx)
     monkeypatch.delenv("JCODEMUNCH_LICENSE_KEY", raising=False)
     mock_httpx.get.return_value = _mock_catalog_response(_PACKS)
     assert run_install_pack(None, list_packs=True, license_key="jcm-test-key-not-real") == 0
@@ -237,6 +239,7 @@ def test_install_extracts_and_reports_the_upstream_licences(
     A pack redistributes third-party source; the terms travel with it, and the
     user should not have to go looking to find out what they are.
     """
+    stream_through_get(mock_httpx)
     monkeypatch.setenv("JCODEMUNCH_SHARE_SAVINGS", "0")
     manifest = {
         "name": "Node", "total_symbols": 42, "repos": ["nodejs/node"],
@@ -268,6 +271,7 @@ def test_install_extracts_and_reports_the_upstream_licences(
 
 @patch("jcodemunch_mcp.cli.install_pack.httpx")
 def test_install_pack_happy_path(mock_httpx, tmp_path, monkeypatch):
+    stream_through_get(mock_httpx)
     monkeypatch.setenv("JCODEMUNCH_SHARE_SAVINGS", "0")
     manifest = {"name": "Test Pack", "total_symbols": 42, "repos": ["org/repo"]}
     zip_bytes = _make_pack_zip({
@@ -293,6 +297,7 @@ def test_install_pack_happy_path(mock_httpx, tmp_path, monkeypatch):
 
 @patch("jcodemunch_mcp.cli.install_pack.httpx")
 def test_install_pack_already_installed(mock_httpx, tmp_path, monkeypatch):
+    stream_through_get(mock_httpx)
     monkeypatch.setenv("JCODEMUNCH_SHARE_SAVINGS", "0")
     marker = tmp_path / ".pack-testpack.json"
     marker.write_text("{}")
@@ -305,6 +310,7 @@ def test_install_pack_already_installed(mock_httpx, tmp_path, monkeypatch):
 
 @patch("jcodemunch_mcp.cli.install_pack.httpx")
 def test_install_pack_force_reinstall(mock_httpx, tmp_path, monkeypatch):
+    stream_through_get(mock_httpx)
     monkeypatch.setenv("JCODEMUNCH_SHARE_SAVINGS", "0")
     marker = tmp_path / ".pack-testpack.json"
     marker.write_text("{}")
@@ -324,6 +330,7 @@ def test_install_pack_force_reinstall(mock_httpx, tmp_path, monkeypatch):
 
 @patch("jcodemunch_mcp.cli.install_pack.httpx")
 def test_install_pack_json_error(mock_httpx, tmp_path, monkeypatch):
+    stream_through_get(mock_httpx)
     monkeypatch.setenv("JCODEMUNCH_SHARE_SAVINGS", "0")
     mock_httpx.get.return_value = _mock_error_response(
         "License required for premium pack",
@@ -345,6 +352,7 @@ def _refused_with_sales_link():
 
 @patch("jcodemunch_mcp.cli.install_pack.httpx")
 def test_a_refused_download_without_a_key_shows_where_to_get_one(mock_httpx, tmp_path, monkeypatch, capsys):
+    stream_through_get(mock_httpx)
     monkeypatch.setenv("JCODEMUNCH_SHARE_SAVINGS", "0")
     mock_httpx.get.return_value = _refused_with_sales_link()
     assert _install_pack("premium-pack", base_path=tmp_path) == 1
@@ -354,6 +362,7 @@ def test_a_refused_download_without_a_key_shows_where_to_get_one(mock_httpx, tmp
 @patch("jcodemunch_mcp.cli.install_pack.httpx")
 def test_a_licensed_install_is_never_shown_a_sales_link(mock_httpx, tmp_path, monkeypatch, capsys):
     """A key holder whose download is refused is told the key was sent, not where to buy one."""
+    stream_through_get(mock_httpx)
     monkeypatch.setenv("JCODEMUNCH_SHARE_SAVINGS", "0")
     mock_httpx.get.return_value = _refused_with_sales_link()
     assert _install_pack("premium-pack", license_key="JCM-TEST-KEY-0001", base_path=tmp_path) == 1
@@ -366,6 +375,7 @@ def test_a_licensed_install_is_never_shown_a_sales_link(mock_httpx, tmp_path, mo
 @patch("jcodemunch_mcp.cli.install_pack.httpx")
 def test_a_key_from_config_also_suppresses_the_sales_link(mock_httpx, tmp_path, monkeypatch, capsys):
     """The user's entry point: no --license flag, the key comes from config."""
+    stream_through_get(mock_httpx)
     monkeypatch.setenv("JCODEMUNCH_SHARE_SAVINGS", "0")
     monkeypatch.setattr(
         "jcodemunch_mcp.cli.install_pack.resolve_effective_license_key",
@@ -379,6 +389,7 @@ def test_a_key_from_config_also_suppresses_the_sales_link(mock_httpx, tmp_path, 
 
 @patch("jcodemunch_mcp.cli.install_pack.httpx")
 def test_install_pack_network_error(mock_httpx, tmp_path, monkeypatch):
+    stream_through_get(mock_httpx)
     import httpx as real_httpx
     monkeypatch.setenv("JCODEMUNCH_SHARE_SAVINGS", "0")
     mock_httpx.HTTPError = real_httpx.HTTPError
@@ -389,6 +400,7 @@ def test_install_pack_network_error(mock_httpx, tmp_path, monkeypatch):
 
 @patch("jcodemunch_mcp.cli.install_pack.httpx")
 def test_install_pack_path_traversal_rejected(mock_httpx, tmp_path, monkeypatch):
+    stream_through_get(mock_httpx)
     monkeypatch.setenv("JCODEMUNCH_SHARE_SAVINGS", "0")
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w") as zf:
@@ -401,6 +413,7 @@ def test_install_pack_path_traversal_rejected(mock_httpx, tmp_path, monkeypatch)
 
 @patch("jcodemunch_mcp.cli.install_pack.httpx")
 def test_install_pack_bad_zip(mock_httpx, tmp_path, monkeypatch):
+    stream_through_get(mock_httpx)
     monkeypatch.setenv("JCODEMUNCH_SHARE_SAVINGS", "0")
     resp = MagicMock()
     resp.status_code = 200
