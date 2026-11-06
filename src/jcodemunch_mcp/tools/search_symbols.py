@@ -376,6 +376,25 @@ def ensure_bm25_cache(index) -> dict:
     with getattr(index, "_bm25_lock", None) or _BM25_FALLBACK_LOCK:
         if all(k in cache for k in _BM25_CORPUS_KEYS):
             return cache
+
+        # Cross-process persistence (node-cold-search fix): a fresh process
+        # has no in-memory _bm25_cache, but the .db it just loaded may be
+        # byte-for-byte the same one a previous process already tokenized.
+        # Reuse that result instead of re-tokenizing every symbol. See
+        # ``_bm25_disk_cache`` module docstring for the correctness argument.
+        from ._bm25_disk_cache import load_disk_bm25_cache, save_disk_bm25_cache
+        disk_hit = load_disk_bm25_cache(
+            getattr(index, "_db_path", None),
+            getattr(index, "_loaded_mtime_ns", None),
+            len(index.symbols),
+        )
+        if disk_hit is not None:
+            cache["avgdl"] = disk_hit["avgdl"]
+            cache["inverted"] = disk_hit["inverted"]
+            cache["centrality"] = disk_hit["centrality"]
+            cache["idf"] = disk_hit["idf"]
+            return cache
+
         idf, avgdl, inverted = _compute_bm25(index.symbols)
         centrality = _compute_centrality(
             index.symbols, index.imports, index.alias_map,
@@ -386,6 +405,13 @@ def ensure_bm25_cache(index) -> dict:
         cache["centrality"] = centrality
         # Sentinel last: see the module note above.
         cache["idf"] = idf
+
+        save_disk_bm25_cache(
+            getattr(index, "_db_path", None),
+            getattr(index, "_loaded_mtime_ns", None),
+            len(index.symbols),
+            idf, avgdl, inverted, centrality,
+        )
     return cache
 
 
