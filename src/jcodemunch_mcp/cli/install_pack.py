@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import shutil
 import sys
 import tempfile
 import zipfile
@@ -22,6 +23,9 @@ logger = logging.getLogger(__name__)
 # an April build for months after the pipeline moved -- a stale artifact reads as
 # a working one, so the host that CI writes to is the only correct value here.
 STARTER_PACK_API = "https://jcodemunch.com/starter-packs-system/api/index.php"
+
+# Download and extraction move a pack in pieces of this size, never whole.
+_CHUNK_BYTES = 1024 * 1024
 
 
 def _pack_api_headers(extra: Optional[dict] = None) -> dict:
@@ -360,20 +364,46 @@ def _install_pack(
     # No raise_for_status: the API reports license/pack errors as 4xx + JSON
     # (handled below); raising on them rendered every one as a bogus
     # "could not reach the server". Only transport failures are unreachable.
+    #
+    # The body is streamed to the temp file in chunks, never held whole. The free
+    # Node.js pack is a 150 MB download, and holding it (then each archive member)
+    # in memory peaked at 1,758 MB, enough to fail an install on a small machine.
+    # The timeout is httpx's per-phase timeout: a slow link that keeps sending
+    # never trips it, a link that stalls for 120 s does.
+    base.mkdir(parents=True, exist_ok=True)
+    tmp_path: Optional[Path] = None
+    data: Optional[dict] = None
+    content_type = ""
+    pack_version = "unknown"
     try:
-        resp = httpx.get(url, timeout=120, follow_redirects=True, headers=headers)
+        with httpx.stream("GET", url, timeout=120, follow_redirects=True, headers=headers) as resp:
+            content_type = resp.headers.get("content-type", "")
+            if "application/json" in content_type:
+                resp.read()
+                data = resp.json()
+            elif "application/zip" in content_type or "application/octet-stream" in content_type:
+                pack_version = resp.headers.get("X-Pack-Version", "unknown")
+                with tempfile.NamedTemporaryFile(suffix=".zip", delete=False) as tmp:
+                    tmp_path = Path(tmp.name)
+                    for chunk in resp.iter_bytes(_CHUNK_BYTES):
+                        tmp.write(chunk)
     except httpx.HTTPError:
+        if tmp_path is not None:
+            tmp_path.unlink(missing_ok=True)
         print(
-            f"  {_RED}{_CROSS} Could not reach the starter packs server. "
-            f"Check your network connection.{_RESET}",
+            f"  {_RED}{_CROSS} Could not reach the starter packs server, or the "
+            f"download was cut off. Check your network connection.{_RESET}",
         )
         return 1
-
-    content_type = resp.headers.get("content-type", "")
+    except BaseException:
+        # Ctrl-C or a full disk partway through a download of up to ~150 MB:
+        # the partial file must not stay behind in the temp directory.
+        if tmp_path is not None:
+            tmp_path.unlink(missing_ok=True)
+        raise
 
     # Error response (JSON)
-    if "application/json" in content_type:
-        data = resp.json()
+    if data is not None:
         error = data.get("error", "Unknown error")
         print(f"  {_RED}{_CROSS} {error}{_RESET}")
         print()
@@ -414,20 +444,12 @@ def _install_pack(
         return 1
 
     # Expect a zip
-    if "application/zip" not in content_type and "application/octet-stream" not in content_type:
+    if tmp_path is None:
         print(
             f"  {_RED}{_CROSS} Unexpected response (content-type: {content_type}){_RESET}",
             file=sys.stderr,
         )
         return 1
-
-    pack_version = resp.headers.get("X-Pack-Version", "unknown")
-
-    # Save to temp file, extract
-    base.mkdir(parents=True, exist_ok=True)
-    with tempfile.NamedTemporaryFile(suffix=".zip", delete=False) as tmp:
-        tmp.write(resp.content)
-        tmp_path = Path(tmp.name)
 
     try:
         with zipfile.ZipFile(tmp_path, "r") as zf:
@@ -481,7 +503,7 @@ def _install_pack(
                     return 1
                 dest.parent.mkdir(parents=True, exist_ok=True)
                 with zf.open(info.filename) as src, open(dest, "wb") as dst:
-                    dst.write(src.read())
+                    shutil.copyfileobj(src, dst, _CHUNK_BYTES)
                 if dest.suffix == ".db":
                     _clear_builder_paths(dest)
 
