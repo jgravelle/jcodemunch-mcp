@@ -1,6 +1,6 @@
 {
  "schema": "jcm-self-latency-ci-runs/v1",
- "note": "CI self-latency artifacts (harness-bench-<sha>), 2026-11-04 to 2026-11-06 (LEDGER L-314): one reading per (date, commit); a `.failed.json` is a red run's measurement. Source of the `index.cold_over_one_file_ratio` Floor.",
+ "note": "CI self-latency artifacts (harness-bench-<sha>), 2026-11-04 to 2026-11-06 (LEDGER L-314): one reading per (timestamp, commit); a `.failed.json` is a red run's measurement. Only PR-gate bench artifacts are here; main.yml's push-run readings are not. Source of the `index.cold_over_one_file_ratio` Floor.",
  "sources": [
   "actions artifact 13330259902 (self_latency.json)",
   "actions artifact 13339604500 (self_latency.failed.json)",

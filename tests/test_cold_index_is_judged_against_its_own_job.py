@@ -3,7 +3,7 @@
 `index.cold_self_seconds` is a wall clock, so it measures the runner as much
 as the code: across the 22 CI readings recorded in
 `harness/results/self_latency_ci_runs_2026-11-06.json` it ran from 2.9 s to
-5.3 s on one tree, and three of them failed the 5.2 s floor (LEDGER L-314).
+5.3 s, and three of them, at two commits, failed the 5.2 s floor (LEDGER L-314).
 Each red reading on `main` stopped the release pre-flight until someone re-ran
 the job. Divided by `index.one_file_reindex_ms` from the same job, the same
 readings stay in a narrow band, because both timings slow down together on a
@@ -100,6 +100,66 @@ def test_the_absolute_row_is_a_loosened_backstop():
     # The backstop still fails a run twice as slow as the slowest recorded one.
     slowest = max(r[COLD] for r in _runs())
     assert not T.passes(COLD, slowest * 2.0)
+
+
+def test_every_recorded_ci_reading_passes_the_backstop():
+    """A backstop set below a recorded reading brings the L-314 flake back."""
+    failing = [(r["date"], r[COLD]) for r in _runs() if not T.passes(COLD, r[COLD])]
+    assert failing == [], f"recorded CI readings fail the {COLD} backstop: {failing}"
+
+
+def test_a_one_file_speedup_moves_the_ratio_up():
+    """The denominator's cost, stated so the band is re-set when it bites: a
+    one-file reindex 1.3x faster fails the ratio from the highest reading."""
+    highest = max(_runs(), key=_ratio)
+    assert not T.passes(RATIO, _ratio(highest, reindex_factor=1 / 1.3))
+
+
+def test_a_one_file_regression_is_judged_by_its_own_floor():
+    """A slower one-file reindex lowers the ratio, so its own Floor must exist
+    and still be judged by the same bench step."""
+    assert T.get(REINDEX)["comparator"] == "<="
+    tiers = json.loads((REPO / "harness" / "tiers.json").read_text(encoding="utf-8"))
+    step = next(s for s in tiers["bench"] if s["name"] == "self_latency")
+    assert REINDEX in step["thresholds"]
+
+
+def test_measure_writes_every_index_floor_the_step_declares():
+    """The bench step declares the Floors; `run()` must write each `index.*`
+    one. Deleting the ratio's assignment passed every other test."""
+    import ast
+
+    tiers = json.loads((REPO / "harness" / "tiers.json").read_text(encoding="utf-8"))
+    step = next(s for s in tiers["bench"] if s["name"] == "self_latency")
+    declared = {t for t in step["thresholds"] if t.startswith("index.")}
+    tree = ast.parse((REPO / "benchmarks" / "self_latency" / "measure.py").read_text(encoding="utf-8"))
+    run = next(n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name == "run")
+    written = {
+        t.slice.value
+        for n in ast.walk(run) if isinstance(n, ast.Assign)
+        for t in n.targets
+        if isinstance(t, ast.Subscript) and isinstance(t.value, ast.Name) and t.value.id == "out"
+        and isinstance(t.slice, ast.Constant)
+    }
+    assert declared - written == set(), f"declared but never written by run(): {declared - written}"
+
+
+def test_a_step_that_prints_verdicts_but_skips_a_declared_floor_fails(tmp_path, monkeypatch):
+    """One layer down: the bench tier fails a step that judges by verdict
+    lines and printed none for a Floor it declares."""
+    import importlib
+
+    hm = importlib.import_module("harness.__main__")
+    script = tmp_path / "measure.py"
+    script.write_text(
+        f"print({COLD!r} + '  crit 3  floor <= 9  observed 3.1  PASS')\nprint('done')\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(hm, "REPO", tmp_path)
+    monkeypatch.setattr(
+        hm, "TIERS", {"bench": [{"name": "self_latency", "cmd": [str(script)], "thresholds": [COLD, RATIO]}]}
+    )
+    assert hm.tier_bench({"tiers": {}}, offline=True) is False
 
 
 def test_the_bench_step_judges_the_ratio():

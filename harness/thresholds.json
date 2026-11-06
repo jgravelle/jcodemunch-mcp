@@ -496,7 +496,7 @@
           "floor": 5.2,
           "commit": "35f7bec",
           "date": "2026-09-03",
-          "reason": "2x the median of three runs on the dev box; failed 3 of 22 CI readings on 2026-11-04..06 on one tree (LEDGER L-314)"
+          "reason": "2x the median of three runs on the dev box; failed 3 of 22 CI readings on 2026-11-04..06, at commits e757bfe4 and 8a9fd241 (LEDGER L-314)"
         }
       ],
       "loosened": {
@@ -516,13 +516,13 @@
       "floor": 59,
       "unit": "ratio",
       "set_at": {
-        "commit": "d8dc3a9",
+        "commit": "c6afbc80",
         "date": "2026-11-06",
-        "reason": "LEDGER L-314: 22 CI readings 2026-11-04..06 (harness/results/self_latency_ci_runs_2026-11-06.json) read 35.8 to 45.6, median 44.0, while the cold time alone ran 2.901 to 5.328 s. Floor = 1.3x the highest reading (59.3), rounded down, so a cold-only step the size of the F-44 regression (1.3x) fails even from the highest normal reading."
+        "reason": "LEDGER L-314: 22 CI readings 2026-11-04..06 at 19 commits, 977d3f24 to c6afbc80 (harness/results/self_latency_ci_runs_2026-11-06.json), read 35.8 to 45.6, median 43.7, while the cold time alone ran 2.901 to 5.328 s. Floor = 1.3x the highest reading (59.3), rounded down, so a cold-only step the size of the F-44 regression (1.3x) fails even from the highest normal reading. The denominator moves the ratio too: a one-file reindex speedup beyond about 1.3x fails this row, which means re-setting the band from new readings, and a one-file reindex regression lowers it, which index.one_file_reindex_ms judges on its own floor."
       },
       "measured": {
-        "value": 44.0,
-        "commit": "d8dc3a9",
+        "value": 43.7,
+        "commit": "c6afbc80",
         "date": "2026-11-06",
         "env": "GitHub-hosted ubuntu runners (Linux azure/aws), 22 runs"
       },
