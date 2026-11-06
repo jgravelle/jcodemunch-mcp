@@ -120,34 +120,49 @@ def test_an_upgrade_reindex_stores_the_new_extractors_symbols(tmp_path, monkeypa
     )
 
 
-def test_every_generation_constant_is_in_the_key():
-    """A module-level `*_GENERATION` under `parser/` or `storage/index_store.py`
-    names a change in what the parser emits. Each must reach the cache key, or
-    the next one repeats this defect."""
+def _generation_constants() -> list[tuple[str, str]]:
+    """Every module-level `*_GENERATION` under `parser/` (recursively) and in
+    `storage/index_store.py`, as (module, name)."""
     import ast
 
     import jcodemunch_mcp
 
     src = Path(jcodemunch_mcp.__file__).parent
-    files = sorted((src / "parser").glob("*.py")) + [src / "storage" / "index_store.py"]
-    names = set()
+    files = sorted((src / "parser").rglob("*.py")) + [src / "storage" / "index_store.py"]
+    found = []
     for f in files:
+        module = "jcodemunch_mcp." + ".".join(f.relative_to(src).with_suffix("").parts)
         for node in ast.parse(f.read_text(encoding="utf-8")).body:
-            if isinstance(node, ast.Assign):
-                for t in node.targets:
-                    if isinstance(t, ast.Name) and t.id.endswith("_GENERATION"):
-                        names.add(t.id)
-    assert names, "found no generation constants; the scan is broken"
-    # Names the code uses, never its text: the module's own comment named
-    # PARSER_GENERATION while the key left it out, so a substring scan passed
-    # against the defect.
-    used = set()
-    for node in ast.walk(ast.parse((src / "parser" / "parse_cache.py").read_text(encoding="utf-8"))):
-        if isinstance(node, ast.ImportFrom):
-            used.update(a.name for a in node.names)
-        elif isinstance(node, ast.Name):
-            used.add(node.id)
-        elif isinstance(node, ast.Attribute):
-            used.add(node.attr)
-    missing = sorted(n for n in names if n not in used)
-    assert missing == [], f"generation constants missing from the parse-cache key: {missing}"
+            targets = node.targets if isinstance(node, ast.Assign) else (
+                [node.target] if isinstance(node, ast.AnnAssign) else []
+            )
+            for t in targets:
+                if isinstance(t, ast.Name) and t.id.endswith("_GENERATION"):
+                    found.append((module, t.id))
+    return found
+
+
+def test_every_generation_constant_is_in_the_key(monkeypatch):
+    """A module-level `*_GENERATION` under `parser/` or `storage/index_store.py`
+    names a change in what the parser emits, so raising it must change the key.
+
+    Behavioural on purpose. A scan of the module's names passed with the
+    generation left out of the key, because a helper still imported it; only
+    raising each constant and recomputing the key can see that."""
+    import importlib
+
+    import jcodemunch_mcp.parser.parse_cache as pc
+
+    constants = _generation_constants()
+    assert constants, "found no generation constants; the scan is broken"
+    samples = [(PY, "m.py", "python"), ("#lang racket\n(define (f x) x)\n", "m.rkt", "racket")]
+    missing = []
+    for module, name in constants:
+        mod = importlib.import_module(module)
+        before = [pc._key(*s) for s in samples]
+        with monkeypatch.context() as m:
+            m.setattr(mod, name, int(getattr(mod, name)) + 1)
+            after = [pc._key(*s) for s in samples]
+        if before == after:
+            missing.append(f"{module}.{name}")
+    assert missing == [], f"raising these left the parse-cache key unchanged: {missing}"
