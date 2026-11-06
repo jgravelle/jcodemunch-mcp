@@ -29,6 +29,7 @@ import pytest
 
 from jcodemunch_mcp.cli.install_pack import _install_pack
 from jcodemunch_mcp.security import resolve_within
+from tests.conftest_helpers import stream_through_get
 
 _SRC = Path(__file__).parent.parent / "src" / "jcodemunch_mcp"
 
@@ -182,6 +183,7 @@ def test_a_drive_absolute_member_is_refused_on_windows(mock_httpx, tmp_path, mon
 @patch("jcodemunch_mcp.cli.install_pack.httpx")
 def test_an_ordinary_pack_still_installs(mock_httpx, tmp_path, monkeypatch):
     """The control. A guard that refused everything would satisfy every test above."""
+    stream_through_get(mock_httpx)
     monkeypatch.setenv("JCODEMUNCH_SHARE_SAVINGS", "0")
     base = tmp_path / "install"
     mock_httpx.get.return_value = _zip_response(

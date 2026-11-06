@@ -60,3 +60,29 @@ def get_index(repo: str, storage_path: str):
     store = SQLiteIndexStore(base_path=storage_path)
     parts = repo.split("/", 1)
     return store.load_index(parts[0], parts[1])
+
+
+def stream_through_get(fake_httpx) -> None:
+    """Serve `httpx.stream` from the same scripted responses as `httpx.get`.
+
+    `install-pack` streams its download (`with httpx.stream("GET", ...) as r`).
+    Tests that script the download as a `get` response keep doing so: the
+    stream call is recorded as that GET (same URL, same keyword arguments) and
+    yields the response, with `iter_bytes` serving its `content`.
+    """
+    from contextlib import contextmanager
+
+    @contextmanager
+    def stream(_method, url, **kwargs):
+        resp = fake_httpx.get(url, **kwargs)
+        body = getattr(resp, "content", b"")
+        if not isinstance(body, (bytes, bytearray)):
+            body = b""
+        resp.iter_bytes = lambda chunk_size=None: iter([bytes(body)] if body else [])
+        resp.read = lambda: bytes(body)
+        yield resp
+
+    try:
+        fake_httpx.stream.side_effect = stream
+    except AttributeError:
+        fake_httpx.stream = stream
