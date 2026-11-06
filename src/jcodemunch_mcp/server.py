@@ -6158,6 +6158,17 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent] | CallToolR
             )
         except Exception:
             logger.debug("Latency recording failed for %s", name, exc_info=True)
+        if _count_parent is None:
+            # BM25 statistics a search computed are stored in the index here,
+            # after the call's own before/after check on the .db, so the write
+            # cannot read to that check as a rebuild (#1343). Never raises.
+            try:
+                from .storage import bm25_stats as _bm25_stats
+
+                if _bm25_stats.pending_count():
+                    await asyncio.to_thread(_bm25_stats.flush_pending)
+            except Exception:
+                logger.debug("BM25 statistics write-back failed", exc_info=True)
         end_call_context(call_token)
 
 

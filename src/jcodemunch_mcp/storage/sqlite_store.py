@@ -592,6 +592,75 @@ def _stamp_load_provenance(index, db_path: Path, mtime_ns: int):
     return index
 
 
+def _bm25_stats_blob(index) -> Optional[bytes]:
+    """The BM25 statistics row for a full save (#1343), or None.
+
+    Computing them also fills the index's in-memory cache, so the warm copy
+    this save hands back searches without computing them again. A failure here
+    never fails the save; the row is then left empty and the next search
+    computes the statistics as before.
+    """
+    try:
+        from ..tools.search_symbols import ensure_bm25_cache  # lazy: tools import storage
+        from . import bm25_stats
+
+        stats = ensure_bm25_cache(index)
+        return bm25_stats.encode(
+            bm25_stats.corpus_digest(index), len(index.symbols),
+            stats.get("idf") or {}, stats["avgdl"], stats["inverted"], stats["centrality"],
+        )
+    except Exception:
+        logger.warning("BM25 statistics not stored with this index", exc_info=True)
+        return None
+
+
+def store_bm25_stats_for_loaded_index(index, blob: bytes) -> bool:
+    """Write a search's BM25 statistics into the .db the index came from.
+
+    Runs from ``bm25_stats.flush_pending`` after a call returns. Takes the
+    ``indexwrite`` lock without waiting, so it never queues behind a writer,
+    and writes only if the .db is still exactly as it was loaded: every symbol
+    writer takes the same lock, so nothing can commit between that check and
+    this write. The write moves the .db's mtime, so the index's own load
+    stamp and its cache entry are moved with it; otherwise this process would
+    read its own write as a rebuild and reload the index. Returns whether the
+    row was stored. Never raises.
+    """
+    from . import bm25_stats, process_locks
+    from .generation import describe
+
+    try:
+        gen = describe(index)
+        if not gen.db_path or gen.loaded_mtime_ns is None or getattr(index, "branch", ""):
+            return False
+        db_path = Path(gen.db_path)
+        owner, name = getattr(index, "owner", ""), getattr(index, "name", "")
+        if not owner or not name:
+            return False
+        with process_locks.held("indexwrite", f"{owner}/{name}", str(db_path.parent)) as got:
+            if not got:
+                return False
+            if _db_mtime_ns(db_path) != gen.loaded_mtime_ns:
+                return False
+            conn = sqlite3.connect(str(db_path), isolation_level=None, timeout=1.0)
+            try:
+                conn.execute("BEGIN IMMEDIATE")
+                bm25_stats.write_in_txn(conn, blob)
+                conn.execute("COMMIT")
+            finally:
+                conn.close()
+            new_mtime = _db_mtime_ns(db_path)
+            with _cache_lock:
+                for key, entry in _index_cache.items():
+                    if entry.code_index is index and entry.mtime_ns == gen.loaded_mtime_ns:
+                        _index_cache[key] = entry._replace(mtime_ns=new_mtime)
+            index._loaded_mtime_ns = new_mtime
+        return True
+    except Exception:
+        logger.debug("BM25 statistics write-back skipped", exc_info=True)
+        return False
+
+
 def _db_mtime_ns(db_path: Path) -> int:
     """Return the most recent mtime_ns between .db and a .db-wal that holds a commit.
 
@@ -1765,6 +1834,9 @@ class SQLiteIndexStore:
         )
 
         db_path = self._db_path(owner, name)
+        # Computed before the lock and written inside the symbols' own
+        # transaction, so the stored row always belongs to these symbols (#1343).
+        bm25_blob = _bm25_stats_blob(index)
         lock_target = f"{owner}/{name}"
         storage_root = str(self.base_path)
         with process_locks.held(
@@ -1783,6 +1855,7 @@ class SQLiteIndexStore:
                 normalized_source_files, raw_files,
                 file_hashes, file_languages, file_mtimes,
                 file_blob_shas, file_summaries, file_sizes, imports,
+                bm25_blob=bm25_blob,
             )
 
     def _save_index_locked(
@@ -1801,6 +1874,7 @@ class SQLiteIndexStore:
         file_summaries,
         file_sizes,
         imports,
+        bm25_blob: Optional[bytes] = None,
     ):
         """Inner body of save_index; runs under the indexwrite lock."""
         conn = self._connect(db_path)
@@ -1854,6 +1928,10 @@ class SQLiteIndexStore:
                     for fp in normalized_source_files
                 ],
             )
+
+            from . import bm25_stats
+
+            bm25_stats.write_in_txn(conn, bm25_blob)
 
             conn.commit()
         finally:
@@ -2418,6 +2496,11 @@ class SQLiteIndexStore:
                         "INSERT OR REPLACE INTO meta (key, value) VALUES ('summaries_generation', ?)",
                         (str(generation),),
                     )
+                    # A summary is tokenized, so the stored BM25 statistics
+                    # describe the old text (#1343).
+                    from . import bm25_stats
+
+                    bm25_stats.clear_in_txn(conn)
                 conn.commit()
             finally:
                 conn.close()
@@ -2592,6 +2675,12 @@ class SQLiteIndexStore:
                     stored_cut = None
                 if stored_cut:
                     context_metadata = {**context_metadata, PROVIDERS_CUT_KEY: stored_cut}
+
+            # The stored BM25 statistics describe the symbols as they were;
+            # cleared in this transaction, refilled by the next search (#1343).
+            from . import bm25_stats
+
+            bm25_stats.clear_in_txn(conn)
 
             # Delete symbols for changed + deleted files
             files_to_remove: set[str] = set(deleted_files) | set(changed_files)
