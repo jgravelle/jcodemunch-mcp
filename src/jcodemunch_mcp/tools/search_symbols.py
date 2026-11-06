@@ -410,7 +410,9 @@ def ensure_bm25_cache(index) -> dict:
         from ..storage import bm25_stats
         from ..storage.generation import describe
 
-        db_path = describe(index).db_path
+        # A branch index is composed in memory and never stored, so a base
+        # row can only miss: skip the read and the digest.
+        db_path = None if getattr(index, "branch", "") else describe(index).db_path
         digest = None
         if db_path:
             digest = bm25_stats.corpus_digest(index)
@@ -430,8 +432,8 @@ def ensure_bm25_cache(index) -> dict:
         # Sentinel last: see the module note above.
         cache["idf"] = idf
         if digest is not None:
-            # Stored after the call returns (server `call_tool`), outside this
-            # lock and outside the call's own check on the .db.
+            # Stored by the dispatcher after the response and while no call
+            # runs (server `_schedule_bm25_flush`), outside this lock.
             bm25_stats.queue_write_back(index, digest, (idf, avgdl, inverted, centrality))
     return cache
 

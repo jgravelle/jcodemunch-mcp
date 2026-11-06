@@ -12,15 +12,17 @@ Two writers:
   committed with it;
 * an incremental save or a summary write deletes them in ITS transaction
   (``clear_in_txn``), and the next search that has to compute them queues a
-  write-back, which the call dispatcher runs after the call returns
-  (``flush_pending``). Running it after the call keeps the write outside the
-  call's own before/after check on the .db.
+  write-back (``queue_write_back``). The call dispatcher runs it
+  (``flush_pending``) after the response is sent and only when no other tool
+  call is running in that server, and holds new calls until it is done, so
+  the write never lands inside any call's before/after check on the .db.
 
 A stored row is reused only when it describes what was loaded: ``digest`` is a
 hash of every tokenized field of every symbol IN LOAD ORDER (the posting lists
 are positions in ``index.symbols``), plus the files and the import graph
-centrality is computed from, and ``fingerprint`` hashes the code that
-tokenizes and resolves. So the same symbols in another order, a rewrite that
+centrality is computed from (including the file-extension table, which the
+user's ``extra_extensions`` setting changes), and ``fingerprint`` hashes the
+code that tokenizes and resolves. So the same symbols in another order, a rewrite that
 keeps the symbol count and the mtime, a writer that does not know this table,
 and a release that changes the tokenizer or the resolver are all misses.
 
@@ -31,6 +33,7 @@ that can run code is used.
 
 from __future__ import annotations
 
+import ast
 import functools
 import hashlib
 import json
@@ -50,32 +53,65 @@ _ROW_KEY = "corpus"
 _VERSION = 2
 _ENGINE_ID = "jcodemunch-bm25-corpus-v2"
 
-# Ceiling on the stored (compressed) row and on what it may inflate to. The
-# 1,040,596-symbol nodejs/node corpus produces tens of MB of JSON.
+# Ceiling on the stored (compressed) row and on what it may inflate to. A
+# 50,320-symbol index measured 3.7 MB of JSON, 1.3 MB compressed.
 _MAX_STATS_BYTES = 512 * 1024 * 1024
 
 # The code the stored statistics depend on, relative to the package root.
-# Centrality goes through ``parser.imports.resolve_specifier``, so every module
-# it imports is here too; a test reads that module's imports and fails on one
-# missing from this list.
-_FINGERPRINT_FILES = (
+_FINGERPRINT_ROOTS = (
     "__init__.py",
     "storage/bm25_stats.py",
-    "retrieval/scoring.py",
     "tools/search_symbols.py",
-    "parser/imports.py",
-    "parser/astro_shared.py",
-    "parser/languages.py",
-    "parser/template_shared.py",
-    "parser/extractor.py",
-    "parser/racket_reader.py",
-    "security.py",
-    "config.py",
 )
+# Tokenizing goes through `retrieval/scoring.py` and centrality through
+# `parser/imports.resolve_specifier`; every module either reaches through a
+# package-relative import, at any depth, is fingerprinted too
+# (`fingerprint_files`), so a release that changes only a helper two imports
+# away still invalidates the stored statistics.
+_FINGERPRINT_FOLLOW = ("retrieval/scoring.py", "parser/imports.py")
 
 # What `retrieval.scoring._sym_tokens` builds a symbol's token bag from, plus
 # `file`, which centrality reads.
 _DIGEST_FIELDS = ("name", "signature", "summary", "docstring", "file")
+
+
+def _relative_imports(root: Path, relative: str) -> set[str]:
+    """Package files ``relative`` imports through a relative import."""
+    tree = ast.parse((root / relative).read_bytes())
+    parts = relative.split("/")[:-1]
+    found: set[str] = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.ImportFrom) or node.level < 1:
+            continue
+        base = parts[: len(parts) - (node.level - 1)] if node.level > 1 else parts
+        if node.level - 1 > len(parts):
+            continue
+        stems = [node.module.split(".")] if node.module else [[a.name] for a in node.names]
+        if node.module:
+            stems += [node.module.split(".") + [a.name] for a in node.names]
+        for stem in stems:
+            for candidate in ("/".join(base + stem) + ".py", "/".join(base + stem + ["__init__.py"])):
+                if (root / candidate).is_file():
+                    found.add(candidate)
+                    break
+    return found
+
+
+@functools.lru_cache(maxsize=1)
+def fingerprint_files() -> tuple[str, ...]:
+    """Every file the fingerprint hashes: the roots plus the import closure."""
+    root = Path(__file__).resolve().parents[1]
+    seen: set[str] = set(_FINGERPRINT_ROOTS)
+    todo: list[str] = list(_FINGERPRINT_FOLLOW)
+    while todo:
+        relative = todo.pop()
+        if relative in seen and relative not in _FINGERPRINT_FOLLOW:
+            continue
+        seen.add(relative)
+        for nxt in _relative_imports(root, relative):
+            if nxt not in seen:
+                todo.append(nxt)
+    return tuple(sorted(seen))
 
 
 @functools.lru_cache(maxsize=1)
@@ -88,10 +124,13 @@ def semantics_fingerprint() -> Optional[str]:
     try:
         root = Path(__file__).resolve().parents[1]
         digest = hashlib.sha256()
-        for relative in _FINGERPRINT_FILES:
+        for relative in fingerprint_files():
             digest.update(relative.encode("utf-8"))
             digest.update((root / relative).read_bytes())
         return digest.hexdigest()
+    except SyntaxError:
+        logger.debug("BM25 stats fingerprint unparseable; stored statistics disabled", exc_info=True)
+        return None
     except OSError:
         logger.debug("BM25 stats fingerprint unreadable; stored statistics disabled", exc_info=True)
         return None
@@ -105,17 +144,29 @@ def corpus_digest(index) -> str:
         row.append(list(sym.get("keywords") or []))
         h.update(json.dumps(row, ensure_ascii=False).encode("utf-8", "surrogatepass"))
         h.update(b"\n")
-    for part in (
-        getattr(index, "imports", None),
-        getattr(index, "alias_map", None),
-        getattr(index, "psr4_map", None),
-    ):
-        # A key with an empty value adds nothing to centrality, and a load
-        # writes one for every file a save may have left out.
-        part = {k: v for k, v in (part or {}).items() if v}
-        h.update(json.dumps(part, sort_keys=True, ensure_ascii=False).encode("utf-8", "surrogatepass"))
+    # A key with an empty value adds nothing to centrality, and a load writes
+    # one for every file a save may have left out. Import order per file does
+    # not change the counts, so imports are hashed sorted; alias and PSR-4
+    # maps are tried in order, so their order is hashed as it stands.
+    imports = {k: v for k, v in (getattr(index, "imports", None) or {}).items() if v}
+    parts = [
+        json.dumps(imports, sort_keys=True, ensure_ascii=False),
+        json.dumps(getattr(index, "alias_map", None) or {}, ensure_ascii=False),
+        json.dumps(getattr(index, "psr4_map", None) or {}, ensure_ascii=False),
+        json.dumps(_extension_table(), sort_keys=True, ensure_ascii=False),
+    ]
+    for part in parts:
+        h.update(part.encode("utf-8", "surrogatepass"))
         h.update(b"\n")
     return h.hexdigest()
+
+
+def _extension_table() -> dict:
+    """The effective extension-to-language table, which the user's
+    ``extra_extensions`` setting extends and the resolver reads."""
+    from ..parser.languages import get_language_extensions
+
+    return dict(get_language_extensions())
 
 
 def _is_finite_number(value) -> bool:

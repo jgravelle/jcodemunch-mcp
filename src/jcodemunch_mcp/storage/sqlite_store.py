@@ -628,14 +628,13 @@ def _bm25_stats_blob(index) -> Optional[bytes]:
 def store_bm25_stats_for_loaded_index(index, blob: bytes) -> bool:
     """Write a search's BM25 statistics into the .db the index came from.
 
-    Runs from ``bm25_stats.flush_pending`` after a call returns. Takes the
-    ``indexwrite`` lock without waiting, so it never queues behind a writer,
-    and writes only if the .db is still exactly as it was loaded: every symbol
-    writer takes the same lock, so nothing can commit between that check and
-    this write. The write moves the .db's mtime, so the index's own load
-    stamp and its cache entry are moved with it; otherwise this process would
-    read its own write as a rebuild and reload the index. Returns whether the
-    row was stored. Never raises.
+    Runs from ``bm25_stats.flush_pending``. Takes the ``indexwrite`` lock
+    without waiting, so it never queues behind a writer, and writes only if
+    the .db is still exactly as it was loaded, checked again inside the write
+    transaction. The file is opened ``mode=rw``, so a deleted index is never
+    re-created. The write moves the .db's mtime; ``_restamp_after_bm25_write``
+    decides whether the warm index may follow it. Returns whether the row was
+    stored. Never raises.
     """
     from . import bm25_stats, process_locks
     from .generation import describe
@@ -653,23 +652,82 @@ def store_bm25_stats_for_loaded_index(index, blob: bytes) -> bool:
                 return False
             if _db_mtime_ns(db_path) != gen.loaded_mtime_ns:
                 return False
-            conn = sqlite3.connect(str(db_path), isolation_level=None, timeout=1.0)
+            conn = sqlite3.connect(
+                db_path.resolve().as_uri() + "?mode=rw", uri=True,
+                isolation_level=None, timeout=1.0,
+            )
             try:
                 conn.execute("BEGIN IMMEDIATE")
+                # Three meta writers skip `indexwrite` (L-230); one could have
+                # committed since the check above.
+                if _db_mtime_ns(db_path) != gen.loaded_mtime_ns:
+                    conn.execute("ROLLBACK")
+                    return False
                 bm25_stats.write_in_txn(conn, blob)
                 conn.execute("COMMIT")
             finally:
                 conn.close()
-            new_mtime = _db_mtime_ns(db_path)
-            with _cache_lock:
-                for key, entry in _index_cache.items():
-                    if entry.code_index is index and entry.mtime_ns == gen.loaded_mtime_ns:
-                        _index_cache[key] = entry._replace(mtime_ns=new_mtime)
-            index._loaded_mtime_ns = new_mtime
+            _restamp_after_bm25_write(index, db_path, gen.loaded_mtime_ns)
         return True
     except Exception:
         logger.debug("BM25 statistics write-back skipped", exc_info=True)
         return False
+
+
+def _restamp_after_bm25_write(index, db_path: Path, loaded_mtime_ns: int) -> None:
+    """Move the warm index to the .db's new mtime, or evict it.
+
+    Moving it is what keeps this process from reading its own write as a
+    rebuild and reloading the index. It is safe only if nothing else changed:
+    three meta writers do not take `indexwrite` (L-230), so one can commit
+    between our COMMIT and this stat, and re-keying the old entry would hide
+    that write (`coverage` gates absence claims, #566). So their keys are read
+    back from the .db as it stands and compared with the index, the check
+    `_patch_cached_summaries` makes; a difference, a move during the read, or
+    any failure evicts instead, which is never wrong, only slower.
+    """
+    with _cache_lock:
+        keys = [
+            k for k, e in _index_cache.items()
+            if e.code_index is index and e.mtime_ns == loaded_mtime_ns
+        ]
+    mtime_ns = loaded_mtime_ns
+    try:
+        mtime_ns = _db_mtime_ns(db_path)
+        from .generation import connect_readonly
+
+        ro = connect_readonly(db_path)
+        try:
+            meta = {
+                k: v
+                for k, v in ro.execute(
+                    "SELECT key, value FROM meta WHERE key IN "
+                    "('coverage', 'parser_generation', 'source_root', 'git_root')"
+                ).fetchall()
+            }
+        finally:
+            ro.close()
+        same = (
+            _db_mtime_ns(db_path) == mtime_ns
+            and (json.loads(meta.get("coverage") or "{}") or {}) == (getattr(index, "coverage", None) or {})
+            and str(meta.get("parser_generation") or "") == str(getattr(index, "parser_generation", "") or "")
+            and bool(meta.get("source_root")) == bool(getattr(index, "source_root", ""))
+            and bool(meta.get("git_root")) == bool(getattr(index, "git_root", ""))
+        )
+    except Exception:
+        logger.debug("BM25 write-back: could not re-read meta; evicting", exc_info=True)
+        same = False
+    with _cache_lock:
+        for key in keys:
+            entry = _index_cache.get(key)
+            if entry is None or entry.code_index is not index:
+                continue
+            if same:
+                _index_cache[key] = entry._replace(mtime_ns=mtime_ns)
+            else:
+                _index_cache.pop(key, None)
+    if same:
+        index._loaded_mtime_ns = mtime_ns
 
 
 def _db_mtime_ns(db_path: Path) -> int:

@@ -339,25 +339,155 @@ def test_the_call_dispatcher_stores_the_stats_after_the_call(indexed, monkeypatc
     _fresh(repo, store)
     from jcodemunch_mcp import server
 
-    out = asyncio.run(server.call_tool("search_symbols", {"repo": repo, "query": "alpha"}))
+    async def call_then_drain():
+        out = await server.call_tool("search_symbols", {"repo": repo, "query": "alpha"})
+        # The write runs after the response, in the background.
+        await server._await_bm25_flush()
+        return out
+
+    out = asyncio.run(call_then_drain())
     assert not getattr(out, "isError", False), out
     assert _row(db), "the dispatcher did not store the statistics the call computed"
     assert _stats().pending_count() == 0
 
 
-def test_the_fingerprint_covers_every_module_the_resolver_imports():
+def test_the_fingerprint_covers_every_module_the_resolver_reaches():
     """Centrality goes through ``resolve_specifier``; a release that changes
-    only one of its helpers must not reuse stored centrality."""
-    import ast
-
-    covered = set(_stats()._FINGERPRINT_FILES)
-    tree = ast.parse((SRC / "parser" / "imports.py").read_text(encoding="utf-8"))
-    needed = {"parser/imports.py", "retrieval/scoring.py", "tools/search_symbols.py"}
-    for node in ast.walk(tree):
-        if isinstance(node, ast.ImportFrom) and node.level >= 1 and node.module:
-            base = "parser/" if node.level == 1 else ""
-            needed.add(base + node.module.replace(".", "/") + ".py")
-    missing = sorted(n for n in needed if n not in covered)
-    assert missing == [], f"modules the stored statistics depend on but the fingerprint omits: {missing}"
+    only a helper it reaches, at any depth, must not reuse stored centrality."""
+    stats = _stats()
+    covered = set(stats.fingerprint_files())
+    for rel in ("parser/imports.py", "retrieval/scoring.py", "tools/search_symbols.py",
+                "parser/languages.py", "config.py"):
+        assert rel in covered, rel
+    # Closed under package-relative imports, starting from the two followed files.
+    root = SRC
+    for rel in [r for r in covered if r in stats._FINGERPRINT_FOLLOW or r not in stats._FINGERPRINT_ROOTS]:
+        missing = sorted(stats._relative_imports(root, rel) - covered)
+        assert missing == [], f"{rel} imports {missing}, which the fingerprint omits"
+    # Two hops from the resolver: the review's examples.
+    assert {"parser/parse_budget.py", "parser/sql_preprocessor.py", "parser/symbols.py"} <= covered
     for rel in covered:
         assert (SRC / rel).is_file(), rel
+
+
+def test_the_extension_table_is_part_of_the_digest(indexed, monkeypatch):
+    """`extra_extensions` changes which file an import resolves to, so a row
+    written under one table must miss under another."""
+    repo, store, _src = indexed
+    index = _fresh(repo, store)
+    stats = _stats()
+    before = stats.corpus_digest(index)
+    real = stats._extension_table
+    monkeypatch.setattr(stats, "_extension_table", lambda: {**real(), ".zzq": "python"})
+    assert stats.corpus_digest(index) != before
+    assert stats.load(_db(store), index) is None
+
+
+class _RecordingDict(dict):
+    def __init__(self):
+        super().__init__()
+        self.order = []
+
+    def __setitem__(self, key, value):
+        self.order.append(key)
+        super().__setitem__(key, value)
+
+
+def test_the_stored_hit_publishes_idf_last(indexed):
+    """#490's readiness rule holds on the path that reads the stored row."""
+    repo, store, _src = indexed
+    index = _fresh(repo, store)
+    assert _stats().load(_db(store), index) is not None
+    index._bm25_cache = _RecordingDict()
+    ss.ensure_bm25_cache(index)
+    keys = [k for k in index._bm25_cache.order if k in ss._BM25_CORPUS_KEYS]
+    assert set(keys) == set(ss._BM25_CORPUS_KEYS) and keys[-1] == "idf", keys
+
+
+def test_the_save_time_publish_writes_idf_last():
+    """#490's readiness rule holds on the path a full save fills."""
+    from types import SimpleNamespace
+
+    index = SimpleNamespace(_bm25_cache=_RecordingDict(), _bm25_lock=None)
+    ss.publish_corpus_stats(index, {"a": 1.0}, 1.0, {"a": [0]}, {})
+    assert index._bm25_cache.order == ["avgdl", "inverted", "centrality", "idf"]
+    ss.publish_corpus_stats(index, {"b": 2.0}, 2.0, {"b": [0]}, {})
+    assert index._bm25_cache["idf"] == {"a": 1.0}, "a filled cache was overwritten"
+
+
+def test_a_meta_write_after_the_commit_evicts_instead_of_restamping(indexed, monkeypatch):
+    """Three meta writers skip `indexwrite` (L-230). One committing between the
+    write-back's COMMIT and its re-stamp must not be hidden behind the warm
+    index: the coverage it wrote gates absence claims."""
+    repo, store, _src = indexed
+    db = _db(store)
+    _raw_write(db, [("DELETE FROM bm25_stats", ())])
+    index = _fresh(repo, store)
+    _ranked(repo, store, "alpha")
+    from jcodemunch_mcp.storage import sqlite_store
+
+    real_connect = sqlite_store.sqlite3.connect
+
+    class Conn:
+        def __init__(self, inner):
+            self._inner = inner
+
+        def execute(self, sql, *args):
+            out = self._inner.execute(sql, *args)
+            if sql == "COMMIT":
+                foreign = real_connect(str(db), isolation_level=None)
+                foreign.execute(
+                    "INSERT OR REPLACE INTO meta (key, value) VALUES ('coverage', ?)",
+                    (json.dumps({"complete": False, "reason": "foreign"}),),
+                )
+                foreign.close()
+            return out
+
+        def close(self):
+            self._inner.close()
+
+    monkeypatch.setattr(sqlite_store.sqlite3, "connect", lambda *a, **k: Conn(real_connect(*a, **k)))
+    assert _stats().flush_pending() == 1
+    monkeypatch.setattr(sqlite_store.sqlite3, "connect", real_connect)
+
+    from jcodemunch_mcp.tools._utils import load_repo_index_or_error
+
+    again, error, _ = load_repo_index_or_error(repo, store)
+    assert error is None
+    assert again is not index, "the warm index was re-keyed over a write it never saw"
+    assert (again.coverage or {}).get("reason") == "foreign"
+
+
+def test_the_write_back_waits_for_every_call_in_flight(indexed, monkeypatch):
+    """A write while another call scans moves the .db under that call's
+    before/after check, which then refuses its absence as a rebuild."""
+    repo, store, _src = indexed
+    monkeypatch.setenv("CODE_INDEX_PATH", store)
+    db = _db(store)
+    _raw_write(db, [("DELETE FROM bm25_stats", ())])
+    _fresh(repo, store)
+    from jcodemunch_mcp import server
+
+    async def scenario():
+        gate = asyncio.Event()
+        real_impl = server._call_tool_impl
+
+        async def impl(name, arguments):
+            if name == "list_repos":
+                await gate.wait()  # a slow call still in flight
+            return await real_impl(name, arguments)
+
+        monkeypatch.setattr(server, "_call_tool_impl", impl)
+        slow = asyncio.create_task(server.call_tool("list_repos", {}))
+        await asyncio.sleep(0)
+        await server.call_tool("search_symbols", {"repo": repo, "query": "alpha"})
+        await asyncio.sleep(0.2)
+        written_while_busy = _row(db) is not None
+        gate.set()
+        await slow
+        await server._await_bm25_flush()
+        return written_while_busy
+
+    written_while_busy = asyncio.run(scenario())
+    assert not written_while_busy, "the write-back ran while another call was in flight"
+    assert _row(db), "the write-back never ran once the last call finished"

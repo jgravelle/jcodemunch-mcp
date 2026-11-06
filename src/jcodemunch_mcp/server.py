@@ -6128,7 +6128,14 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent] | CallToolR
     _count_frame: dict = {"inner": False}
     _count_token = _COUNT_FRAME.set(_count_frame)
     _counted_result: "list[TextContent] | CallToolResult | None" = None
+    _outer_counted = False
     try:
+        if _count_parent is None:
+            # A BM25 write-back in progress moves the .db; a call started now
+            # would read it as a rebuild (#1343).
+            await _await_bm25_flush()
+            _bm25_outer_calls[0] += 1
+            _outer_counted = True
         result = _enforce_response_cap(name, await _call_tool_impl(name, arguments))
         _dispatch_ok = not bool(getattr(result, "isError", False))
         _counted_result = result
@@ -6158,18 +6165,49 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent] | CallToolR
             )
         except Exception:
             logger.debug("Latency recording failed for %s", name, exc_info=True)
-        if _count_parent is None:
-            # BM25 statistics a search computed are stored in the index here,
-            # after the call's own before/after check on the .db, so the write
-            # cannot read to that check as a rebuild (#1343). Never raises.
-            try:
-                from .storage import bm25_stats as _bm25_stats
-
-                if _bm25_stats.pending_count():
-                    await asyncio.to_thread(_bm25_stats.flush_pending)
-            except Exception:
-                logger.debug("BM25 statistics write-back failed", exc_info=True)
+        if _outer_counted:
+            _bm25_outer_calls[0] -= 1
+            if _bm25_outer_calls[0] == 0:
+                _schedule_bm25_flush()
         end_call_context(call_token)
+
+
+# BM25 statistics a search computed are stored in the index after the response
+# is sent, and only while no tool call runs in this server; calls that arrive
+# during the write wait for it. Both halves keep the write outside every
+# call's before/after check on the .db, which would otherwise read it as a
+# rebuild and refuse an absence (#1343).
+_bm25_outer_calls = [0]
+_bm25_flush_task: "list[asyncio.Task | None]" = [None]
+
+
+def _schedule_bm25_flush() -> None:
+    """Start the write-back in the background if anything is queued. Never raises."""
+    try:
+        from .storage import bm25_stats as _bm25_stats
+
+        if not _bm25_stats.pending_count():
+            return
+        task = _bm25_flush_task[0]
+        if task is not None and not task.done():
+            return  # what is queued now is stored by the next one
+        _bm25_flush_task[0] = asyncio.get_running_loop().create_task(
+            asyncio.to_thread(_bm25_stats.flush_pending)
+        )
+    except Exception:
+        logger.debug("BM25 statistics write-back not scheduled", exc_info=True)
+
+
+async def _await_bm25_flush() -> None:
+    """Wait for a write-back in progress. Never raises."""
+    task = _bm25_flush_task[0]
+    if task is None or task.done():
+        return
+    try:
+        if task.get_loop() is asyncio.get_running_loop():
+            await asyncio.shield(task)
+    except Exception:
+        logger.debug("BM25 statistics write-back failed", exc_info=True)
 
 
 async def _call_tool_impl(name: str, arguments: dict) -> list[TextContent] | CallToolResult:
