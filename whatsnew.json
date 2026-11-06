@@ -1,6 +1,12 @@
 {
-  "current": "1.108.419",
+  "current": "1.108.420",
   "entries": [
+    {
+      "version": "1.108.420",
+      "date": "2026-11-06",
+      "title": "re-indexing one file by path keeps a partial index marked partial",
+      "summary": "Saving one edited file by path no longer marks an index the file cap cut short as complete, so searches over it keep saying it is partial."
+    },
     {
       "version": "1.108.419",
       "date": "2026-11-05",

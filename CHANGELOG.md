@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.420] - 2026-11-06 - re-indexing one file by path keeps a partial index marked partial
+
 ### Fixed - re-indexing one file by path keeps a partial index marked partial
 
 An index the file cap cut short stores that it is partial, and every search over it says so, so a name it can't find is not reported as absent. An `index_folder` call with `paths=[...]` usually re-reads a few files, so it can't tell whether the cap still cuts the rest. It wrote its own cap status anyway, which always reads untruncated: one edited file saved this way, the usual step after an edit, made a partial index read as complete, and searches stopped saying it was partial. Every save route now asks one rule: a path-list save keeps the stored status, whether it goes through the incremental save, the full save a parser upgrade or `incremental=False` forces, or the branch save. A walk of the whole tree still writes the status it found, so it still clears once a raised cap covers every file.
