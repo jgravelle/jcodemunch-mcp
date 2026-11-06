@@ -720,8 +720,9 @@ _UNLOCKED_META_COMPARE = {
 
 
 def _as_generation(value) -> int:
-    """A stored or held parser generation as an int; absent or unreadable is 0,
-    the value a legacy index carries."""
+    """A stored or held parser generation as an int. Absent is 0, the value a
+    legacy index carries; unreadable is -1, which matches no held value and
+    so evicts."""
     try:
         return int(value or 0)
     except (TypeError, ValueError):
