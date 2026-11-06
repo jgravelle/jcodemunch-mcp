@@ -346,6 +346,23 @@ def _corpus_stats(index) -> tuple[dict[str, float], float, dict[str, list[int]],
     return idf, avgdl, inverted, centrality
 
 
+def publish_corpus_stats(index, idf, avgdl, inverted, centrality) -> None:
+    """Fill an empty ``index._bm25_cache`` with precomputed corpus stats.
+
+    For a full save, which computes them before caching the index (#1343).
+    Takes the index's lock and leaves a cache that is already filled alone.
+    """
+    cache = index._bm25_cache
+    with getattr(index, "_bm25_lock", None) or _BM25_FALLBACK_LOCK:
+        if any(k in cache for k in _BM25_CORPUS_KEYS):
+            return
+        cache["avgdl"] = avgdl
+        cache["inverted"] = inverted
+        cache["centrality"] = centrality
+        # Sentinel last (#490).
+        cache["idf"] = idf
+
+
 # The four keys the lexical corpus cache publishes together. ``idf`` is the
 # readiness sentinel every historical call site checked, so it stays the last
 # one written; the fast path below checks all four anyway, so a future edit that

@@ -595,19 +595,30 @@ def _stamp_load_provenance(index, db_path: Path, mtime_ns: int):
 def _bm25_stats_blob(index) -> Optional[bytes]:
     """The BM25 statistics row for a full save (#1343), or None.
 
-    Computing them also fills the index's in-memory cache, so the warm copy
-    this save hands back searches without computing them again. A failure here
-    never fails the save; the row is then left empty and the next search
-    computes the statistics as before.
+    Computed over COPIES of the symbols: tokenizing caches a token bag on each
+    symbol dict, and the warm copy this save caches must have the same keys as
+    a disk read (L-224). The four statistics go into the warm copy's cache, so
+    it searches without computing them again. A failure here never fails the
+    save; the row is then left empty and the next search computes the
+    statistics as before.
     """
     try:
-        from ..tools.search_symbols import ensure_bm25_cache  # lazy: tools import storage
+        from types import SimpleNamespace
+
+        from ..tools.search_symbols import _corpus_stats, publish_corpus_stats  # lazy: tools import storage
         from . import bm25_stats
 
-        stats = ensure_bm25_cache(index)
+        scratch = SimpleNamespace(
+            symbols=[dict(s) for s in index.symbols],
+            imports=index.imports,
+            alias_map=index.alias_map,
+            psr4_map=getattr(index, "psr4_map", None),
+        )
+        idf, avgdl, inverted, centrality = _corpus_stats(scratch)
+        publish_corpus_stats(index, idf, avgdl, inverted, centrality)
         return bm25_stats.encode(
             bm25_stats.corpus_digest(index), len(index.symbols),
-            stats.get("idf") or {}, stats["avgdl"], stats["inverted"], stats["centrality"],
+            idf, avgdl, inverted, centrality,
         )
     except Exception:
         logger.warning("BM25 statistics not stored with this index", exc_info=True)
