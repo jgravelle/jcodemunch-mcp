@@ -123,6 +123,18 @@ def test_a_warning_survives(tree_repo):
     assert back["budget_warning"] == "Turn budget 93% used."
 
 
+def test_meta_keys_the_dispatcher_adds_survive(tree_repo):
+    # The dispatcher adds `_meta` keys after the tool returns (a budget, a
+    # redaction count); the tool's own return never carries them, so a test of
+    # the tool's output alone cannot see one go missing.
+    response = _tree(tree_repo)
+    response["_meta"]["budget"] = {"used": 18627, "limit": 20000}
+    response["_meta"]["secrets_redacted"] = 2
+    response["_meta"]["already_delivered"] = {"files": ["src/app/main.py"]}
+    back = decode(_assert_round_trips(response, fmt="auto"))
+    assert back["_meta"] == response["_meta"]
+
+
 def test_a_field_the_compact_form_does_not_carry_ships_json(tree_repo):
     # Fail closed: a key the encoder does not know about would be dropped by
     # the compact form, so the dispatcher must ship JSON instead.

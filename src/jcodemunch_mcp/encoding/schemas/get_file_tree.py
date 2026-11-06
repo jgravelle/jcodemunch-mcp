@@ -23,6 +23,9 @@ TOOLS = ("get_file_tree",)
 ENCODING_ID = "ft1"
 
 _ROWS_KEY = "__rows__"
+# Every `_meta` key this schema has no column for (the dispatcher's `budget`,
+# `secrets_redacted`, ...), carried as one JSON value so it is never dropped.
+_META_EXTRA = "__meta_extra__"
 
 _TABLES = [
     sd.TableSpec(
@@ -77,6 +80,10 @@ def _flatten(response: dict) -> dict:
         })
     out[_ROWS_KEY] = rows
     out["summaries_included"] = any("summary" in n for n in nodes)
+    carried = set(_META) | set(_META_JSON) | set(sd.UNIVERSAL_META_JSON)
+    extra = {k: v for k, v in (response.get("_meta") or {}).items() if k not in carried}
+    if extra:
+        out[_META_EXTRA] = extra
     return out
 
 
@@ -85,6 +92,9 @@ def _unflatten(decoded: dict) -> dict:
 
     rows = decoded.pop(_ROWS_KEY, None) or []
     summaries = decoded.pop("summaries_included", False) is True
+    extra = decoded.pop(_META_EXTRA, None)
+    if isinstance(extra, dict) and extra:
+        decoded.setdefault("_meta", {}).update(extra)
     nodes = []
     for row in rows:
         node = {
@@ -105,19 +115,15 @@ def _unflatten(decoded: dict) -> dict:
 
 
 def _same(response: dict, back: dict) -> bool:
-    body = {k: v for k, v in response.items() if not k.startswith("_")}
-    back_body = {k: v for k, v in back.items() if not k.startswith("_")}
-    if body != back_body:
-        return False
-    meta = response.get("_meta") or {}
-    back_meta = back.get("_meta") or {}
-    return all(back_meta.get(k) == meta[k] for k in _META if k in meta)
+    # The whole response, `_meta` included: the dispatcher adds `_meta` keys
+    # (`budget`, `secrets_redacted`) before encoding, and they must arrive.
+    return back == response
 
 
 def encode(tool: str, response: dict) -> tuple[str, str]:
     payload, enc_id = sd.encode(
         tool, _flatten(response), ENCODING_ID, _TABLES, _SCALARS,
-        meta_keys=_META, meta_json_blobs=_META_JSON,
+        meta_keys=_META, meta_json_blobs=_META_JSON, json_blobs=(_META_EXTRA,),
     )
     if not _same(response, decode(payload)):
         raise ValueError("get_file_tree: the compact form does not reproduce the response")
@@ -127,6 +133,6 @@ def encode(tool: str, response: dict) -> tuple[str, str]:
 def decode(payload: str) -> dict:
     decoded = sd.decode(
         payload, _TABLES, _SCALARS, meta_keys=_META, meta_json_blobs=_META_JSON,
-        scalar_types=_SCALAR_TYPES,
+        json_blobs=(_META_EXTRA,), scalar_types=_SCALAR_TYPES,
     )
     return _unflatten(decoded)
