@@ -1,6 +1,12 @@
 {
-  "current": "1.108.420",
+  "current": "1.108.421",
   "entries": [
+    {
+      "version": "1.108.421",
+      "date": "2026-11-06",
+      "title": "a starter pack installs in a few megabytes, and a file tree costs a third of the characters",
+      "summary": "install-pack writes a pack to disk as it downloads instead of holding it in memory, and get_file_tree sends the same tree in a third to a half of the characters."
+    },
     {
       "version": "1.108.420",
       "date": "2026-11-06",

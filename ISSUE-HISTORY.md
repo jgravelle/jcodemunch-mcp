@@ -3128,3 +3128,9 @@ The 1.108.416 entry, verbatim as it stood in `CLAUDE.md`:
 The 1.108.417 entry, verbatim as it stood in `CLAUDE.md`:
 
 - **Prior (1.108.417):** **a wrong call through order names a call that works** (#1333): on the counter surface every action an `order` reply or a turned-off refusal names is written as `order(action="...")`, a typo gets up to three close actions, a turned-off tool is never suggested, and the refusal names the file that lists it and tells the agent to ask the user. Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-06, release 1.108.421)
+
+The 1.108.418 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.418):** **a search on a capped index says, in its answer, that the index is partial** (#1336): a tool answer drawn from an index the `max_folder_files` cap truncated carries one body line, `index_warning`, with the file counts and the setting to raise, attached before the display filter so a default `meta_fields: []` install still sees it; `get_ranked_context` reports the cap on every exit, so its no-match answer on a capped index is no longer citable as absence. Full text: `CHANGELOG.md`.

@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.421] - 2026-11-06 - a starter pack installs in a few megabytes, and a file tree costs a third of the characters
+
 ### Changed - `get_file_tree` sends the same tree in a third to a half of the characters
 
 `get_file_tree` returned its tree as JSON: every node repeated its keys and every file repeated its whole directory path. No encoder could carry a nested tree, so the tree always went out as JSON, at about 139 characters a file. It now has a compact encoding. Each file is one row of directory, name, language and symbol count (and summary when asked for), and each repeated directory and language is written once. On nestjs indexed at 2,000 files, the default call (500 files) went from 69,494 characters to 23,409, the whole repository from 259,011 to 88,901, and the default call with summaries from 109,561 to 57,496. The arguments and the decoded answer are unchanged: the decoder rebuilds the tree with the tool's own nesting rule. The encoder decodes its own output and ships JSON whenever that doesn't reproduce the whole response exactly, `_meta` included, so a field added later can't be lost on the wire. Keys the server adds to `_meta`, such as `budget` and `secrets_redacted`, ride along as one JSON value. A small tree, where the compact form is larger, still ships as JSON. With `server_output` set to `compact`, a tree under a `path_prefix` used to arrive with its directories' children as a string; it now decodes as a tree.
