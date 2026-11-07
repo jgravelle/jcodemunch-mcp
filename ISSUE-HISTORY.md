@@ -3140,3 +3140,9 @@ The 1.108.418 entry, verbatim as it stood in `CLAUDE.md`:
 The 1.108.419 entry, verbatim as it stood in `CLAUDE.md`:
 
 - **Prior (1.108.419):** **the file cap limits what one call parses, not what the index keeps** (#1338, #1339): an agent's `index_folder` call parses at most `max_folder_files` (2,000) and the command line uses `cli_max_folder_files` (30,000), and a capped call never drops the files past its cap from an index built past it, on any route including `paths=`; the opt-in Grep answer (`JCODEMUNCH_HOOK_GREP_ANSWER=1`, off by default) counts every match of a Grep at or over 66 matching lines and lets a smaller one, or any Grep on a capped index, run. Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-07, release 1.108.423)
+
+The 1.108.420 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.420):** **re-indexing one file by path keeps a partial index marked partial** (#1341): an `index_folder` call with `paths=[...]` keeps the stored `file_cap_status` on every save route, so a partial index stays marked partial; a whole-tree walk still writes the status it found. Full text: `CHANGELOG.md`.
