@@ -1,6 +1,12 @@
 {
-  "current": "1.108.422",
+  "current": "1.108.423",
   "entries": [
+    {
+      "version": "1.108.423",
+      "date": "2026-11-07",
+      "title": "a file that fails to parse no longer lets a search claim a name is absent",
+      "summary": "A file whose parse fails or runs past its time budget now counts as withheld, so a search refuses to call a name absent instead of answering absent on an index that skipped the file. A fresh server process also reuses the search statistics stored in the index instead of rebuilding them before its first search."
+    },
     {
       "version": "1.108.422",
       "date": "2026-11-06",
