@@ -49,6 +49,19 @@ def indexed(tmp_path):
     (src / "other.py").write_text("import observer\n\n\ndef use():\n    return 1\n")
     result = index_folder(str(src), use_ai_summaries=False, storage_path=str(store))
     assert result["success"] is True
+    # A full save now stores the corpus statistics and warms the cache with
+    # them (#1343), so a load would never build. These tests are about the
+    # build: drop both, so the next load is cold.
+    import sqlite3
+
+    from jcodemunch_mcp.storage import sqlite_store
+
+    for db in store.glob("*.db"):
+        conn = sqlite3.connect(str(db))
+        conn.execute("DELETE FROM bm25_stats")
+        conn.commit()
+        conn.close()
+    sqlite_store._cache_clear()
     return result["repo"], str(store)
 
 
