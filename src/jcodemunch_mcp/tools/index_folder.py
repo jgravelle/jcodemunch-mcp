@@ -255,7 +255,96 @@ WITHHELD_SKIP_REASONS = frozenset({
     "too_large",     # over max_file_size, which until v1.108.193 could not be raised
     "file_limit",    # over max_folder_files / max_index_files
     "unreadable",    # a permission or IO failure, NOT a statement about the file
+    "parse_failed",  # its parse ran past the budget or raised: the file is in the
+                     # tree, its symbols are not in the index (L-316)
 })
+
+#: Coverage key holding the paths whose most recent parse failed. It lives in
+#: the stored coverage so a later run that does not re-parse a file carries its
+#: failure forward, and one that re-parses it clears or keeps it. It is not
+#: copied into an answer: `index_coverage_meta` reads named keys only, and
+#: `withheld.parse_failed` carries the count.
+PARSE_FAILED_FILES_KEY = "parse_failed_files"
+
+
+def _with_parse_failures(coverage: dict, failed) -> dict:
+    """``coverage`` with its parse failures set to ``failed``.
+
+    The count goes in ``skip_counts`` and ``withheld`` like every other withheld
+    reason. A known failure makes ``complete`` False even when the walk could
+    not reconcile its counts (``complete: None``), because a file whose
+    symbols are missing is proof of a gap, not the absence of a measurement.
+    With no failures left, ``complete`` is recomputed from the stored counts.
+    On a walk that could not reconcile them (``complete: None`` with
+    ``files_indexed`` above ``files_accepted``) the recompute reads False, not
+    unknown, until the next full walk: it errs toward refusing absence, never
+    toward claiming it.
+    """
+    cov = dict(coverage or {})
+    names = sorted(set(failed or ()))
+    skips = dict(cov.get("skip_counts") or {})
+    if names:
+        skips["parse_failed"] = len(names)
+        cov[PARSE_FAILED_FILES_KEY] = names
+    else:
+        skips.pop("parse_failed", None)
+        cov.pop(PARSE_FAILED_FILES_KEY, None)
+    cov["skip_counts"] = skips
+    withheld = {
+        k: int(v) for k, v in skips.items()
+        if k in WITHHELD_SKIP_REASONS and int(v or 0) > 0
+    }
+    if withheld:
+        cov["withheld"] = withheld
+    else:
+        cov.pop("withheld", None)
+    if names:
+        cov["complete"] = False
+    elif cov.get("complete") is not None and cov.get("files_accepted") is not None:
+        cov["complete"] = (
+            int(cov.get("files_indexed") or 0) == int(cov["files_accepted"])
+            and not cov.get("dropped_after_discovery")
+            and not withheld
+        )
+    return cov
+
+
+def _carried_parse_failures(prior_coverage, parsed, failed, present=None) -> list:
+    """The files whose last parse failed, after a run that parsed ``parsed``.
+
+    A file this run parsed is judged by this run alone: it is in ``failed`` or
+    it is not. A file it did not parse keeps the verdict of the run that last
+    did, provided it is still in the index (``present``; None keeps all).
+    """
+    prior = set((prior_coverage or {}).get(PARSE_FAILED_FILES_KEY) or ())
+    keep = prior - set(parsed or ())
+    if present is not None:
+        keep &= set(present)
+    return sorted(keep | set(failed or ()))
+
+
+def _store_parse_failures(store, owner: str, repo_name: str, parsed, failed, deleted=()) -> None:
+    """Amend the stored coverage after a targeted save (best-effort).
+
+    A run that re-parses only named files records no new coverage, so without
+    this a file that failed on a watcher or `index_file` re-index left the
+    index reading complete, and one that now parses stayed withheld. An index
+    with no coverage contract is left alone: its coverage is unknown either way.
+    """
+    try:
+        current = store._sqlite.get_coverage(owner, repo_name) or {}
+        if not current:
+            return
+        names = _carried_parse_failures(
+            current, set(parsed or ()) | set(deleted or ()), failed,
+        )
+        if names == sorted(current.get(PARSE_FAILED_FILES_KEY) or ()):
+            return
+        store._sqlite.set_coverage(owner, repo_name, _with_parse_failures(current, names))
+    except Exception:
+        logger.debug(
+            "Failed to record parse failures for %s/%s", owner, repo_name, exc_info=True
+        )
 
 
 def _coverage_report(
@@ -352,17 +441,23 @@ def _record_coverage(
     skip_counts: dict, files_indexed: int, no_symbols_count: int,
     files_accepted: Optional[int] = None,
     post_discovery_drops: Optional[dict] = None,
+    parse_failed=(),
 ) -> None:
-    """Persist the coverage contract after a save (best-effort, never raises)."""
+    """Persist the coverage contract after a save (best-effort, never raises).
+
+    ``parse_failed`` is every file in the index whose last parse failed; a walk
+    that re-parsed only some files passes the carried set
+    (`_carried_parse_failures`).
+    """
     try:
-        store._sqlite.set_coverage(
-            owner, repo_name,
-            _coverage_report(
-                skip_counts, files_indexed, no_symbols_count,
-                files_accepted=files_accepted,
-                post_discovery_drops=post_discovery_drops,
-            ),
+        report = _coverage_report(
+            skip_counts, files_indexed, no_symbols_count,
+            files_accepted=files_accepted,
+            post_discovery_drops=post_discovery_drops,
         )
+        if parse_failed:
+            report = _with_parse_failures(report, parse_failed)
+        store._sqlite.set_coverage(owner, repo_name, report)
     except Exception:
         logger.debug(
             "Failed to record coverage for %s/%s", owner, repo_name, exc_info=True
@@ -2592,6 +2687,7 @@ def index_folder(
                 _fast_phase("read_hash")
                 files_to_parse = set(changed_files) | set(new_files)
                 # Split pipeline: parse immediately (no AI), fire summarization thread.
+                _fast_parse_failed: list[str] = []
                 new_symbols, incr_file_summaries, incr_file_languages, incr_file_imports, incremental_no_symbols = (
                     parse_immediate(
                         files_to_parse=files_to_parse,
@@ -2599,6 +2695,7 @@ def index_folder(
                         active_providers=active_providers,
                         warnings=fast_warnings,
                         repo=str(folder_path),
+                        parse_failures=_fast_parse_failed,
                     )
                 )
 
@@ -2656,6 +2753,9 @@ def index_folder(
                         # Refresh the package registry so a manifest add/rename on
                         # the incremental path isn't stale until a full reindex (W7).
                         package_names=_extract_package_names(str(folder_path)),
+                    )
+                    _store_parse_failures(
+                        store, owner, repo_name, files_to_parse, _fast_parse_failed, deleted_files,
                     )
 
                 # Fire daemon thread for deferred summarization — index is already saved
@@ -3343,11 +3443,12 @@ def index_folder(
                 _cap_to_save = _cap_status_to_save(_cap_status, paths, existing_index)
                 if _cap_to_save != _stored_cap:
                     store._sqlite.set_file_cap_status(owner, repo_name, _cap_to_save)
-                    _nc_kept = len(
+                    _nc_kept_files = (
                         (_cap_dropped_rels & set(getattr(existing_index, "source_files", None) or []))
                         - set(updated_mtimes)
                         - _cap_stale
                     )
+                    _nc_kept = len(_nc_kept_files)
                     _nc_skips, _nc_accepted = _coverage_counts_with_kept(
                         skip_counts, len(source_files), _nc_kept
                     )
@@ -3357,6 +3458,10 @@ def index_folder(
                         int((getattr(existing_index, "coverage", None) or {}).get("no_symbols_count", 0) or 0),
                         files_accepted=_nc_accepted,
                         post_discovery_drops=post_discovery_drops,
+                        parse_failed=_carried_parse_failures(
+                            getattr(existing_index, "coverage", None), (), (),
+                            present=set(updated_mtimes) | _nc_kept_files,
+                        ),
                     )
                 # This ran a full discovery walk, so a still-truncated index
                 # stays loud even when nothing changed (#366).
@@ -3382,6 +3487,7 @@ def index_folder(
                 progress_cb(_incr_total, _incr_total, "Parsing complete")
 
             # Shared pipeline: parse, enrich, summarize, extract metadata
+            _incr_parse_failed: list[str] = []
             new_symbols, incr_file_summaries, incr_file_languages, incr_file_imports, incremental_no_symbols = (
                 parse_and_prepare_incremental(
                     files_to_parse=files_to_parse,
@@ -3390,6 +3496,7 @@ def index_folder(
                     use_ai_summaries=use_ai_summaries,
                     warnings=warnings,
                     repo=str(folder_path),
+                    parse_failures=_incr_parse_failed,
                 )
             )
 
@@ -3480,11 +3587,12 @@ def index_folder(
             if paths is None:
                 # The files the cap cut and the index kept: `updated_mtimes` is
                 # built from this walk, so it never holds them.
-                _cov_kept = len(
+                _cov_kept_files = (
                     (_cap_dropped_rels & set(getattr(existing_index, "source_files", None) or []))
                     - set(updated_mtimes)
                     - _cap_stale
                 )
+                _cov_kept = len(_cov_kept_files)
                 _cov_skips, _cov_accepted = _coverage_counts_with_kept(
                     skip_counts, len(source_files), _cov_kept,
                 )
@@ -3499,6 +3607,17 @@ def index_folder(
                     len(incremental_no_symbols),
                     files_accepted=_cov_accepted,
                     post_discovery_drops=post_discovery_drops,
+                    # The kept files are in the index, as last parsed: a failure
+                    # recorded for one of them still holds.
+                    parse_failed=_carried_parse_failures(
+                        getattr(existing_index, "coverage", None),
+                        files_to_parse, _incr_parse_failed,
+                        present=set(updated_mtimes) | _cov_kept_files,
+                    ),
+                )
+            elif not _is_branch_delta:
+                _store_parse_failures(
+                    store, owner, repo_name, files_to_parse, _incr_parse_failed, deleted,
                 )
 
             # An empty discovery over an existing index removed every indexed
@@ -3561,6 +3680,7 @@ def index_folder(
         from ..storage import text_filter as _text_filter
 
         _filter_rows: list = []
+        _full_parse_failed: list[str] = []
         for _file_idx, rel_path in enumerate(source_file_list):
             if progress_cb:
                 progress_cb(_file_idx, _total_files, rel_path)
@@ -3600,6 +3720,7 @@ def index_folder(
             except Exception as e:
                 warnings.append(f"Failed to parse {rel_path}: {e}")
                 logger.debug("PARSE ERROR: %s — %s", rel_path, e)
+                _full_parse_failed.append(rel_path)
 
             # Extract imports while content is in scope
             imps = extract_imports(content, rel_path, language, repo=str(folder_path))
@@ -3693,6 +3814,10 @@ def index_folder(
         if _merge_with_existing is not None or _is_branch_delta:
             _cut_now |= set(_stored_provider_cut(existing_index))
         _cap_keep: set = set()
+        # The files the full save below writes. A capped walk or a subdir merge
+        # also keeps files it did not re-parse; their recorded parse failures
+        # carry (L-316).
+        _pf_saved_files: list = list(source_file_list)
         full_context_metadata = _stamp_provider_cut(
             full_context_metadata, sorted(_cut_now),
             existing_index, carry_existing=False,
@@ -3841,6 +3966,7 @@ def index_folder(
                     carry_outside_prefix=_merge_with_existing is not None,
                 )
                 _save_source_files = merged["source_files"]
+                _pf_saved_files = list(_save_source_files)
                 # Carried symbols (dicts) + freshly parsed Symbols.
                 # save_index serializes Symbols itself; we pre-serialize
                 # the carryover dicts by leaving them as dicts (save_index
@@ -3929,6 +4055,17 @@ def index_folder(
                 _cov_skips, len(source_file_list) + _cov_kept_n, len(no_symbols_files),
                 files_accepted=_cov_accepted,
                 post_discovery_drops=post_discovery_drops,
+                parse_failed=_carried_parse_failures(
+                    getattr(
+                        _merge_with_existing if _merge_with_existing is not None else existing_index,
+                        "coverage", None,
+                    ),
+                    source_file_list, _full_parse_failed, present=_pf_saved_files,
+                ),
+            )
+        else:
+            _store_parse_failures(
+                store, owner, repo_name, source_file_list, _full_parse_failed,
             )
 
         # Identify languages that were indexed (symbols found) but have no import extractor

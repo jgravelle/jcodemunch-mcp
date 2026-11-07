@@ -211,6 +211,13 @@
       "replacement": "tests/test_import_resolution_is_memoized.py::test_a_gleam_answer_is_never_shared_between_importers",
       "commit": "perf/1317-resolution-memo",
       "date": "2026-11-03"
+    },
+    {
+      "path": "tests/test_v1_108_193.py::test_the_three_withheld_reasons",
+      "lesson": "Its name counted the withheld reasons as three. A file whose parse ran past the budget or raised is real, current and wanted, and its symbols are missing because of our parser, so `parse_failed` joins the set. The exact-equality pin it carried stays, so a reason added or dropped by accident still fails.",
+      "replacement": "tests/test_v1_108_193.py::test_the_withheld_reasons",
+      "commit": "fix/parse-failure-withheld",
+      "date": "2026-11-07"
     }
   ]
 }
