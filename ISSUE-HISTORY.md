@@ -3134,3 +3134,9 @@ The 1.108.417 entry, verbatim as it stood in `CLAUDE.md`:
 The 1.108.418 entry, verbatim as it stood in `CLAUDE.md`:
 
 - **Prior (1.108.418):** **a search on a capped index says, in its answer, that the index is partial** (#1336): a tool answer drawn from an index the `max_folder_files` cap truncated carries one body line, `index_warning`, with the file counts and the setting to raise, attached before the display filter so a default `meta_fields: []` install still sees it; `get_ranked_context` reports the cap on every exit, so its no-match answer on a capped index is no longer citable as absence. Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-06, release 1.108.422)
+
+The 1.108.419 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.419):** **the file cap limits what one call parses, not what the index keeps** (#1338, #1339): an agent's `index_folder` call parses at most `max_folder_files` (2,000) and the command line uses `cli_max_folder_files` (30,000), and a capped call never drops the files past its cap from an index built past it, on any route including `paths=`; the opt-in Grep answer (`JCODEMUNCH_HOOK_GREP_ANSWER=1`, off by default) counts every match of a Grep at or over 66 matching lines and lets a smaller one, or any Grep on a capped index, run. Full text: `CHANGELOG.md`.
