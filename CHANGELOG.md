@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed - a file whose parse fails no longer lets a search claim a name is absent
+
+A file whose parse runs past the per-file budget (`JCODEMUNCH_PARSE_BUDGET_SECONDS`, 20 seconds by default) or raises gets a warning naming it, and its symbols are left out of the index. Nothing else recorded the gap: the file still counted as indexed and the index called itself complete, so a search for a function defined in that file answered `absent`, and an agent could act on that as proof the function does not exist. A failed parse is now a withheld file, like a file over the size limit. The index records it, the coverage reads incomplete, and an answer that would claim absence is refused with the count (`withheld.parse_failed`). This holds on every route that parses: a full index, an incremental run, a `paths=` re-index, the watcher and `index_file`. A later run that does not re-parse the file keeps the failure; one that parses it cleanly, or finds it deleted, clears it. The file's text stays searchable with `search_text`. An index built from a GitHub repository (`index_repo`) records no coverage at all, so this change does not reach it.
+
 ## [1.108.422] - 2026-11-06 - the shared parse cache never serves what an older parser emitted
 
 ### Fixed - the shared parse cache never serves what an older parser emitted

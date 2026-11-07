@@ -463,6 +463,7 @@ def index_file(
     if progress_cb:
         progress_cb(0, 1, rel_path)
     warnings: list[str] = []
+    parse_failed: list[str] = []
     new_symbols, file_summaries, file_languages, file_imports, _no_symbols = (
         parse_and_prepare_incremental(
             files_to_parse={rel_path},
@@ -471,6 +472,7 @@ def index_file(
             use_ai_summaries=use_ai_summaries,
             warnings=warnings,
             repo=str(source_root),
+            parse_failures=parse_failed,
         )
     )
 
@@ -522,6 +524,9 @@ def index_file(
             file_hashes={rel_path: file_hash},
             file_mtimes={rel_path: file_mtime},
         )
+        from .index_folder import _store_parse_failures
+
+        _store_parse_failures(store, owner, name, {rel_path}, parse_failed)
     if progress_cb:
         progress_cb(1, 1, rel_path)
 
