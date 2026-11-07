@@ -1,6 +1,6 @@
 [project]
 name = "jcodemunch-mcp"
-version = "1.108.423"
+version = "1.108.424"
 description = "MCP server that gives AI coding agents the exact function or class they asked for, not the whole file. Runs on your machine, 70+ languages. Free for non-commercial use; commercial use needs a one-time license."
 readme = "README.md"
 requires-python = ">=3.10"
