@@ -3146,3 +3146,9 @@ The 1.108.419 entry, verbatim as it stood in `CLAUDE.md`:
 The 1.108.420 entry, verbatim as it stood in `CLAUDE.md`:
 
 - **Prior (1.108.420):** **re-indexing one file by path keeps a partial index marked partial** (#1341): an `index_folder` call with `paths=[...]` keeps the stored `file_cap_status` on every save route, so a partial index stays marked partial; a whole-tree walk still writes the status it found. Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-07, release 1.108.424)
+
+The 1.108.421 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.421):** **a starter pack installs in a few megabytes, and a file tree costs a third of the characters** (#1346, #1342): `install-pack` streams the download to a temp file and copies each archive member in chunks, so peak memory no longer grows with the pack; `get_file_tree` has a compact encoding that decodes to the same tree. Full text: `CHANGELOG.md`.

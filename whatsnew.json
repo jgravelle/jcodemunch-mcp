@@ -1,6 +1,12 @@
 {
-  "current": "1.108.423",
+  "current": "1.108.424",
   "entries": [
+    {
+      "version": "1.108.424",
+      "date": "2026-11-07",
+      "title": "a project config file can only tighten settings",
+      "summary": "A project's .jcodemunch.jsonc can tighten the settings that decide which folders are trusted, what is read or run, what is sent off the machine and what a summarizer may bill, but never loosen them past your own config. Each key it cannot apply as written is logged once by name."
+    },
     {
       "version": "1.108.423",
       "date": "2026-11-07",
