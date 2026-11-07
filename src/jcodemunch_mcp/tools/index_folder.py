@@ -274,8 +274,11 @@ def _with_parse_failures(coverage: dict, failed) -> dict:
     reason. A known failure makes ``complete`` False even when the walk could
     not reconcile its counts (``complete: None``), because a file whose
     symbols are missing is proof of a gap, not the absence of a measurement.
-    With no failures left, ``complete`` is recomputed from the stored counts;
-    an unknown stays unknown.
+    With no failures left, ``complete`` is recomputed from the stored counts.
+    On a walk that could not reconcile them (``complete: None`` with
+    ``files_indexed`` above ``files_accepted``) the recompute reads False, not
+    unknown, until the next full walk: it errs toward refusing absence, never
+    toward claiming it.
     """
     cov = dict(coverage or {})
     names = sorted(set(failed or ()))
@@ -3440,11 +3443,12 @@ def index_folder(
                 _cap_to_save = _cap_status_to_save(_cap_status, paths, existing_index)
                 if _cap_to_save != _stored_cap:
                     store._sqlite.set_file_cap_status(owner, repo_name, _cap_to_save)
-                    _nc_kept = len(
+                    _nc_kept_files = (
                         (_cap_dropped_rels & set(getattr(existing_index, "source_files", None) or []))
                         - set(updated_mtimes)
                         - _cap_stale
                     )
+                    _nc_kept = len(_nc_kept_files)
                     _nc_skips, _nc_accepted = _coverage_counts_with_kept(
                         skip_counts, len(source_files), _nc_kept
                     )
@@ -3456,7 +3460,7 @@ def index_folder(
                         post_discovery_drops=post_discovery_drops,
                         parse_failed=_carried_parse_failures(
                             getattr(existing_index, "coverage", None), (), (),
-                            present=updated_mtimes,
+                            present=set(updated_mtimes) | _nc_kept_files,
                         ),
                     )
                 # This ran a full discovery walk, so a still-truncated index
@@ -3583,11 +3587,12 @@ def index_folder(
             if paths is None:
                 # The files the cap cut and the index kept: `updated_mtimes` is
                 # built from this walk, so it never holds them.
-                _cov_kept = len(
+                _cov_kept_files = (
                     (_cap_dropped_rels & set(getattr(existing_index, "source_files", None) or []))
                     - set(updated_mtimes)
                     - _cap_stale
                 )
+                _cov_kept = len(_cov_kept_files)
                 _cov_skips, _cov_accepted = _coverage_counts_with_kept(
                     skip_counts, len(source_files), _cov_kept,
                 )
@@ -3602,9 +3607,12 @@ def index_folder(
                     len(incremental_no_symbols),
                     files_accepted=_cov_accepted,
                     post_discovery_drops=post_discovery_drops,
+                    # The kept files are in the index, as last parsed: a failure
+                    # recorded for one of them still holds.
                     parse_failed=_carried_parse_failures(
                         getattr(existing_index, "coverage", None),
-                        files_to_parse, _incr_parse_failed, present=updated_mtimes,
+                        files_to_parse, _incr_parse_failed,
+                        present=set(updated_mtimes) | _cov_kept_files,
                     ),
                 )
             elif not _is_branch_delta:
@@ -3806,6 +3814,10 @@ def index_folder(
         if _merge_with_existing is not None or _is_branch_delta:
             _cut_now |= set(_stored_provider_cut(existing_index))
         _cap_keep: set = set()
+        # The files the full save below writes. A capped walk or a subdir merge
+        # also keeps files it did not re-parse; their recorded parse failures
+        # carry (L-316).
+        _pf_saved_files: list = list(source_file_list)
         full_context_metadata = _stamp_provider_cut(
             full_context_metadata, sorted(_cut_now),
             existing_index, carry_existing=False,
@@ -3954,6 +3966,7 @@ def index_folder(
                     carry_outside_prefix=_merge_with_existing is not None,
                 )
                 _save_source_files = merged["source_files"]
+                _pf_saved_files = list(_save_source_files)
                 # Carried symbols (dicts) + freshly parsed Symbols.
                 # save_index serializes Symbols itself; we pre-serialize
                 # the carryover dicts by leaving them as dicts (save_index
@@ -4042,7 +4055,13 @@ def index_folder(
                 _cov_skips, len(source_file_list) + _cov_kept_n, len(no_symbols_files),
                 files_accepted=_cov_accepted,
                 post_discovery_drops=post_discovery_drops,
-                parse_failed=_full_parse_failed,
+                parse_failed=_carried_parse_failures(
+                    getattr(
+                        _merge_with_existing if _merge_with_existing is not None else existing_index,
+                        "coverage", None,
+                    ),
+                    source_file_list, _full_parse_failed, present=_pf_saved_files,
+                ),
             )
         else:
             _store_parse_failures(

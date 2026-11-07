@@ -387,7 +387,6 @@ def parse_and_prepare_full(
     repo: Optional[str] = None,
     existing_summaries: Optional[dict[tuple[str, str, str], str]] = None,
     unchanged_files: Optional[set[str]] = None,
-    parse_failures: Optional[list] = None,
 ) -> tuple[list[Symbol], dict[str, str], dict[str, int], dict[str, str], dict[str, list[dict]], list[str]]:
     """Shared full-index pipeline: parse all files, enrich, summarize.
 
@@ -436,8 +435,6 @@ def parse_and_prepare_full(
         except Exception as e:
             warnings.append(f"Failed to parse {path}: {e}")
             logger.debug("PARSE ERROR: %s — %s", path, e)
-            if parse_failures is not None:
-                parse_failures.append(path)
 
     logger.info(
         "Parsing complete — with symbols: %d, no symbols: %d",

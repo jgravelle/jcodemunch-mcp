@@ -52,13 +52,14 @@ def _fail_one_file(monkeypatch, failure):
         monkeypatch.setattr(module, "parse_file", parse)
 
 
-def _index(project, tmp_path):
+def _index(project, tmp_path, **kwargs):
     return index_folder(
         str(project),
         use_ai_summaries=False,
         storage_path=str(tmp_path / "store"),
         incremental=False,
         context_providers=False,
+        **kwargs,
     )
 
 
@@ -74,7 +75,7 @@ def test_a_failed_parse_makes_the_corpus_incomplete(project, tmp_path, monkeypat
     index, error, _ = load_repo_index_or_error(result["repo"], str(tmp_path / "store"))
     assert error is None
     coverage = index.coverage or {}
-    assert coverage.get("complete") is not True, coverage
+    assert coverage.get("complete") is False, coverage
     assert coverage.get("withheld"), coverage
 
 
@@ -145,6 +146,9 @@ def test_an_incremental_run_that_skips_the_file_keeps_it_withheld(project, tmp_p
     must carry the failure rather than call the corpus complete."""
     _fail_one_file(monkeypatch, FAILURES["budget"])
     _index(project, tmp_path)
+    # Parses work again, so only a carried failure can keep the file withheld.
+    monkeypatch.undo()
+    monkeypatch.setenv("CODE_INDEX_PATH", str(tmp_path / "storage"))
     (project / "helper.py").write_text("def ordinary_helper():\n    return 3\n", encoding="utf-8")
     result = _incremental(project, tmp_path)
     cov = _coverage(result, tmp_path)
@@ -237,3 +241,32 @@ def test_the_failed_file_names_stay_out_of_the_answer():
     assert out["complete"] is False
     assert out["withheld"] == {"parse_failed": 1}
     assert PARSE_FAILED_FILES_KEY not in out
+
+
+def test_a_capped_full_walk_keeps_the_failure_of_a_file_it_kept(project, tmp_path, monkeypatch):
+    """A full walk under a lower file cap keeps files it no longer parses, as
+    last parsed. A kept file whose last parse failed is still missing its
+    symbols, so its failure must carry."""
+    (project / "slow_module.py").rename(project / "zz_slow_module.py")
+    _fail_one_file(monkeypatch, FAILURES["crash"])
+    first = _index(project, tmp_path, max_folder_files=100)
+    assert (_coverage(first, tmp_path).get("withheld") or {}).get("parse_failed") == 1
+    monkeypatch.undo()
+    monkeypatch.setenv("CODE_INDEX_PATH", str(tmp_path / "storage"))
+    # A change elsewhere, so the capped walk saves; `zz_` sorts last, so the
+    # cap of one cuts the failed file and the save keeps it as last parsed.
+    (project / "helper.py").write_text("def ordinary_helper():\n    return 9\n", encoding="utf-8")
+    result = _index(project, tmp_path, max_folder_files=1)
+    assert result.get("success"), result
+    cov = _coverage(result, tmp_path)
+    assert cov.get("complete") is False, cov
+    assert "zz_slow_module.py" in (cov.get("parse_failed_files") or []), cov
+
+    from jcodemunch_mcp.tools.search_symbols import search_symbols
+
+    found = search_symbols(
+        result["repo"], "only_in_the_slow_file",
+        storage_path=str(tmp_path / "store"), max_results=10,
+    )
+    verdict = (found.get("_meta") or {}).get("verdict") or {}
+    assert (verdict.get("channels") or {}).get("index") == "partial", verdict
