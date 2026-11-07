@@ -218,6 +218,69 @@
       "replacement": "tests/test_v1_108_193.py::test_the_withheld_reasons",
       "commit": "fix/parse-failure-withheld",
       "date": "2026-11-07"
+    },
+    {
+      "path": "tests/test_config.py::test_project_config_dot_slash_resolution",
+      "lesson": "It asserted that a repository's own .jcodemunch.jsonc decides which folders are trusted. Which folders this install trusts is set in the user's own config only. A project file's trusted_folders and trusted_folders_whitelist_mode are ignored with a warning.",
+      "replacement": "tests/test_config.py::test_a_project_files_trusted_folders_is_ignored",
+      "commit": "fix/project-config-cost-keys",
+      "date": "2026-11-07"
+    },
+    {
+      "path": "tests/test_config.py::test_project_config_path_resolution",
+      "lesson": "It asserted that a repository's own .jcodemunch.jsonc decides which folders are trusted. Which folders this install trusts is set in the user's own config only. A project file's trusted_folders and trusted_folders_whitelist_mode are ignored with a warning.",
+      "replacement": "tests/test_config.py::test_a_project_files_trusted_folders_is_ignored",
+      "commit": "fix/project-config-cost-keys",
+      "date": "2026-11-07"
+    },
+    {
+      "path": "tests/test_config.py::test_project_config_implicit_relative_escape_rejected",
+      "lesson": "It asserted that a repository's own .jcodemunch.jsonc decides which folders are trusted. Which folders this install trusts is set in the user's own config only. A project file's trusted_folders and trusted_folders_whitelist_mode are ignored with a warning.",
+      "replacement": "tests/test_config.py::test_a_project_files_trusted_folders_is_ignored",
+      "commit": "fix/project-config-cost-keys",
+      "date": "2026-11-07"
+    },
+    {
+      "path": "tests/test_config.py::test_project_config_multiple_mixed_entries",
+      "lesson": "It asserted that a repository's own .jcodemunch.jsonc decides which folders are trusted. Which folders this install trusts is set in the user's own config only. A project file's trusted_folders and trusted_folders_whitelist_mode are ignored with a warning.",
+      "replacement": "tests/test_config.py::test_a_project_files_trusted_folders_is_ignored",
+      "commit": "fix/project-config-cost-keys",
+      "date": "2026-11-07"
+    },
+    {
+      "path": "tests/test_config.py::test_project_config_overrides_global_trusted_folders",
+      "lesson": "It asserted that a repository's own .jcodemunch.jsonc decides which folders are trusted. Which folders this install trusts is set in the user's own config only. A project file's trusted_folders and trusted_folders_whitelist_mode are ignored with a warning.",
+      "replacement": "tests/test_config.py::test_a_project_files_trusted_folders_is_ignored",
+      "commit": "fix/project-config-cost-keys",
+      "date": "2026-11-07"
+    },
+    {
+      "path": "tests/test_config.py::test_project_config_empty_list_overrides_global",
+      "lesson": "It asserted that a repository's own .jcodemunch.jsonc decides which folders are trusted. Which folders this install trusts is set in the user's own config only. A project file's trusted_folders and trusted_folders_whitelist_mode are ignored with a warning.",
+      "replacement": "tests/test_config.py::test_a_project_files_trusted_folders_is_ignored",
+      "commit": "fix/project-config-cost-keys",
+      "date": "2026-11-07"
+    },
+    {
+      "path": "tests/test_config.py::test_project_config_deduplicates",
+      "lesson": "It asserted that a repository's own .jcodemunch.jsonc decides which folders are trusted. Which folders this install trusts is set in the user's own config only. A project file's trusted_folders and trusted_folders_whitelist_mode are ignored with a warning.",
+      "replacement": "tests/test_config.py::test_a_project_files_trusted_folders_is_ignored",
+      "commit": "fix/project-config-cost-keys",
+      "date": "2026-11-07"
+    },
+    {
+      "path": "tests/test_tools.py::test_index_folder_uses_project_config_trusted_folders",
+      "lesson": "It asserted that a repository's own .jcodemunch.jsonc decides which folders are trusted. Which folders this install trusts is set in the user's own config only. A project file's trusted_folders and trusted_folders_whitelist_mode are ignored with a warning.",
+      "replacement": "tests/test_project_config_cannot_spend_or_send.py::test_a_project_file_cannot_trust_its_own_folder",
+      "commit": "fix/project-config-cost-keys",
+      "date": "2026-11-07"
+    },
+    {
+      "path": "tests/test_summarizer_body_chars.py::test_default_is_zero_and_a_project_config_turns_it_on_for_that_repo_only",
+      "lesson": "It asserted that a repository's own .jcodemunch.jsonc can turn on sending symbol source to the summarizer. A project file may turn a setting off, never on; the user's own config turns it on, and a project file may lower it for its repo.",
+      "replacement": "tests/test_summarizer_body_chars.py::test_default_is_zero_and_a_project_config_can_only_lower_it",
+      "commit": "fix/project-config-cost-keys",
+      "date": "2026-11-07"
     }
   ]
 }

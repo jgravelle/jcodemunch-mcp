@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Changed - a project config file can only tighten settings
+
+For the settings that decide which folders are trusted, what may be read or run, what is sent off the machine and what a summarizer may bill, a project's `.jcodemunch.jsonc` can now tighten the user's own value but not loosen it. A project file no longer sets `trusted_folders` or `trusted_folders_whitelist_mode`. It sets `allow_paid_summaries`, `allow_remote_summarizer`, `use_ai_summaries`, `summarizer_body_chars`, `openai_extra_body`, `git_blame_enabled`, `redact_source_root`, `response_max_bytes` and `enrichment` only to a value no more permissive than the user's own; in `enrichment` that covers `lsp_enabled` and the language-server table. `disabled_tools` from a project file adds to the user's list and cannot re-enable a tool, and `exclude_secret_patterns` keeps only the exclusions the user also makes. A project names `summarizer_provider` or `summarizer_model` only when the user's own opt-in covers the choice: a paid provider needs `allow_paid_summaries`, and an OpenAI-compatible base off the machine needs that and `allow_remote_summarizer`. A project that picks its provider and model keeps working for a user who opted in. `max_file_size`, `max_folder_files` and `max_index_files` stay project-settable. Each ignored key is logged once by name. CONFIGURATION.md, "Project-level overrides", lists the rule.
+
 ## [1.108.423] - 2026-11-07 - a file that fails to parse no longer lets a search claim a name is absent
 
 ### Fixed - a file whose parse fails no longer lets a search claim a name is absent (#1351)

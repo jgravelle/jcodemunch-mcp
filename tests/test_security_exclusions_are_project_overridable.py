@@ -86,12 +86,17 @@ class TestTheProjectOptOutApplies:
             f"skip counts were {result.get('discovery_skip_counts')}"
         )
 
-    def test_exclude_secret_patterns_applies_from_project_config(self, project):
-        project.declare(exclude_secret_patterns=["tests/fixtures/*"])
+    def test_exclude_secret_patterns_applies_from_project_config(self, project, monkeypatch):
+        """A project file may only narrow the user's own exclusions, so the key
+        is observed in that direction: the user excludes the path, the
+        project's empty list must make it secret again."""
+        monkeypatch.setitem(cfg._GLOBAL_CONFIG, "exclude_secret_patterns", ["tests/fixtures/*"])
+        assert sec.is_secret_file("tests/fixtures/credentials.json") is False
+        project.declare(exclude_secret_patterns=[])
 
         assert sec.is_secret_file(
             "tests/fixtures/credentials.json", repo=str(project.path)
-        ) is False
+        ) is True
 
     def test_the_same_path_is_still_secret_without_the_opt_out(self, project):
         """Non-vacuity for the test above: the path must be judged secret when
