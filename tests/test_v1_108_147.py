@@ -104,6 +104,14 @@ def test_cold_bm25_build_is_single_flight(tmp_path):
     index = store.load_index("test", "stampede")
     assert index is not None
     index._bm25_cache.clear()
+    # A save stores the corpus statistics in the .db (#1343); drop them so the
+    # threads below reach the build this test pins.
+    import sqlite3
+
+    conn = sqlite3.connect(str(index._db_path))
+    conn.execute("DELETE FROM bm25_stats")
+    conn.commit()
+    conn.close()
 
     import jcodemunch_mcp.tools.search_symbols as sst
 

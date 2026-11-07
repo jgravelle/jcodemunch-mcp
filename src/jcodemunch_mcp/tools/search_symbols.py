@@ -336,6 +336,33 @@ def _compute_centrality(
     return {f: math.log(1 + c) * _CENTRALITY_WEIGHT for f, c in counts.items()}
 
 
+def _corpus_stats(index) -> tuple[dict[str, float], float, dict[str, list[int]], dict[str, float]]:
+    """(idf, avgdl, inverted, centrality) computed over ``index``."""
+    idf, avgdl, inverted = _compute_bm25(index.symbols)
+    centrality = _compute_centrality(
+        index.symbols, index.imports, index.alias_map,
+        getattr(index, "psr4_map", None),
+    )
+    return idf, avgdl, inverted, centrality
+
+
+def publish_corpus_stats(index, idf, avgdl, inverted, centrality) -> None:
+    """Fill an empty ``index._bm25_cache`` with precomputed corpus stats.
+
+    For a full save, which computes them before caching the index (#1343).
+    Takes the index's lock and leaves a cache that is already filled alone.
+    """
+    cache = index._bm25_cache
+    with getattr(index, "_bm25_lock", None) or _BM25_FALLBACK_LOCK:
+        if any(k in cache for k in _BM25_CORPUS_KEYS):
+            return
+        cache["avgdl"] = avgdl
+        cache["inverted"] = inverted
+        cache["centrality"] = centrality
+        # Sentinel last (#490).
+        cache["idf"] = idf
+
+
 # The four keys the lexical corpus cache publishes together. ``idf`` is the
 # readiness sentinel every historical call site checked, so it stays the last
 # one written; the fast path below checks all four anyway, so a future edit that
@@ -376,16 +403,38 @@ def ensure_bm25_cache(index) -> dict:
     with getattr(index, "_bm25_lock", None) or _BM25_FALLBACK_LOCK:
         if all(k in cache for k in _BM25_CORPUS_KEYS):
             return cache
-        idf, avgdl, inverted = _compute_bm25(index.symbols)
-        centrality = _compute_centrality(
-            index.symbols, index.imports, index.alias_map,
-            getattr(index, "psr4_map", None),
-        )
+
+        # #1343 (@tmhtech4): a fresh process reuses the statistics stored in
+        # the index's own .db when they describe exactly what it loaded
+        # (`storage/bm25_stats.py` says how that is decided).
+        from ..storage import bm25_stats
+        from ..storage.generation import describe
+
+        # A branch index is composed in memory and never stored, so a base
+        # row can only miss: skip the read and the digest.
+        db_path = None if getattr(index, "branch", "") else describe(index).db_path
+        digest = None
+        if db_path:
+            digest = bm25_stats.corpus_digest(index)
+            stored = bm25_stats.load(db_path, index, digest)
+            if stored is not None:
+                cache["avgdl"] = stored["avgdl"]
+                cache["inverted"] = stored["inverted"]
+                cache["centrality"] = stored["centrality"]
+                # Sentinel last: see the module note above.
+                cache["idf"] = stored["idf"]
+                return cache
+
+        idf, avgdl, inverted, centrality = _corpus_stats(index)
         cache["avgdl"] = avgdl
         cache["inverted"] = inverted
         cache["centrality"] = centrality
         # Sentinel last: see the module note above.
         cache["idf"] = idf
+        if digest is not None:
+            # Stored by the dispatcher after the response and while no call
+            # runs (server `_schedule_bm25_flush`), outside this lock.
+            bm25_stats.queue_write_back(index, digest, (idf, avgdl, inverted, centrality))
     return cache
 
 
