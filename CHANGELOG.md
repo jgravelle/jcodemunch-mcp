@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+### Changed - the Grep answer does less disk work when the file cache is cold
+
+On Windows, the text filter behind the opt-in Grep answer now confirms its cached file copies with one directory listing per folder instead of one `stat` per file. On the same Home Assistant index, over 14,432 cached copies, the listing took 1.8 s to 2.4 s where per-file `stat` took 15.8 s to 24.5 s on the same loaded machine, with identical size and mtime for every file. It's aimed at the first Grep after a long idle gap, when the operating system's file cache is cold: on that index that Grep needed 7.2 s against the 4-second budget, and ran unanswered.
+
+- the listing carries every entry's size and mtime, which is all the filter needs to confirm a trigram row still describes its copy. A cached copy the listing doesn't hold is searched, never skipped. Elsewhere a listing costs one system call per file anyway, so nothing changes there;
+- opening the index for a text search no longer decodes every file's imports JSON, which a text search never reads. Imports decode only when something reads them, from the same snapshot, so the value is unchanged. An index with Racket still decodes at load, because loading adds Racket collection edges to its imports.
+
+The freshness check on your own files keeps one `stat` per file, on purpose. A listing would be cheaper there too, but on Windows a file edited through a hard link in another folder keeps its old size and mtime in its own folder's listing, so a listing could call an edited file unchanged. A fast wrong answer is worse than a slow right one. The cold total with these changes will be measured on the next idle gap; emptying the file cache by hand needs administrator rights.
+
 ## [1.108.425] - 2026-11-08 - the Grep answer reaches large repositories
 
 ### Fixed - `receipt` and `diagnose` read the savings file the way the meter does (#1335)
@@ -23,15 +32,6 @@ On a 23,186-file Home Assistant index, the opt-in Grep answer (`JCODEMUNCH_HOOK_
 - one hook call read the index's file table three times. It reads it once now, and the enclosing-symbol step reads just the matched files' symbol rows.
 
 The 2.0 s is with the operating system's file cache warm. The first Grep after a long idle gap, when the search reads the index's cached file copies from disk, can still miss the 4 s budget; when it does, the Grep runs exactly as it would without the hook.
-
-### Changed - the Grep answer does less disk work when the file cache is cold
-
-On Windows, the text filter behind the opt-in Grep answer now confirms its cached file copies with one directory listing per folder instead of one `stat` per file. On the same Home Assistant index, over 14,432 cached copies, the listing took 1.8 s to 2.4 s where per-file `stat` took 15.8 s to 24.5 s on the same loaded machine, with identical size and mtime for every file. It's aimed at the first Grep after a long idle gap, when the operating system's file cache is cold: on that index that Grep needed 7.2 s against the 4-second budget, and ran unanswered.
-
-- the listing carries every entry's size and mtime, which is all the filter needs to confirm a trigram row still describes its copy. A cached copy the listing doesn't hold is searched, never skipped. Elsewhere a listing costs one system call per file anyway, so nothing changes there;
-- opening the index for a text search no longer decodes every file's imports JSON, which a text search never reads. Imports decode only when something reads them, from the same snapshot, so the value is unchanged. An index with Racket still decodes at load, because loading adds Racket collection edges to its imports.
-
-The freshness check on your own files keeps one `stat` per file, on purpose. A listing would be cheaper there too, but on Windows a file edited through a hard link in another folder keeps its old size and mtime in its own folder's listing, so a listing could call an edited file unchanged. A fast wrong answer is worse than a slow right one. The cold total with these changes will be measured on the next idle gap; emptying the file cache by hand needs administrator rights.
 
 ## [1.108.424] - 2026-11-07 - a project config file can only tighten settings
 
