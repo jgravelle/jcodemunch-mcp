@@ -9,9 +9,9 @@ purpose: a package update never changes which tools a user is served. The
 priced offer to switch was printed only by `jcodemunch-mcp surface` and
 `install-status`, a log line at server start, and a notice on the first
 `resolve_repo` answer. The first three are places a user rarely looks. The
-fourth needs the agent to call the index, which measured sessions show it often
-doesn't. So an install paying for the full tool list on every request was told
-almost nowhere.
+fourth needs the agent to call the index, and on small tasks it often doesn't.
+So an install paying for the full tool list on every request was told almost
+nowhere.
 
 `init --hooks`, which `upgrade` runs and a user refreshing hooks types, now
 prints the same offer. It's the same block and the same renderer

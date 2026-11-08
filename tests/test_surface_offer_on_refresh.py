@@ -4,8 +4,8 @@ An install that predates the `counter` default stays on its surface on purpose,
 and `surface_offer.py` prices the move for it. The offer was shown only by
 `install-status`, `jcodemunch-mcp surface`, a log line at server start and a
 notice on the first `resolve_repo`. The first three are places a user rarely
-looks, and the fourth needs the agent to call the index, which measured
-sessions show it often does not. `upgrade` re-runs `init --hooks --yes`, and a
+looks, and the fourth needs the agent to call the index, which on small tasks
+it often does not. `upgrade` re-runs `init --hooks --yes`, and a
 user refreshing hooks types the same, so `init` with hooks prints the offer
 too.
 
@@ -60,11 +60,11 @@ def spy_init(monkeypatch, tmp_path):
     return init_module
 
 
-def _run_refresh(module) -> None:
+def _run_refresh(module, *, hooks_explicit: bool = True) -> None:
     module.run_init(
         clients=None,
         hooks=True,
-        hooks_explicit=True,
+        hooks_explicit=hooks_explicit,
         index=False,
         audit=False,
         yes=True,
@@ -83,7 +83,7 @@ def test_the_upgrade_refresh_prints_the_offer(spy_init, monkeypatch, capsys):
     offer = _offer()
     monkeypatch.setattr(spy_init, "_surface_offer_block", lambda: offer)
     monkeypatch.setenv(spy_init.UPGRADE_REFRESH_ENV, "1")
-    _run_refresh(spy_init)
+    _run_refresh(spy_init, hooks_explicit=False)
     _assert_offer_printed(capsys.readouterr().out, offer)
 
 
@@ -120,10 +120,21 @@ def test_a_failing_offer_does_not_fail_init(spy_init, monkeypatch, capsys):
     assert "Tool surface:" not in capsys.readouterr().out
 
 
-def test_the_offer_is_priced_by_the_same_block_install_status_uses():
-    """One producer: init reads `_surface_offer_block`, never a second count."""
-    import inspect
+def test_install_agent_does_not_print_it(spy_init, monkeypatch, capsys):
+    """`install <agent>` passes hooks=True as its own default; the offer is for a refresh."""
+    monkeypatch.setattr(spy_init, "_surface_offer_block", _offer)
+    _run_refresh(spy_init, hooks_explicit=False)
+    assert "Tool surface:" not in capsys.readouterr().out
 
-    src = inspect.getsource(init_module.run_init)
-    assert "_surface_offer_block()" in src
-    assert "render_offer_lines" in src
+
+def test_a_full_surface_install_gets_its_own_offer_unmocked(
+    spy_init, monkeypatch, capsys
+):
+    """No mock of the producer: a `full` install prints what `install-status` would."""
+    monkeypatch.setenv("JCODEMUNCH_TOOL_SURFACE", "full")
+    expected = spy_init._surface_offer_block()
+    assert expected is not None, "a full install has an offer to print"
+    _run_refresh(spy_init)
+    out = capsys.readouterr().out
+    _assert_offer_printed(out, expected)
+    assert out.count("Tool surface: full") == 1
