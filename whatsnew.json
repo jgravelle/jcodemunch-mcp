@@ -1,6 +1,12 @@
 {
-  "current": "1.108.425",
+  "current": "1.108.426",
   "entries": [
+    {
+      "version": "1.108.426",
+      "date": "2026-11-08",
+      "title": "a function assigned to a member is a JavaScript symbol",
+      "summary": "CommonJS functions are symbols: a function, arrow or generator assigned to a member at module scope (res.send = function ..., exports.f = ..., Foo.prototype.bar = ...) is now indexed, and a bound function's signature is its header, not its whole body. On Windows the Grep answer confirms its cached copies with one directory listing per folder and no longer decodes imports it never reads, and the one search per session that carries the steering hint keeps the compact encoding."
+    },
     {
       "version": "1.108.425",
       "date": "2026-11-08",
