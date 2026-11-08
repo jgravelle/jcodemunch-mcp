@@ -337,6 +337,8 @@ multiples, and both sides are measured on the same corpus in the same run:
 | Tuned RAG pipeline, best chunk size | 3.2x | 1.3x | 2.5x | [`rag_baseline_results.md`](rag_baseline_results.md) |
 | Embedding retrieval layer (chunk-based) | 1.2x | **0.2x** | **0.9x** | [`odysseus_compare_results.md`](odysseus_compare_results.md) |
 
+This table was measured on 2026-07-29 against the raw-count reference of v1.108.199, before the benchmark counted the served answer. It has not been re-measured since.
+
 The bolded cells are ones where the comparator injects **fewer** tokens than
 jCodeMunch, and they are published rather than dropped. Read them next to that
 report's `complete/5` and `split/5` columns: chunk-based retrieval buys its token
