@@ -248,6 +248,9 @@ def _index_matches_disk(repo: str, file_pattern: "str | None" = None, index=None
 
             scope = path_glob.compile_patterns(_file_patterns(file_pattern))
             files = [f for f in files if scope.match(f)]
+        # The stats run on a few threads first; classify() then reads them
+        # from the probe's cache and decides exactly as before.
+        probe.prime_mtimes(files)
         return all(probe.classify(f) == "fresh" for f in files)
     except Exception:
         logger.debug("grep-answer freshness check failed", exc_info=True)
