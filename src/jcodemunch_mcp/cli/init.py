@@ -1792,6 +1792,24 @@ def run_init(
             for line in _offer:
                 print(line)
 
+    # ----- Offer, never apply: the surface a new install would get -----
+    # `upgrade` re-runs `init --hooks --yes`, and a user refreshing hooks types
+    # the same, so this is where an install that predates the `counter` default
+    # sees what switching saves. It prints and changes nothing; the user runs
+    # the switch command. Same block and renderer as `install-status`.
+    if hooks and not demo:
+        try:
+            _surface = _surface_offer_block()
+        except Exception:
+            logger.debug("surface offer check failed", exc_info=True)
+            _surface = None
+        if _surface:
+            from ..surface_offer import render_offer_lines
+
+            print()
+            for line in render_offer_lines(_surface):
+                print(line)
+
     # ----- Done -----
     print()
     if demo:
