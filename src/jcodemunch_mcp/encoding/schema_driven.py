@@ -59,10 +59,11 @@ UNIVERSAL_META_JSON = frozenset({
     # keeps `_meta.total_tokens_saved` and presents a frozen total as current.
     # Present only when the meter is NOT current (`server._label_lifetime_total`).
     "lifetime_meter",
-    # The once-per-session steering hint (`server._steer_hint_due`). Carried
-    # here so the response that holds it keeps its compact encoding; it used
-    # to force JSON for that one response instead.
-    "hint",
+    # The once-per-session steering hint (`server._steer_hint_due`). Its own
+    # key, so a tool's ordinary `_meta.hint` stays off the wire as before.
+    # Carried here so the response that holds it keeps its compact encoding;
+    # it used to force JSON for that one response instead.
+    "steer_hint",
 })
 
 

@@ -7932,13 +7932,13 @@ async def _call_tool_impl(name: str, arguments: dict) -> list[TextContent] | Cal
         # Turn-economy steering (v1.108.158): count hop vs bundle traffic; after
         # _STEER_NUDGE_AT hop calls with no bundle call, advise the one-call
         # opener ONCE, on a search response (where the next-query decision is
-        # made). Every schema encoder carries `_meta.hint` (it is in
+        # made). Every schema encoder carries `_meta.steer_hint` (it is in
         # `UNIVERSAL_META_JSON`), so the response keeps its compact encoding.
         try:
             _steer_note_call(name, arguments, result)
             if _steer_hint_due(name, result):
                 _steer_state["nudged"] = True
-                result.setdefault("_meta", {})["hint"] = (
+                result.setdefault("_meta", {})["steer_hint"] = (
                     "Several search/read hops and no bundle call yet this session. "
                     "For exploration questions, get_ranked_context(repo, query, "
                     "token_budget) returns ranked, budget-packed context in ONE call. "

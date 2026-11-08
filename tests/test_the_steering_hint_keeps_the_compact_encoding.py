@@ -2,10 +2,11 @@
 
 The hint (`_meta.hint`, server `_steer_hint_due`) used to force JSON for the
 response that carried it, so the encoder could not drop it. On the pinned
-express corpus that one search cost 374 tokens served as JSON against 226 for
-the same answer encoded. The hint is now in `UNIVERSAL_META_JSON`, which every
-schema encoder carries and decodes, so the response keeps its encoding and the
-hint arrives intact.
+express corpus that one search cost 434 tokens served as JSON against 226 for
+the same answer encoded without the hint (`.claude/state/evidence/steer_hint_tokens.txt`). The hint
+now has its own key, `_meta.steer_hint`, which is in `UNIVERSAL_META_JSON`, so
+every schema encoder carries and decodes it and the response keeps its
+encoding. A tool's ordinary `_meta.hint` stays off the wire as before.
 """
 
 from __future__ import annotations
@@ -94,9 +95,34 @@ async def test_the_hint_response_is_encoded_and_carries_the_hint(repo, tool):
         "the hint knocked the response out of the compact encoding"
     )
     body = _decode(hinted)
-    assert "get_ranked_context" in body.get("_meta", {}).get("hint", ""), (
+    assert "get_ranked_context" in body.get("_meta", {}).get("steer_hint", ""), (
         "the hint was dropped"
     )
     # Same answer as the call without the hint: nothing but the hint is added.
     rows = "results"
     assert body[rows] == _decode(plain)[rows]
+
+
+def test_only_the_steering_key_rides_the_encoding():
+    """A tool's own `_meta.hint` ("Use get_context_bundle ...") stays off the wire,
+    as before; only the steering key is carried (review of this change)."""
+    from jcodemunch_mcp.encoding.decoder import decode
+    from jcodemunch_mcp.encoding.schemas import search_symbols as ss
+
+    response = {
+        "result_count": 1,
+        "results": [
+            {
+                "id": "a.py::f#function",
+                "name": "f",
+                "kind": "function",
+                "file": "a.py",
+                "line": 1,
+            }
+        ],
+        "_meta": {"hint": "tool hint", "steer_hint": "steering hint"},
+    }
+    payload, _ = ss.encode("search_symbols", response)
+    meta = decode(payload).get("_meta", {})
+    assert meta.get("steer_hint") == "steering hint"
+    assert "hint" not in meta
