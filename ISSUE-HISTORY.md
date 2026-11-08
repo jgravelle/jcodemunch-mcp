@@ -3152,3 +3152,9 @@ The 1.108.420 entry, verbatim as it stood in `CLAUDE.md`:
 The 1.108.421 entry, verbatim as it stood in `CLAUDE.md`:
 
 - **Prior (1.108.421):** **a starter pack installs in a few megabytes, and a file tree costs a third of the characters** (#1346, #1342): `install-pack` streams the download to a temp file and copies each archive member in chunks, so peak memory no longer grows with the pack; `get_file_tree` has a compact encoding that decodes to the same tree. Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-08, release 1.108.425)
+
+The 1.108.422 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.422):** **the shared parse cache never serves what an older parser emitted** (#1347): the shared parse cache (`JCODEMUNCH_PARSE_CACHE`) keys entries by `PARSER_GENERATION` and the installed tree-sitter, language-pack and F# grammar versions, so a generation bump re-parses instead of stamping old symbols as new. Full text: `CHANGELOG.md`.

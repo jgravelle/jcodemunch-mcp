@@ -1,6 +1,12 @@
 {
-  "current": "1.108.424",
+  "current": "1.108.425",
   "entries": [
+    {
+      "version": "1.108.425",
+      "date": "2026-11-08",
+      "title": "the Grep answer reaches large repositories",
+      "summary": "On a large repository the opt-in Grep answer now replies inside its 4-second budget instead of letting the Grep run unanswered: on a 23,186-file Home Assistant index, a Grep over homeassistant/ is answered in 2.0 s with a warm file cache (it needed 6.2 s). upgrade and init --hooks now print the tool-surface offer that install-status shows."
+    },
     {
       "version": "1.108.424",
       "date": "2026-11-07",
