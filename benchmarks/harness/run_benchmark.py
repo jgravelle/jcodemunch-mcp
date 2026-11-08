@@ -173,11 +173,18 @@ def _use_default_install_config() -> None:
     The served path reads `meta_fields`, `server_output` and the rest through
     `config.get`, so a developer's own `~/.code-index/config.jsonc` (or a CI
     runner's) would otherwise decide what the benchmark counts. `DEFAULTS` is
-    what a fresh install with no config file resolves to.
+    what a fresh install with no config file resolves to. Two settings are read
+    from the environment directly rather than through config, so they are
+    cleared too. `tool_surface` stays at `DEFAULTS` (`full`) where a first
+    `load_config` writes `counter`: measured on express, both serve the same
+    search and fetch text.
     """
     from copy import deepcopy
 
     from jcodemunch_mcp import config as cfg
+
+    for name in ("JCODEMUNCH_TOOL_SURFACE", "JCODEMUNCH_REDACT_RESPONSE_SECRETS"):
+        os.environ.pop(name, None)
 
     cfg._GLOBAL_CONFIG = deepcopy(cfg.DEFAULTS)
     cfg._CONFIG_LOADED = True
@@ -216,7 +223,8 @@ def _start_lookup_session() -> None:
     lookup into the next: the steering counters (a one-time hint after a few
     search and read calls) and the already-delivered ledger (a note on a symbol
     an earlier lookup fetched). Both are real costs of a long session; neither
-    belongs to a single lookup. `served_session_costs` reports their size.
+    belongs to a single lookup. `served_session_costs` and
+    `served_one_session_extra` measure both.
     """
     from jcodemunch_mcp import server
     from jcodemunch_mcp.storage import token_tracker
@@ -226,29 +234,104 @@ def _start_lookup_session() -> None:
         token_tracker._state._delivered.clear()
 
 
-def served_session_costs(repo_str: str) -> dict:
-    """Open the measurement session and size what a session pays once.
+def _quiet_once_per_process_notices() -> None:
+    """Take the license notice and the work-license reminder out of every counted answer.
 
-    The first answer of a process can carry a license notice (once per machine)
-    or a work-license reminder; this call takes it before any lookup is counted
-    and reports its tokens. The steering hint is sized the same way: forced on
-    one search, its added tokens are the served length with it minus without.
-    Neither is part of a lookup; both are published beside the figure.
+    Each is checked once per process, on the first successful answer, so marking
+    both checked here means no lookup carries either, and neither writes its
+    marker or state file under the caller's `CODE_INDEX_PATH` (a benchmark run
+    must not use up a developer's one notice). `served_session_costs` prices the
+    notice separately. The reminder is not priced: it is said 7 days after the
+    first index and then at most every 30 days, so it is not a session cost.
     """
-    from jcodemunch_mcp import server
+    from jcodemunch_mcp import license_notice, license_reminder
 
-    first = _served_text("search_symbols", {"repo": repo_str, "query": "session start", "max_results": 1})
-    notice = _decode_served(first).get("license_notice")
+    license_notice.NOTICE_STATE["checked"] = True
+    license_reminder.REMINDER_STATE["checked"] = True
+
+
+def served_session_costs(repo_str: str) -> dict:
+    """What a session pays once, outside every lookup, each as a measured difference.
+
+    `license_notice_tokens`: the same search served with the once-per-machine
+    license notice and without it. The notice is forced with its marker pointed
+    at a temporary directory, so this neither depends on whether this machine
+    has seen it nor uses up its notice. The notice also switches that answer to
+    JSON, and the difference includes that.
+
+    `steering_hint_tokens`: the same search with the one-time steering hint
+    forced, minus without.
+
+    The already-delivered note is a per-lookup cost of a long session, not a
+    once-per-session one; `served_one_session_extra` measures it.
+    """
+    import tempfile
+    from pathlib import Path
+
+    from jcodemunch_mcp import license_notice, server
+
     args = {"repo": repo_str, "query": TASKS[0], "max_results": SEARCH_MAX_RESULTS, "detail_level": "standard"}
     _start_lookup_session()
     plain = count_tokens(_served_text("search_symbols", args))
+
+    real_marker, real_skip = license_notice.marker_path, license_notice.skip_reason
+    try:
+        with tempfile.TemporaryDirectory() as tmp:
+            license_notice.marker_path = lambda: Path(tmp) / license_notice.MARKER_FILE
+            license_notice.skip_reason = lambda env=None: None
+            license_notice.NOTICE_STATE["checked"] = False
+            _start_lookup_session()
+            with_notice_text = _served_text("search_symbols", args)
+    finally:
+        license_notice.marker_path, license_notice.skip_reason = real_marker, real_skip
+        license_notice.NOTICE_STATE["checked"] = True
+    if "license_notice" in _decode_served(with_notice_text):
+        notice = count_tokens(with_notice_text) - plain
+    else:
+        notice = None  # the forced notice did not appear: not measured, never 0
+
+    _start_lookup_session()
     server._steer_state.update({"hops": server._STEER_NUDGE_AT, "bundles": 0, "nudged": False})
     hinted = count_tokens(_served_text("search_symbols", args))
     _start_lookup_session()
     return {
-        "license_notice_tokens": count_tokens(json.dumps(notice)) if notice else 0,
+        "license_notice_tokens": notice,
         "steering_hint_tokens": hinted - plain,
     }
+
+
+def served_one_session_extra(results: list[dict]) -> dict:
+    """What the per-lookup reset leaves out: the same lookups as ONE session per repo.
+
+    Within one session the server notes a symbol an earlier answer already
+    delivered (`_meta.already_delivered`, attached after the `_meta` strip, so
+    it reaches the agent on a default install). Re-runs each repo's lookups
+    without resetting between them (the steering hint held off, it is priced
+    on its own) and reports the extra tokens over the per-lookup total.
+    """
+    from jcodemunch_mcp import server
+
+    out = {}
+    for res in results:
+        if "error" in res:
+            continue
+        repo = res.get("measured_repo") or res["repo"]
+        _start_lookup_session()
+        server._steer_state["nudged"] = True
+        total = 0
+        for t in res["tasks"]:
+            if "error" in t:
+                continue
+            search_args = {"repo": repo, "query": t["query"], "max_results": SEARCH_MAX_RESULTS, "detail_level": "standard"}
+            text = _served_text("search_symbols", search_args)
+            total += count_tokens(text)
+            rows = _decode_served(text).get("results") or []
+            for sid in [r.get("id") for r in rows if isinstance(r, dict) and r.get("id")][:SYMBOLS_FETCHED]:
+                total += count_tokens(_served_text("get_symbol_source", {"repo": repo, "symbol_id": sid}))
+        per_lookup = sum(t["jmunch_tokens"] for t in res["tasks"] if "error" not in t)
+        out[res["repo"]] = total - per_lookup
+    _start_lookup_session()
+    return out
 
 
 def _parse_repo(repo_str: str) -> tuple[str, str]:
@@ -802,6 +885,7 @@ def benchmark_repo(repo_str: str) -> dict:
 
     return {
         "repo": repo_str,
+        "measured_repo": actual_repo,
         "display": matched.get("display_name", name2),
         "file_count": file_count,
         "symbol_count": symbol_count,
@@ -935,6 +1019,26 @@ def sync_measured_artifact(reference: dict, path: Path = MEASURED_JSON_PATH) -> 
     return True
 
 
+def reference_method(reference: Optional[dict]) -> str:
+    """How the committed reference was counted; a reference that names none predates the served method."""
+    return (reference or {}).get("method") or "raw"
+
+
+def resolve_method(asked: Optional[str], floor: bool, writing_reference, reference: Optional[dict]) -> Optional[str]:
+    """The method this run uses, or None when it would compare two methods.
+
+    A `--floor` run is judged against the committed reference, so it counts the
+    way the reference did unless `--reference` replaces the reference in the
+    same run. Asking for the other method there is refused, not ignored.
+    """
+    if floor and not writing_reference:
+        ref = reference_method(reference)
+        if asked is not None and asked != ref:
+            return None
+        return ref
+    return asked or "served"
+
+
 def load_reference(path: Path = REFERENCE_PATH) -> Optional[dict]:
     """Read the committed reference artifact, or None when it is absent/unusable.
 
@@ -995,10 +1099,19 @@ def render_markdown(results: list[dict], tokenizer: str) -> str:
     if MEASURE_METHOD == "served":
         lines.append("**Counted:** the response text the server serves on a default install (`server.call_tool`, no config file)  ")
         if SESSION_COSTS is not None:
+            notice = SESSION_COSTS["license_notice_tokens"]
+            notice_txt = "not measured" if notice is None else f"{notice} tokens"
             lines.append(
-                f"**Once per session, not in any lookup:** license notice {SESSION_COSTS['license_notice_tokens']} tokens "
+                f"**Once per session, not in any lookup:** license notice {notice_txt} "
                 f"(first answer on a machine), steering hint {SESSION_COSTS['steering_hint_tokens']} tokens (one search)  "
             )
+            extra = SESSION_COSTS.get("one_session_extra_tokens")
+            if extra is not None:
+                lines.append(
+                    "**Each repo's lookups as one session instead:** "
+                    + ", ".join(f"{r} +{n}" for r, n in extra.items())
+                    + " tokens (the note on a symbol an earlier answer already delivered)  "
+                )
     else:
         lines.append("**Counted:** `json.dumps` of the tool function's return value (`--method raw`), which no agent receives  ")
     lines.append("**Baseline A (read-all):** all source files concatenated  ")
@@ -1177,10 +1290,11 @@ def main():
     parser.add_argument(
         "--method",
         choices=MEASURE_METHODS,
-        default="served",
+        default=None,
         help="served (default): count the text server.call_tool serves on a default "
              "install; raw: count json.dumps of the tool function's return value, the "
-             "method before 2026-11-08, kept for comparison",
+             "method before 2026-11-08, kept for comparison. With --floor the default "
+             "is the committed reference's method, so a Floor compares like with like",
     )
     parser.add_argument("--out", metavar="FILE", help="write markdown results to FILE")
     parser.add_argument("--json", metavar="FILE", dest="json_out", help="write raw JSON results to FILE")
@@ -1246,9 +1360,18 @@ def main():
     repos = [resolve_repo_arg(r) for r in (args.repos or DEFAULT_REPOS)]
 
     global MEASURE_METHOD, SESSION_COSTS
-    MEASURE_METHOD = args.method
+    MEASURE_METHOD = resolve_method(args.method, args.floor, args.reference, load_reference())
+    if MEASURE_METHOD is None:
+        print(
+            f"--method {args.method} cannot be judged by --floor against a reference measured "
+            f"with --method {reference_method(load_reference())}: the Floor would compare two "
+            "ways of counting, not two trees. Regenerate the reference with --reference first.",
+            file=sys.stderr,
+        )
+        return 2
     if MEASURE_METHOD == "served":
         _use_default_install_config()
+        _quiet_once_per_process_notices()
         SESSION_COSTS = served_session_costs(repos[0])
 
     print(f"jcodemunch-mcp benchmark harness  |  tokenizer: {TOKENIZER}", flush=True)
@@ -1272,6 +1395,10 @@ def main():
             avg_r = sum(t["reduction_pct"] for t in valid) / len(valid) if valid else 0
             print(f"done ({elapsed:.1f}s)  avg reduction {avg_r:.1f}%")
         results.append(res)
+
+    if MEASURE_METHOD == "served" and SESSION_COSTS is not None:
+        SESSION_COSTS["one_session_extra_tokens"] = served_one_session_extra(results)
+        print(f"Same lookups as one session per repo, extra tokens: {SESSION_COSTS['one_session_extra_tokens']}", flush=True)
 
     if args.verify_determinism:
         print("\n  re-measuring in a fresh process ...", end=" ", flush=True)
