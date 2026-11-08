@@ -317,9 +317,10 @@ class FreshnessProbe:
         Each file gets the same single ``stat`` that ``_file_mtime`` makes, with
         the same missing-reads-as-absent rule, so ``classify`` returns exactly
         what it would have; only the waiting overlaps, and the per-file path
-        object is skipped (on a 14,432-file scope that overhead was about as
-        large as the stats themselves). A scope that is mostly cached, or a
-        probe with no source root, costs nothing here.
+        object is skipped. The stats run in chunks on ``read_ahead``'s daemon
+        threads, so a caller abandoned at its budget doesn't keep the process
+        alive. A scope that is mostly cached, or a probe with no source root,
+        costs nothing here.
         """
         if not self._source_root:
             return
@@ -327,17 +328,25 @@ class FreshnessProbe:
         if len(todo) < _PRIME_MIN_FILES:
             return
         root = str(self._source_root)
+        # Enough chunks to keep every thread busy, none smaller than 32 files.
+        size = max(32, -(-len(todo) // (_PRIME_WORKERS * 4)))
+        chunks = [todo[i:i + size] for i in range(0, len(todo), size)]
 
-        def one(rel: str) -> Optional[float]:
-            try:
-                return os.stat(os.path.join(root, rel)).st_mtime
-            except OSError:
-                return None
+        def stat_chunk(chunk: list) -> list:
+            out = []
+            for rel in chunk:
+                try:
+                    out.append(os.stat(os.path.join(root, rel)).st_mtime)
+                except OSError:
+                    out.append(None)
+            return out
 
-        from concurrent.futures import ThreadPoolExecutor
+        from ..storage.read_ahead import read_ahead
 
-        with ThreadPoolExecutor(max_workers=_PRIME_WORKERS, thread_name_prefix="jcm-stat") as ex:
-            for rel, mtime in zip(todo, ex.map(one, todo, chunksize=256)):
+        for chunk, mtimes, _err in read_ahead(chunks, stat_chunk, workers=_PRIME_WORKERS, window=_PRIME_WORKERS * 2):
+            # stat_chunk catches every OSError itself, so a chunk always has
+            # one mtime (or None) per file.
+            for rel, mtime in zip(chunk, mtimes or ()):
                 self._mtime_cache[rel] = mtime
 
     def classify(self, file_rel: str) -> str:

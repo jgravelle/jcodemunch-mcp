@@ -212,3 +212,64 @@ def test_an_unreadable_cached_copy_is_still_reported_as_a_gap(repo, monkeypatch)
     assert _comparable(parallel) == _comparable(serial)
     assert "m03.py" not in {r["file"] for r in parallel["results"]}
     assert "files_unreadable" in str(parallel)
+
+
+_ABANDON_SCRIPT = r"""
+import sys, threading, time
+sys.path.insert(0, sys.argv[1])
+from jcodemunch_mcp.storage.read_ahead import read_ahead
+def slow(i):
+    time.sleep(8.0)
+    return i
+def run():
+    for _ in read_ahead(range(20), slow, workers=4, window=8):
+        pass
+threading.Thread(target=run, daemon=True).start()
+time.sleep(0.3)
+"""
+
+
+def test_an_abandoned_read_ahead_does_not_hold_the_process_open(tmp_path):
+    """The Grep-answer hook abandons its search thread at the budget and exits.
+
+    Neither the running reads nor the queued ones may keep the process alive.
+    Each read here takes 8 s; an executor's workers are joined at exit, so the
+    old pool held the process for at least one read.
+    """
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    src = str(Path(ra.__file__).resolve().parents[2])
+    script = tmp_path / "abandon.py"
+    script.write_text(_ABANDON_SCRIPT, encoding="utf-8")
+    t0 = time.monotonic()
+    subprocess.run([sys.executable, str(script), src], check=True, timeout=60)
+    assert time.monotonic() - t0 < 5.0
+
+
+def test_leaving_the_scan_on_an_exception_stops_the_reads(repo, monkeypatch):
+    rid, store, _ = repo
+    started = []
+    real_read_ahead = st.read_ahead
+
+    def counting(items, read, **kw):
+        def wrapped(entry):
+            started.append(entry)
+            time.sleep(0.01)
+            return read(entry)
+        return real_read_ahead(items, wrapped, workers=2, window=4, **{k: v for k, v in kw.items() if k == "skip"})
+
+    def boom(*_a, **_kw):
+        raise RuntimeError("note_read failed")
+
+    monkeypatch.setattr(st, "read_ahead", counting)
+    from jcodemunch_mcp.storage import text_filter as tf
+
+    monkeypatch.setattr(tf.Filter, "note_read", boom)
+    with pytest.raises(RuntimeError):
+        st.search_text(rid, "needle", storage_path=store, scan_limit=1000)
+    n = len(started)
+    time.sleep(0.1)
+    assert len(started) == n
+    assert n <= 8

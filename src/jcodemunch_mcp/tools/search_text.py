@@ -425,64 +425,66 @@ def search_text(
             return f.readlines()
 
     reader = read_ahead(scan_entries(), read_lines, skip=lambda e: e[2] or not e[4])
-    for (file_index, file_path, ruled_out, stamp, full_path), lines, read_error in reader:
-        if _budget_deadline is not None and time.perf_counter() > _budget_deadline:
-            timed_out = True
-            break
-        # #377 hardening item 7: an eligible file the scan could not read is a
-        # gap in the scan, not a file that contained no match. Counted so a
-        # zero-result response cannot present a partial sweep as exhaustive.
-        # A file whose current trigram bitmap rules the query out holds no
-        # match, so it counts as searched without being opened.
-        if ruled_out:
-            files_searched += 1
-            continue
-        if not full_path or read_error is not None or lines is None:
-            files_unreadable += 1
-            continue
-        text_filter.note_read(file_path, stamp, "".join(lines))
-
-        files_searched += 1
-        file_matches = []
-        for line_index, line in enumerate(lines):
-            # Check the budget every 256 lines — cheap, and bounds worst-case
-            # blowup on any single regex/line pair.
-            if (
-                _budget_deadline is not None
-                and (line_index & 0xFF) == 0
-                and time.perf_counter() > _budget_deadline
-            ):
+    try:
+        for (file_index, file_path, ruled_out, stamp, full_path), lines, read_error in reader:
+            if _budget_deadline is not None and time.perf_counter() > _budget_deadline:
                 timed_out = True
                 break
-            line = line.rstrip("\n")
-            hit = pattern.search(line) if pattern else (query_lower in line.lower())
-            if not hit:
+            # #377 hardening item 7: an eligible file the scan could not read is a
+            # gap in the scan, not a file that contained no match. Counted so a
+            # zero-result response cannot present a partial sweep as exhaustive.
+            # A file whose current trigram bitmap rules the query out holds no
+            # match, so it counts as searched without being opened.
+            if ruled_out:
+                files_searched += 1
                 continue
-            text = line.rstrip()[:200]
-            match = {
-                "line": line_index + 1,
-                "text": text,
-            }
-            if context_lines > 0:
-                before_start = max(0, line_index - context_lines)
-                after_end = min(len(lines), line_index + context_lines + 1)
-                before = [v.rstrip()[:200] for v in lines[before_start:line_index]]
-                after = [v.rstrip()[:200] for v in lines[line_index + 1:after_end]]
-                match["before"] = before
-                match["after"] = after
-            file_matches.append(match)
-            result_count += 1
-            if result_count >= max_results:
-                truncated = True
-                cut_index, cut_rest = file_index, lines[line_index + 1:]
+            if not full_path or read_error is not None or lines is None:
+                files_unreadable += 1
+                continue
+            text_filter.note_read(file_path, stamp, "".join(lines))
+
+            files_searched += 1
+            file_matches = []
+            for line_index, line in enumerate(lines):
+                # Check the budget every 256 lines — cheap, and bounds worst-case
+                # blowup on any single regex/line pair.
+                if (
+                    _budget_deadline is not None
+                    and (line_index & 0xFF) == 0
+                    and time.perf_counter() > _budget_deadline
+                ):
+                    timed_out = True
+                    break
+                line = line.rstrip("\n")
+                hit = pattern.search(line) if pattern else (query_lower in line.lower())
+                if not hit:
+                    continue
+                text = line.rstrip()[:200]
+                match = {
+                    "line": line_index + 1,
+                    "text": text,
+                }
+                if context_lines > 0:
+                    before_start = max(0, line_index - context_lines)
+                    after_end = min(len(lines), line_index + context_lines + 1)
+                    before = [v.rstrip()[:200] for v in lines[before_start:line_index]]
+                    after = [v.rstrip()[:200] for v in lines[line_index + 1:after_end]]
+                    match["before"] = before
+                    match["after"] = after
+                file_matches.append(match)
+                result_count += 1
+                if result_count >= max_results:
+                    truncated = True
+                    cut_index, cut_rest = file_index, lines[line_index + 1:]
+                    break
+
+            if file_matches:
+                results.append({"file": file_path, "matches": file_matches})
+
+            if truncated or timed_out:
                 break
-
-        if file_matches:
-            results.append({"file": file_path, "matches": file_matches})
-
-        if truncated or timed_out:
-            break
-    reader.close()
+    finally:
+        reader.close()
 
     # A cut page names the files it left off. The rest of the scope is
     # counted with the page's own line test and inside its time budget.
