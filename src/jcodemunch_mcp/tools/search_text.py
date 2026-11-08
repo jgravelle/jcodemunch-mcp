@@ -166,7 +166,7 @@ def _count_read(reader, counts, unreadable, probe, pattern, query_lower, deadlin
     for (file_path, full_path), raw, err in reader:
         if deadline is not None and time.perf_counter() > deadline:
             return counts, False, unreadable
-        if not full_path or err is not None:
+        if not full_path or err is not None or raw is None:
             unreadable += 1
             continue
         if probe is not None and raw.isascii() and probe not in raw.lower():
@@ -437,7 +437,7 @@ def search_text(
         if ruled_out:
             files_searched += 1
             continue
-        if not full_path or read_error is not None:
+        if not full_path or read_error is not None or lines is None:
             files_unreadable += 1
             continue
         text_filter.note_read(file_path, stamp, "".join(lines))

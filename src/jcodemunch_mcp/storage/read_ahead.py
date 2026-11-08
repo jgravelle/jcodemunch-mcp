@@ -21,7 +21,7 @@ from __future__ import annotations
 import os
 from collections import deque
 from concurrent.futures import Future, ThreadPoolExecutor
-from typing import Callable, Iterable, Iterator, Optional, TypeVar
+from typing import Callable, Generator, Iterable, Optional, TypeVar
 
 T = TypeVar("T")
 R = TypeVar("R")
@@ -44,7 +44,7 @@ def read_ahead(
     workers: Optional[int] = None,
     window: int = DEFAULT_WINDOW,
     skip: Optional[Callable[[T], bool]] = None,
-) -> Iterator[tuple[T, Optional[R], Optional[OSError]]]:
+) -> Generator[tuple[T, Optional[R], Optional[OSError]], None, None]:
     """Yield ``(item, result, None)`` or ``(item, None, error)`` in input order.
 
     Only ``OSError`` is captured; any other exception from ``read`` is raised
