@@ -82,7 +82,7 @@ worth checking on your hardware rather than taking on faith.
 
 ## What you should get
 
-Captured on CI 2026-11-08 (benchmark.yml run 42510853175, reference=true) at jcodemunch-mcp 1.108.425 with the served-response count of #1361 (the benchmark counts the text the server sends on a default install) (the symbol counts move with the
+Captured on CI 2026-11-08 (benchmark.yml run 42525783321, reference=true) at jcodemunch-mcp 1.108.426 with the served-response count of #1361 (the benchmark counts the text the server sends on a default install) (the symbol counts move with the
 extractor; the files and baseline tokens are fixed by the pins):
 
 | Repo | Commit | Files | Symbols | Baseline tokens |

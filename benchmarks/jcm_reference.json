@@ -1,13 +1,13 @@
 {
   "schema": "jcm-benchmark-reference/v2",
-  "captured_at": "2026-11-08T18:37:10+0000",
-  "jcodemunch_version": "1.108.425",
+  "captured_at": "2026-11-08T21:33:46+0000",
+  "jcodemunch_version": "1.108.426",
   "tokenizer": "cl100k_base",
   "workflow": "search_symbols(max_results=5) + get_symbol_source x3",
   "method": "served",
   "served_session_costs": {
     "license_notice_tokens": 160,
-    "steering_hint_tokens": 153,
+    "steering_hint_tokens": 66,
     "one_session_extra_tokens": {
       "expressjs/express": 475,
       "fastapi/fastapi": 324,

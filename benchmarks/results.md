@@ -5,7 +5,7 @@
 **Tokenizer:** `cl100k_base` (tiktoken)  
 **Workflow:** `search_symbols` (top 5) + `get_symbol` x 3  
 **Counted:** the response text the server serves on a default install (`server.call_tool`, no config file)  
-**Once per session, not in any lookup:** license notice 160 tokens (first answer on a machine), steering hint 153 tokens (one search)  
+**Once per session, not in any lookup:** license notice 160 tokens (first answer on a machine), steering hint 66 tokens (one search)  
 **Each repo's lookups as one session instead:** expressjs/express +475, fastapi/fastapi +324, gin-gonic/gin +0 tokens (the note on a symbol an earlier answer already delivered)  
 **Baseline A (read-all):** all source files concatenated  
 **Baseline B (grep-top-3):** `rg -l` the query terms, then open the top 3 files whole  
@@ -33,11 +33,11 @@
 
 | Query | Search&nbsp;tokens | Fetch&nbsp;tokens | Hits&nbsp;fetched | Search&nbsp;ms |
 |-------|-----------------:|------------------:|------------------:|---------------:|
-| `router route handler` | 212 | 294 | 3 | 346.1 |
-| `middleware` | 213 | 420 | 3 | 7.2 |
-| `error exception` | 209 | 436 | 3 | 7.2 |
-| `request response` | 243 | 747 | 3 | 10.5 |
-| `param bind` | 201 | 741 | 3 | 7.9 |
+| `router route handler` | 212 | 294 | 3 | 269.8 |
+| `middleware` | 213 | 420 | 3 | 5.6 |
+| `error exception` | 209 | 436 | 3 | 5.4 |
+| `request response` | 243 | 747 | 3 | 7.9 |
+| `param bind` | 201 | 741 | 3 | 7.2 |
 
 </details>
 
@@ -64,11 +64,11 @@
 
 | Query | Search&nbsp;tokens | Fetch&nbsp;tokens | Hits&nbsp;fetched | Search&nbsp;ms |
 |-------|-----------------:|------------------:|------------------:|---------------:|
-| `router route handler` | 275 | 1,507 | 3 | 120.6 |
-| `middleware` | 337 | 977 | 3 | 9.1 |
-| `error exception` | 241 | 521 | 3 | 15.0 |
-| `request response` | 438 | 3,945 | 3 | 33.5 |
-| `param bind` | 233 | 422 | 3 | 15.5 |
+| `router route handler` | 275 | 1,507 | 3 | 88.9 |
+| `middleware` | 337 | 977 | 3 | 6.4 |
+| `error exception` | 241 | 521 | 3 | 21.5 |
+| `request response` | 438 | 3,945 | 3 | 54.9 |
+| `param bind` | 233 | 422 | 3 | 14.8 |
 
 </details>
 
@@ -95,11 +95,11 @@
 
 | Query | Search&nbsp;tokens | Fetch&nbsp;tokens | Hits&nbsp;fetched | Search&nbsp;ms |
 |-------|-----------------:|------------------:|------------------:|---------------:|
-| `router route handler` | 305 | 748 | 3 | 30.5 |
-| `middleware` | 233 | 1,030 | 3 | 7.1 |
-| `error exception` | 267 | 385 | 3 | 14.2 |
-| `request response` | 410 | 854 | 3 | 12.1 |
-| `param bind` | 277 | 460 | 3 | 17.4 |
+| `router route handler` | 305 | 748 | 3 | 21.4 |
+| `middleware` | 233 | 1,030 | 3 | 5.2 |
+| `error exception` | 267 | 385 | 3 | 10.5 |
+| `request response` | 410 | 854 | 3 | 8.7 |
+| `param bind` | 277 | 460 | 3 | 11.2 |
 
 </details>
 
