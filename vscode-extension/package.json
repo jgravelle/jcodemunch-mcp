@@ -2,7 +2,7 @@
   "name": "jcodemunch-mcp-vscode",
   "displayName": "jCodeMunch — Auto Reindex + Risk Gutter",
   "description": "Auto-reindexes saved files and paints a per-symbol risk-density gutter (yellow/orange/red dots at risky function headers, hover for breakdown). Powered by jcodemunch-mcp.",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "publisher": "jgravelle",
   "license": "MIT",
   "repository": {
@@ -41,7 +41,9 @@
         },
         "jcodemunch.indexOnSave.exclude": {
           "type": "array",
-          "items": { "type": "string" },
+          "items": {
+            "type": "string"
+          },
           "default": [
             "**/node_modules/**",
             "**/.git/**",
@@ -73,8 +75,9 @@
     "package": "vsce package"
   },
   "devDependencies": {
-    "@types/vscode": "^1.85.0",
     "@types/node": "^20.0.0",
+    "@types/vscode": "^1.85.0",
+    "@vscode/vsce": "4.1.0",
     "typescript": "^5.3.0"
   }
 }

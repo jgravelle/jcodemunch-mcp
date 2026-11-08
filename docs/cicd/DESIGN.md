@@ -139,6 +139,20 @@ the runbook has the order.
   push protection does not (non-provider patterns are disabled at the repo
   level).
 
+## 5a. VS Code extension — `vscode-extension.yml`
+
+- Runs on PRs and pushes to main that touch `vscode-extension/` or the
+  workflow, and on dispatch: `npm ci` from the lockfile, `tsc` compile, then
+  `vsce package`. The `.vsix` is uploaded as an artifact; the job never
+  publishes. Publishing is the maintainer's, with his marketplace account,
+  and only from the artifact of a run on `main` (a push to main or a
+  dispatch on main), never from a pull-request run: a fork PR builds an
+  artifact of the same name from contributor code.
+- INFORMS: not a required check. Making it one is a branch-protection change
+  (RUNBOOK §8).
+- Dependabot covers `/vscode-extension` (npm) with the same two postures as
+  `uv`: security PRs grouped weekly, minor and patch monthly, majors manual.
+
 ## 6. Concurrency, caching, budget
 
 **Concurrency.** PR: one group per PR number, cancel superseded runs.
