@@ -408,6 +408,34 @@ def _ensure_index_store_deps() -> None:
         _file_hash = _fh
 
 
+def decode_imports(raw_by_path: dict, index_version: int) -> Optional[dict]:
+    """The ``imports`` field from each file row's raw JSON, as every load builds it.
+
+    A row that does not decode is skipped with a warning. An index with no
+    imports reads ``{}``, or None for a v3 index, which had no imports field.
+    """
+    imports: dict = {}
+    for p, raw in raw_by_path.items():
+        try:
+            parsed = json.loads(raw)
+            if parsed:
+                imports[p] = parsed
+        except (json.JSONDecodeError, ValueError):
+            logger.warning("Corrupted imports JSON for file %s, skipping", p)
+    if not imports:
+        return None if index_version < 4 else {}
+    return imports
+
+
+def _languages_of(meta: dict) -> dict:
+    """The meta row's languages, {} when absent or unreadable."""
+    try:
+        value = json.loads(meta.get("languages", "{}") or "{}")
+    except (TypeError, ValueError):
+        return {}
+    return value if isinstance(value, dict) else {}
+
+
 def _safe_json_load_list(raw: str) -> list[str]:
     """Decode a JSON-encoded list[str] from meta, returning [] on any error.
 
@@ -2310,8 +2338,10 @@ class SQLiteIndexStore:
                                 f"SELECT * FROM symbols WHERE file IN ({marks})", chunk
                             ).fetchall()
                         )
+                deferred_imports: list = []
                 partial = self._build_index_from_rows(
-                    meta, symbol_rows, file_rows, owner, name
+                    meta, symbol_rows, file_rows, owner, name,
+                    defer_imports_into=deferred_imports,
                 )
             finally:
                 conn.rollback()
@@ -2327,6 +2357,7 @@ class SQLiteIndexStore:
             promote=lambda: self.load_index(owner, name, branch),
             fetch_symbol=lambda sid: self._fetch_symbol_row(db_path, sid),
             generation=meta.get("indexed_at") or None,
+            imports_loader=deferred_imports[0] if deferred_imports else None,
         )
         return _stamp_load_provenance(view, db_path, mtime_ns)
 
@@ -4011,12 +4042,24 @@ class SQLiteIndexStore:
 
     def _build_index_from_rows(
         self, meta: dict, symbol_rows: list, file_rows: list, owner: str, name: str,
+        defer_imports_into: Optional[list] = None,
     ) -> "CodeIndex":
         """Build a CodeIndex from pre-fetched meta dict, symbol rows, and file rows.
-        Used by both load_index and incremental_save to avoid redundant queries."""
+        Used by both load_index and incremental_save to avoid redundant queries.
+
+        ``defer_imports_into``: a list to receive the raw imports JSON by path
+        instead of decoding it, for a caller that decodes it on first use
+        (``open_selective``). The index then carries ``imports=None`` and the
+        caller must not expose that placeholder. Decoding every row cost about
+        0.67 s on a 23,186-file index, for readers that never touch imports.
+        ⚠ Not deferred when the index has Racket: ``CodeIndex.__post_init__``
+        adds collection edges to the decoded imports there.
+        """
         from .index_store import CodeIndex
 
         symbols = [self._row_to_symbol_dict(r) for r in symbol_rows]
+        defer = defer_imports_into is not None and "racket" not in _languages_of(meta)
+        raw_imports: dict[str, str] = {}
 
         # Single pass over file_rows to build all file-level dicts
         source_files_unsorted: list[str] = []
@@ -4026,7 +4069,7 @@ class SQLiteIndexStore:
         file_summaries: dict[str, str] = {}
         file_blob_shas: dict[str, str] = {}
         file_sizes: dict[str, int] = {}
-        imports: Optional[dict[str, list[dict]]] = {}
+        imports: Optional[dict[str, list[dict]]]
         for r in file_rows:
             p = r["path"]
             source_files_unsorted.append(p)
@@ -4044,17 +4087,16 @@ class SQLiteIndexStore:
             if size is not None:
                 file_sizes[p] = size
             if r["imports"]:
-                try:
-                    parsed = json.loads(r["imports"])
-                    if parsed:
-                        imports[p] = parsed
-                except (json.JSONDecodeError, ValueError):
-                    logger.warning("Corrupted imports JSON for file %s, skipping", p)
+                raw_imports[p] = r["imports"]
         source_files = sorted(source_files_unsorted)
-        if not imports:
-            # v3 format had no imports field — preserve None for backward compatibility
-            index_version = int(meta.get("index_version", "0"))
-            imports = None if index_version < 4 else {}
+        index_version = int(meta.get("index_version", "0"))
+        if defer and defer_imports_into is not None:
+            imports = None
+            defer_imports_into.append(
+                lambda: decode_imports(raw_imports, index_version)
+            )
+        else:
+            imports = decode_imports(raw_imports, index_version)
 
         try:
             languages = json.loads(meta.get("languages", "{}"))
