@@ -7932,8 +7932,8 @@ async def _call_tool_impl(name: str, arguments: dict) -> list[TextContent] | Cal
         # Turn-economy steering (v1.108.158): count hop vs bundle traffic; after
         # _STEER_NUDGE_AT hop calls with no bundle call, advise the one-call
         # opener ONCE, on a search response (where the next-query decision is
-        # made). Forces JSON for that single response so the hint can't be
-        # dropped by a lossy compact encoding.
+        # made). Every schema encoder carries `_meta.hint` (it is in
+        # `UNIVERSAL_META_JSON`), so the response keeps its compact encoding.
         try:
             _steer_note_call(name, arguments, result)
             if _steer_hint_due(name, result):
@@ -7945,7 +7945,6 @@ async def _call_tool_impl(name: str, arguments: dict) -> list[TextContent] | Cal
                     "Pass compress=True to fit more symbols in the same budget; "
                     "repo also accepts '.' or a filesystem path."
                 )
-                _requested_format = "json"
         except Exception:
             logger.debug("Steering attach failed", exc_info=True)
 

@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed - the steering hint no longer turns a search answer back into JSON
+
+Once per session, after a few search and read calls with no bundle call, a `search_symbols` or `search_text` answer carries a one-line hint pointing at `get_ranked_context`. That answer was served as JSON, so the compact encoding could not drop the hint, and the one search that carried it cost more than the same answer encoded: on the pinned express corpus, "middleware" went from 226 tokens to 374, and its rows came back in the longer JSON field set. The hint is now carried inside the compact encoding (`UNIVERSAL_META_JSON`, which every schema encoder writes and decodes), so that answer costs what any other search costs and the hint still arrives. The encoding ids do not change: a decoder that predates this reads the same rows and ignores the hint. Tests: `tests/test_the_steering_hint_keeps_the_compact_encoding.py`.
+
 ### Changed - `upgrade` and the hooks refresh show the surface offer
 
 An install created before the `counter` default keeps its tool surface, on purpose: a package update never changes which tools a user is served. Until now the priced offer to switch showed up only in `jcodemunch-mcp surface`, `install-status`, a log line at server start, and a notice on the first `resolve_repo` answer, so an install still on the full tool list could go a long time without seeing it.
