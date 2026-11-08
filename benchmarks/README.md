@@ -44,7 +44,7 @@ Tasks are defined in [`tasks.json`](tasks.json) — 5 queries × 3 repos = 15 me
 | `middleware` | `middleware` | Middleware chaining and execution |
 | `error-exception` | `error exception` | Error handling and exception propagation |
 | `request-response` | `request response` | Request/response object definitions |
-| `context-bind` | `context bind` | Context creation and parameter binding |
+| `param-bind` | `param bind` | Request parameter binding into the handler's arguments |
 
 Repos: `expressjs/express`, `fastapi/fastapi`, `gin-gonic/gin`
 

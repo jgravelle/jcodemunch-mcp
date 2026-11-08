@@ -47,7 +47,7 @@ Five queries chosen to represent common code exploration intents:
 | `middleware` | Middleware chaining and execution |
 | `error exception` | Error handling and exception propagation |
 | `request response` | Request/response object definitions |
-| `context bind` | Context creation and parameter binding |
+| `param bind` | Request parameter binding into the handler's arguments |
 
 These are defined in `tasks.json` for full reproducibility.
 

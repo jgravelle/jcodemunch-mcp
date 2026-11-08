@@ -1,5 +1,7 @@
 # jcodemunch-mcp -- Token Efficiency Benchmark
 
+**Methodology change, 2026-11-08.** From this run the benchmark counts the text the server sends on a default install: the compact encoding, with the `_meta` block dropped. Earlier runs counted the JSON the tool functions return, `_meta` included, which an agent never receives. One query changed too: "context bind", which returned no symbols on express, is now "param bind", so every one of the 15 lookups returns symbols. This run's figure is 96.2% fewer tokens per lookup on average than grep-and-read. The figure published before this change was 94.5%, measured 2026-10-22 with the earlier count and query ([rows](https://github.com/jgravelle/jcodemunch-mcp/blob/f817f6fc99cf7d8354f12767742850fb1ec5217a/benchmarks/results.md)). The two figures use different counts and queries, so they are not a before-and-after pair.
+
 **Tokenizer:** `cl100k_base` (tiktoken)  
 **Workflow:** `search_symbols` (top 5) + `get_symbol` x 3  
 **Counted:** the response text the server serves on a default install (`server.call_tool`, no config file)  
