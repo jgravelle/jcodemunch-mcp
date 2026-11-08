@@ -1,7 +1,7 @@
 """The Grep answer's fixed cost must not grow with the parts of a repo it ignores.
 
 On a Home Assistant index (23,186 files) the hook ran out of its 4 s budget
-before it searched, so a 164-line Grep in `homeassistant/` ran unanswered: the
+before it searched, so a large Grep in `homeassistant/` ran unanswered: the
 large repos the answer is for were the ones it could not reach. The time was
 not the search. Two costs scaled with the whole repo:
 
@@ -120,8 +120,21 @@ def test_an_index_passes_its_own_file_list(tmp_path, monkeypatch):
         return {}
 
     monkeypatch.setattr(imports_module, "_load_tsconfig_aliases", spy)
-    _code_index(tmp_path, ["a.py"])
+    _code_index(tmp_path, ["a.py"], coverage={"walk": "full"})
     assert seen["known"] == ["a.py"]
+
+
+def test_an_index_with_no_full_walk_does_not_vouch_for_its_file_list(tmp_path, monkeypatch):
+    """A `paths=` first index, or one from before coverage was recorded, may omit a tsconfig."""
+    seen = {}
+
+    def spy(source_root, known_files=None):
+        seen["known"] = known_files
+        return {}
+
+    monkeypatch.setattr(imports_module, "_load_tsconfig_aliases", spy)
+    _code_index(tmp_path, ["a.py"])
+    assert seen["known"] is None
 
 
 def test_a_capped_index_does_not_vouch_for_its_file_list(tmp_path, monkeypatch):
@@ -133,8 +146,41 @@ def test_a_capped_index_does_not_vouch_for_its_file_list(tmp_path, monkeypatch):
         return {}
 
     monkeypatch.setattr(imports_module, "_load_tsconfig_aliases", spy)
-    _code_index(tmp_path, ["a.py"], file_cap_status={"truncated": True})
+    _code_index(tmp_path, ["a.py"], coverage={"walk": "full"}, file_cap_status={"truncated": True})
     assert seen["known"] is None
+
+
+def test_a_skipped_walk_is_not_cached(tmp_path):
+    _clear_alias_cache(tmp_path)
+    imports_module._load_tsconfig_aliases(str(tmp_path), known_files=["a.py"])
+    assert str(tmp_path) not in imports_module._alias_map_cache
+
+
+def test_a_tsconfig_added_between_two_indexes_in_one_process_is_read(tmp_path, monkeypatch):
+    """The first index holds no tsconfig; the re-index after one is added must read it."""
+    monkeypatch.setenv("CODE_INDEX_PATH", str(tmp_path / "store"))
+    monkeypatch.setenv("JCODEMUNCH_TRUSTED_FOLDERS", str(tmp_path))
+    proj = tmp_path / "proj"
+    (proj / "src").mkdir(parents=True)
+    (proj / "src" / "a.ts").write_text("export const a = 1;\n", encoding="utf-8")
+    (proj / "src" / "b.ts").write_text(
+        "import { a } from '@/a';\nexport const b = a;\n", encoding="utf-8"
+    )
+    from jcodemunch_mcp.storage import IndexStore
+    from jcodemunch_mcp.tools.index_folder import index_folder
+    from jcodemunch_mcp.tools.resolve_repo import resolve_repo
+
+    assert index_folder(str(proj), use_ai_summaries=False)["success"]
+    owner, _, name = resolve_repo(str(proj))["repo"].partition("/")
+    # No load in between: the defect was a walk-skipped `{}` the first run left
+    # in the alias cache, which the re-index then read.
+    (proj / "src" / "tsconfig.json").write_text(
+        '{"compilerOptions": {"paths": {"@/*": ["*"]}}}', encoding="utf-8"
+    )
+    assert index_folder(str(proj), use_ai_summaries=False)["success"]
+    index = IndexStore().load_index(owner, name)
+    assert "src/tsconfig.json" in index.source_files
+    assert index.alias_map == {"@/*": ["src/*"]}
 
 
 def test_a_missing_file_reads_as_no_mtime(tmp_path):

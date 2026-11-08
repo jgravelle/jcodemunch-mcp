@@ -4,10 +4,10 @@
 
 ### Fixed - the Grep answer reaches large repositories
 
-The opt-in Grep answer (`JCODEMUNCH_HOOK_GREP_ANSWER=1`) has a 4-second budget, and on a 23,186-file Home Assistant index it needed 6.2 s to answer, so a 164-line Grep in `homeassistant/` ran unanswered. Large repositories are the ones the answer is for. The search was not the slow part. Three costs grew with the whole repository:
+The opt-in Grep answer (`JCODEMUNCH_HOOK_GREP_ANSWER=1`) has a 4-second budget, and on a 23,186-file Home Assistant index it needed 6.2 s to answer, so a Grep over `homeassistant/` matching 140 lines in 71 files ran unanswered. Large repositories are the ones the answer is for. The search was not the slow part. Three costs grew with the whole repository:
 
-- loading the index walked the tree for tsconfig and jsconfig files to build TypeScript import aliases, on an index holding no such file. The walk now reads the index's own file list first and runs only when that list names one, or when the file cap cut the list short. Every cold load of any index gains this, not only the hook;
-- the freshness check looked at every indexed file, with three file-system calls each. It now checks only the files inside the Grep's scope, since a changed file outside it can't change the answer, and makes one call per file;
+- loading the index walked the tree for tsconfig and jsconfig files to build TypeScript import aliases, on an index holding no such file. The walk now reads the index's own file list first, and skips only when that list comes from a full discovery walk the file cap didn't cut and names no such file. A skipped walk is never cached, so a tsconfig added later is read by the next index. Every cold load of any index gains this, not only the hook. What this gives up: a tsconfig on disk that the index itself leaves out (gitignored, excluded by a pattern, or over the size limit) is no longer read when the index loads;
+- the freshness check looked at every indexed file. It now checks only the files inside the Grep's scope, since a changed file outside it can't change the answer, and reads each file's mtime with one `stat` instead of an existence check plus a `stat`;
 - one hook call read the index's file table three times. It reads it once now, and the enclosing-symbol step reads just the matched files' symbol rows.
 
 Measured on the same index and the same Grep, the hook now answers in 2.0 s with the same count, 140 lines in 71 files, where before the freshness check alone took 3.2 s.

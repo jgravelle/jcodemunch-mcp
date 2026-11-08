@@ -2336,8 +2336,7 @@ class SQLiteIndexStore:
         One read transaction over the meta and symbol rows only, so a caller
         that already holds the file list (a selective view) gets the matched
         files' symbols without decoding every file row again: ``open_selective``
-        with ``files=`` reads the whole files table, about a second on a
-        23,186-file index. The mtime is sampled before the transaction, as
+        with ``files=`` reads and decodes the whole files table again. The mtime is sampled before the transaction, as
         ``open_selective`` samples it, so the two compare like for like.
         ``None`` means take another path, never an absence.
         """

@@ -855,10 +855,14 @@ class CodeIndex:
         if not self.alias_map and self.source_root:
             try:
                 from ..parser.imports import _load_tsconfig_aliases
-                # The file list vouches for the tree only when the cap didn't cut it.
-                capped = bool((self.file_cap_status or {}).get("truncated"))
+                # The file list vouches for the tree only after a full
+                # discovery walk the file cap didn't cut. A `paths=` first
+                # index, or one from before coverage was recorded, keeps the walk.
+                whole = (self.coverage or {}).get("walk") == "full" and not (
+                    (self.file_cap_status or {}).get("truncated")
+                )
                 self.alias_map = _load_tsconfig_aliases(
-                    self.source_root, known_files=None if capped else self.source_files
+                    self.source_root, known_files=self.source_files if whole else None
                 )
             except Exception:
                 pass

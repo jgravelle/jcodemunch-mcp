@@ -217,7 +217,7 @@ def _symbols_of_matched_files(store, owner: str, name: str, index, results: list
     if not files:
         return []
     # Meta and symbol rows only: the view already holds the file list, and
-    # reading the files table again cost about a second on a large index.
+    # reading the files table again decodes every file row a second time.
     narrow = store.read_file_symbols(owner, name, files)
     if (
         narrow is not None

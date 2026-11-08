@@ -2562,7 +2562,9 @@ def _load_tsconfig_aliases(
     jsconfig file, the tree walk is skipped: on a repo with none it read
     every directory to depth 5 and found nothing, and every cold load paid
     for it. ⚠ Pass it only when the list is whole; ``None``
-    keeps the walk.
+    keeps the walk. ⚠⚠ A skipped walk is never cached: the cache is keyed by
+    ``source_root`` alone, so a result read off an old file list would answer
+    a later load whose list now names a tsconfig.
     """
     if not source_root:
         return {}
@@ -2669,8 +2671,9 @@ def _load_tsconfig_aliases(
         except PermissionError:
             pass
 
-    if known_files is None or any(_is_tsconfig_name(f) for f in known_files):
-        _walk_tsconfigs(root, 0)
+    if known_files is not None and not any(_is_tsconfig_name(f) for f in known_files):
+        return alias_map  # walk skipped: not cached, see above
+    _walk_tsconfigs(root, 0)
 
     with _ALIAS_MAP_LOCK:
         _alias_map_cache[source_root] = alias_map
