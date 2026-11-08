@@ -105,3 +105,42 @@ def test_a_hunk_that_changes_one_key_and_adds_another_flags_only_the_new_one(dod
         '+        "average_pct": 99.7,\n+        "median_pct": 96.2,\n',
     )
     assert dod.new_rate_keys(diff) == ["median_pct"]
+
+
+def test_one_removal_excuses_one_addition_not_two(dod):
+    # A set cannot count: one removed "confidence" must not excuse a second,
+    # genuinely new "confidence" line added beside the changed one.
+    diff = (
+        "diff --git a/src/jcodemunch_mcp/tools/x.py b/src/jcodemunch_mcp/tools/x.py\n"
+        "--- a/src/jcodemunch_mcp/tools/x.py\n"
+        "+++ b/src/jcodemunch_mcp/tools/x.py\n"
+        "@@ -10,3 +10,4 @@ def run():\n"
+        '     out = {"files": n}\n'
+        '-    a = {"confidence": 0.5}\n'
+        '+    a = {"confidence": 0.6}\n'
+        '+    b = {"confidence": hits / total}\n'
+        "     return out\n"
+    )
+    assert dod.new_rate_keys(diff) == ["confidence"]
+    assert dod.row8_verdict(diff)[0] == "unmet"
+
+
+def test_a_removal_in_one_function_does_not_excuse_an_addition_lines_away(dod):
+    # At git's default three lines of context, two nearby edits share one @@ hunk.
+    # The removal in f and the new key in g are separate edits, so the new key counts.
+    diff = (
+        "diff --git a/src/jcodemunch_mcp/tools/x.py b/src/jcodemunch_mcp/tools/x.py\n"
+        "--- a/src/jcodemunch_mcp/tools/x.py\n"
+        "+++ b/src/jcodemunch_mcp/tools/x.py\n"
+        "@@ -1,9 +1,9 @@\n"
+        " def f():\n"
+        '-    return {"hit_rate": 1.0}\n'
+        "+    return {}\n"
+        " \n"
+        " \n"
+        " def g(h, t):\n"
+        '+    return {"hit_rate": h / t}\n'
+        "-    return {}\n"
+    )
+    assert dod.new_rate_keys(diff) == ["hit_rate"]
+    assert dod.row8_verdict(diff)[0] == "unmet"

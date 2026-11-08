@@ -40,23 +40,47 @@ from _common import (
     tree_id,
 )
 
-RATE_KEY_RE = re.compile(
-    r'^\+.*["\'](\w+_(?:pct|rate|share)|confidence)["\']\s*:', re.M
-)
-REMOVED_RATE_KEY_RE = re.compile(
-    r'^-.*["\'](\w+_(?:pct|rate|share)|confidence)["\']\s*:', re.M
-)
-_HUNK_START_RE = re.compile(r"^(?=@@ |diff --git )", re.M)
+_RATE_KEY_IN_LINE_RE = re.compile(r'["\'](\w+_(?:pct|rate|share)|confidence)["\']\s*:')
+
+
+def _change_runs(diff: str):
+    """Each contiguous run of removed and added lines inside a hunk, as
+    (removed_lines, added_lines). A context line, a hunk header or a file
+    header ends a run, so two edits a few lines apart are two runs even when
+    git merges them into one @@ hunk. File headers (--- / +++) are never read
+    as content: only lines after an @@ header count."""
+    removed: list[str] = []
+    added: list[str] = []
+    in_hunk = False
+    for line in diff.splitlines():
+        if line.startswith("diff --git ") or line.startswith("@@"):
+            if removed or added:
+                yield removed, added
+            removed, added = [], []
+            in_hunk = line.startswith("@@")
+            continue
+        if in_hunk and line.startswith("-"):
+            removed.append(line[1:])
+        elif in_hunk and line.startswith("+"):
+            added.append(line[1:])
+        else:
+            if removed or added:
+                yield removed, added
+            removed, added = [], []
+    if removed or added:
+        yield removed, added
 
 
 def new_rate_keys(diff: str) -> list[str]:
-    """Rate-shaped keys the diff ADDS, sorted. A key whose line the same hunk
-    also removes is a changed value on an existing key, not a new one; a
-    removal in another hunk or file does not excuse an addition."""
+    """Rate-shaped keys the diff ADDS, sorted. Within one run of changed lines,
+    each removed key excuses ONE added line with that key (a changed value on an
+    existing key); extra additions are new, and a removal in another run, hunk
+    or file excuses nothing."""
     new: set[str] = set()
-    for hunk in _HUNK_START_RE.split(diff):
-        removed = set(REMOVED_RATE_KEY_RE.findall(hunk))
-        new.update(k for k in RATE_KEY_RE.findall(hunk) if k not in removed)
+    for removed, added in _change_runs(diff):
+        gone = collections.Counter(k for line in removed for k in _RATE_KEY_IN_LINE_RE.findall(line))
+        came = collections.Counter(k for line in added for k in _RATE_KEY_IN_LINE_RE.findall(line))
+        new.update(k for k, n in came.items() if n > gone.get(k, 0))
     return sorted(new)
 
 
