@@ -28,6 +28,10 @@ HARNESS = Path(__file__).resolve().parents[1] / "benchmarks" / "harness"
 
 @pytest.fixture
 def R(monkeypatch):
+    # `_use_default_install_config` pops these from the environment; deleting
+    # them through monkeypatch first restores them after the test.
+    for name in ("JCODEMUNCH_TOOL_SURFACE", "JCODEMUNCH_REDACT_RESPONSE_SECRETS"):
+        monkeypatch.delenv(name, raising=False)
     monkeypatch.syspath_prepend(str(HARNESS))
     sys.modules.pop("run_benchmark", None)
     import run_benchmark
