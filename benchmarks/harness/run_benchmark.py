@@ -138,6 +138,17 @@ def resolve_repo_arg(repo_arg: str) -> str:
 SEARCH_MAX_RESULTS = 5
 SYMBOLS_FETCHED = 3        # get_symbol calls per query in the jMunch workflow
 
+# What is counted. "served" (the default) counts the text the MCP server hands
+# an agent: the response from `server.call_tool` on a default install's config,
+# after `_meta` is stripped (`meta_fields: []`) and the compact encoding is
+# applied (`server_output: adaptive`). "raw" counts `json.dumps` of the tool
+# FUNCTION's return value, which no agent receives; it was the only method
+# before 2026-11-08 and is kept so the two can be compared on one task set.
+MEASURE_METHODS = ("served", "raw")
+MEASURE_METHOD = "served"
+# Set by `main` on a served run: what a session pays once, outside any lookup.
+SESSION_COSTS: Optional[dict] = None
+
 TOKENIZER = "cl100k_base"  # tiktoken encoding name
 
 # ---------------------------------------------------------------------------
@@ -154,6 +165,90 @@ def count_tokens(text: str) -> int:
 def _serialize(obj) -> str:
     """Stable JSON serialization of a tool response."""
     return json.dumps(obj, separators=(",", ":"), default=str)
+
+
+def _use_default_install_config() -> None:
+    """Put this process on a default install's config, whatever is on disk.
+
+    The served path reads `meta_fields`, `server_output` and the rest through
+    `config.get`, so a developer's own `~/.code-index/config.jsonc` (or a CI
+    runner's) would otherwise decide what the benchmark counts. `DEFAULTS` is
+    what a fresh install with no config file resolves to.
+    """
+    from copy import deepcopy
+
+    from jcodemunch_mcp import config as cfg
+
+    cfg._GLOBAL_CONFIG = deepcopy(cfg.DEFAULTS)
+    cfg._CONFIG_LOADED = True
+    cfg._PROJECT_CONFIGS.clear()
+    cfg._PROJECT_CONFIG_HASHES.clear()
+    cfg._REPO_PATH_CACHE.clear()
+    cfg._REPO_MISS_CACHE.clear()
+
+
+def _served_text(tool: str, args: dict) -> str:
+    """The text `server.call_tool` serves for one call, as an agent receives it."""
+    import asyncio
+
+    from jcodemunch_mcp import server
+
+    res = asyncio.run(server.call_tool(tool, dict(args)))
+    if getattr(res, "isError", False):
+        raise RuntimeError(f"{tool} returned an error: {res}")
+    items = getattr(res, "content", res)
+    return "".join(getattr(i, "text", "") for i in items)
+
+
+def _decode_served(text: str) -> dict:
+    """The served text read back the way an agent reads it."""
+    if text.lstrip().startswith("{"):
+        return json.loads(text)
+    from jcodemunch_mcp.encoding.decoder import decode
+
+    return decode(text)
+
+
+def _start_lookup_session() -> None:
+    """Make each lookup stand alone, as the per-lookup figure claims.
+
+    The server keeps per-session state that would otherwise leak from one
+    lookup into the next: the steering counters (a one-time hint after a few
+    search and read calls) and the already-delivered ledger (a note on a symbol
+    an earlier lookup fetched). Both are real costs of a long session; neither
+    belongs to a single lookup. `served_session_costs` reports their size.
+    """
+    from jcodemunch_mcp import server
+    from jcodemunch_mcp.storage import token_tracker
+
+    server._steer_state.update({"hops": 0, "bundles": 0, "nudged": False, "repos": []})
+    with token_tracker._state._lock:
+        token_tracker._state._delivered.clear()
+
+
+def served_session_costs(repo_str: str) -> dict:
+    """Open the measurement session and size what a session pays once.
+
+    The first answer of a process can carry a license notice (once per machine)
+    or a work-license reminder; this call takes it before any lookup is counted
+    and reports its tokens. The steering hint is sized the same way: forced on
+    one search, its added tokens are the served length with it minus without.
+    Neither is part of a lookup; both are published beside the figure.
+    """
+    from jcodemunch_mcp import server
+
+    first = _served_text("search_symbols", {"repo": repo_str, "query": "session start", "max_results": 1})
+    notice = _decode_served(first).get("license_notice")
+    args = {"repo": repo_str, "query": TASKS[0], "max_results": SEARCH_MAX_RESULTS, "detail_level": "standard"}
+    _start_lookup_session()
+    plain = count_tokens(_served_text("search_symbols", args))
+    server._steer_state.update({"hops": server._STEER_NUDGE_AT, "bundles": 0, "nudged": False})
+    hinted = count_tokens(_served_text("search_symbols", args))
+    _start_lookup_session()
+    return {
+        "license_notice_tokens": count_tokens(json.dumps(notice)) if notice else 0,
+        "steering_hint_tokens": hinted - plain,
+    }
 
 
 def _parse_repo(repo_str: str) -> tuple[str, str]:
@@ -363,7 +458,7 @@ def _measure_in_subprocess(repos: list[str], tasks_file: Optional[str] = None) -
     with tempfile.TemporaryDirectory() as tmp:
         out = Path(tmp) / "second.json"
         proc = subprocess.run(
-            [sys.executable, str(Path(__file__).resolve()), *repos, "--json", str(out)]
+            [sys.executable, str(Path(__file__).resolve()), *repos, "--json", str(out), "--method", MEASURE_METHOD]
             + (["--tasks", tasks_file] if tasks_file else []),
             capture_output=True,
             text=True,
@@ -532,6 +627,8 @@ def measure_jmunch(repo_str: str, query: str) -> dict:
       1. search_symbols → serialize response → count tokens
       2. get_symbol for top N hits → count tokens
     """
+    if MEASURE_METHOD == "served":
+        return _measure_jmunch_served(repo_str, query)
     # 1. Search
     t0 = time.perf_counter()
     # v1.70.0: pin detail_level="standard" so benchmark numbers stay comparable
@@ -569,6 +666,41 @@ def measure_jmunch(repo_str: str, query: str) -> dict:
         "stable_tokens": stable_search_tokens + stable_fetch_tokens,
         "stable_search_tokens": stable_search_tokens,
         "stable_fetch_tokens": stable_fetch_tokens,
+        "hits_fetched": len(symbol_ids),
+        "search_ms": round(search_ms, 1),
+    }
+
+
+def _measure_jmunch_served(repo_str: str, query: str) -> dict:
+    """The same workflow, counted as the server serves it to an agent.
+
+    Same calls and arguments as the raw method. The ids fetched are the top
+    rows of the search answer as the agent decodes it.
+    """
+    _start_lookup_session()
+    search_args = {"repo": repo_str, "query": query, "max_results": SEARCH_MAX_RESULTS, "detail_level": "standard"}
+    t0 = time.perf_counter()
+    search_text = _served_text("search_symbols", search_args)
+    search_ms = (time.perf_counter() - t0) * 1000
+    search_tokens = count_tokens(search_text)
+
+    rows = _decode_served(search_text).get("results") or []
+    symbol_ids = [r.get("id") for r in rows if isinstance(r, dict) and r.get("id")][:SYMBOLS_FETCHED]
+
+    fetch_tokens = 0
+    for sid in symbol_ids:
+        fetch_tokens += count_tokens(_served_text("get_symbol_source", {"repo": repo_str, "symbol_id": sid}))
+
+    total = search_tokens + fetch_tokens
+    # The served text carries no `_meta` on a default install, so no wall-clock
+    # field rides in it: the stable count is the count.
+    return {
+        "tokens": total,
+        "search_tokens": search_tokens,
+        "fetch_tokens": fetch_tokens,
+        "stable_tokens": total,
+        "stable_search_tokens": search_tokens,
+        "stable_fetch_tokens": fetch_tokens,
         "hits_fetched": len(symbol_ids),
         "search_ms": round(search_ms, 1),
     }
@@ -754,6 +886,8 @@ def build_reference(results: list[dict]) -> dict:
         "jcodemunch_version": _jcm_version(),
         "tokenizer": TOKENIZER,
         "workflow": f"search_symbols(max_results={SEARCH_MAX_RESULTS}) + get_symbol_source x{SYMBOLS_FETCHED}",
+        "method": MEASURE_METHOD,
+        **({"served_session_costs": SESSION_COSTS} if SESSION_COSTS is not None else {}),
         "baseline_definition": "all indexed source files concatenated",
         "grand": {
             "baseline_tokens": grand_baseline,
@@ -858,6 +992,15 @@ def render_markdown(results: list[dict], tokenizer: str) -> str:
     lines.append("")
     lines.append(f"**Tokenizer:** `{tokenizer}` (tiktoken)  ")
     lines.append(f"**Workflow:** `search_symbols` (top {SEARCH_MAX_RESULTS}) + `get_symbol` x {SYMBOLS_FETCHED}  ")
+    if MEASURE_METHOD == "served":
+        lines.append("**Counted:** the response text the server serves on a default install (`server.call_tool`, no config file)  ")
+        if SESSION_COSTS is not None:
+            lines.append(
+                f"**Once per session, not in any lookup:** license notice {SESSION_COSTS['license_notice_tokens']} tokens "
+                f"(first answer on a machine), steering hint {SESSION_COSTS['steering_hint_tokens']} tokens (one search)  "
+            )
+    else:
+        lines.append("**Counted:** `json.dumps` of the tool function's return value (`--method raw`), which no agent receives  ")
     lines.append("**Baseline A (read-all):** all source files concatenated  ")
     lines.append(f"**Baseline B (grep-top-{GREP_FILES_READ}):** `rg -l` the query terms, then open the top {GREP_FILES_READ} files whole  ")
     lines.append("")
@@ -1031,6 +1174,14 @@ def main():
              "strings, or {\"tasks\": [{\"query\": ...}]}. Not allowed with "
              "--reference or --floor, which judge the published corpus only.",
     )
+    parser.add_argument(
+        "--method",
+        choices=MEASURE_METHODS,
+        default="served",
+        help="served (default): count the text server.call_tool serves on a default "
+             "install; raw: count json.dumps of the tool function's return value, the "
+             "method before 2026-11-08, kept for comparison",
+    )
     parser.add_argument("--out", metavar="FILE", help="write markdown results to FILE")
     parser.add_argument("--json", metavar="FILE", dest="json_out", help="write raw JSON results to FILE")
     parser.add_argument(
@@ -1094,7 +1245,16 @@ def main():
 
     repos = [resolve_repo_arg(r) for r in (args.repos or DEFAULT_REPOS)]
 
+    global MEASURE_METHOD, SESSION_COSTS
+    MEASURE_METHOD = args.method
+    if MEASURE_METHOD == "served":
+        _use_default_install_config()
+        SESSION_COSTS = served_session_costs(repos[0])
+
     print(f"jcodemunch-mcp benchmark harness  |  tokenizer: {TOKENIZER}", flush=True)
+    print(f"Counted: {MEASURE_METHOD}", flush=True)
+    if SESSION_COSTS is not None:
+        print(f"Once per session, outside every lookup: {SESSION_COSTS}", flush=True)
     print(f"Repos: {', '.join(repos)}", flush=True)
     print(f"Tasks: {len(TASKS)} queries × {len(repos)} repos = {len(TASKS) * len(repos)} measurements", flush=True)
     print()

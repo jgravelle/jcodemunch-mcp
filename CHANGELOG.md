@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Changed - the token benchmark counts the answer an agent receives
+
+`benchmarks/harness/run_benchmark.py` called `search_symbols` and `get_symbol_source` as Python functions and counted the JSON of what they returned. No agent receives that: on a default install the server drops `_meta` (`meta_fields: []`) and sends the compact encoding (`server_output: adaptive`). The benchmark now counts the text `server.call_tool` serves, on the config a fresh install has (`config.DEFAULTS`, whatever config file the machine carries), with the same calls, arguments and fetched symbols. Each lookup is measured on its own: the one-time steering hint and the note on a symbol an earlier lookup already fetched are session costs, not lookup costs. The run measures the two once-per-session costs and prints them beside the figure: the license notice on a machine's first answer, and the steering hint on one search. The old count stays available as `--method raw`, so both can be run on one task set. The published figures and the reference artifacts are unchanged by this entry; a new reference is a separate step. Tests: `tests/test_the_token_benchmark_counts_the_served_response.py`.
+
 ### Changed - `upgrade` and the hooks refresh show the surface offer
 
 An install created before the `counter` default keeps its tool surface, on purpose: a package update never changes which tools a user is served. Until now the priced offer to switch showed up only in `jcodemunch-mcp surface`, `install-status`, a log line at server start, and a notice on the first `resolve_repo` answer, so an install still on the full tool list could go a long time without seeing it.
