@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed - the steering hint no longer turns a search answer back into JSON
+
+The one search per session that carries the steering hint now costs 292 tokens instead of 434, on the pinned express corpus ("middleware"; 226 without the hint). After a few search and read calls with no bundle call, a `search_symbols` or `search_text` answer carries a one-line hint pointing at `get_ranked_context`. That answer used to be served as JSON, so the compact encoding couldn't drop the hint, and that one search cost more than the same answer encoded. The hint has its own key, `_meta.steer_hint` (it was `_meta.hint`), which the compact encoding carries (`UNIVERSAL_META_JSON`); a tool's ordinary `_meta.hint` stays off the wire as before. The encoding ids do not change: a decoder that predates this reads the same rows and ignores the new key. Tests: `tests/test_the_steering_hint_keeps_the_compact_encoding.py`.
+
 ### Fixed - a function assigned to a member is a JavaScript symbol
 
 CommonJS code defines most of its API by assignment: express writes `res.send = function send(body) {...}`, `exports.compileTrust = function ...` and `Foo.prototype.bar = function () {...}`. None of these produced a symbol, so in express's `lib/` a search for `send` found only the `require` of the npm package `send`, and `response.js` indexed as the single variable `res`. Found by Benchmarking's relationship checks on 1.108.401 (LEDGER L-263).
