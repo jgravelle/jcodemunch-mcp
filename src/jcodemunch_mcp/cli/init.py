@@ -1792,6 +1792,26 @@ def run_init(
             for line in _offer:
                 print(line)
 
+    # ----- Offer, never apply: the surface a new install would get -----
+    # `upgrade` re-runs `init --hooks --yes`, and a user refreshing hooks types
+    # the same, so this is where an install that predates the `counter` default
+    # sees what switching saves. It prints and changes nothing; the user runs
+    # the switch command. Same block and renderer as `install-status`.
+    # ⚠ `hooks_explicit`, not `hooks`: `install <agent>` passes hooks=True as
+    # its own default, and the offer belongs to the refresh a user runs.
+    if (hooks_explicit or os.environ.get(UPGRADE_REFRESH_ENV) == "1") and not demo:
+        try:
+            _surface = _surface_offer_block()
+        except Exception:
+            logger.debug("surface offer check failed", exc_info=True)
+            _surface = None
+        if _surface:
+            from ..surface_offer import render_offer_lines
+
+            print()
+            for line in render_offer_lines(_surface):
+                print(line)
+
     # ----- Done -----
     print()
     if demo:
@@ -1816,8 +1836,8 @@ def run_init(
             for line in _LICENCE_LINES:
                 print(line)
             # This machine was just shown the license line, so the server's
-            # one-time notice is not due. `upgrade` re-runs init silently and
-            # prints nothing, so it writes no marker.
+            # one-time notice is not due. `upgrade` re-runs init without the
+            # license line, so it writes no marker.
             from ..license_notice import mark_shown
 
             mark_shown("init")
