@@ -3158,3 +3158,9 @@ The 1.108.421 entry, verbatim as it stood in `CLAUDE.md`:
 The 1.108.422 entry, verbatim as it stood in `CLAUDE.md`:
 
 - **Prior (1.108.422):** **the shared parse cache never serves what an older parser emitted** (#1347): the shared parse cache (`JCODEMUNCH_PARSE_CACHE`) keys entries by `PARSER_GENERATION` and the installed tree-sitter, language-pack and F# grammar versions, so a generation bump re-parses instead of stamping old symbols as new. Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-08, release 1.108.426)
+
+The 1.108.423 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.423):** **a file that fails to parse no longer lets a search claim a name is absent** (#1351, #1343): a file whose parse fails or runs past `JCODEMUNCH_PARSE_BUDGET_SECONDS` is withheld (`withheld.parse_failed`), so coverage reads incomplete and an absence answer is refused, on every local route but `index_repo` and a branch re-index; a fresh process reuses the BM25 corpus statistics stored in the index `.db` instead of rebuilding them (@tmhtech4). Full text: `CHANGELOG.md`.
