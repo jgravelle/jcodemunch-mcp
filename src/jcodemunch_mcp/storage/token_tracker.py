@@ -1810,7 +1810,7 @@ def _read_ledger(path: Path) -> "tuple[Optional[dict], Optional[str]]":
         return None, "is not valid JSON"
     if not isinstance(data, dict):
         return None, "does not hold a JSON object"
-    # A non-negative number, the rule `receipt.lifetime_meter` reads by.
+    # A finite non-negative number. `receipt` and `diagnose` read through here too (L-297).
     total = data.get("total_tokens_saved", 0)
     if not _is_amount(total):
         return None, "holds a total that is not a non-negative number"
@@ -1875,7 +1875,7 @@ def _holds_a_count(value: object) -> bool:
 
 
 def _is_amount(value: object) -> bool:
-    """A finite non-negative number, the rule `receipt.lifetime_meter` reads a total by.
+    """A finite non-negative number: how `_read_ledger` reads a total, for the meter, `receipt` and `diagnose`.
 
     ``json.loads`` accepts ``Infinity`` and ``NaN``; neither is a count, and
     writing one back produces a file other JSON readers refuse.
