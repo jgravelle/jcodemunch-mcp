@@ -207,22 +207,32 @@ def _complete(res) -> bool:
     return True
 
 
-def _index_matches_disk(repo: str) -> bool:
-    """True when every indexed file's mtime still matches what was indexed.
+def _open_view(repo: str):
+    """The repo's selective view (or full index) for this hook call, or None."""
+    from ...storage import IndexStore
+
+    owner, _, name = repo.partition("/")
+    store = IndexStore()
+    # Every field the hook reads is file metadata, which the selective view
+    # holds exactly without reading a symbol row. A hook process is always
+    # cold, so this skips the largest read on its path.
+    return store.open_selective(owner, name) or store.load_index(owner, name)
+
+
+def _index_matches_disk(repo: str, file_pattern: "str | None" = None, index=None) -> bool:
+    """True when every indexed file in scope still has the mtime it was indexed at.
 
     A changed file would be answered from its indexed copy, which is a wrong
     answer, so any file that is not provably unchanged refuses the answer.
+    ``file_pattern`` is the scope the search will cover, matched the way
+    ``search_text`` matches it: a file outside it can't change the answer, and
+    checking all of them made the cost grow with the whole repo.
     """
     try:
         from ...retrieval.freshness import FreshnessProbe
-        from ...storage import IndexStore
 
-        owner, _, name = repo.partition("/")
-        store = IndexStore()
-        # Every field read below is file metadata, which the selective view
-        # holds exactly without reading a symbol row. A hook process is always
-        # cold, so this skips the largest read on its path.
-        index = store.open_selective(owner, name) or store.load_index(owner, name)
+        if index is None:
+            index = _open_view(repo)
         if index is None:
             return False
         probe = FreshnessProbe(
@@ -231,7 +241,14 @@ def _index_matches_disk(repo: str) -> bool:
             index_sha=getattr(index, "git_head", None),
             file_mtimes=getattr(index, "file_mtimes", None),
         )
-        return all(probe.classify(f) == "fresh" for f in index.source_files)
+        files = index.source_files
+        if file_pattern:
+            from ... import path_glob
+            from ...tools.search_text import _file_patterns
+
+            scope = path_glob.compile_patterns(_file_patterns(file_pattern))
+            files = [f for f in files if scope.match(f)]
+        return all(probe.classify(f) == "fresh" for f in files)
     except Exception:
         logger.debug("grep-answer freshness check failed", exc_info=True)
         return False
@@ -292,7 +309,10 @@ def answer_grep(tool_input: dict, cwd: str, session_id: str) -> "str | None":
         file_pattern = _scope(repo_root, search_root, glob) if repo_root else glob
         if file_pattern is False:
             return None
-        if not timed("freshness", _index_matches_disk, resolved["repo"]):
+        view = timed("open", _open_view, resolved["repo"])
+        if view is None:
+            return None
+        if not timed("freshness", _index_matches_disk, resolved["repo"], file_pattern, view):
             return None
         res = timed(
             "search",
@@ -305,6 +325,7 @@ def answer_grep(tool_input: dict, cwd: str, session_id: str) -> "str | None":
             # The whole match set, so the gate counts it and the answer can
             # be whole; past the cap the page is truncated and declined.
             scan_limit=SCAN_LIMIT,
+            _index=view,
         )
         return resolved["repo"], res
 

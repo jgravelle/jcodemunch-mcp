@@ -299,8 +299,8 @@ class FreshnessProbe:
             self._mtime_cache[file_rel] = None
             return None
         try:
-            p = self._source_root / file_rel
-            mtime = p.stat().st_mtime if p.exists() else None
+            # One stat: a missing file raises, which reads the same as absent.
+            mtime = (self._source_root / file_rel).stat().st_mtime
         except OSError:
             mtime = None
         self._mtime_cache[file_rel] = mtime
