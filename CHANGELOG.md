@@ -4,13 +4,13 @@
 
 ### Fixed - the Grep answer reaches large repositories
 
-The opt-in Grep answer (`JCODEMUNCH_HOOK_GREP_ANSWER=1`) has a 4-second budget, and on a 23,186-file Home Assistant index it needed 6.2 s to answer, so a Grep over `homeassistant/` matching 140 lines in 71 files ran unanswered. Large repositories are the ones the answer is for. The search was not the slow part. Three costs grew with the whole repository:
+On a 23,186-file Home Assistant index, the opt-in Grep answer (`JCODEMUNCH_HOOK_GREP_ANSWER=1`) now answers a Grep over `homeassistant/` (140 lines in 71 files) in 2.0 s, with the same count as before. It used to need 6.2 s, past its 4-second budget, so that Grep ran unanswered. Large repositories are the ones the answer is for. The search was never the slow part: three costs grew with the whole repository, and all three are now cut.
 
-- loading the index walked the tree for tsconfig and jsconfig files to build TypeScript import aliases, on an index holding no such file. The walk now reads the index's own file list first, and skips only when that list comes from a full discovery walk the file cap didn't cut and names no such file. A skipped walk is never cached, so a tsconfig added later is read by the next index. Every cold load of any index gains this, not only the hook. What this gives up: a tsconfig on disk that the index itself leaves out (gitignored, excluded by a pattern, or over the size limit) is no longer read when the index loads;
-- the freshness check looked at every indexed file. It now checks only the files inside the Grep's scope, since a changed file outside it can't change the answer, and reads each file's mtime with one `stat` instead of an existence check plus a `stat`;
+- loading the index walked the tree for tsconfig and jsconfig files to build TypeScript import aliases, on an index holding no such file. The walk now reads the index's own file list first, and skips only when that list comes from a full discovery walk the file cap didn't cut and names no such file. A skipped walk is never cached, so a tsconfig added later is read by the next index. Every cold load of any index gets faster from this, not only the hook. The trade-off: a tsconfig on disk that the index itself leaves out (gitignored, excluded by a pattern, or over the size limit) is no longer read when the index loads;
+- the freshness check looked at every indexed file, which alone took 3.2 s. It now checks only the files inside the Grep's scope, since a changed file outside it can't change the answer, and reads each file's mtime with one `stat` instead of an existence check plus a `stat`;
 - one hook call read the index's file table three times. It reads it once now, and the enclosing-symbol step reads just the matched files' symbol rows.
 
-Measured on the same index and the same Grep, the hook now answers in 2.0 s with the same count, 140 lines in 71 files, where before the freshness check alone took 3.2 s. That is with the operating system's file cache warm. A first Grep after a long idle gap, when the search reads the index's cached file copies from disk, missed the 4 s budget here, and when it does the Grep runs as before.
+The 2.0 s is with the operating system's file cache warm. The first Grep after a long idle gap, when the search reads the index's cached file copies from disk, can still miss the 4 s budget; when it does, the Grep runs exactly as it would without the hook.
 
 ## [1.108.424] - 2026-11-07 - a project config file can only tighten settings
 
