@@ -344,15 +344,17 @@ def _count(value: object) -> int:
 
 
 def _savings(root: Path) -> Optional[dict]:
-    """The savings file: `{}` when there is none, `None` when it could not be read."""
-    try:
-        data = json.loads((root / "_savings.json").read_text(encoding="utf-8"))
-    except FileNotFoundError:
-        return {}
-    except (OSError, ValueError):
-        logger.debug("diagnose: savings file not read", exc_info=True)
-        return None
-    return data if isinstance(data, dict) else None
+    """The savings file: `{}` when there is none, `None` when it could not be read.
+
+    Read through the meter's own reader (L-297), so a file the meter refuses
+    to add to gives no figure here either.
+    """
+    from .storage import token_tracker
+
+    data, why = token_tracker._read_ledger(root / "_savings.json")
+    if data is None:
+        logger.debug("diagnose: savings file not used: %s", why)
+    return data
 
 
 def _date(value: object) -> Optional[str]:

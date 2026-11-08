@@ -2,13 +2,19 @@
 
 ## [Unreleased]
 
-### Changed - `upgrade` and the hooks refresh show the surface offer
+## [1.108.425] - 2026-11-08 - the Grep answer reaches large repositories
+
+### Fixed - `receipt` and `diagnose` read the savings file the way the meter does (#1335)
+
+`receipt`'s lifetime figure and `diagnose`'s savings report each parsed `_savings.json` by their own rules, beside `token_tracker._read_ledger`, the reader the meter uses. #1309 and its follow-up taught that reader to refuse a file whose totals or tables the meter cannot add to; the other two never learned it. So `receipt` took `true` as a total and crashed with `OverflowError` on `{"total_tokens_saved": Infinity}` and `ValueError` on `NaN`, and `diagnose` reported a file the meter refuses as readable. Both now read through `_read_ledger`: a file the meter refuses gives no lifetime figure in `receipt` and no figure in `diagnose`, and a file that starts with a byte-order mark is read, as the meter reads it. `receipt` says why such a file gives no figure (a `lifetime.refused` reason in a JSON export) rather than reporting that nothing has been recorded yet. `diagnose --include-anon-id` reports no id from a file the meter refuses, since that file is not the one the meter adds to. A test fails if any function that names `_savings.json` in code parses it with `json.load` itself. Found while fixing #1309's follow-up. Tests: `tests/test_savings_file_has_one_reader.py`.
+
+### Changed - `upgrade` and the hooks refresh show the surface offer (#1355)
 
 An install created before the `counter` default keeps its tool surface, on purpose: a package update never changes which tools a user is served. Until now the priced offer to switch showed up only in `jcodemunch-mcp surface`, `install-status`, a log line at server start, and a notice on the first `resolve_repo` answer, so an install still on the full tool list could go a long time without seeing it.
 
 `init --hooks`, which `upgrade` runs and which a user types to refresh hooks, now prints the same offer: the same block and renderer `install-status` uses, with this install's own figures and unchanged wording. It's still only a message. Nothing changes until the user runs the switch command, `surface_offer_seen` silences it, and an install already on the default surface sees nothing.
 
-### Fixed - the Grep answer reaches large repositories
+### Fixed - the Grep answer reaches large repositories (#1356)
 
 On a 23,186-file Home Assistant index, the opt-in Grep answer (`JCODEMUNCH_HOOK_GREP_ANSWER=1`) now answers a Grep over `homeassistant/` (140 lines in 71 files) in 2.0 s, with the same count as before. It used to need 6.2 s, past its 4-second budget, so that Grep ran unanswered. Large repositories are the ones the answer is for. The search was never the slow part: three costs grew with the whole repository, and all three are now cut.
 
