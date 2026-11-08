@@ -62,7 +62,7 @@ Measured with `tiktoken cl100k_base` across three public repos pinned to upstrea
 | gin-gonic/gin | 98 | 1,822 | 32,253 avg | 994 avg | **32.5x** | 152.8x |
 | **Grand total, pooled (15 task-runs)** | | | **670,032** | **17,581** |  | 321.9x |
 
-**Against a grep-and-read agent: 96.2% fewer tokens per lookup on average.** No single multiple describes every query; the per-repo rows above are the spread. Against read-all the figure is 99.7%, but nobody pays that ceiling. The count is the text the server sends, which on a default install is already in the compact [MUNCH](SPEC_MUNCH.md) wire encoding.
+**Against a grep-and-read agent: 96.2% fewer tokens per lookup on average.** No single multiple describes every query; the per-repo rows above are the spread. Against read-all the figure is 99.7%, but nobody pays that ceiling. That count is the text the server actually sends, compact MUNCH encoding included, so it's what your agent receives on a default install.
 
 Full methodology, pinned commits, harness, and known caveats: [benchmarks/METHODOLOGY.md](benchmarks/METHODOLOGY.md) · [Reproduce it yourself](benchmarks/REPRODUCING.md) · [TOKEN_SAVINGS.md](TOKEN_SAVINGS.md)
 

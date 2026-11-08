@@ -259,7 +259,7 @@ details.
 The primary claim is **96.2% fewer tokens per lookup on average** across all 15
 task-runs, measured against Baseline B: an agent that greps and opens the top 3
 files. It is the mean of the 15 per-lookup reductions in `results.md`. Pooled,
-the totals are 670,032 → 17,581 tokens (97.4%, 38.1x total tokens); the pooled figure is
+the totals are 670,032 → 17,581 tokens (pooled total tokens: 97.4%, 38.1x); the pooled figure is
 higher because the lookups with the largest grep baselines weigh the most. Against Baseline A, the read-everything ceiling, the same run
 gives 99.7% / 321.9x (5,658,685 → 17,581). Both are published; B is the one to
 quote.
@@ -271,7 +271,7 @@ user can hit.
 ⚠ The read-all aggregate is dominated by one repo: fastapi contributes 72.9% of
 its baseline tokens, so 321.9x is largely a statement about fastapi (aggregate
 321.9x vs median 232.9x). **That objection is weaker for Baseline B**, whose
-aggregate and median sit closer together (38.1x vs 29.4x, fastapi share 64.7%), because
+aggregate and median sit closer together (38.1x pooled total tokens vs 29.4x median, fastapi share 64.7%), because
 grep cost tracks matches rather than repository size. It does not go away: the
 aggregate is 1.30 times the median, so the typical query saves less than the
 headline says. Quote the per-query spread beside it.
@@ -315,8 +315,8 @@ the honest worst case and is published here rather than left in the JSON.
 ⚠ One thing that improved under the realistic baseline, and it is worth saying
 because it cuts our way: the read-all aggregate is badly distorted by the largest
 repo (aggregate 321.9x vs median 232.9x, with fastapi contributing 72.9% of
-baseline tokens). Baseline B's aggregate and median sit closer together (**38.1x vs
-29.4x**, fastapi share 64.7%), because grep cost tracks *matches* rather than
+baseline tokens). Baseline B's aggregate and median sit closer together (**38.1x pooled total tokens
+vs 29.4x median**, fastapi share 64.7%), because grep cost tracks *matches* rather than
 repository size. The gap that remains (aggregate 1.30 times the median, against
 1.38 for read-all) comes from the fastapi queries with the largest grep
 baselines, `request response` and `error exception`: without those two the
