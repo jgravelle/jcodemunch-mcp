@@ -292,28 +292,6 @@ class FreshnessProbe:
         self._current_sha_resolved = True
         return self._current_sha
 
-    def prime_mtimes(self, files) -> None:
-        """Fill the mtime cache for ``files`` from one listing per folder.
-
-        For a caller about to classify many files: on Windows each folder is
-        read once instead of each file being stat'd (``storage/listing_stat``).
-        Only names the listing holds are cached, with the mtime ``stat`` gives;
-        any other file is left to ``_file_mtime``'s own stat, so a file the
-        listing cannot see is measured the ordinary way, never assumed.
-        A no-op where listings carry no stats, or with no source root.
-        """
-        from ..storage import listing_stat
-
-        if not listing_stat.ENABLED or not self._source_root:
-            return
-        listing = listing_stat.ListingStat(self._source_root)
-        for f in files:
-            if f in self._mtime_cache:
-                continue
-            st = listing.stat(f)
-            if st is not None:
-                self._mtime_cache[f] = st.st_mtime
-
     def _file_mtime(self, file_rel: str) -> Optional[float]:
         if file_rel in self._mtime_cache:
             return self._mtime_cache[file_rel]

@@ -18,14 +18,14 @@ On a 23,186-file Home Assistant index, the opt-in Grep answer (`JCODEMUNCH_HOOK_
 
 The 2.0 s is with the operating system's file cache warm. The first Grep after a long idle gap, when the search reads the index's cached file copies from disk, can still miss the 4 s budget; when it does, the Grep runs exactly as it would without the hook.
 
-### Fixed - the Grep answer's cold-disk cost no longer grows file by file
+### Changed - the Grep answer does less disk work when the file cache is cold
 
-After a long idle gap the operating system's file cache is cold, and on the same Home Assistant index the first Grep answer took 7.2 s against its 4-second budget, so that Grep ran unanswered. The scope was 14,432 files, and two steps touched each of them on disk: the freshness check read each source file's mtime, and the text filter read each cached copy's size and mtime to confirm its trigram row still describes it. Opening the index also decoded every file's imports JSON, which a text search never reads.
+After a long idle gap the operating system's file cache is cold, and on the same Home Assistant index the first Grep answer took 7.2 s against its 4-second budget, so that Grep ran unanswered. The scope was 14,432 files, and the text filter read each cached copy's size and mtime from disk to confirm its trigram row still describes it. Opening the index also decoded every file's imports JSON, which a text search never reads.
 
-- on Windows, both steps now read one directory listing per folder, which carries every entry's size and mtime, instead of one `stat` per file. Over those 14,432 cached copies the listing took 1.8 s to 2.4 s where per-file `stat` took 15.8 s to 24.5 s on the same loaded machine, with identical values for every file. A file the listing doesn't hold, such as a different spelling of its name or a file that's gone, is measured the ordinary way or refuses the answer, never assumed unchanged. Elsewhere a listing costs one system call per file anyway, so nothing changes there;
+- on Windows, the text filter now reads one directory listing per folder of the index's cached copies, which carries every entry's size and mtime, instead of one `stat` per file. Over those 14,432 cached copies the listing took 1.8 s to 2.4 s where per-file `stat` took 15.8 s to 24.5 s on the same loaded machine, with identical values for every file. A cached copy the listing doesn't hold is searched, never skipped. Elsewhere a listing costs one system call per file anyway, so nothing changes there;
 - opening the index for a text search decodes imports only when something reads them, from the same snapshot, so the value is unchanged. An index with Racket still decodes at load, because loading adds Racket collection edges to its imports.
 
-The answer's freshness rule is unchanged: every file in scope must still carry the mtime it was indexed at. The cold total with these changes hasn't been measured yet, because the file cache can't be emptied without administrator rights; it will be measured on the next idle gap.
+The freshness check on your own files still reads each one with its own `stat`. A listing is cheaper there too, but on Windows a file edited through a hard link in another folder keeps its old size and mtime in its own folder's listing, so a listing could call an edited file unchanged. The cold total with these changes hasn't been measured yet, because the file cache can't be emptied without administrator rights; it will be measured on the next idle gap.
 
 ## [1.108.424] - 2026-11-07 - a project config file can only tighten settings
 

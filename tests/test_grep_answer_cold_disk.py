@@ -1,17 +1,18 @@
 """The Grep answer's cold cost must not be one filesystem touch per file in scope.
 
 After a long idle gap, the first Grep answer on a Home Assistant index took
-7.2 s against its 4 s budget, so it did not fire. Two stages made one ``stat``
-per file in the Grep's scope (14,432 files): the freshness check on the source
-tree, and the trigram filter checking that each cached copy's row is current.
-On Windows a directory listing carries every entry's size and mtime, so one
-listing per folder gives the same values for a fraction of the cold cost.
-And opening the index decoded every file's imports JSON, which a text search
-never reads.
+7.2 s against its 4 s budget, so it did not fire. The trigram filter made one
+``stat`` per cached copy in the Grep's scope (14,432 files) to check that each
+copy's row is current. On Windows a directory listing carries every entry's
+size and mtime, so one listing per folder gives the same values for a fraction
+of the cost. And opening the index decoded every file's imports JSON, which a
+text search never reads.
 
 Exactness is the point of each test pair below: the cheaper route must give
 the values the old one gave, and anything it cannot see must still be
-measured the ordinary way, never assumed unchanged.
+measured the ordinary way, never assumed unchanged. The freshness check on
+the user's source tree keeps one stat per file: a listing there can carry
+stale stats for a file edited through a hard link (the last test).
 """
 
 from __future__ import annotations
@@ -22,7 +23,6 @@ import time
 import pytest
 
 from jcodemunch_mcp.cli.hooks import grep_answer
-from jcodemunch_mcp.retrieval.freshness import FreshnessProbe
 from jcodemunch_mcp.storage import listing_stat, sqlite_store, text_filter
 from jcodemunch_mcp.storage.selective import SelectiveIndexView
 
@@ -181,50 +181,38 @@ def test_a_cached_copy_changed_after_its_row_is_still_read(tmp_path, monkeypatch
     assert text_filter.Filter(content, "needle_word").rules_out("p/m.py")[0] is False
 
 
-# -- freshness from a listing ------------------------------------------------
+# -- what the listing must not be used for ------------------------------------
 
 
-def test_priming_caches_the_mtimes_stat_gives_and_nothing_else(tmp_path, monkeypatch):
+def test_a_folder_the_listing_returns_nothing_for_is_still_scanned(tmp_path, monkeypatch):
+    """A listing that holds no row for a file (an unreadable folder, a case
+    variant) must send that file to the scan, never skip it."""
     monkeypatch.setattr(listing_stat, "ENABLED", True)
-    (tmp_path / "d").mkdir()
-    (tmp_path / "d" / "x.py").write_text("x", encoding="utf-8")
-    probe = FreshnessProbe(
-        source_root=str(tmp_path), indexed_at="", index_sha=None, file_mtimes={}
-    )
-    probe.prime_mtimes(["d/x.py", "d/gone.py"])
-    assert probe._mtime_cache == {"d/x.py": os.stat(tmp_path / "d" / "x.py").st_mtime}
+    content = tmp_path / "content"
+    (content / "p").mkdir(parents=True)
+    (content / "p" / "m.py").write_text("nothing to see\n", encoding="utf-8")
+    text_filter.record(content, [("p/m.py", "nothing to see\n")])
+    assert text_filter.Filter(content, "needle_word").rules_out("p/m.py")[0] is True
+    monkeypatch.setattr(listing_stat, "list_folder", lambda folder: {})
+    assert text_filter.Filter(content, "needle_word").rules_out("p/m.py") == (False, None)
 
 
-def test_priming_is_a_no_op_where_listings_carry_no_stats(tmp_path, monkeypatch):
-    monkeypatch.setattr(listing_stat, "ENABLED", False)
-    (tmp_path / "x.py").write_text("x", encoding="utf-8")
-    probe = FreshnessProbe(
-        source_root=str(tmp_path), indexed_at="", index_sha=None, file_mtimes={}
-    )
-    probe.prime_mtimes(["x.py"])
-    assert probe._mtime_cache == {}
+def test_an_edit_through_a_hard_link_in_another_folder_refuses_the_answer(repo):
+    """The freshness check reads the source tree with one stat per file.
 
-
-def test_the_freshness_check_lists_folders_and_still_sees_an_edit(repo, monkeypatch):
-    monkeypatch.setattr(listing_stat, "ENABLED", True)
+    Runs everywhere; it can fail only on Windows. On NTFS a write through a hard link in another folder leaves THIS folder's
+    listing with the old size and mtime, so a listing-based check called the
+    edited file unchanged (review of this change, 2026-11-08). The listing is
+    for the content cache only.
+    """
     name, proj = repo
-    from pathlib import Path
-
-    stats = []
-    real = Path.stat
-    monkeypatch.setattr(
-        Path, "stat", lambda self, *a, **k: stats.append(self) or real(self, *a, **k)
-    )
-    assert grep_answer._index_matches_disk(name, "inside/*") is True
-    assert [p for p in stats if p.name.endswith(".py")] == []
-
+    target = proj / "inside" / "a.py"
+    other = proj / "elsewhere"
+    other.mkdir()
+    os.link(target, other / "alias.py")
+    time.sleep(0.05)
+    with open(other / "alias.py", "a", encoding="utf-8") as f:
+        f.write("# edited through the other name\n" * 40)
     later = time.time() + 120
-    os.utime(proj / "inside" / "deep" / "c.py", (later, later))
-    assert grep_answer._index_matches_disk(name, "inside/*") is False
-
-
-def test_a_file_the_listing_cannot_see_still_refuses_the_answer(repo, monkeypatch):
-    monkeypatch.setattr(listing_stat, "ENABLED", True)
-    name, proj = repo
-    (proj / "inside" / "a.py").unlink()
+    os.utime(other / "alias.py", (later, later))
     assert grep_answer._index_matches_disk(name, "inside/*") is False

@@ -2,11 +2,21 @@
 
 Windows reports each entry's size and modification time in the listing itself
 (``os.scandir``), so a caller that needs the stats of many files in few folders
-reads each folder once. Measured cold on three jcodemunch content caches
-(1,372 to 1,994 files each): 2.2x to 2.8x cheaper than ``os.stat`` per file,
-with identical size and mtime for every file. Elsewhere a listing entry's
-stat costs one syscall per file anyway, so ``ENABLED`` is False there and
-callers keep ``os.stat``.
+reads each folder once. On three jcodemunch content caches untouched for
+months (1,372 to 1,994 files each), the first listing cost 2.1x to 2.8x less
+than an ``os.stat`` pass over the same files run right after it, with
+identical size and mtime for every file. Elsewhere a listing entry's stat costs
+one syscall per file anyway, so ``ENABLED`` is False there and callers keep
+``os.stat``.
+
+⚠⚠ **Only for files jcodemunch writes itself (the content cache), never the
+user's source tree.** NTFS stores a copy of each file's size and mtime in its
+folder's listing, and a write through a HARD LINK in another folder updates
+the file and that folder's copy, not this one: measured here, ``os.stat`` gave
+the new size and mtime while the listing still gave the old ones. A freshness
+check reading the listing would call an edited file unchanged. The listing
+cannot tell a hard-linked file apart (Windows reports ``st_nlink`` 0 from it).
+Nothing under ``src/`` creates a hard link in the content cache.
 
 ⚠ A listing answers for the names it holds, exactly as spelled. A name it does
 not hold (a case variant, a file that vanished, an unreadable folder) answers
