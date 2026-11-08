@@ -2330,6 +2330,63 @@ class SQLiteIndexStore:
         )
         return _stamp_load_provenance(view, db_path, mtime_ns)
 
+    def read_file_symbols(self, owner: str, name: str, files: list):
+        """``(indexed_at, mtime_ns, symbol dicts)`` for the named files, or None.
+
+        One read transaction over the meta and symbol rows only, so a caller
+        that already holds the file list (a selective view) gets the matched
+        files' symbols without decoding every file row again: ``open_selective``
+        with ``files=`` reads and decodes the whole files table again. The mtime is sampled before the transaction, as
+        ``open_selective`` samples it, so the two compare like for like.
+        ``None`` means take another path, never an absence.
+        """
+        _ensure_index_store_deps()
+        safe_name = self._safe_repo_component(name, "name")
+        try:
+            db_path = self._db_path(owner, safe_name)
+        except IndexIdentityConflict:
+            return None
+        if not db_path.exists():
+            return None
+        try:
+            mtime_ns = _db_mtime_ns(db_path)
+        except OSError:
+            return None
+        from .generation import connect_readonly
+
+        try:
+            conn = connect_readonly(db_path)
+        except Exception:
+            logger.debug("File-symbols read failed for %s", db_path, exc_info=True)
+            return None
+        conn.row_factory = sqlite3.Row
+        try:
+            conn.execute("BEGIN")
+            try:
+                meta = self._read_meta(conn)
+                if not meta or _meta_names_other_repo(meta, owner, name):
+                    return None
+                rows: list = []
+                paths = [f for f in dict.fromkeys(files) if f]
+                for start in range(0, len(paths), self._SELECT_CHUNK):
+                    chunk = paths[start:start + self._SELECT_CHUNK]
+                    marks = ",".join("?" * len(chunk))
+                    rows.extend(
+                        conn.execute(
+                            f"SELECT * FROM symbols WHERE file IN ({marks})", chunk
+                        ).fetchall()
+                    )
+                symbols = [self._row_to_symbol_dict(r) for r in rows]
+            finally:
+                conn.rollback()
+        except sqlite3.DatabaseError:
+            logger.debug("Corrupt SQLite index at %s during file-symbols read",
+                         db_path, exc_info=True)
+            return None
+        finally:
+            conn.close()
+        return meta.get("indexed_at") or None, int(mtime_ns), symbols
+
     def _fetch_symbol_row(self, db_path: Path, symbol_id: str) -> Optional[dict]:
         """One symbol row, read-only. Raises so the caller can promote.
 
