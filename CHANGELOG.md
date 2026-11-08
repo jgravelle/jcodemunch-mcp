@@ -16,6 +16,15 @@ A function bound by a declaration (`const f = function (a) {...}`, `const g = (a
 
 The signature now ends where the function's own body starts: `const f = function f(a)`, `const g = (a) =>`, `res.json = function (obj)`, `handler = (e) =>`. The span is unchanged, so `get_symbol_source` still returns the whole function. Search rows for these functions are shorter, and a search no longer matches words that appear only in a bound function's body; a plain `function` declaration already worked this way. The same `PARSER_GENERATION` bump re-parses existing indexes.
 
+### Changed - the Grep answer does less disk work when the file cache is cold
+
+On Windows, the text filter behind the opt-in Grep answer now confirms its cached file copies with one directory listing per folder instead of one `stat` per file. On the same Home Assistant index, over 14,432 cached copies, the listing took 1.8 s to 2.4 s where per-file `stat` took 15.8 s to 24.5 s on the same loaded machine, with identical size and mtime for every file. It's aimed at the first Grep after a long idle gap, when the operating system's file cache is cold: on that index that Grep needed 7.2 s against the 4-second budget, and ran unanswered.
+
+- the listing carries every entry's size and mtime, which is all the filter needs to confirm a trigram row still describes its copy. A cached copy the listing doesn't hold is searched, never skipped. Elsewhere a listing costs one system call per file anyway, so nothing changes there;
+- opening the index for a text search no longer decodes every file's imports JSON, which a text search never reads. Imports decode only when something reads them, from the same snapshot, so the value is unchanged. An index with Racket still decodes at load, because loading adds Racket collection edges to its imports.
+
+The freshness check on your own files keeps one `stat` per file, on purpose. A listing would be cheaper there too, but on Windows a file edited through a hard link in another folder keeps its old size and mtime in its own folder's listing, so a listing could call an edited file unchanged. A fast wrong answer is worse than a slow right one. The cold total with these changes will be measured on the next idle gap; emptying the file cache by hand needs administrator rights.
+
 ## [1.108.425] - 2026-11-08 - the Grep answer reaches large repositories
 
 ### Fixed - `receipt` and `diagnose` read the savings file the way the meter does (#1335)
