@@ -3110,3 +3110,45 @@ The 1.108.413 entry, verbatim as it stood in `CLAUDE.md`:
 The 1.108.414 entry, verbatim as it stood in `CLAUDE.md`:
 
 - **Prior (1.108.414):** **a class comes back as its outline, and an import finds the file in its own language** (#1326, #1327): `get_symbol_source` returns a class with each method collapsed to its signature by default (`class_body="full"` for the whole body, a 1.x default change); an extensionless Ruby or Python import tries the importer's own language's file first. Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-05, release 1.108.418)
+
+The 1.108.415 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.415):** **a search for library code ranks the library above its tutorial and example copies** (#1324): `search_symbols` weights a symbol under an example, tutorial, sample or demo directory down when the query isn't about examples, the way it already weighted tests; a served debug row names the weight under `score_breakdown`. Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-05, release 1.108.419)
+
+The 1.108.416 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.416):** **a search credits the tokens it saved on a fresh install's index** (#1330): a full save and a branch save store a size for every file from the content folder, and an index built before the fix reads a missing size from its content copy, so `search_symbols` and five other read tools credit savings without a re-index. Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-06, release 1.108.420)
+
+The 1.108.417 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.417):** **a wrong call through order names a call that works** (#1333): on the counter surface every action an `order` reply or a turned-off refusal names is written as `order(action="...")`, a typo gets up to three close actions, a turned-off tool is never suggested, and the refusal names the file that lists it and tells the agent to ask the user. Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-06, release 1.108.421)
+
+The 1.108.418 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.418):** **a search on a capped index says, in its answer, that the index is partial** (#1336): a tool answer drawn from an index the `max_folder_files` cap truncated carries one body line, `index_warning`, with the file counts and the setting to raise, attached before the display filter so a default `meta_fields: []` install still sees it; `get_ranked_context` reports the cap on every exit, so its no-match answer on a capped index is no longer citable as absence. Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-06, release 1.108.422)
+
+The 1.108.419 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.419):** **the file cap limits what one call parses, not what the index keeps** (#1338, #1339): an agent's `index_folder` call parses at most `max_folder_files` (2,000) and the command line uses `cli_max_folder_files` (30,000), and a capped call never drops the files past its cap from an index built past it, on any route including `paths=`; the opt-in Grep answer (`JCODEMUNCH_HOOK_GREP_ANSWER=1`, off by default) counts every match of a Grep at or over 66 matching lines and lets a smaller one, or any Grep on a capped index, run. Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-07, release 1.108.423)
+
+The 1.108.420 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.420):** **re-indexing one file by path keeps a partial index marked partial** (#1341): an `index_folder` call with `paths=[...]` keeps the stored `file_cap_status` on every save route, so a partial index stays marked partial; a whole-tree walk still writes the status it found. Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-07, release 1.108.424)
+
+The 1.108.421 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.421):** **a starter pack installs in a few megabytes, and a file tree costs a third of the characters** (#1346, #1342): `install-pack` streams the download to a temp file and copies each archive member in chunks, so peak memory no longer grows with the pack; `get_file_tree` has a compact encoding that decodes to the same tree. Full text: `CHANGELOG.md`.

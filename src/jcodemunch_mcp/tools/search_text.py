@@ -77,6 +77,10 @@ SOURCE_MAX_SYMBOLS = 3
 SOURCE_MAX_LINES = 60
 SOURCE_MAX_BYTES = 8000
 
+# The most matching lines one `scan_limit` call collects. A ceiling on memory
+# for an in-process caller, not a page size: the MCP tool keeps its 100.
+SCAN_LIMIT_MAX = 5000
+
 
 def _file_patterns(file_pattern: str) -> list[str]:
     """The pattern as written, then its brace expansions (bounded, no nesting)."""
@@ -283,6 +287,7 @@ def search_text(
     storage_path: Optional[str] = None,
     *,
     selective_load: bool = False,
+    scan_limit: Optional[int] = None,
 ) -> dict:
     """Search for text across all indexed files in a repository.
 
@@ -291,6 +296,11 @@ def search_text(
     files' symbols instead of the whole index, and caches nothing. A server
     leaves it off, so its first search loads and caches the full index and the
     next ones answer from memory. Not an MCP argument.
+
+    ``scan_limit`` replaces ``max_results`` and its 100-line clamp, up to
+    SCAN_LIMIT_MAX, for an in-process caller that needs the whole match set
+    (the Grep-answer hook counts it before deciding to answer). The server
+    never passes it, so the tool's page size is unchanged. Not an MCP argument.
 
     Useful when symbol search misses — e.g., searching for string literals,
     comments, configuration values, or patterns not captured as symbols.
@@ -315,7 +325,10 @@ def search_text(
         return arg_err
 
     start = time.perf_counter()
-    max_results = max(1, min(max_results, 100))
+    if scan_limit is not None:
+        max_results = max(1, min(int(scan_limit), SCAN_LIMIT_MAX))
+    else:
+        max_results = max(1, min(max_results, 100))
     context_lines = max(0, min(context_lines, 10))
 
     # For regex mode, compile the user pattern. For substring mode, use
