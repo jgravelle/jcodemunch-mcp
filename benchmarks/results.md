@@ -31,11 +31,11 @@
 
 | Query | Search&nbsp;tokens | Fetch&nbsp;tokens | Hits&nbsp;fetched | Search&nbsp;ms |
 |-------|-----------------:|------------------:|------------------:|---------------:|
-| `router route handler` | 212 | 294 | 3 | 642.0 |
-| `middleware` | 213 | 420 | 3 | 23.5 |
-| `error exception` | 209 | 436 | 3 | 17.2 |
-| `request response` | 243 | 747 | 3 | 33.0 |
-| `param bind` | 201 | 741 | 3 | 21.9 |
+| `router route handler` | 212 | 294 | 3 | 346.1 |
+| `middleware` | 213 | 420 | 3 | 7.2 |
+| `error exception` | 209 | 436 | 3 | 7.2 |
+| `request response` | 243 | 747 | 3 | 10.5 |
+| `param bind` | 201 | 741 | 3 | 7.9 |
 
 </details>
 
@@ -62,11 +62,11 @@
 
 | Query | Search&nbsp;tokens | Fetch&nbsp;tokens | Hits&nbsp;fetched | Search&nbsp;ms |
 |-------|-----------------:|------------------:|------------------:|---------------:|
-| `router route handler` | 275 | 1,507 | 3 | 249.2 |
-| `middleware` | 337 | 977 | 3 | 19.6 |
-| `error exception` | 241 | 521 | 3 | 32.8 |
-| `request response` | 438 | 3,945 | 3 | 45.7 |
-| `param bind` | 233 | 422 | 3 | 19.3 |
+| `router route handler` | 275 | 1,507 | 3 | 120.6 |
+| `middleware` | 337 | 977 | 3 | 9.1 |
+| `error exception` | 241 | 521 | 3 | 15.0 |
+| `request response` | 438 | 3,945 | 3 | 33.5 |
+| `param bind` | 233 | 422 | 3 | 15.5 |
 
 </details>
 
@@ -93,11 +93,11 @@
 
 | Query | Search&nbsp;tokens | Fetch&nbsp;tokens | Hits&nbsp;fetched | Search&nbsp;ms |
 |-------|-----------------:|------------------:|------------------:|---------------:|
-| `router route handler` | 305 | 748 | 3 | 57.0 |
-| `middleware` | 233 | 1,030 | 3 | 17.4 |
-| `error exception` | 267 | 385 | 3 | 21.3 |
-| `request response` | 410 | 854 | 3 | 25.2 |
-| `param bind` | 277 | 460 | 3 | 24.3 |
+| `router route handler` | 305 | 748 | 3 | 30.5 |
+| `middleware` | 233 | 1,030 | 3 | 7.1 |
+| `error exception` | 267 | 385 | 3 | 14.2 |
+| `request response` | 410 | 854 | 3 | 12.1 |
+| `param bind` | 277 | 460 | 3 | 17.4 |
 
 </details>
 
