@@ -1083,6 +1083,24 @@ def tier_bench(result: dict, *, offline: bool, write_results: bool = False) -> b
         arts[step["name"]] = {"rc": rc, "seconds": round(secs, 2), "tail": tail}
         if rc != 0:
             ok = False
+        else:
+            # A step that judges its Floors by printing verdict lines must
+            # print one for every Floor it declares. A step that stopped
+            # writing a key exits 0 with every verdict it did print green
+            # (LEDGER L-314 review), so the Floor went unjudged. Steps that
+            # print no verdict lines judge their Floors another way and are
+            # not this check's to grade.
+            judged = {
+                m.group(1)
+                for m in (_VERDICT_RE.match(v.strip()) for v in verdicts)
+                if m
+            }
+            unjudged = [t for t in step.get("thresholds", []) if t not in judged]
+            if judged and unjudged:
+                print(
+                    f"   UNJUDGED: {step['name']} declares {unjudged} and printed no verdict for them"
+                )
+                ok = False
         if step.get("restore"):
             subprocess.run(["git", "checkout", "--", *step["restore"]], cwd=REPO)
         if scratch_art is not None:

@@ -135,10 +135,72 @@ def retired_hint(name: str) -> Optional[str]:
     return f"It was replaced by {new}; call {new} with {arg}."
 
 
+def as_order_call(name: str) -> str:
+    """How an action is called through the front door: ``order(action="name")``.
+
+    Codex, VS Code and Claude Code refuse a tool name the server did not list,
+    so on the counter surface a bare hidden name in a reply is a call that fails.
+    """
+    return f'order(action="{name}")'
+
+
+def render_names(text: str, names: Iterable[str]) -> str:
+    """``text`` with each of ``names`` that stands as a token rewritten as an order call.
+
+    A name already inside ``order(action="...")`` is left alone. Longest names
+    first, so ``get_symbol_source`` is never split by ``get_symbol``.
+    """
+    from .word_rule import word_pattern
+
+    for name in sorted(set(names), key=len, reverse=True):
+        call = as_order_call(name)
+        pat = re.compile(r'(?<!action=")' + word_pattern(name) + r'(?!")')
+        text = pat.sub(call, text)
+    return text
+
+
+def _fold_action(action: str) -> str:
+    return re.sub(r"[\s\-]+", "_", action.strip().lower()).strip("_")
+
+
+def nearest_actions(action: str, catalog_names: Iterable[str], n: int = 3) -> list[str]:
+    """Up to ``n`` catalog names close to ``action``, closest first; [] when none is.
+
+    Compared after folding case and ``-``/space to ``_``, so ``Get-File-Outline``
+    finds ``get_file_outline``. The names are the ones ``menu`` searches.
+
+    A name that starts more than ``n`` actions (``get_symbol``, ``search``) gets
+    no guess: closeness picks one of them by length, not by what was meant, and
+    one confident wrong name costs more than a ``menu`` call. A name that starts
+    ``n`` or fewer actions gets all of them.
+    """
+    import difflib
+
+    folded = _fold_action(action)
+    names = sorted(catalog_names)
+    if folded in names:
+        return [folded]
+    if not folded:
+        return []
+    prefixed = [nm for nm in names if nm.startswith(folded + "_")]
+    if len(prefixed) > n:
+        return []
+    if prefixed:
+        return prefixed
+    return difflib.get_close_matches(folded, names, n=n, cutoff=0.75)
+
+
+def starts_many_actions(action: str, catalog_names: Iterable[str], n: int = 3) -> bool:
+    """True when ``action`` starts more than ``n`` catalog names."""
+    folded = _fold_action(action)
+    return bool(folded) and sum(1 for nm in catalog_names if nm.startswith(folded + "_")) > n
+
+
 def order_gate(
     action: str,
     catalog_names: Iterable[str],
     allow_state_change: bool,
+    suggest_from: Optional[Iterable[str]] = None,
 ) -> Optional[str]:
     """Validate an ``order`` request. Return an error string, or None if OK.
 
@@ -154,7 +216,29 @@ def order_gate(
     if action not in names:
         hint = retired_hint(action)
         if hint is not None:
-            return f"Unknown action '{action}'. {hint}"
+            new = RETIRED_TOOL_NAMES[action][0]
+            if suggest_from is not None and new not in set(suggest_from):
+                # The replacement would be refused as turned off: say so, never offer it.
+                return (
+                    f"Unknown action '{action}'. It was replaced by {as_order_call(new)}, "
+                    f"which is turned off here; ask the user whether to turn it back on."
+                )
+            return f"Unknown action '{action}'. {render_names(hint, [new])}"
+        # Suggest only what would run: a turned-off tool stays dispatchable (so
+        # its own reply explains it) but is never offered as the next call.
+        pool = set(suggest_from) if suggest_from is not None else names
+        near = nearest_actions(action, pool)
+        if near:
+            return (
+                f"Unknown action '{action}'. Did you mean "
+                + " or ".join(as_order_call(a) for a in near)
+                + "? Call 'menu' (optionally with a query) to discover valid actions."
+            )
+        if starts_many_actions(action, pool):
+            return (
+                f"Unknown action '{action}'. Several actions start with it; call "
+                f"'menu' with query '{_fold_action(action)}' to see them."
+            )
         return (
             f"Unknown action '{action}'. Call 'menu' (optionally with a query) "
             f"to discover valid actions."
@@ -164,7 +248,7 @@ def order_gate(
         return tripwire
     if is_state_changing(action) and not allow_state_change:
         return (
-            f"'{action}' changes index/session state. Re-issue with "
+            f"{as_order_call(action)} changes index/session state. Re-issue it with "
             f"allow_state_change=true to proceed. (Read-only actions need no opt-in.)"
         )
     return None

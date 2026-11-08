@@ -1611,7 +1611,7 @@ class TestProjectAwareSummarizer:
     _create_summarizer -> provider __init__ -> _config.get(..., repo=).
     """
 
-    def _isolated_configs(self, monkeypatch, tmp_path, project_config: dict):
+    def _isolated_configs(self, monkeypatch, tmp_path, project_config: dict, user_opted_in: bool = True):
         """Set up an isolated config environment: empty global config, a
         project config at <tmp>/project/.jcodemunch.jsonc, and Path.cwd /
         Path.home redirected so config loading uses the temp dir."""
@@ -1621,7 +1621,11 @@ class TestProjectAwareSummarizer:
 
         storage = tmp_path / "storage"
         storage.mkdir()
-        (storage / "config.jsonc").write_text("{}", encoding="utf-8")
+        # A project file chooses the provider and model only for a user whose
+        # own config allows paid or remote summaries; #304 is about that user.
+        (storage / "config.jsonc").write_text(
+            '{"allow_paid_summaries": true}' if user_opted_in else "{}", encoding="utf-8"
+        )
 
         project = tmp_path / "project"
         project.mkdir()
@@ -1648,6 +1652,16 @@ class TestProjectAwareSummarizer:
         _cfg.load_project_config(str(project))
 
         return project
+
+    def test_a_project_provider_and_model_need_the_users_opt_in(self, tmp_path, monkeypatch):
+        project = self._isolated_configs(
+            monkeypatch, tmp_path,
+            project_config={"summarizer_provider": "anthropic", "summarizer_model": "Qwen3.6-Plus"},
+            user_opted_in=False,
+        )
+        from jcodemunch_mcp.summarizer.batch_summarize import get_model_name, get_provider_name
+        assert get_model_name(repo=str(project)) is None
+        assert get_provider_name(repo=str(project)) is None
 
     def test_get_model_name_returns_project_value(self, tmp_path, monkeypatch):
         project = self._isolated_configs(

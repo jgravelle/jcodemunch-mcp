@@ -690,11 +690,14 @@ INDEX_VERSION = 17
 #   carrying the class and the handler names its markup wires. `files.imports`
 #   changes on UNCHANGED content, so a re-parse is the only way an existing
 #   index gains the edge (the generation-25 shape).
-#
-# 28 (L-263): a JS/TS function assigned to a member at module scope is a
+# 28 (#1315): C-family `#import`, `#include_next`, an indented `#include` and
+#   `# include` are edges. `files.imports` changes on UNCHANGED content (the
+#   generation-25 shape). The resolver half of #1315 needs no re-parse.
+# 29 (L-263, L-291): a JS/TS function assigned to a member at module scope is a
 #   symbol (`res.send = function () {}`, `exports.f = ...`,
-#   `Foo.prototype.m = ...`). Symbols appear on UNCHANGED content.
-PARSER_GENERATION = 28
+#   `Foo.prototype.m = ...`), and a bound function's signature is its header,
+#   not its body. Symbols and signatures change on UNCHANGED content.
+PARSER_GENERATION = 29
 
 
 @dataclass(frozen=True)
@@ -1272,6 +1275,7 @@ class IndexStore:
         git_root: str = "",
         source_roots: Optional[list[str]] = None,
         file_cap_status: Optional[dict] = None,
+        parser_generation: Optional[int] = None,
     ) -> "CodeIndex":
         """Save index via SQLite backend."""
         # Validate owner/name for path separators (before any slug computation)
@@ -1303,6 +1307,7 @@ class IndexStore:
             file_blob_shas=file_blob_shas, file_mtimes=file_mtimes,
             package_names=package_names, git_root=git_root,
             source_roots=source_roots, file_cap_status=file_cap_status,
+            parser_generation=parser_generation,
         )
 
         # Clean up any legacy JSON now that data is safely in SQLite.

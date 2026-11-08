@@ -21,12 +21,10 @@ REPO = T.REPO_ROOT
 DOCS = [REPO / "CONFIGURATION.md", REPO / "CLI-AND-ENV.md", REPO / "README.md", REPO / "CLAUDE.md"]
 
 INTERNAL_KEYS = {
-    "trusted_folders_whitelist_mode": "F-03: inert with the shipped empty list; document or remove",
     "server_output": "F-03",
     "server_output_threshold": "F-03",
     "worktree_base_path": "F-03",
     "git_root_identity": "F-03",
-    "git_blame_enabled": "F-03",
     "summarizer_max_failures": "F-03",
     "cache_mode": "F-03",
     "summarize_from_docstrings": "F-03",

@@ -30,6 +30,8 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+from .file_sizes import ContentSizes, carry_fallback, sizes_from_content  # noqa: E402
+
 # `context_metadata` key naming the context providers a time budget cut on the
 # last full pass (L-190). Written by `tools/index_folder.py`; a delta save keeps
 # it (see `_incremental_save_locked`), and only a full save can end it.
@@ -588,6 +590,194 @@ def _stamp_load_provenance(index, db_path: Path, mtime_ns: int):
     except Exception:  # pragma: no cover - defensive; never break a load
         logger.debug("Could not stamp load provenance", exc_info=True)
     return index
+
+
+def _bm25_stats_blob(index) -> Optional[bytes]:
+    """The BM25 statistics row for a full save (#1343), or None.
+
+    Computed over COPIES of the symbols: tokenizing caches a token bag on each
+    symbol dict, and the warm copy this save caches must have the same keys as
+    a disk read (L-224). The four statistics go into the warm copy's cache, so
+    it searches without computing them again. A failure here never fails the
+    save; the row is then left empty and the next search computes the
+    statistics as before.
+    """
+    try:
+        from types import SimpleNamespace
+
+        from ..tools.search_symbols import _corpus_stats, publish_corpus_stats  # lazy: tools import storage
+        from . import bm25_stats
+
+        scratch = SimpleNamespace(
+            symbols=[dict(s) for s in index.symbols],
+            imports=index.imports,
+            alias_map=index.alias_map,
+            psr4_map=getattr(index, "psr4_map", None),
+        )
+        idf, avgdl, inverted, centrality = _corpus_stats(scratch)
+        publish_corpus_stats(index, idf, avgdl, inverted, centrality)
+        return bm25_stats.encode(
+            bm25_stats.corpus_digest(index), len(index.symbols),
+            idf, avgdl, inverted, centrality,
+        )
+    except Exception:
+        logger.warning("BM25 statistics not stored with this index", exc_info=True)
+        return None
+
+
+def store_bm25_stats_for_loaded_index(index, blob: bytes) -> bool:
+    """Write a search's BM25 statistics into the .db the index came from.
+
+    Runs from ``bm25_stats.flush_pending``. Takes the ``indexwrite`` lock
+    without waiting, so it never queues behind a writer, and writes only if
+    the .db is still exactly as it was loaded, checked again inside the write
+    transaction. The file is opened ``mode=rw``, so a deleted index is never
+    re-created. The write moves the .db's mtime; ``_restamp_after_bm25_write``
+    decides whether the warm index may follow it. Returns whether the row was
+    stored. Never raises.
+    """
+    from . import bm25_stats, process_locks
+    from .generation import describe
+
+    try:
+        gen = describe(index)
+        if not gen.db_path or gen.loaded_mtime_ns is None or getattr(index, "branch", ""):
+            return False
+        db_path = Path(gen.db_path)
+        owner, name = getattr(index, "owner", ""), getattr(index, "name", "")
+        if not owner or not name:
+            return False
+        with process_locks.held("indexwrite", f"{owner}/{name}", str(db_path.parent)) as got:
+            if not got:
+                return False
+            if _db_mtime_ns(db_path) != gen.loaded_mtime_ns:
+                return False
+            conn = sqlite3.connect(
+                db_path.resolve().as_uri() + "?mode=rw", uri=True,
+                isolation_level=None, timeout=1.0,
+            )
+            try:
+                conn.execute("BEGIN IMMEDIATE")
+                # Three meta writers skip `indexwrite` (L-230); one could have
+                # committed since the check above.
+                if _db_mtime_ns(db_path) != gen.loaded_mtime_ns:
+                    conn.execute("ROLLBACK")
+                    return False
+                bm25_stats.write_in_txn(conn, blob)
+                conn.execute("COMMIT")
+            finally:
+                conn.close()
+            _restamp_after_bm25_write(index, db_path, gen.loaded_mtime_ns)
+        return True
+    except Exception:
+        logger.debug("BM25 statistics write-back skipped", exc_info=True)
+        return False
+
+
+# Meta keys written by methods that do NOT take `indexwrite` (L-230:
+# `set_coverage`, `stamp_parser_generation`, `heal_pack_index_paths`; #1341
+# added `set_file_cap_status`). One of them can commit inside a locked
+# writer's window, so a path that re-keys a warm index after its own write
+# reads these back first. A test fails when a writer outside the lock writes
+# a key missing from this list.
+_UNLOCKED_META_KEYS = ("coverage", "file_cap_status", "parser_generation", "source_root", "git_root")
+
+
+def _read_unlocked_meta(db_path: Path) -> Optional[dict]:
+    """The `_UNLOCKED_META_KEYS` rows as the .db stands, or None if it moved
+    during the read."""
+    from .generation import connect_readonly
+
+    mtime_ns = _db_mtime_ns(db_path)
+    ro = connect_readonly(db_path)
+    try:
+        placeholders = ",".join("?" * len(_UNLOCKED_META_KEYS))
+        meta = {
+            k: v
+            for k, v in ro.execute(
+                f"SELECT key, value FROM meta WHERE key IN ({placeholders})",
+                _UNLOCKED_META_KEYS,
+            ).fetchall()
+        }
+    finally:
+        ro.close()
+    if _db_mtime_ns(db_path) != mtime_ns:
+        return None
+    meta["_mtime_ns"] = mtime_ns
+    return meta
+
+
+# How each unlocked key is compared with the index attribute of the same name.
+# `heal_pack_index_paths` clears the roots and cached values are remapped, so
+# only the clearing can be compared for those.
+_UNLOCKED_META_COMPARE = {
+    "coverage": lambda stored, held: (json.loads(stored or "{}") or {}) == (held or {}),
+    "file_cap_status": lambda stored, held: (json.loads(stored or "{}") or {}) == (held or {}),
+    "parser_generation": lambda stored, held: _as_generation(stored) == _as_generation(held),
+    "source_root": lambda stored, held: bool(stored) == bool(held),
+    "git_root": lambda stored, held: bool(stored) == bool(held),
+}
+
+
+def _as_generation(value) -> int:
+    """A stored or held parser generation as an int. Absent is 0, the value a
+    legacy index carries; unreadable is -1, which matches no held value and
+    so evicts."""
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return -1
+
+
+def _unlocked_meta_matches(index, meta: dict) -> bool:
+    """Whether ``index`` already carries every `_UNLOCKED_META_KEYS` value in
+    ``meta``. A key with no comparison never matches, so a key added to the
+    list without one evicts rather than being skipped."""
+    for key in _UNLOCKED_META_KEYS:
+        compare = _UNLOCKED_META_COMPARE.get(key)
+        if compare is None or not compare(meta.get(key), getattr(index, key, None)):
+            return False
+    return True
+
+
+def _restamp_after_bm25_write(index, db_path: Path, loaded_mtime_ns: int) -> None:
+    """Move the warm index to the .db's new mtime, or evict it.
+
+    Moving it is what keeps this process from reading its own write as a
+    rebuild and reloading the index. It is safe only if nothing else changed:
+    some meta writers do not take `indexwrite` (`_UNLOCKED_META_KEYS`), so one
+    can commit between our COMMIT and this stat, and re-keying the old entry
+    would hide that write (`coverage` gates absence claims, #566;
+    `file_cap_status` marks a partial index, #1341). So those keys are read
+    back from the .db as it stands and compared with the index, as
+    `_patch_cached_summaries` does; a difference, a move during the read, or
+    any failure evicts instead, which is never wrong, only slower.
+    """
+    with _cache_lock:
+        keys = [
+            k for k, e in _index_cache.items()
+            if e.code_index is index and e.mtime_ns == loaded_mtime_ns
+        ]
+    mtime_ns = loaded_mtime_ns
+    try:
+        meta = _read_unlocked_meta(db_path)
+        same = meta is not None and _unlocked_meta_matches(index, meta)
+        if meta is not None:
+            mtime_ns = meta["_mtime_ns"]
+    except Exception:
+        logger.debug("BM25 write-back: could not re-read meta; evicting", exc_info=True)
+        same = False
+    with _cache_lock:
+        for key in keys:
+            entry = _index_cache.get(key)
+            if entry is None or entry.code_index is not index:
+                continue
+            if same:
+                _index_cache[key] = entry._replace(mtime_ns=mtime_ns)
+            else:
+                _index_cache.pop(key, None)
+    if same:
+        index._loaded_mtime_ns = mtime_ns
 
 
 def _db_mtime_ns(db_path: Path) -> int:
@@ -1340,6 +1530,9 @@ class SQLiteIndexStore:
             return
 
         file_sizes = {fp: len(content.encode("utf-8")) for fp, content in raw_files.items()}
+        file_sizes = sizes_from_content(
+            file_sizes, [*changed_files, *new_files], self._content_dir_or_none(owner, name)
+        )
 
         conn = self._connect(db_path)
         try:
@@ -1594,7 +1787,9 @@ class SQLiteIndexStore:
         composed_mtimes = _patch(base_index.file_mtimes, delta_mtimes, files_to_remove)
         composed_languages = _patch(base_index.file_languages, delta_languages, files_to_remove)
         composed_summaries = _patch(base_index.file_summaries, delta_summaries, files_to_remove)
-        composed_sizes = _patch(base_index.file_sizes, delta_sizes, files_to_remove)
+        composed_sizes = carry_fallback(
+            base_index.file_sizes, _patch(base_index.file_sizes, delta_sizes, files_to_remove)
+        )
 
         base_imports = base_index.imports if base_index.imports is not None else {}
         composed_imports = _patch(base_imports, delta_imports, files_to_remove)
@@ -1684,8 +1879,13 @@ class SQLiteIndexStore:
         git_root: str = "",
         source_roots: Optional[list[str]] = None,
         file_cap_status: Optional[dict] = None,
+        parser_generation: Optional[int] = None,
     ) -> "CodeIndex":
         """Save a full index to SQLite. Replaces all existing data.
+
+        ``parser_generation``: the generation to record, when the save carries
+        files from the old index that this run did not re-parse. Left out, the
+        current generation is recorded.
 
         v1.106.0: serialises against concurrent save_index calls from other
         MCP processes via the ``indexwrite`` lock. SQLite WAL alone makes
@@ -1716,6 +1916,11 @@ class SQLiteIndexStore:
             languages = lang_counts
 
         file_sizes = {fp: len(content.encode("utf-8")) for fp, content in raw_files.items()}
+        # A full index writes contents to the content dir and passes none here,
+        # so without this every file it wrote stored no size (see file_sizes.py).
+        file_sizes = sizes_from_content(
+            file_sizes, normalized_source_files, self._content_dir_or_none(owner, name)
+        )
 
         index = CodeIndex(
             repo=f"{owner}/{name}", owner=owner, name=name,
@@ -1724,7 +1929,10 @@ class SQLiteIndexStore:
             languages=languages or {},
             symbols=serialized_symbols,
             index_version=cast(int, _INDEX_VERSION),
-            parser_generation=cast(int, _PARSER_GENERATION),
+            parser_generation=(
+                int(parser_generation) if parser_generation is not None
+                else cast(int, _PARSER_GENERATION)
+            ),
             racket_config_digest=_racket_config_digest_for(source_root, languages),
             racket_reader_generation=_racket_reader_generation_for(source_root, languages),
             file_hashes=file_hashes,
@@ -1745,6 +1953,9 @@ class SQLiteIndexStore:
         )
 
         db_path = self._db_path(owner, name)
+        # Computed before the lock and written inside the symbols' own
+        # transaction, so the stored row always belongs to these symbols (#1343).
+        bm25_blob = _bm25_stats_blob(index)
         lock_target = f"{owner}/{name}"
         storage_root = str(self.base_path)
         with process_locks.held(
@@ -1763,6 +1974,7 @@ class SQLiteIndexStore:
                 normalized_source_files, raw_files,
                 file_hashes, file_languages, file_mtimes,
                 file_blob_shas, file_summaries, file_sizes, imports,
+                bm25_blob=bm25_blob,
             )
 
     def _save_index_locked(
@@ -1781,6 +1993,7 @@ class SQLiteIndexStore:
         file_summaries,
         file_sizes,
         imports,
+        bm25_blob: Optional[bytes] = None,
     ):
         """Inner body of save_index; runs under the indexwrite lock."""
         conn = self._connect(db_path)
@@ -1834,6 +2047,10 @@ class SQLiteIndexStore:
                     for fp in normalized_source_files
                 ],
             )
+
+            from . import bm25_stats
+
+            bm25_stats.write_in_txn(conn, bm25_blob)
 
             conn.commit()
         finally:
@@ -2398,6 +2615,11 @@ class SQLiteIndexStore:
                         "INSERT OR REPLACE INTO meta (key, value) VALUES ('summaries_generation', ?)",
                         (str(generation),),
                     )
+                    # A summary is tokenized, so the stored BM25 statistics
+                    # describe the old text (#1343).
+                    from . import bm25_stats
+
+                    bm25_stats.clear_in_txn(conn)
                 conn.commit()
             finally:
                 conn.close()
@@ -2460,23 +2682,11 @@ class SQLiteIndexStore:
             # claims (#566). Read their keys from the .db as it stands now and
             # carry them, the way `incremental_save`'s own patch refreshes
             # `coverage`; if the .db moves during the read, evict instead.
-            mtime_ns = _db_mtime_ns(db_path)
-            from .generation import connect_readonly
-
-            ro = connect_readonly(db_path)
-            try:
-                meta = {
-                    k: v
-                    for k, v in ro.execute(
-                        "SELECT key, value FROM meta WHERE key IN "
-                        "('coverage', 'parser_generation', 'source_root', 'git_root')"
-                    ).fetchall()
-                }
-            finally:
-                ro.close()
-            if _db_mtime_ns(db_path) != mtime_ns:
+            meta = _read_unlocked_meta(db_path)
+            if meta is None:
                 _cache_evict(owner, safe_name)
                 return
+            mtime_ns = meta["_mtime_ns"]
             old = entry.code_index
             # `heal_pack_index_paths` clears the two roots; the cached values
             # are remapped, so only the clearing can be compared.
@@ -2496,6 +2706,8 @@ class SQLiteIndexStore:
                 patched.summaries_generation = str(generation)
             if "coverage" in meta:
                 patched.coverage = json.loads(meta["coverage"] or "{}") or {}
+            if "file_cap_status" in meta:
+                patched.file_cap_status = json.loads(meta["file_cap_status"] or "{}") or {}
             if meta.get("parser_generation"):
                 patched.parser_generation = int(meta["parser_generation"])
             _stamp_load_provenance(patched, db_path, mtime_ns)
@@ -2572,6 +2784,12 @@ class SQLiteIndexStore:
                     stored_cut = None
                 if stored_cut:
                     context_metadata = {**context_metadata, PROVIDERS_CUT_KEY: stored_cut}
+
+            # The stored BM25 statistics describe the symbols as they were;
+            # cleared in this transaction, refilled by the next search (#1343).
+            from . import bm25_stats
+
+            bm25_stats.clear_in_txn(conn)
 
             # Delete symbols for changed + deleted files
             files_to_remove: set[str] = set(deleted_files) | set(changed_files)
@@ -2979,6 +3197,35 @@ class SQLiteIndexStore:
         except Exception:
             logger.debug("Failed to set coverage for %s/%s", owner, name, exc_info=True)
 
+    def set_file_cap_status(self, owner: str, name: str, status: dict) -> None:
+        """Persist the file-cap status alone, for a run that saved nothing else.
+
+        A re-index that found no changed file still walked the tree, and its cap
+        can see files the index lacks (new files past the cap). Best-effort,
+        like ``set_coverage``.
+        """
+        safe_owner = self._safe_repo_component(owner, "owner")
+        safe_name = self._safe_repo_component(name, "name")
+        db_path = self._db_path(safe_owner, safe_name)
+        if not db_path.exists():
+            return
+        try:
+            conn = self._connect(db_path)
+            try:
+                conn.execute(
+                    "INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)",
+                    ("file_cap_status", json.dumps(status or {})),
+                )
+                conn.commit()
+            finally:
+                conn.close()
+            with _cache_lock:
+                for key, entry in _index_cache.items():
+                    if key[0] == owner and key[1] == name:
+                        entry.code_index.file_cap_status = status or {}
+        except Exception:
+            logger.debug("Failed to set file_cap_status for %s/%s", owner, name, exc_info=True)
+
     def stamp_parser_generation(self, owner: str, name: str, generation: int) -> bool:
         """Record that this index's symbols were produced by `generation`.
 
@@ -3351,6 +3598,14 @@ class SQLiteIndexStore:
 
     # ── Content cache helpers (reused from IndexStore) ──────────────
 
+    def _content_dir_or_none(self, owner: str, name: str) -> Optional[Path]:
+        """The content dir, or None when the slot's guard refuses it (sizes then stay unknown)."""
+        try:
+            return self._content_dir(owner, name)
+        except Exception:
+            logger.debug("content dir unavailable for %s/%s", owner, name, exc_info=True)
+            return None
+
     def _content_dir(self, owner: str, name: str) -> Path:
         """Path to raw content directory. Guarded like ``_db_path``: the
         directory belongs to whichever repository the slot's index records."""
@@ -3639,7 +3894,9 @@ class SQLiteIndexStore:
         new_file_languages = _patch_dict(old.file_languages, file_languages, files_to_remove)
         new_file_summaries = _patch_dict(old.file_summaries, file_summaries, files_to_remove)
         new_file_blob_shas = _patch_dict(old.file_blob_shas, file_blob_shas, files_to_remove)
-        new_file_sizes = _patch_dict(old.file_sizes, file_sizes, files_to_remove)
+        new_file_sizes = carry_fallback(
+            old.file_sizes, _patch_dict(old.file_sizes, file_sizes, files_to_remove)
+        )
 
         if old.imports is not None:
             new_imports: Optional[dict] = _patch_dict(old.imports, imports, files_to_remove)
@@ -3792,7 +4049,7 @@ class SQLiteIndexStore:
             context_metadata=context_metadata,
             file_blob_shas=file_blob_shas,
             file_mtimes=file_mtimes,
-            file_sizes=file_sizes,
+            file_sizes=ContentSizes(file_sizes, self._content_dir_or_none(owner, name)),
             package_names=package_names,
             file_cap_status=file_cap_status,
             coverage=coverage,

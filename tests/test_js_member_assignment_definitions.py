@@ -173,4 +173,4 @@ def test_the_parser_generation_names_the_new_symbols():
     (Standing lesson 08-05). `>=` so a renumber at merge time still passes."""
     from jcodemunch_mcp.storage.index_store import PARSER_GENERATION
 
-    assert PARSER_GENERATION >= 28
+    assert PARSER_GENERATION >= 29

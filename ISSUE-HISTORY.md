@@ -3054,3 +3054,101 @@ The 1.108.406 entry, verbatim as it stood in `CLAUDE.md`:
 The `Tests:` line's 1.108.406 count, verbatim:
 
 - ⚠ Prior (1.108.406): 19550 passed, 24 skipped, **0 failed** (19574 total).
+
+## Current State rotation (2026-11-02, release 1.108.410)
+
+The 1.108.407 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.407):** **a stdio server exits when the process that started it is gone, and storage reports how much disk the index uses** (#1297-#1301): `serve` on stdio watches its parent (PID plus start time, past Windows launchers) and exits when it is gone, `JCODEMUNCH_PARENT_WATCH_SECONDS` sets the interval and 0 turns it off; `jcodemunch-mcp storage` reports the store by index without opening a database; a query that names a tool ranks that tool first. Full text: `CHANGELOG.md`.
+
+The `Tests:` line's 1.108.407 count, verbatim:
+
+- ⚠ Prior (1.108.407): 19613 passed, 24 skipped, **0 failed** (19637 total).
+
+## Current State rotation (2026-11-03, release 1.108.411)
+
+The 1.108.408 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.408):** **a rare work-license reminder, never shown to a license holder** (#1303): a machine is told work use needs a license 7 days after its first index is seen, then at most every 30 days, on stderr after a human-read command or in `license_notice`; never with a key, on CI, after `config set license_reminder false` or with `JCODEMUNCH_LICENSE_REMINDER=0`; the console script enters through `server.cli`. Full text: `CHANGELOG.md`.
+
+The `Tests:` line's 1.108.408 count, verbatim:
+
+- ⚠ Prior (1.108.408): 19660 passed, 24 skipped, **0 failed** (19684 total).
+
+## Current State rotation (2026-11-03, release 1.108.412)
+
+The 1.108.409 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.409):** **a search for a name nothing carries says so on a default install** (#1308, #1306): an identifier-shaped `search_symbols` query with no exact and no prefix match anywhere in the index carries `negative_evidence: no_exact_match` and a warning in the body, which `meta_fields: []` keeps; rows and ranking are unchanged and the verdict state is `low_confidence`, never `absent`. The work-license reminder's buy link names where it was shown. Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-03, release 1.108.413)
+
+The 1.108.410 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.410):** **a savings meter that stops measuring says so, and Rails views are indexed** (#1309, #1307, #1311): the savings meter records `last_flush_at` and `measured_days` on every write that carries a call, so a 0 is a measurement and a missing day is not, and `receipt`, `diagnose` and `get_session_stats` carry `lifetime_status` (`current`/`stale`/`unknown`); its write can no longer wipe or lose counts; `.erb` is a language; `tuning.jsonc` and the embedding-drift canary follow `CODE_INDEX_PATH` through the store's own root rule. Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-03, release 1.108.414)
+
+The 1.108.411 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.411):** **a C or C++ #include resolves where the compiler finds it, and Go callers in the same package are found** (#1315, #1313): a C-family include tries the importer's folder, the root, `include/`, `src/`; a miss resolves to nothing; who-calls, blast radius and impact preview count a Go file's same-directory siblings as callers. Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-04, release 1.108.415)
+
+The 1.108.412 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.412):** **graph tools resolve each import once per loaded index, and a savings file holding the wrong type is refused, not frozen** (#1317, #1320, #1322): `resolve_specifier` remembers its whole answer per file set, alias map and PSR-4 map, keyed by importer and specifier, so a graph tool after the first call on an index skips the resolve; `_read_ledger` refuses a `_savings.json` holding the wrong type wherever the merge adds a number, with #1309's warning and recovery. Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-04, release 1.108.416)
+
+The 1.108.413 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.413):** **the license terms read the same in the terminal, the package and the site** (#1321): the CLI's license lines and the package descriptions state the site's terms, `receipt` ends with a one-line license note on a machine with no key, and `license_reminder.switch_reason` is the one rule for when the lines stay quiet. Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-04, release 1.108.417)
+
+The 1.108.414 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.414):** **a class comes back as its outline, and an import finds the file in its own language** (#1326, #1327): `get_symbol_source` returns a class with each method collapsed to its signature by default (`class_body="full"` for the whole body, a 1.x default change); an extensionless Ruby or Python import tries the importer's own language's file first. Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-05, release 1.108.418)
+
+The 1.108.415 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.415):** **a search for library code ranks the library above its tutorial and example copies** (#1324): `search_symbols` weights a symbol under an example, tutorial, sample or demo directory down when the query isn't about examples, the way it already weighted tests; a served debug row names the weight under `score_breakdown`. Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-05, release 1.108.419)
+
+The 1.108.416 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.416):** **a search credits the tokens it saved on a fresh install's index** (#1330): a full save and a branch save store a size for every file from the content folder, and an index built before the fix reads a missing size from its content copy, so `search_symbols` and five other read tools credit savings without a re-index. Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-06, release 1.108.420)
+
+The 1.108.417 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.417):** **a wrong call through order names a call that works** (#1333): on the counter surface every action an `order` reply or a turned-off refusal names is written as `order(action="...")`, a typo gets up to three close actions, a turned-off tool is never suggested, and the refusal names the file that lists it and tells the agent to ask the user. Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-06, release 1.108.421)
+
+The 1.108.418 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.418):** **a search on a capped index says, in its answer, that the index is partial** (#1336): a tool answer drawn from an index the `max_folder_files` cap truncated carries one body line, `index_warning`, with the file counts and the setting to raise, attached before the display filter so a default `meta_fields: []` install still sees it; `get_ranked_context` reports the cap on every exit, so its no-match answer on a capped index is no longer citable as absence. Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-06, release 1.108.422)
+
+The 1.108.419 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.419):** **the file cap limits what one call parses, not what the index keeps** (#1338, #1339): an agent's `index_folder` call parses at most `max_folder_files` (2,000) and the command line uses `cli_max_folder_files` (30,000), and a capped call never drops the files past its cap from an index built past it, on any route including `paths=`; the opt-in Grep answer (`JCODEMUNCH_HOOK_GREP_ANSWER=1`, off by default) counts every match of a Grep at or over 66 matching lines and lets a smaller one, or any Grep on a capped index, run. Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-07, release 1.108.423)
+
+The 1.108.420 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.420):** **re-indexing one file by path keeps a partial index marked partial** (#1341): an `index_folder` call with `paths=[...]` keeps the stored `file_cap_status` on every save route, so a partial index stays marked partial; a whole-tree walk still writes the status it found. Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-07, release 1.108.424)
+
+The 1.108.421 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.421):** **a starter pack installs in a few megabytes, and a file tree costs a third of the characters** (#1346, #1342): `install-pack` streams the download to a temp file and copies each archive member in chunks, so peak memory no longer grows with the pack; `get_file_tree` has a compact encoding that decodes to the same tree. Full text: `CHANGELOG.md`.

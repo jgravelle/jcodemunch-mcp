@@ -12,6 +12,7 @@ which is the invariant those predicates existed to protect.
 """
 from __future__ import annotations
 
+import contextlib
 import sys
 import types
 
@@ -61,6 +62,15 @@ class FakeHTTPX(types.ModuleType):
         if not self._get:
             raise self.HTTPError("unscripted GET")
         return self._get.pop(0)
+
+    @contextlib.contextmanager
+    def stream(self, method, url, **kwargs):
+        # install-pack streams its download. It is still one GET, recorded in
+        # the same list, so the invariants below read every request in one place.
+        resp = self.get(url, **kwargs)
+        resp.iter_bytes = lambda chunk_size=None: iter([resp.content] if resp.content else [])
+        resp.read = lambda: resp.content
+        yield resp
 
 
 @pytest.fixture()

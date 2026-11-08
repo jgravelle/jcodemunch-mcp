@@ -194,6 +194,8 @@ def _build_indexed_response(
         except Exception:
             cap = {}
         if cap.get("truncated"):
+            from ..security import cap_label, cap_remedy
+
             result["truncated"] = True
             result["files_discovered"] = cap.get("files_discovered")
             result["files_indexed"] = cap.get("files_indexed")
@@ -201,10 +203,14 @@ def _build_indexed_response(
             result["truncation_warning"] = (
                 f"Index truncated by the file cap: {cap.get('files_discovered')} files "
                 f"discovered, {cap.get('files_indexed')} indexed, "
-                f"{cap.get('files_skipped_cap')} dropped (max_folder_files="
+                f"{cap.get('files_skipped_cap')} dropped ({cap_label(cap)}="
                 f"{cap.get('max_folder_files')}). Entire files are missing from search "
-                f"results. Raise max_folder_files in config.jsonc (or set "
-                f"JCODEMUNCH_MAX_FOLDER_FILES) and re-index."
+                "results. "
+                + (
+                    cap_remedy(cap)
+                    or "Raise max_folder_files in config.jsonc (or set "
+                    "JCODEMUNCH_MAX_FOLDER_FILES) and re-index."
+                )
             )
     return result
 

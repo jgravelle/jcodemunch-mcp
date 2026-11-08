@@ -110,7 +110,14 @@ _JAVA_IMPORT = re.compile(r"""^import\s+(?:static\s+)?([\w.]+)(?:\s+as\s+\w+)?\s
 _RUST_USE = re.compile(r"""^use\s+([\w::{},\s*]+)\s*;""", re.MULTILINE)
 
 # C/C++/ObjC: #include <foo>  or  #include "foo"
-_C_INCLUDE = re.compile(r"""^#include\s+[<"]([^>"]+)[>"]""", re.MULTILINE)
+# (#1315) Every spelling a preprocessor accepts: indented, with space after the
+# `#` (both common inside `#if` blocks), Objective-C's `#import` (the usual form
+# there) and GCC's `#include_next`. Only the bare `#include` was read before.
+# ⚠ Read line by line, not preprocessed: an include inside `#if 0` or a
+# `/* */` block is an edge too (the bare form already was), MSVC's `#import
+# "x.tlb"` gives an edge that never resolves, and a backslash-continued
+# include is not read.
+_C_INCLUDE = re.compile(r"""^[ \t]*#[ \t]*(?:include_next|include|import)[ \t]*[<"]([^>"\n]+)[>"]""", re.MULTILINE)
 
 # Assembly: .include "foo" / .incbin "foo" / %include "foo"
 _ASM_INCLUDE = re.compile(r"""^\s*[.%]include\s+["']([^"']+)["']""", re.MULTILINE | re.IGNORECASE)
@@ -2124,6 +2131,30 @@ _JS_EXTENSIONS = (
 _PY_EXTENSIONS = (".py",)
 _RUBY_EXTENSIONS = (".rb",)
 _ALL_EXTENSIONS = _JS_EXTENSIONS + _PY_EXTENSIONS + _RUBY_EXTENSIONS + (".go",)
+# (#1316) The file forms `_candidates` tries, by the importer's own extension:
+# a suffix, or (for Python) a package folder's `__init__.py`. JavaScript is
+# first in `_candidates`' order already, so only the others need trying ahead
+# of it. ⚠ Go is deliberately absent: a Go import names a package DIRECTORY, so
+# preferring a `util.go` file over `util.js` would rank one wrong file over
+# another.
+_OWN_FIRST_GROUPS = {
+    **{e: (".py", "/__init__.py") for e in (".py", ".pyi")},
+    **{e: _RUBY_EXTENSIONS for e in _RUBY_EXTENSIONS},
+}
+
+
+def _own_forms(importer_path: str) -> tuple[str, ...]:
+    """The file forms an importer's own language reads, to try first (#1316).
+
+    `_candidates` adds every known extension in one fixed order, JavaScript
+    then `.py` then `.rb`, so `require_relative '../measure'` from a Ruby file
+    took `measure.py` over the `measure.rb` beside it, and a Python `import
+    utils` (or `from .utils import x`, or `import app.utils`) took `utils.js`.
+    Empty for every other importer, whose order is unchanged.
+    """
+    return _OWN_FIRST_GROUPS.get(posixpath.splitext(importer_path or "")[1], ())
+
+
 _RACKET_EXTENSIONS = (".rkt", ".rktl", ".rktd")
 
 # TypeScript's ESM rules require the specifier to name the EMITTED file, so a
@@ -2259,8 +2290,13 @@ def _sql_stems_for(key: frozenset) -> dict[str, str]:
     return stems
 
 
-def _candidates(base: str) -> list[str]:
+def _candidates(base: str, own: tuple[str, ...] = ()) -> list[str]:
     """Generate path candidates with and without extension.
+
+    ``own`` is `_own_forms(importer)`: for an extensionless or dotted-stem
+    *base* those forms come right after *base* itself, ahead of the fixed
+    JavaScript-first order (#1316). Every caller that knows its importer
+    passes it, so a new call site inherits the rule.
 
     Cases:
     - No extension (`./foo`): try every known source extension and the
@@ -2276,6 +2312,8 @@ def _candidates(base: str) -> list[str]:
     """
     cands = [base]
     _, ext = posixpath.splitext(base)
+    if own and (not ext or (ext not in _ALL_EXTENSIONS and ext not in _JS_SPECIFIER_REWRITES)):
+        cands.extend(base + e for e in own)
     if not ext:
         for e in _ALL_EXTENSIONS:
             cands.append(base + e)
@@ -2804,7 +2842,56 @@ def _resolve_python_relative(
     if not base:
         return None
 
-    for candidate in _candidates(base):
+    for candidate in _candidates(base, _own_forms(importer_path)):
+        if candidate in source_files:
+            return candidate
+    return None
+
+
+# Folders tried as include roots after the importer's folder and the repo root,
+# when the header is there. The real roots live in the build files
+# (`include_directories`, `-I`), which are not read; these two cover the
+# common layouts (#1315: OpenStudio puts its root at `src/`).
+_C_INCLUDE_ROOTS = ("include", "src")
+
+
+@functools.lru_cache(maxsize=8192)
+def _is_c_family_importer(importer_path: str) -> bool:
+    """True when the importer's language reads its imports as `#include`.
+
+    ⚠ Asks the two authorities instead of listing extensions: the path's
+    language (which settles `.m` between Objective-C and MATLAB) and whether
+    that language's extractor is `_extract_c_imports`. A language added to the
+    C family later inherits the rule. ⚠ Cached by path (the language lookup is
+    most of a resolve's cost without it); `clear_resolution_caches` clears it,
+    so a change to the extension table is seen after `invalidate_cache`.
+    """
+    from .languages import get_language_for_path
+
+    try:
+        lang = get_language_for_path(importer_path)
+    except Exception:
+        logger.debug("language not found for %s", importer_path, exc_info=True)
+        return False
+    return lang is not None and _LANGUAGE_EXTRACTORS.get(lang) is _extract_c_imports
+
+
+def _resolve_c_include(specifier: str, importer_path: str, source_files: set[str]) -> Optional[str]:
+    """Where a compiler finds `#include "spec"` or `#include <spec>` (#1315).
+
+    Order: the importer's folder, the repo root, then `include/` and `src/`.
+    ⚠ The stored edge keeps the path text only, not the quotes or brackets, so
+    an angle include is tried in the importer's folder too, which a compiler
+    does only for a quoted one. That can link `<config.h>` to a `config.h`
+    beside the importer when the one meant is elsewhere.
+    ⚠ The name is matched EXACTLY: an include always names the whole file, and
+    adding other languages' extensions would link `#include <vector>` to a
+    `vector.py` in the same folder.
+    """
+    importer_dir = posixpath.dirname(importer_path)
+    bases = [importer_dir, ""] + [r for r in _C_INCLUDE_ROOTS if r != importer_dir]
+    for base in bases:
+        candidate = posixpath.normpath(posixpath.join(base, specifier)) if base else posixpath.normpath(specifier)
         if candidate in source_files:
             return candidate
     return None
@@ -2836,6 +2923,41 @@ def resolve_specifier(
     Returns:
         The matching source file path, or None if unresolvable.
     """
+    # (#1317) The whole answer is memoized per file set, alias map and PSR-4
+    # map, keyed by importer and specifier: every graph tool resolves every
+    # import of the repository on every call, and the answer is a pure function
+    # of these five arguments. A builder that passes the index's own frozenset
+    # inherits it; a plain set is resolved as before.
+    memo = _answer_memo(source_files, alias_map, psr4_map)
+    if memo is None:
+        return _resolve_specifier_uncached(specifier, importer_path, source_files, alias_map, psr4_map)
+    key = (importer_path, specifier)
+    hit = memo.get(key, _TAIL_MISS)
+    if hit is _TAIL_MISS:
+        hit = _resolve_specifier_uncached(specifier, importer_path, source_files, alias_map, psr4_map)
+        memo[key] = hit
+    return hit
+
+
+def _resolve_specifier_uncached(
+    specifier: str,
+    importer_path: str,
+    source_files: set[str],
+    alias_map: Optional[dict[str, list[str]]] = None,
+    psr4_map: Optional[dict[str, str]] = None,
+) -> Optional[str]:
+    """`resolve_specifier` without the memo; see its docstring."""
+    # C, C++, Objective-C and Arduino `#include` (#1315). ⚠ A miss returns None
+    # and does NOT fall through: the later steps read the name as another
+    # language would (added extensions, SQL stems, Python module paths), and an
+    # include names a whole file, so they could only invent an edge
+    # (`<vector>` to `vector.py`, `"config.h"` to `config/h.py`). The one thing
+    # they found correctly, the file at the repo root, is a base tried here.
+    # An edge can MOVE: a header beside the importer now wins over one of the
+    # same name at the root, which is the one the compiler picks.
+    if not specifier.startswith(".") and _is_c_family_importer(importer_path):
+        return _resolve_c_include(specifier, importer_path, source_files)
+
     # Relative import
     if specifier.startswith("."):
         # Python's relative form is NOT a path. `..parser.fqn` means "up one
@@ -2862,7 +2984,7 @@ def resolve_specifier(
 
         importer_dir = posixpath.dirname(importer_path)
         joined = posixpath.normpath(posixpath.join(importer_dir, specifier))
-        for c in _candidates(joined):
+        for c in _candidates(joined, _own_forms(importer_path)):
             if c in source_files:
                 return c
         return None
@@ -2983,13 +3105,17 @@ def resolve_specifier(
     # map alone, so it is computed once per specifier and file set: the
     # import-graph builders resolve every import of every file, and a large
     # repository repeats the same specifiers across thousands of files.
+    # ⚠ (#1316) The answer also depends on the importer's language group
+    # (`_own_forms`), so the memo key carries it: a Ruby answer cached first
+    # must not be served to a Python importer of the same name.
     if not importer_path.endswith(".gleam"):
         memo = _tail_memo(source_files, alias_map)
         if memo is not None:
-            hit = memo.get(specifier, _TAIL_MISS)
+            key = (specifier, _own_forms(importer_path))
+            hit = memo.get(key, _TAIL_MISS)
             if hit is _TAIL_MISS:
                 hit = _resolve_tail(specifier, importer_path, source_files, alias_map)
-                memo[specifier] = hit
+                memo[key] = hit
             return hit
     return _resolve_tail(specifier, importer_path, source_files, alias_map)
 
@@ -3014,6 +3140,63 @@ def clear_resolution_caches() -> None:
         _sql_stem_by_files.clear()
     with _TAIL_MEMO_LOCK:
         _tail_memos.clear()
+        _answer_memos.clear()
+    _is_c_family_importer.cache_clear()
+    global _last_answer_memo
+    _last_answer_memo = None
+
+
+# (#1317) Whole answers, per file set: {frozenset: [(alias_map, psr4_map, memo)]},
+# memo keyed (importer, specifier). Bounded like the tail memo: at most
+# _TAIL_MEMO_MAX file sets, oldest first, each with at most _TAIL_MEMO_MAX map
+# pairs. A memo has no entry cap of its own; it holds one entry per distinct
+# (importer, specifier) its file set was asked about, which is bounded by that
+# repository's imports. Process memory only, nothing written.
+_answer_memos: dict[frozenset, list] = {}
+
+
+def _answer_memo(source_files, alias_map, psr4_map) -> Optional[dict]:
+    """The answer memo for one file set and pair of maps, or None if not cacheable.
+
+    ⚠ The maps are matched by IDENTITY, as the tail memo does: an index hands
+    the same objects to every caller, and comparing two maps by value on every
+    call would cost what the memo saves. An empty map and None resolve alike.
+    """
+    global _last_answer_memo
+    if not isinstance(source_files, frozenset):
+        return None
+    alias_map = alias_map or None
+    psr4_map = psr4_map or None
+    # ⚠ Identity fast path. A builder makes a NEW `frozenset(index.source_files)`
+    # per call and passes that one object for every import; a dict lookup with
+    # an equal-but-different key compares every path, so without this every
+    # call would pay a comparison of the whole file set.
+    last = _last_answer_memo
+    if last is not None and last[0] is source_files and last[1] is alias_map and last[2] is psr4_map:
+        return last[3]
+    memo = _answer_memo_slow(source_files, alias_map, psr4_map)
+    _last_answer_memo = (source_files, alias_map, psr4_map, memo)
+    return memo
+
+
+_last_answer_memo: Optional[tuple] = None
+
+
+def _answer_memo_slow(source_files: frozenset, alias_map, psr4_map) -> dict:
+    with _TAIL_MEMO_LOCK:
+        entries = _answer_memos.get(source_files)
+        if entries is None:
+            if len(_answer_memos) >= _TAIL_MEMO_MAX:
+                _answer_memos.pop(next(iter(_answer_memos)))
+            entries = _answer_memos[source_files] = []
+        for held_alias, held_psr4, memo in entries:
+            if held_alias is alias_map and held_psr4 is psr4_map:
+                return memo
+        memo = {}
+        if len(entries) >= _TAIL_MEMO_MAX:
+            entries.pop(0)
+        entries.append((alias_map, psr4_map, memo))
+        return memo
 
 
 def _tail_memo(source_files, alias_map) -> Optional[dict]:
@@ -3046,8 +3229,9 @@ def _resolve_tail(
     alias_map: Optional[dict[str, list[str]]],
 ) -> Optional[str]:
     """resolve_specifier's absolute, Gleam, Python-module, alias and stem steps."""
+    own = _own_forms(importer_path)
     # Absolute: try direct match first (e.g., for Go or absolute paths)
-    for c in _candidates(specifier):
+    for c in _candidates(specifier, own):
         if c in source_files:
             return c
 
@@ -3067,11 +3251,11 @@ def _resolve_tail(
         # "Own" roots share the importer's package dir (the part above
         # src/test), so a test module prefers its package's src/ root too.
         # A root-level src/test (dirname "") means a single-package repo.
-        own = [
+        own_roots = [
             r for r in roots
             if not posixpath.dirname(r) or importer_path.startswith(posixpath.dirname(r) + "/")
         ]
-        for root in own + [r for r in roots if r not in own]:
+        for root in own_roots + [r for r in roots if r not in own_roots]:
             prefixed = f"{root}/{candidate}"
             if prefixed in source_files:
                 return prefixed
@@ -3089,13 +3273,13 @@ def _resolve_tail(
     ):
         module_path = specifier.replace(".", "/")
         # Try direct (repo-root layout)
-        for c in _candidates(module_path):
+        for c in _candidates(module_path, own):
             if c in source_files:
                 return c
         # Try with each detected Python source root as a prefix
         for root in _python_source_roots(source_files):
             prefixed = f"{root}/{module_path}" if root else module_path
-            for c in _candidates(prefixed):
+            for c in _candidates(prefixed, own):
                 if c in source_files:
                     return c
         # Fallback for runtime-injected source roots (conftest.py sys.path
@@ -3113,14 +3297,14 @@ def _resolve_tail(
                 if parent in seen_roots:
                     continue  # already tried above
                 prefixed = f"{parent}/{module_path}" if parent else module_path
-                for c in _candidates(prefixed):
+                for c in _candidates(prefixed, own):
                     if c in source_files:
                         return c
 
     # Alias expansion (tsconfig compilerOptions.paths: @/*, $lib/*, etc.)
     if alias_map:
         for expanded in _expand_aliases(specifier, alias_map):
-            for c in _candidates(expanded):
+            for c in _candidates(expanded, own):
                 if c in source_files:
                     return c
 
