@@ -10,7 +10,7 @@ The opt-in Grep answer (`JCODEMUNCH_HOOK_GREP_ANSWER=1`) has a 4-second budget, 
 - the freshness check looked at every indexed file. It now checks only the files inside the Grep's scope, since a changed file outside it can't change the answer, and reads each file's mtime with one `stat` instead of an existence check plus a `stat`;
 - one hook call read the index's file table three times. It reads it once now, and the enclosing-symbol step reads just the matched files' symbol rows.
 
-Measured on the same index and the same Grep, the hook now answers in 2.0 s with the same count, 140 lines in 71 files, where before the freshness check alone took 3.2 s. That is with the operating system's file cache warm. A first Grep after a long idle gap, when the search reads the index's cached file copies from disk, measured 4.0 to 5.0 s here and can still miss the 4 s budget, in which case the Grep runs as before.
+Measured on the same index and the same Grep, the hook now answers in 2.0 s with the same count, 140 lines in 71 files, where before the freshness check alone took 3.2 s. That is with the operating system's file cache warm. A first Grep after a long idle gap, when the search reads the index's cached file copies from disk, missed the 4 s budget here, and when it does the Grep runs as before.
 
 ## [1.108.424] - 2026-11-07 - a project config file can only tighten settings
 
