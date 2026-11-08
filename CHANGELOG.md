@@ -6,6 +6,20 @@
 
 The one search per session that carries the steering hint now costs 292 tokens instead of 434, on the pinned express corpus ("middleware"; 226 without the hint). After a few search and read calls with no bundle call, a `search_symbols` or `search_text` answer carries a one-line hint pointing at `get_ranked_context`. That answer used to be served as JSON, so the compact encoding couldn't drop the hint, and that one search cost more than the same answer encoded. The hint has its own key, `_meta.steer_hint` (it was `_meta.hint`), which the compact encoding carries (`UNIVERSAL_META_JSON`); a tool's ordinary `_meta.hint` stays off the wire as before. The encoding ids do not change: a decoder that predates this reads the same rows and ignores the new key. Tests: `tests/test_the_steering_hint_keeps_the_compact_encoding.py`.
 
+### Fixed - a function assigned to a member is a JavaScript symbol
+
+CommonJS code defines most of its API by assignment: express writes `res.send = function send(body) {...}`, `exports.compileTrust = function ...` and `Foo.prototype.bar = function () {...}`. None of these produced a symbol, so in express's `lib/` a search for `send` found only the `require` of the npm package `send`, and `response.js` indexed as the single variable `res`. Found by Benchmarking's relationship checks on 1.108.401 (LEDGER L-263).
+
+A function, arrow or generator assigned to a member at module scope is now a symbol. `obj.name = ...` and `Foo.prototype.name = ...` give a method (`res.send`, `Foo.bar`); `exports.name = ...` and `module.exports.name = ...` give a function named `name`. The body of a UMD or IIFE wrapper counts as module scope; the body of any other function does not, so an assignment inside a route callback or a factory stays out. TypeScript gets the same rule. The span is the whole assignment statement.
+
+A declaration keeps its id. `class Foo { bar() {} }` beside `Foo.prototype.bar = ...`, or `function f() {}` beside `exports.f = ...`, keeps the declaration and adds nothing, so no existing id moves or gains a `~1`. A repeated assignment keeps the first. Prototype methods carry no parent, so an outline does not nest them under their class. `defineGetter(req, 'protocol', ...)` and other definitions made through a call are not covered. `PARSER_GENERATION` moves to 29, so an existing JavaScript or TypeScript index re-parses once on the next index run.
+
+### Fixed - a bound JavaScript function's signature is its header, not its whole body
+
+A function bound by a declaration (`const f = function (a) {...}`, `const g = (a) => {...}`, `export const h = async () => {...}`) or by a class field (`handler = (e) => {...}`) stored its whole statement, body included, as its `signature`. The statement node has no `body` field, so the rule that cuts a plain `function f(a)` at its body never applied. Every search row for such a function carried all of its lines, and words inside the body matched searches. The member-assigned functions above inherited it, which is how the token benchmark on this change found it: its first run put express over the per-repository rise Floor (LEDGER L-291).
+
+The signature now ends where the function's own body starts: `const f = function f(a)`, `const g = (a) =>`, `res.json = function (obj)`, `handler = (e) =>`. The span is unchanged, so `get_symbol_source` still returns the whole function. Search rows for these functions are shorter, and a search no longer matches words that appear only in a bound function's body; a plain `function` declaration already worked this way. The same `PARSER_GENERATION` bump re-parses existing indexes.
+
 ## [1.108.425] - 2026-11-08 - the Grep answer reaches large repositories
 
 ### Fixed - `receipt` and `diagnose` read the savings file the way the meter does (#1335)
