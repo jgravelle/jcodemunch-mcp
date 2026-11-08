@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+### Changed - `upgrade` and the hooks refresh show the surface offer
+
+An install created before the `counter` default keeps its tool surface, on purpose: a package update never changes which tools a user is served. Until now the priced offer to switch showed up only in `jcodemunch-mcp surface`, `install-status`, a log line at server start, and a notice on the first `resolve_repo` answer, so an install still on the full tool list could go a long time without seeing it.
+
+`init --hooks`, which `upgrade` runs and which a user types to refresh hooks, now prints the same offer: the same block and renderer `install-status` uses, with this install's own figures and unchanged wording. It's still only a message. Nothing changes until the user runs the switch command, `surface_offer_seen` silences it, and an install already on the default surface sees nothing.
+
 ### Fixed - the Grep answer reaches large repositories
 
 On a 23,186-file Home Assistant index, the opt-in Grep answer (`JCODEMUNCH_HOOK_GREP_ANSWER=1`) now answers a Grep over `homeassistant/` (140 lines in 71 files) in 2.0 s, with the same count as before. It used to need 6.2 s, past its 4-second budget, so that Grep ran unanswered. Large repositories are the ones the answer is for. The search was never the slow part: three costs grew with the whole repository, and all three are now cut.
