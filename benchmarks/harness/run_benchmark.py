@@ -89,7 +89,7 @@ def _load_corpus():
     # be visibly unpinned rather than quietly pinned to a stale constant.
     return (
         ["expressjs/express", "fastapi/fastapi", "gin-gonic/gin"],
-        ["router route handler", "middleware", "error exception", "request response", "context bind"],
+        ["router route handler", "middleware", "error exception", "request response", "param bind"],
         {},
     )
 

@@ -2,6 +2,9 @@
 
 **Tokenizer:** `cl100k_base` (tiktoken)  
 **Workflow:** `search_symbols` (top 5) + `get_symbol` x 3  
+**Counted:** the response text the server serves on a default install (`server.call_tool`, no config file)  
+**Once per session, not in any lookup:** license notice 160 tokens (first answer on a machine), steering hint 153 tokens (one search)  
+**Each repo's lookups as one session instead:** expressjs/express +475, fastapi/fastapi +324, gin-gonic/gin +0 tokens (the note on a symbol an earlier answer already delivered)  
 **Baseline A (read-all):** all source files concatenated  
 **Baseline B (grep-top-3):** `rg -l` the query terms, then open the top 3 files whole  
 
@@ -10,29 +13,29 @@
 | Metric | Value |
 |--------|-------|
 | Files indexed | **186** |
-| Symbols extracted | **989** |
+| Symbols extracted | **1,085** |
 | Baseline tokens (all files) | **154,569** |
 | Upstream commit | `1faf228935aa` (pinned) |
 | Corpus complete | yes |
 
 | Query | Read-all&nbsp;tokens | Grep-top-3&nbsp;tokens | jMunch&nbsp;tokens | Ratio&nbsp;vs&nbsp;read-all | **Ratio&nbsp;vs&nbsp;grep** |
 |-------|---------------------:|----------------------:|-------------------:|--------------------------:|--------------------------:|
-| `router route handler` | 154,569 | 9,890 | 1,074 | 143.9x | **9.21x** |
-| `middleware` | 154,569 | 11,777 | 1,159 | 133.4x | **10.16x** |
-| `error exception` | 154,569 | 18,961 | 1,139 | 135.7x | **16.65x** |
-| `request response` | 154,569 | 21,620 | 1,279 | 120.9x | **16.9x** |
-| `context bind` | 154,569 | 16,371 | 297 | 520.4x | **55.12x** |
-| **Average** | — | — | — | 210.9x | **21.6x** |
+| `router route handler` | 154,569 | 9,890 | 506 | 305.5x | **19.55x** |
+| `middleware` | 154,569 | 11,777 | 633 | 244.2x | **18.61x** |
+| `error exception` | 154,569 | 18,961 | 645 | 239.6x | **29.4x** |
+| `request response` | 154,569 | 21,620 | 990 | 156.1x | **21.84x** |
+| `param bind` | 154,569 | 12,954 | 942 | 164.1x | **13.75x** |
+| **Average** | — | — | — | 221.9x | **20.6x** |
 
 <details><summary>Query detail (search + fetch tokens, latency)</summary>
 
 | Query | Search&nbsp;tokens | Fetch&nbsp;tokens | Hits&nbsp;fetched | Search&nbsp;ms |
 |-------|-----------------:|------------------:|------------------:|---------------:|
-| `router route handler` | 459 | 615 | 3 | 68.5 |
-| `middleware` | 464 | 695 | 3 | 1.8 |
-| `error exception` | 474 | 665 | 3 | 3.0 |
-| `request response` | 537 | 742 | 3 | 3.5 |
-| `context bind` | 297 | 0 | 0 | 34.2 |
+| `router route handler` | 212 | 294 | 3 | 642.0 |
+| `middleware` | 213 | 420 | 3 | 23.5 |
+| `error exception` | 209 | 436 | 3 | 17.2 |
+| `request response` | 243 | 747 | 3 | 33.0 |
+| `param bind` | 201 | 741 | 3 | 21.9 |
 
 </details>
 
@@ -48,22 +51,22 @@
 
 | Query | Read-all&nbsp;tokens | Grep-top-3&nbsp;tokens | jMunch&nbsp;tokens | Ratio&nbsp;vs&nbsp;read-all | **Ratio&nbsp;vs&nbsp;grep** |
 |-------|---------------------:|----------------------:|-------------------:|--------------------------:|--------------------------:|
-| `router route handler` | 825,326 | 97,495 | 1,440 | 573.1x | **67.7x** |
-| `middleware` | 825,326 | 36,575 | 1,918 | 430.3x | **19.07x** |
-| `error exception` | 825,326 | 100,987 | 1,309 | 630.5x | **77.15x** |
-| `request response` | 825,326 | 130,461 | 4,778 | 172.7x | **27.3x** |
-| `context bind` | 825,326 | 60,963 | 3,334 | 247.5x | **18.29x** |
-| **Average** | — | — | — | 410.8x | **41.9x** |
+| `router route handler` | 825,326 | 97,495 | 1,782 | 463.1x | **54.71x** |
+| `middleware` | 825,326 | 36,575 | 1,314 | 628.1x | **27.83x** |
+| `error exception` | 825,326 | 100,987 | 762 | 1083.1x | **132.53x** |
+| `request response` | 825,326 | 130,461 | 4,383 | 188.3x | **29.77x** |
+| `param bind` | 825,326 | 68,049 | 655 | 1260.0x | **103.89x** |
+| **Average** | — | — | — | 724.5x | **69.7x** |
 
 <details><summary>Query detail (search + fetch tokens, latency)</summary>
 
 | Query | Search&nbsp;tokens | Fetch&nbsp;tokens | Hits&nbsp;fetched | Search&nbsp;ms |
 |-------|-----------------:|------------------:|------------------:|---------------:|
-| `router route handler` | 567 | 873 | 3 | 1420.5 |
-| `middleware` | 623 | 1,295 | 3 | 2.9 |
-| `error exception` | 558 | 751 | 3 | 4.5 |
-| `request response` | 571 | 4,207 | 3 | 11.0 |
-| `context bind` | 580 | 2,754 | 3 | 4.7 |
+| `router route handler` | 275 | 1,507 | 3 | 249.2 |
+| `middleware` | 337 | 977 | 3 | 19.6 |
+| `error exception` | 241 | 521 | 3 | 32.8 |
+| `request response` | 438 | 3,945 | 3 | 45.7 |
+| `param bind` | 233 | 422 | 3 | 19.3 |
 
 </details>
 
@@ -79,22 +82,22 @@
 
 | Query | Read-all&nbsp;tokens | Grep-top-3&nbsp;tokens | jMunch&nbsp;tokens | Ratio&nbsp;vs&nbsp;read-all | **Ratio&nbsp;vs&nbsp;grep** |
 |-------|---------------------:|----------------------:|-------------------:|--------------------------:|--------------------------:|
-| `router route handler` | 151,842 | 18,789 | 1,541 | 98.5x | **12.19x** |
-| `middleware` | 151,842 | 13,190 | 1,733 | 87.6x | **7.61x** |
-| `error exception` | 151,842 | 44,021 | 1,123 | 135.2x | **39.2x** |
-| `request response` | 151,842 | 39,929 | 1,761 | 86.2x | **22.67x** |
-| `context bind` | 151,842 | 43,946 | 1,247 | 121.8x | **35.24x** |
-| **Average** | — | — | — | 105.9x | **23.4x** |
+| `router route handler` | 151,842 | 18,789 | 1,053 | 144.2x | **17.84x** |
+| `middleware` | 151,842 | 13,190 | 1,263 | 120.2x | **10.44x** |
+| `error exception` | 151,842 | 44,021 | 652 | 232.9x | **67.52x** |
+| `request response` | 151,842 | 39,929 | 1,264 | 120.1x | **31.59x** |
+| `param bind` | 151,842 | 45,334 | 737 | 206.0x | **61.51x** |
+| **Average** | — | — | — | 164.7x | **37.8x** |
 
 <details><summary>Query detail (search + fetch tokens, latency)</summary>
 
 | Query | Search&nbsp;tokens | Fetch&nbsp;tokens | Hits&nbsp;fetched | Search&nbsp;ms |
 |-------|-----------------:|------------------:|------------------:|---------------:|
-| `router route handler` | 547 | 994 | 3 | 150.1 |
-| `middleware` | 445 | 1,288 | 3 | 2.4 |
-| `error exception` | 479 | 644 | 3 | 3.9 |
-| `request response` | 649 | 1,112 | 3 | 3.9 |
-| `context bind` | 520 | 727 | 3 | 7.2 |
+| `router route handler` | 305 | 748 | 3 | 57.0 |
+| `middleware` | 233 | 1,030 | 3 | 17.4 |
+| `error exception` | 267 | 385 | 3 | 21.3 |
+| `request response` | 410 | 854 | 3 | 25.2 |
+| `param bind` | 277 | 460 | 3 | 24.3 |
 
 </details>
 
@@ -105,14 +108,14 @@
 | | Tokens |
 |--|-------:|
 | Baseline A total, read-all (15 task-runs) | 5,658,685 |
-| Baseline B total, grep-top-3 | 664,975 |
-| jMunch total | 25,132 |
-| Reduction vs read-all | 99.6% |
-| Ratio vs read-all | 225.2x |
-| **Mean reduction per lookup vs grep-top-3** (15 lookups) | **94.5%** |
-| Reduction vs grep-top-3, pooled totals | 96.2% |
-| Ratio vs grep-top-3, pooled totals | 26.5x |
+| Baseline B total, grep-top-3 | 670,032 |
+| jMunch total | 17,581 |
+| Reduction vs read-all | 99.7% |
+| Ratio vs read-all | 321.9x |
+| **Mean reduction per lookup vs grep-top-3** (15 lookups) | **96.2%** |
+| Reduction vs grep-top-3, pooled totals | 97.4% |
+| Ratio vs grep-top-3, pooled totals | 38.1x |
 
-> **Baseline B is the number to quote**, as the mean reduction per lookup. The pooled totals weigh the lookups with the largest grep baselines most. Read-all is a ceiling nobody pays: it assumes an agent opens every file in the repository before acting. Grep-then-read is what a competent agent without this tool actually does, and it is 11.8% of the read-all figure — so measuring against read-all overstates the advantage by about 9x.
+> **Baseline B is the number to quote**, as the mean reduction per lookup. The pooled totals weigh the lookups with the largest grep baselines most. Read-all is a ceiling nobody pays: it assumes an agent opens every file in the repository before acting. Grep-then-read is what a competent agent without this tool actually does, and it is 11.8% of the read-all figure — so measuring against read-all overstates the advantage by about 8x.
 
 > Measured with tiktoken `cl100k_base`. Read-all = every indexed source file. Grep-top-3 = `rg -l` the query terms, then open the top 3 matching files whole. jMunch = search_symbols (top 5) + get_symbol x 3 per query. Both baselines are measured in THIS run against THIS corpus.

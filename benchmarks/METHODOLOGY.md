@@ -17,7 +17,7 @@ jcodemunch's standard skip patterns (node_modules, __pycache__, etc.).
 
 | Repository | Commit | Files Indexed | Symbols Extracted | Baseline Tokens |
 |------------|--------|:------------:|:-----------------:|:--------------:|
-| expressjs/express | `1faf228935aa` | 186 | 989 | 154,569 |
+| expressjs/express | `1faf228935aa` | 186 | 1,085 | 154,569 |
 | fastapi/fastapi | `a64dfbbd21a4` | 1,186 | 13,699 | 825,326 |
 | gin-gonic/gin | `75ccf94d605a` | 98 | 1,822 | 151,842 |
 
@@ -256,24 +256,24 @@ details.
 ## Common Misreadings
 
 **"The claim is up to 99%."**
-The primary claim is **94.5% fewer tokens per lookup on average** across all 15
+The primary claim is **96.2% fewer tokens per lookup on average** across all 15
 task-runs, measured against Baseline B: an agent that greps and opens the top 3
 files. It is the mean of the 15 per-lookup reductions in `results.md`. Pooled,
-the totals are 664,975 → 25,132 tokens (96.2%, 26.5x); the pooled figure is
+the totals are 670,032 → 17,581 tokens (97.4%, 38.1x total tokens); the pooled figure is
 higher because the lookups with the largest grep baselines weigh the most. Against Baseline A, the read-everything ceiling, the same run
-gives 99.6% / 225.2x (5,658,685 → 25,132). Both are published; B is the one to
+gives 99.7% / 321.9x (5,658,685 → 17,581). Both are published; B is the one to
 quote.
 
-⚠ **Per-query results span 7.6x to 77.2x** (median 19.1x). No single multiple
+⚠ **Per-query results span 10.4x to 132.5x** (median 29.4x). No single multiple
 describes every query, and the floor — `middleware` on gin — is a number a real
 user can hit.
 
 ⚠ The read-all aggregate is dominated by one repo: fastapi contributes 72.9% of
-its baseline tokens, so 225.2x is largely a statement about fastapi (aggregate
-225.2x vs median 135.7x). **That objection is weaker for Baseline B**, whose
-aggregate and median sit closer together (26.5x vs 19.1x, fastapi share 64.1%), because
+its baseline tokens, so 321.9x is largely a statement about fastapi (aggregate
+321.9x vs median 232.9x). **That objection is weaker for Baseline B**, whose
+aggregate and median sit closer together (38.1x vs 29.4x, fastapi share 64.7%), because
 grep cost tracks matches rather than repository size. It does not go away: the
-aggregate is 1.39 times the median, so the typical query saves less than the
+aggregate is 1.30 times the median, so the typical query saves less than the
 headline says. Quote the per-query spread beside it.
 
 Every number above is re-measured by the same run, and the machine-readable copy lives in
@@ -301,32 +301,31 @@ measures that agent**, on the same corpus in the same run:
 
 | Against | Baseline tokens | Ratio | Reduction |
 |---|--:|--:|--:|
-| Read-all (Baseline A) | 5,658,685 | 225.2x | 99.6% |
-| **Grep-top-3 (Baseline B)** | **664,975** | 26.5x | 96.2% (pooled) |
+| Read-all (Baseline A) | 5,658,685 | 321.9x | 99.7% |
+| **Grep-top-3 (Baseline B)** | **670,032** | 38.1x | 97.4% (pooled total tokens) |
 
 **Baseline B is 11.8% of Baseline A, so measuring against read-all overstates the
-advantage by roughly 8.5x.** Quote Baseline B's per-lookup mean, 94.5%; this
+advantage by roughly 8.4x.** Quote Baseline B's per-lookup mean, 96.2%; this
 table pools the totals.
 
-⚠ **The per-query spread on B is 7.6x to 77.2x** (median 19.1x), so no single
-multiple describes every query. The floor — `middleware` on gin at **7.6x** — is
+⚠ **The per-query spread on B is 10.4x to 132.5x** (median 29.4x), so no single
+multiple describes every query. The floor — `middleware` on gin at **10.4x** — is
 the honest worst case and is published here rather than left in the JSON.
 
 ⚠ One thing that improved under the realistic baseline, and it is worth saying
 because it cuts our way: the read-all aggregate is badly distorted by the largest
-repo (aggregate 225.2x vs median 135.7x, with fastapi contributing 72.9% of
-baseline tokens). Baseline B's aggregate and median sit closer together (**26.5x vs
-19.1x**, fastapi share 64.1%), because grep cost tracks *matches* rather than
-repository size. The gap that remains (aggregate 1.39 times the median, against
-1.66 for read-all) comes from two fastapi queries with very large grep
-baselines, `router route handler` and `error exception`: without them the
-aggregate is 20.8x, near the 19.1x median. The median is the better guide to
-a typical query.
+repo (aggregate 321.9x vs median 232.9x, with fastapi contributing 72.9% of
+baseline tokens). Baseline B's aggregate and median sit closer together (**38.1x vs
+29.4x**, fastapi share 64.7%), because grep cost tracks *matches* rather than
+repository size. The gap that remains (aggregate 1.30 times the median, against
+1.38 for read-all) comes from the fastapi queries with the largest grep
+baselines, `request response` and `error exception`: without those two the
+aggregate is 35.3x. The median is the better guide to a typical query.
 
-So 99.6% measures **what symbol-level retrieval avoids relative to loading the
+So 99.7% measures **what symbol-level retrieval avoids relative to loading the
 corpus** — a ceiling on removable waste, and the right answer to "how much of a
 repository does an agent actually need in context." It is not a prediction of
-anyone's bill. The 94.5% per-lookup mean against Baseline B is the closer thing
+anyone's bill. The 96.2% per-lookup mean against Baseline B is the closer thing
 to that, and it still does not
 model an agent that was already retrieving selectively.
 
@@ -348,6 +347,6 @@ but it is genuinely cheaper, and the table says so.
 There is a narrower sense in which the baseline is conservative, and it only applies
 *within* the read-everything comparison: we count one pass through each file. A real
 agent that reads broadly re-reads files, branches across sessions, and loads
-documentation, so its true cost is higher than the figure here. That makes 99.6% a
+documentation, so its true cost is higher than the figure here. That makes 99.7% a
 floor **for that class of agent** — which is a different claim from a floor in
 general, and it should not be read as one.
