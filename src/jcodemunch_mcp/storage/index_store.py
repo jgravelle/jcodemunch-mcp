@@ -693,7 +693,11 @@ INDEX_VERSION = 17
 # 28 (#1315): C-family `#import`, `#include_next`, an indented `#include` and
 #   `# include` are edges. `files.imports` changes on UNCHANGED content (the
 #   generation-25 shape). The resolver half of #1315 needs no re-parse.
-PARSER_GENERATION = 28
+# 29 (L-263, L-291): a JS/TS function assigned to a member at module scope is a
+#   symbol (`res.send = function () {}`, `exports.f = ...`,
+#   `Foo.prototype.m = ...`), and a bound function's signature is its header,
+#   not its body. Symbols and signatures change on UNCHANGED content.
+PARSER_GENERATION = 29
 
 
 @dataclass(frozen=True)
