@@ -216,14 +216,16 @@ def _symbols_of_matched_files(store, owner: str, name: str, index, results: list
     files = list(dict.fromkeys(group["file"] for group in results))
     if not files:
         return []
-    narrow = store.open_selective(owner, name, files=files)
+    # Meta and symbol rows only: the view already holds the file list, and
+    # reading the files table again cost about a second on a large index.
+    narrow = store.read_file_symbols(owner, name, files)
     if (
-        isinstance(narrow, SelectiveIndexView)
+        narrow is not None
         and index.generation is not None
-        and narrow.generation == index.generation
-        and narrow._loaded_mtime_ns == index._loaded_mtime_ns
+        and narrow[0] == index.generation
+        and narrow[1] == index._loaded_mtime_ns
     ):
-        return narrow.selected_symbols()
+        return narrow[2]
     return index.symbols
 
 
@@ -288,6 +290,7 @@ def search_text(
     *,
     selective_load: bool = False,
     scan_limit: Optional[int] = None,
+    _index=None,
 ) -> dict:
     """Search for text across all indexed files in a repository.
 
@@ -296,6 +299,10 @@ def search_text(
     files' symbols instead of the whole index, and caches nothing. A server
     leaves it off, so its first search loads and caches the full index and the
     next ones answer from memory. Not an MCP argument.
+
+    ``_index`` is an index or selective view the caller already opened for
+    this repo, so a one-shot caller that read it for another check doesn't pay
+    the same read twice. Not an MCP argument.
 
     ``scan_limit`` replaces ``max_results`` and its 100-line clamp, up to
     SCAN_LIMIT_MAX, for an in-process caller that needs the whole match set
@@ -350,7 +357,7 @@ def search_text(
     # cached index comes back as is). A server loads and caches the full
     # index, so later calls are memory reads. None from open_selective means
     # "take the ordinary path", never an absence.
-    index = (
+    index = _index or (
         store.open_selective(owner, name) if selective_load else None
     ) or store.load_index(owner, name)
 

@@ -855,7 +855,11 @@ class CodeIndex:
         if not self.alias_map and self.source_root:
             try:
                 from ..parser.imports import _load_tsconfig_aliases
-                self.alias_map = _load_tsconfig_aliases(self.source_root)
+                # The file list vouches for the tree only when the cap didn't cut it.
+                capped = bool((self.file_cap_status or {}).get("truncated"))
+                self.alias_map = _load_tsconfig_aliases(
+                    self.source_root, known_files=None if capped else self.source_files
+                )
             except Exception:
                 pass
         # Load PSR-4 namespace map from composer.json if PHP files are present
@@ -1417,6 +1421,10 @@ class IndexStore:
         must migrate before anything can read it.
         """
         return self._sqlite.open_selective(owner, name, **kwargs)
+
+    def read_file_symbols(self, owner: str, name: str, files: list):
+        """``(indexed_at, mtime_ns, symbols)`` for the named files, or None (use another path)."""
+        return self._sqlite.read_file_symbols(owner, name, files)
 
     def get_symbol_content(self, owner: str, name: str, symbol_id: str, _index: Optional["CodeIndex"] = None) -> Optional[str]:
         """Read symbol source using stored byte offsets.
