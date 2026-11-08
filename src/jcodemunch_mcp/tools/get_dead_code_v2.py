@@ -1537,8 +1537,10 @@ def get_dead_code_v2(
             "note": (
                 "unreachable_file was not decided for these files: a .NET project "
                 "file may consume them (build_consumed), a build or code generator may "
-                "compile a schema (schema_consumer), or a user control or master "
-                "page may be loaded by path at runtime (runtime_loadable); "
+                "compile a schema (schema_consumer), a user control or master "
+                "page may be loaded by path at runtime (runtime_loadable), or an "
+                "ERB view may be rendered by name or by convention "
+                "(template_rendered); "
                 "imported_by_one counts the files such a file imports. The index "
                 "carries neither edge. Their other signals still vote."
             ),

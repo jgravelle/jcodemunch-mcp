@@ -26,8 +26,10 @@ Verdict tiers (most-permissive first):
                              (`import_module(f"adapters.{name}")`). The sites
                              are named. LEDGER L-70. Also a .NET control,
                              master page or build item, or a schema a build
-                             or code generator may compile, loaded by a path
-                             the index does not carry (`unseen_consumer`).
+                             or code generator may compile, or an ERB view
+                             rendered by name or by convention, reached by
+                             an edge the index does not carry
+                             (`unseen_consumer`).
 
 ⚠⚠ **`corpus_inadequate`, `name_not_searchable` and `dynamic_import_boundary`
 each replace an absence verdict, never a blocking one.**
@@ -482,9 +484,10 @@ def check_delete_safe(
             blocker["files_total"] = len(reaching)
         blockers.append(blocker)
 
-    # A .NET control, master page or build item, or a schema a build compiles,
-    # is reached by an edge the index does not carry (LoadControl, a stored
-    # control path, the project file, a code generator): the same unproven
+    # A .NET control, master page or build item, a schema a build compiles, or
+    # an ERB view, is reached by an edge the index does not carry (LoadControl,
+    # a stored control path, the project file, a code generator, `render` or a
+    # controller's convention): the same unproven
     # absence as a dynamic import, under the same verdict.
     unseen = unseen_consumer(
         target.get("file", ""),
@@ -502,6 +505,9 @@ def check_delete_safe(
                 "check for a build or code generator outside the index that "
                 "compiles this schema"
                 if unseen == "schema_consumer"
+                else "check for a `render` call naming this view, or a controller "
+                "action or framework that renders it by convention"
+                if unseen == "template_rendered"
                 else "check how the host loads this file (LoadControl, a stored "
                 "control path, the project file)"
             ),

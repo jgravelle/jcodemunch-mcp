@@ -241,8 +241,9 @@ def _projects_roots(explicit: Optional[list[Path]] = None) -> list[Path]:
 
 def _index_root() -> Path:
     """Index storage root (honors CODE_INDEX_PATH, default ~/.code-index)."""
-    env = os.environ.get("CODE_INDEX_PATH")
-    return Path(env) if env else Path.home() / ".code-index"
+    from ..storage.tool_counters import storage_root
+
+    return Path(storage_root())
 
 
 def lifetime_meter(root: Optional[Path] = None) -> Optional[dict]:
@@ -254,16 +255,30 @@ def lifetime_meter(root: Optional[Path] = None) -> Optional[dict]:
     lifetime usage even when the local transcript history the window ledger
     scans has been cleared. Byte-approximate estimate, like the community
     meter it feeds. Returns None when absent/unreadable/empty.
+
+    ⚠ The dict also carries `savings_meter`'s label (`lifetime_status`,
+    `lifetime_measured_through`, `lifetime_stale_since`): a meter that stopped
+    taking calls showed its frozen total here as current (customer report,
+    1.108.407).
     """
-    path = (root or _index_root()) / "_savings.json"
+    from ..storage import savings_meter
+
+    base = root or _index_root()
+    path = base / "_savings.json"
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return None
+    if not isinstance(data, dict):
+        return None
     total = data.get("total_tokens_saved")
     if not isinstance(total, (int, float)) or total <= 0:
         return None
-    return {"total_tokens_saved": int(total), "anon_id": data.get("anon_id")}
+    return {
+        "total_tokens_saved": int(total),
+        "anon_id": data.get("anon_id"),
+        **savings_meter.label_for_root(base, data),
+    }
 
 
 def _result_byte_length(content) -> int:
@@ -539,6 +554,14 @@ def _write_lifetime(out: "io.StringIO", meter: dict, model: str) -> None:
     usd = dollar_savings(total, model)
     out.write("  Lifetime savings (jCodeMunch meter, all-time):\n")
     out.write(f"    Tokens saved:                {total:>15,}\n")
+    from ..storage import savings_meter
+
+    caveat = savings_meter.describe(meter)
+    if caveat:
+        # Never present a stopped or unreadable meter's total as current.
+        tail = ("calls after that date are not in this total" if meter.get(savings_meter.STATUS) == "stale"
+                else "this total may not include recent calls")
+        out.write(f"    Status: {caveat}; {tail}.\n")
     out.write(f"    Value at {model.title()} pricing (${rate:.2f}/MTok input):  ${usd:,.2f}\n")
     out.write("      Floor: priced once at the uncached list rate.\n")
     out.write("    Persistent per-call meter under the index root; survives\n")
@@ -756,6 +779,11 @@ def render_json(
             "tokens_saved": meter["total_tokens_saved"],
             "usd": dollar_savings(meter["total_tokens_saved"], model),
         }
+        from ..storage import savings_meter
+
+        for key in (savings_meter.STATUS, savings_meter.MEASURED_THROUGH, savings_meter.STALE_SINCE):
+            if key in meter:
+                payload["lifetime"][key] = meter[key]
     return json.dumps(payload, indent=2)
 
 
@@ -924,6 +952,11 @@ def main(argv: Optional[list[str]] = None) -> int:
             window_label=_window_label(since, until) if explicit_window else None,
         )
     )
+    from ..license_reminder import receipt_line
+
+    line = receipt_line()
+    if line:
+        sys.stdout.write(f"\n  {line}\n")
     return 0
 
 

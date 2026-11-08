@@ -328,7 +328,10 @@ def find_dead_code(
     # both tools share. An opaque site caps nothing and is disclosed.
     boundary = DynamicBoundary(index.imports)
     boundary_withheld = 0
-    unseen_withheld = {"build_consumed": 0, "schema_consumer": 0, "runtime_loadable": 0}
+    unseen_withheld = {
+        "build_consumed": 0, "schema_consumer": 0, "runtime_loadable": 0,
+        "template_rendered": 0,
+    }
     dotnet = has_dotnet_evidence(index.source_files)
 
     dead_files: list[dict] = []
@@ -515,6 +518,8 @@ def find_dead_code(
         "schema_consumer": "a build or code generator outside the index may compile them",
         "runtime_loadable": ".NET user controls and master pages can be loaded by path at "
         "runtime (LoadControl, a stored control path, MasterPageFile set in code)",
+        "template_rendered": "an ERB view is rendered by name (Rails `render \"shared/nav\"` "
+        "for `shared/_nav.html.erb`) or by a framework's convention",
     }
     for kind, n in unseen_withheld.items():
         if n:

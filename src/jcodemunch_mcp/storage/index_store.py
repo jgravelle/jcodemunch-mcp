@@ -686,7 +686,14 @@ INDEX_VERSION = 17
 #   bump does not rewrite a stored AI summary that already says GET: a
 #   re-parse keeps paid AI summaries (see 21), so those need
 #   `summarize_repo(force=true)`.
-PARSER_GENERATION = 26
+# 27 (L-202): a XAML view with `x:Class` gains an edge to its code-behind,
+#   carrying the class and the handler names its markup wires. `files.imports`
+#   changes on UNCHANGED content, so a re-parse is the only way an existing
+#   index gains the edge (the generation-25 shape).
+# 28 (#1315): C-family `#import`, `#include_next`, an indented `#include` and
+#   `# include` are edges. `files.imports` changes on UNCHANGED content (the
+#   generation-25 shape). The resolver half of #1315 needs no re-parse.
+PARSER_GENERATION = 28
 
 
 @dataclass(frozen=True)
@@ -1264,6 +1271,7 @@ class IndexStore:
         git_root: str = "",
         source_roots: Optional[list[str]] = None,
         file_cap_status: Optional[dict] = None,
+        parser_generation: Optional[int] = None,
     ) -> "CodeIndex":
         """Save index via SQLite backend."""
         # Validate owner/name for path separators (before any slug computation)
@@ -1295,6 +1303,7 @@ class IndexStore:
             file_blob_shas=file_blob_shas, file_mtimes=file_mtimes,
             package_names=package_names, git_root=git_root,
             source_roots=source_roots, file_cap_status=file_cap_status,
+            parser_generation=parser_generation,
         )
 
         # Clean up any legacy JSON now that data is safely in SQLite.

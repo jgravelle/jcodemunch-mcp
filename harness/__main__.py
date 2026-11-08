@@ -143,7 +143,58 @@ def _git(*args: str) -> str:
         return "unknown"
 
 
-def _run(cmd: list[str], *, env: dict | None = None) -> tuple[int, str, float]:
+_PROGRESS_RE = re.compile(r"\[\s*\d+%\]\s*$")
+
+
+class _ProgressEcho:
+    """Which pytest lines the full tier prints while pytest runs.
+
+    A progress line (`....  [ 30%]`) shows how far the run got, and a
+    faulthandler dump names the test that was stuck: `Timeout (0:05:00)!`, then
+    one block per thread (`Thread 0x...` or `Current thread 0x...` and indented
+    `File` lines), the blocks separated by blank lines. The stuck test is in
+    whichever block holds it, often not the first, so the dump ends only at the
+    first line that is none of those. Everything else stays in the captured
+    output and is reported at the end as before, so a passing run's log grows
+    by the progress lines alone.
+    """
+
+    def __init__(self) -> None:
+        self._in_dump = False
+
+    def __call__(self, line: str) -> bool:
+        if self._in_dump:
+            if (
+                not line.strip()
+                or line[:1].isspace()
+                or line.startswith(("Thread 0x", "Current thread 0x"))
+                # Under xdist other workers keep reporting while one dumps, so
+                # a progress line can land inside a dump; it must not end it.
+                or _PROGRESS_RE.search(line)
+            ):
+                return True
+            self._in_dump = False
+        if line.startswith("Timeout ("):
+            self._in_dump = True
+            return True
+        return bool(_PROGRESS_RE.search(line))
+
+
+# pytest's faulthandler plugin dumps every thread's stack when one test runs
+# longer than this. It is well under the CI job's `timeout-minutes`
+# (`ci.test_job_timeout_minutes`), so a hang is named while the job still runs.
+FAULTHANDLER_TIMEOUT_SECONDS = 300
+
+
+def _run(
+    cmd: list[str], *, env: dict | None = None, echo=None
+) -> tuple[int, str, float]:
+    """Run ``cmd`` and return (returncode, combined output, seconds).
+
+    With ``echo`` (a line predicate), stdout and stderr are read as one stream
+    and each line ``echo`` accepts is printed as it arrives. A CI job cancelled
+    at its timeout keeps what was printed; a captured-only run kept nothing.
+    """
     t0 = time.perf_counter()
     e = dict(os.environ)
     e.setdefault("PYTHONPATH", str(REPO / "src"))
@@ -154,6 +205,32 @@ def _run(cmd: list[str], *, env: dict | None = None) -> tuple[int, str, float]:
     e.setdefault("JCODEMUNCH_SHARE_SAVINGS", "0")
     if env:
         e.update(env)
+    if echo is not None:
+        chunks: list[str] = []
+        with subprocess.Popen(
+            cmd,
+            cwd=REPO,
+            env=e,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            bufsize=1,
+        ) as p:
+            assert p.stdout is not None
+            try:
+                for line in p.stdout:
+                    chunks.append(line)
+                    if echo(line.rstrip("\r\n")):
+                        print(line, end="" if line.endswith("\n") else "\n", flush=True)
+            except BaseException:
+                # subprocess.run kills the child on any exception; Popen's
+                # __exit__ would wait on it forever instead.
+                p.kill()
+                raise
+            rc = p.wait()
+        return rc, "".join(chunks), time.perf_counter() - t0
     proc = subprocess.run(
         cmd,
         cwd=REPO,
@@ -557,7 +634,7 @@ AUDIT_ALLOWLIST = HERE / "audit-allowlist.json"
 
 
 def _measure_deps() -> int:
-    """Known advisories in the RUNTIME dependency set (criterion 8), minus unexpired allowlist entries.
+    """Known advisories in the RUNTIME dependency set, extras included (criterion 8), minus unexpired allowlist entries.
 
     pip-audit (OSV/PyPI) reports no severity, so the Floor counts every
     advisory; an entry in harness/audit-allowlist.json needs an id, a reason
@@ -571,6 +648,12 @@ def _measure_deps() -> int:
             "uv",
             "export",
             "--no-dev",
+            # Every extra a user can install (`[semantic]`, `[http]`, `[all]`...),
+            # not only the base install. pip-audit evaluates each pin's markers
+            # for the interpreter AND platform it runs on (CI: ubuntu, Python
+            # 3.12), so a pin limited to another Python version or another
+            # platform (a win32-only pin on CI) is not audited here.
+            "--all-extras",
             "--no-hashes",
             "--format",
             "requirements-txt",
@@ -903,11 +986,14 @@ def tier_full(result: dict) -> bool:
             "no:cacheprovider",
             *_xdist_args(),
             "--tb=short",
+            "-o",
+            f"faulthandler_timeout={FAULTHANDLER_TIMEOUT_SECONDS}",
             "--cov=src",
             "--cov-report=term",
             f"--cov-fail-under={cov}",
         ],
         env=cov_env,
+        echo=_ProgressEcho(),
     )
     summ = _pytest_summary(out)
     print("  ", summ["line"])
@@ -997,6 +1083,24 @@ def tier_bench(result: dict, *, offline: bool, write_results: bool = False) -> b
         arts[step["name"]] = {"rc": rc, "seconds": round(secs, 2), "tail": tail}
         if rc != 0:
             ok = False
+        else:
+            # A step that judges its Floors by printing verdict lines must
+            # print one for every Floor it declares. A step that stopped
+            # writing a key exits 0 with every verdict it did print green
+            # (LEDGER L-314 review), so the Floor went unjudged. Steps that
+            # print no verdict lines judge their Floors another way and are
+            # not this check's to grade.
+            judged = {
+                m.group(1)
+                for m in (_VERDICT_RE.match(v.strip()) for v in verdicts)
+                if m
+            }
+            unjudged = [t for t in step.get("thresholds", []) if t not in judged]
+            if judged and unjudged:
+                print(
+                    f"   UNJUDGED: {step['name']} declares {unjudged} and printed no verdict for them"
+                )
+                ok = False
         if step.get("restore"):
             subprocess.run(["git", "checkout", "--", *step["restore"]], cwd=REPO)
         if scratch_art is not None:

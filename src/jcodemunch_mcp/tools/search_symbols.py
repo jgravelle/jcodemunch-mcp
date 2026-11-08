@@ -159,6 +159,71 @@ def _attach_index_truncation(meta: Optional[dict], index) -> None:
         meta["index_truncated"] = block
 
 
+def _attach_no_exact_match(
+    result: dict,
+    query: str,
+    index,
+) -> None:
+    """Mark, in the BODY, an identifier query that no symbol is named.
+
+    ⚠⚠ `_meta.exact_match` already says this (v1.108.173), and `meta_fields: []`
+    is the shipped default, which strips `_meta`: a default install got ten
+    ranked rows and no marker. A reason placed in `_meta` is deleted on a default
+    install, so this one rides the channel the zero-row case already uses --
+    `negative_evidence` and the `⚠ warning` key, which every compact encoder
+    carries (`schema_driven.UNIVERSAL_BODY_JSON`).
+
+    Every exit that returns rows calls this: lexical, semantic and fusion. Rows
+    and their order are not touched.
+
+    ⚠ The warning claims the INDEX has no symbol of that name, so the page is
+    not enough: a filter (`kind=`, `file_pattern=`, ...) or a similarity ranking
+    can leave an exact or a prefix match off the page. The index is classified
+    with the SAME rule as the page (`exact_match_report`, one definition of
+    exact and prefix), so `exact`/`prefix` in the marker are index counts. The
+    page is checked first; the index walk runs only on this rare path.
+
+    ⚠ NOT an absence. Rows were returned, an `ok` verdict state is downgraded to
+    `low_confidence` (the lexical exit's v1.108.173 rule, which the semantic and
+    fusion exits never had, so they said `ok` beside "No symbol named X"), and
+    `session_journal._ABSENCE_VERDICTS` does not list `no_exact_match`, so
+    nothing downstream may cite it as proof.
+    """
+    rows = result.get("results") or []
+    if not rows:
+        return
+    from ..retrieval.query_shape import exact_match_report as _exact_match_report
+
+    page = _exact_match_report(query, rows)
+    if page is None or page["found"]:
+        return
+    report = _exact_match_report(query, index.symbols)
+    if report is None or report["found"] or report["exact"] or report["prefix"]:
+        return
+
+    queried = report["queried"]
+    verdict = (result.get("_meta") or {}).get("verdict")
+    if isinstance(verdict, dict) and verdict.get("state") == "ok":
+        verdict["state"] = "low_confidence"
+        verdict["note"] = page["note"]
+    marker = {
+        "verdict": "no_exact_match",
+        "queried": queried,
+        "exact": report["exact"],
+        "prefix": report["prefix"],
+    }
+    prior = result.get("negative_evidence")
+    if isinstance(prior, dict):
+        # A weak-score `low_confidence_matches` block already said "verify";
+        # this says why. Its scan counts and suggestions are kept.
+        marker.update({k: v for k, v in prior.items() if k not in marker})
+    result["negative_evidence"] = marker
+    result["⚠ warning"] = (
+        f"No symbol named '{queried[:80]}' is in this index; "
+        f"these results share words with it only."
+    )
+
+
 def _get_cache_max() -> int:
     try:
         from .. import config as _cfg
@@ -271,6 +336,33 @@ def _compute_centrality(
     return {f: math.log(1 + c) * _CENTRALITY_WEIGHT for f, c in counts.items()}
 
 
+def _corpus_stats(index) -> tuple[dict[str, float], float, dict[str, list[int]], dict[str, float]]:
+    """(idf, avgdl, inverted, centrality) computed over ``index``."""
+    idf, avgdl, inverted = _compute_bm25(index.symbols)
+    centrality = _compute_centrality(
+        index.symbols, index.imports, index.alias_map,
+        getattr(index, "psr4_map", None),
+    )
+    return idf, avgdl, inverted, centrality
+
+
+def publish_corpus_stats(index, idf, avgdl, inverted, centrality) -> None:
+    """Fill an empty ``index._bm25_cache`` with precomputed corpus stats.
+
+    For a full save, which computes them before caching the index (#1343).
+    Takes the index's lock and leaves a cache that is already filled alone.
+    """
+    cache = index._bm25_cache
+    with getattr(index, "_bm25_lock", None) or _BM25_FALLBACK_LOCK:
+        if any(k in cache for k in _BM25_CORPUS_KEYS):
+            return
+        cache["avgdl"] = avgdl
+        cache["inverted"] = inverted
+        cache["centrality"] = centrality
+        # Sentinel last (#490).
+        cache["idf"] = idf
+
+
 # The four keys the lexical corpus cache publishes together. ``idf`` is the
 # readiness sentinel every historical call site checked, so it stays the last
 # one written; the fast path below checks all four anyway, so a future edit that
@@ -311,16 +403,38 @@ def ensure_bm25_cache(index) -> dict:
     with getattr(index, "_bm25_lock", None) or _BM25_FALLBACK_LOCK:
         if all(k in cache for k in _BM25_CORPUS_KEYS):
             return cache
-        idf, avgdl, inverted = _compute_bm25(index.symbols)
-        centrality = _compute_centrality(
-            index.symbols, index.imports, index.alias_map,
-            getattr(index, "psr4_map", None),
-        )
+
+        # #1343 (@tmhtech4): a fresh process reuses the statistics stored in
+        # the index's own .db when they describe exactly what it loaded
+        # (`storage/bm25_stats.py` says how that is decided).
+        from ..storage import bm25_stats
+        from ..storage.generation import describe
+
+        # A branch index is composed in memory and never stored, so a base
+        # row can only miss: skip the read and the digest.
+        db_path = None if getattr(index, "branch", "") else describe(index).db_path
+        digest = None
+        if db_path:
+            digest = bm25_stats.corpus_digest(index)
+            stored = bm25_stats.load(db_path, index, digest)
+            if stored is not None:
+                cache["avgdl"] = stored["avgdl"]
+                cache["inverted"] = stored["inverted"]
+                cache["centrality"] = stored["centrality"]
+                # Sentinel last: see the module note above.
+                cache["idf"] = stored["idf"]
+                return cache
+
+        idf, avgdl, inverted, centrality = _corpus_stats(index)
         cache["avgdl"] = avgdl
         cache["inverted"] = inverted
         cache["centrality"] = centrality
         # Sentinel last: see the module note above.
         cache["idf"] = idf
+        if digest is not None:
+            # Stored by the dispatcher after the response and while no call
+            # runs (server `_schedule_bm25_flush`), outside this lock.
+            bm25_stats.queue_write_back(index, digest, (idf, avgdl, inverted, centrality))
     return cache
 
 
@@ -1360,6 +1474,7 @@ def search_symbols(
                 f"(best score: {negative_evidence['best_match_score']}). "
                 f"Verify before claiming this feature exists."
             )
+    _attach_no_exact_match(result, query, index)
 
     # Feature 5: Cache the result if cacheable
     if _cacheable and _cache_key is not None:
@@ -1928,6 +2043,8 @@ def _search_symbols_semantic(
                 f"(best score: {negative_evidence['best_match_score']}). "
                 f"Verify before claiming this feature exists."
             )
+    # A similarity ranking can leave the named symbol off the page: scan the index.
+    _attach_no_exact_match(result, query, index)
 
     _attach_index_truncation(result.get("_meta"), index)
     return result
@@ -2355,6 +2472,8 @@ def _search_symbols_fusion(
                 f"(best score: {_vres['negative_evidence']['best_match_score']}). "
                 f"Verify before claiming this feature exists."
             )
+    # Before the cache put, so a replay carries the marker too.
+    _attach_no_exact_match(result, query, index)
 
     _attach_index_truncation(result.get("_meta"), index)
     # A failed channel is not cached: the key holds neither provider nor library

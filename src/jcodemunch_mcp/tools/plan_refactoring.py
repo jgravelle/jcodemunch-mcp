@@ -104,6 +104,8 @@ _IMPORT_PATTERNS = {
     "al": re.compile(r"^\s*using\s+"),
     "nix": re.compile(r"^\s*(?:import|with)\s+"),
     "ejs": re.compile(r"<%[=-]?\s*(?:require|import)\s*"),
+    # A partial is pulled in with `<%= render ... %>`.
+    "erb": re.compile(r"^\s*<%[=-]?\s*render\b"),
     "verse": re.compile(r"^\s*(?:using|import)\s+"),
 }
 
@@ -187,6 +189,8 @@ _DEF_PATTERNS = {
     "al": re.compile(r"^\s*(?:page|table|codeunit|report|query|enum)\s+{name}{right}"),
     "nix": re.compile(r"^\s*{name}\s*="),
     "ejs": re.compile(r"<%[=-]?\s*(?:function|const\s+{name})"),
+    # A method defined in a tag, or a `content_for`/`provide` slot.
+    "erb": re.compile(r"^\s*<%-?\s*(?:def\s+(?:self\.)?|(?:content_for|provide)\s*\(?\s*:){name}{right}"),
     "verse": re.compile(r"^\s*(?:class|function|agent|device)\s+{name}{right}"),
     # -- Tier 3: vue, svelte and asm (vue/svelte use JS/TS patterns, asm labels) --
     "vue": re.compile(r"^\s*(export\s+)?(class|function|const|let|var|interface|type|enum)\s+{name}{right}"),

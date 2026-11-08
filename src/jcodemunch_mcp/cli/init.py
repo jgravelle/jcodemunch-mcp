@@ -1219,7 +1219,13 @@ def run_index(*, dry_run: bool = False) -> str:
 
     try:
         from ..tools.index_folder import index_folder
-        return _index_summary(cwd, index_folder(path=cwd))
+        from ..security import get_cli_folder_cap
+
+        cap, cap_key = get_cli_folder_cap(str(Path(cwd).resolve()))
+        return _index_summary(
+            cwd,
+            index_folder(path=cwd, max_folder_files=cap, cap_key=cap_key),
+        )
     except Exception as e:
         return f"  indexing failed: {e}"
 
@@ -1249,8 +1255,23 @@ def _index_summary(cwd: str, result: dict) -> str:
         parts.append(f"{result['symbol_count']} symbols")
     detail = ", ".join(parts)
     if result.get("truncated"):
-        capped = "the file cap was reached, {} of {} files are in the index".format(
-            result.get("files_indexed", "some"), result.get("files_discovered", "the")
+        from ..security import cap_label, cap_raise_advice
+
+        # Name the key that set the cap and how to raise it, as every other cap
+        # message does: the obvious guess, max_folder_files, would also raise
+        # an agent's in-call cap, which is kept low on purpose.
+        key = cap_label(result)
+        value = result.get("max_folder_files")
+        named = f"{key} = {value}" if isinstance(value, int) else key
+        advice = cap_raise_advice(key)
+        capped = (
+            "the file cap ({}) was reached, {} of {} files are in the index; "
+            "{} to index the rest"
+        ).format(
+            named,
+            result.get("files_indexed", "some"),
+            result.get("files_discovered", "the"),
+            advice[0].lower() + advice[1:],
         )
         detail = f"{detail}; {capped}" if detail else capped
     if unchanged:
@@ -1415,8 +1436,13 @@ def run_init(
     guidance: bool = False,
     policy: bool = False,
     remove_guidance: bool = False,
+    git_hook: bool = False,
 ) -> int:
     """Run the init flow. Returns exit code (0 = success).
+
+    ``git_hook`` writes a git post-checkout hook into the repository in the
+    current directory, which re-indexes the files a branch checkout changed.
+    Only a typed ``--git-hook`` or a yes to the interactive offer writes it.
 
     A default install registers the server and adds only the hooks whose
     output the model never sees. ``guidance`` adds the model-facing hooks,
@@ -1723,6 +1749,18 @@ def run_init(
                 "Symbol search, find-references, and repo exploration would be available immediately — without opening a single file",
             ))
 
+    # ----- Step 4b: git post-checkout hook (opt-in) -----
+    from . import git_hook as _git_hook
+    do_git_hook = git_hook
+    if not do_git_hook and interactive and _git_hook._hooks_dir(os.getcwd()) is not None:
+        print()
+        do_git_hook = _prompt_yn(
+            "Add a git post-checkout hook that re-indexes changed files after a branch switch?",
+            default=False,
+        )
+    if do_git_hook:
+        print(f"  Git hook:{_git_hook.install_post_checkout(os.getcwd(), dry_run=dry_run, backup=backup)}")
+
     # ----- Step 5: Audit agent config -----
     do_audit = audit
     if not do_audit and interactive:
@@ -1754,6 +1792,26 @@ def run_init(
             for line in _offer:
                 print(line)
 
+    # ----- Offer, never apply: the surface a new install would get -----
+    # `upgrade` re-runs `init --hooks --yes`, and a user refreshing hooks types
+    # the same, so this is where an install that predates the `counter` default
+    # sees what switching saves. It prints and changes nothing; the user runs
+    # the switch command. Same block and renderer as `install-status`.
+    # ⚠ `hooks_explicit`, not `hooks`: `install <agent>` passes hooks=True as
+    # its own default, and the offer belongs to the refresh a user runs.
+    if (hooks_explicit or os.environ.get(UPGRADE_REFRESH_ENV) == "1") and not demo:
+        try:
+            _surface = _surface_offer_block()
+        except Exception:
+            logger.debug("surface offer check failed", exc_info=True)
+            _surface = None
+        if _surface:
+            from ..surface_offer import render_offer_lines
+
+            print()
+            for line in render_offer_lines(_surface):
+                print(line)
+
     # ----- Done -----
     print()
     if demo:
@@ -1778,8 +1836,8 @@ def run_init(
             for line in _LICENCE_LINES:
                 print(line)
             # This machine was just shown the license line, so the server's
-            # one-time notice is not due. `upgrade` re-runs init silently and
-            # prints nothing, so it writes no marker.
+            # one-time notice is not due. `upgrade` re-runs init without the
+            # license line, so it writes no marker.
             from ..license_notice import mark_shown
 
             mark_shown("init")
@@ -2224,6 +2282,7 @@ def run_uninstall(
     dry_run: bool = False,
     no_backup: bool = False,
     yes: bool = False,
+    git_hook: bool = True,
 ) -> int:
     """Reverse a prior `init` run. Returns exit code (0 = success)."""
     backup = not no_backup
@@ -2285,6 +2344,11 @@ def run_uninstall(
     if copilot_hooks and not scoped_to_one:
         msg = uninstall_copilot_hooks(dry_run=dry_run, backup=backup)
         print(f"  Copilot hooks:{msg}")
+
+    if git_hook and not scoped_to_one:
+        from . import git_hook as _git_hook
+        msg = _git_hook.uninstall_post_checkout(os.getcwd(), dry_run=dry_run, backup=backup)
+        print(f"  Git hook:{msg}")
 
     if skills and not scoped_to_one:
         from .skills import uninstall_claude_skill

@@ -1,11 +1,131 @@
 {
-  "current": "1.108.404",
+  "current": "1.108.424",
   "entries": [
+    {
+      "version": "1.108.424",
+      "date": "2026-11-07",
+      "title": "a project config file can only tighten settings",
+      "summary": "A project's .jcodemunch.jsonc can tighten the settings that decide which folders are trusted, what is read or run, what is sent off the machine and what a summarizer may bill, but never loosen them past your own config. Each key it cannot apply as written is logged once by name."
+    },
+    {
+      "version": "1.108.423",
+      "date": "2026-11-07",
+      "title": "a file that fails to parse no longer lets a search claim a name is absent",
+      "summary": "A file whose parse fails or runs past its time budget now counts as withheld, so a search refuses to call a name absent instead of answering absent on an index that skipped the file. A fresh server process also reuses the search statistics stored in the index instead of rebuilding them before its first search."
+    },
+    {
+      "version": "1.108.422",
+      "date": "2026-11-06",
+      "title": "the shared parse cache never serves what an older parser emitted",
+      "summary": "On a host that sets JCODEMUNCH_PARSE_CACHE, the re-index a parser upgrade forces now parses every file again instead of reading the old symbols back from the cache."
+    },
+    {
+      "version": "1.108.421",
+      "date": "2026-11-06",
+      "title": "a starter pack installs in a few megabytes, and a file tree costs a third of the characters",
+      "summary": "install-pack writes a pack to disk as it downloads instead of holding it in memory, and get_file_tree sends the same tree in a third to a half of the characters."
+    },
+    {
+      "version": "1.108.420",
+      "date": "2026-11-06",
+      "title": "re-indexing one file by path keeps a partial index marked partial",
+      "summary": "Saving one edited file by path no longer marks an index the file cap cut short as complete, so searches over it keep saying it is partial."
+    },
+    {
+      "version": "1.108.419",
+      "date": "2026-11-05",
+      "title": "the file cap limits what one call parses, not what the index keeps",
+      "summary": "An agent's capped index call no longer shrinks an index the command line built past the cap, and the opt-in Grep answer counts every match of a large Grep."
+    },
+    {
+      "version": "1.108.418",
+      "date": "2026-11-05",
+      "title": "a search on a capped index says, in its answer, that the index is partial",
+      "summary": "A search on an index the file cap cut short now says so in the answer itself, with the file counts and the setting to raise."
+    },
+    {
+      "version": "1.108.417",
+      "date": "2026-11-04",
+      "title": "a wrong call through order names a call that works",
+      "summary": "A misspelled or refused call through order now names a call that works, and a turned-off tool says to ask the user."
+    },
+    {
+      "version": "1.108.416",
+      "date": "2026-11-04",
+      "title": "a search credits the tokens it saved on a fresh install's index",
+      "summary": "Searches on a fresh index now credit the tokens they saved, so an install that only searched reports savings."
+    },
+    {
+      "version": "1.108.415",
+      "date": "2026-11-04",
+      "title": "a search for library code ranks the library above its tutorial and example copies",
+      "summary": "Searching for library code now returns the library's own symbols ahead of the copies in its examples, tutorials and docs samples, the way test files were already weighted down."
+    },
+    {
+      "version": "1.108.414",
+      "date": "2026-11-03",
+      "title": "a class comes back as its outline, and an import finds the file in its own language",
+      "summary": "Fetching a class now returns its outline, each method collapsed to its signature; pass class_body=\"full\" for the whole body. An import with no extension now finds the file in the importer's own language first."
+    },
+    {
+      "version": "1.108.413",
+      "date": "2026-11-03",
+      "title": "the license terms read the same in the terminal, the package and the site",
+      "summary": "The license lines in the terminal and the package's own descriptions now say what the site says: work use at a for-profit company, or for client or paid work, needs a license."
+    },
+    {
+      "version": "1.108.412",
+      "date": "2026-11-03",
+      "title": "graph tools resolve each import once per loaded index, and a savings file holding the wrong type is refused, not frozen",
+      "summary": "Graph tools (dependency graph, importers, blast radius) now resolve each import once per loaded index instead of on every call, so a second call on a large repo answers in a fraction of the time. A savings file that parses but holds a string or another wrong type where the meter adds a number is now refused with a warning and the counts kept, instead of silently freezing the meter."
+    },
+    {
+      "version": "1.108.411",
+      "date": "2026-11-03",
+      "title": "a C or C++ #include resolves where the compiler finds it, and Go callers in the same package are found",
+      "summary": "A C or C++ #include now resolves where the compiler finds it: beside the including file, then at the repo root and under include/ and src/, so a C++ repo's import graph is no longer missing most of its header edges. Asking who calls a Go function now finds callers in the same package, which call each other with no import. The next index re-parses every file."
+    },
+    {
+      "version": "1.108.410",
+      "date": "2026-11-02",
+      "title": "a savings meter that stops measuring says so, and Rails views are indexed",
+      "summary": "A savings meter that stops measuring now says so: receipt, diagnose and get_session_stats report whether the lifetime total is current, stale or unknown, and a write can no longer wipe or lose counts. Ruby ERB templates (.erb) are indexed, so Rails views are searchable. reflect --apply-weights writes the tuning file the server actually reads when CODE_INDEX_PATH is set."
+    },
+    {
+      "version": "1.108.409",
+      "date": "2026-11-02",
+      "title": "a search for a name nothing carries says so on a default install",
+      "summary": "A search for a name that no symbol carries now says so in the answer itself, even on a default install that hides metadata: the results stay, marked as sharing words with the query only, and the answer is never presented as proof the name is absent. The work-license reminder's buy link now says where it was shown."
+    },
+    {
+      "version": "1.108.408",
+      "date": "2026-11-02",
+      "title": "a rare work-license reminder, never shown to a license holder",
+      "summary": "Using jCodeMunch for work needs a license, and a machine is now reminded of that rarely: 7 days after its first index, then at most once every 30 days, as one stderr line after a command a person reads or one field on a tool answer. Never with a license key, on CI, or after `jcodemunch-mcp config set license_reminder false`. Nothing is sent."
+    },
+    {
+      "version": "1.108.407",
+      "date": "2026-11-02",
+      "title": "a stdio server exits when the process that started it is gone, and storage reports how much disk the index uses",
+      "summary": "A stdio server now exits when the client that started it is gone, checked every 5 seconds, even if something else holds its input open. jcodemunch-mcp storage prints the index store's path and total, then each index by name, largest first. A query that names a tool, bare or with the host prefix, finds that tool first."
+    },
+    {
+      "version": "1.108.406",
+      "date": "2026-11-01",
+      "title": "watch-all leaves temp and idle indexes unwatched, and agents sharing an index stop reloading it",
+      "summary": "watch-all skips indexes under a temp folder and ones idle for 14 days, and watch exits when it cannot watch. Agents sharing one index no longer make each other reload it, and the first search on a large index tokenizes faster. init --git-hook re-indexes the files a branch switch changed. A key holder is never shown where to buy a license."
+    },
+    {
+      "version": "1.108.405",
+      "date": "2026-11-01",
+      "title": "get_class_hierarchy and find_implementations read a base list written after a colon",
+      "summary": "For a C# class Circle : IShape, get_class_hierarchy names IShape as an ancestor and find_implementations(\"IShape\") returns Circle. The same holds for Kotlin, Swift, C++ and Rust base lists, Ruby's class A < B, and Scala and Dart's extends B with T. An enum's underlying type (enum E : byte) is not read as a base. No re-index is needed."
+    },
     {
       "version": "1.108.404",
       "date": "2026-11-01",
-      "title": "a base list after a colon is read, and a failed summarizer keeps the summaries it had",
-      "summary": "get_class_hierarchy and find_implementations read a base list written after a colon, so a C# class Circle : IShape has IShape as an ancestor, and the same holds for Kotlin, Swift, C++, Rust, Ruby, Scala and Dart. summarize_repo(force=true) keeps each stored summary when the provider fails for that symbol, and reports provider_fallbacks and previous_summaries_kept. Seventeen tool descriptions open with the question an agent asks, so a host that searches descriptions finds them. The plugin listing and the MCP registry show the jCodeMunch icon."
+      "title": "a failed summarizer keeps the summaries it had, and tool descriptions open with the agent's question",
+      "summary": "summarize_repo(force=true) keeps each stored summary when the provider fails for that symbol, and reports provider_fallbacks and previous_summaries_kept. Seventeen tool descriptions open with the question an agent asks, so a host that searches descriptions finds them. The plugin listing and the MCP registry show the jCodeMunch icon."
     },
     {
       "version": "1.108.403",
