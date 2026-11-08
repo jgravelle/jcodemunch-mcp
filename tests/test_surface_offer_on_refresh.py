@@ -62,7 +62,11 @@ def spy_init(monkeypatch, tmp_path):
 
 def _run_refresh(module) -> None:
     module.run_init(
-        clients=None, hooks=True, hooks_explicit=True, index=False, audit=False,
+        clients=None,
+        hooks=True,
+        hooks_explicit=True,
+        index=False,
+        audit=False,
         yes=True,
     )
 
@@ -102,10 +106,17 @@ def test_a_failing_offer_does_not_fail_init(spy_init, monkeypatch, capsys):
         raise RuntimeError("no server")
 
     monkeypatch.setattr(spy_init, "_surface_offer_block", boom)
-    assert spy_init.run_init(
-        clients=None, hooks=True, hooks_explicit=True, index=False, audit=False,
-        yes=True,
-    ) == 0
+    assert (
+        spy_init.run_init(
+            clients=None,
+            hooks=True,
+            hooks_explicit=True,
+            index=False,
+            audit=False,
+            yes=True,
+        )
+        == 0
+    )
     assert "Tool surface:" not in capsys.readouterr().out
 
 

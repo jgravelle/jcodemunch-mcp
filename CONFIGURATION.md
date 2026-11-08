@@ -581,7 +581,7 @@ When `adaptive_tiering` is false, `plan_turn(model=...)` and `announce_model(...
 
 `tool_surface` is written into your config exactly once, when it is first created, and is deliberately absent from the config template so a package update can never inject it. That is what guarantees an upgrade never collapses your tool list — and it also means an install created before the `counter` default **stays on `full` permanently**, because nothing migrates it.
 
-So `jcodemunch-mcp surface` and `jcodemunch-mcp install-status` print a one-time offer showing what the move would cost and save **on your install**, computed at the moment you run it:
+So `jcodemunch-mcp surface`, `jcodemunch-mcp install-status`, `jcodemunch-mcp upgrade` and `jcodemunch-mcp init --hooks` print an offer showing what the move would cost and save **on your install**, computed at the moment you run it:
 
 ```
 Tool surface: full (91 tools, 26,943 schema tokens)
