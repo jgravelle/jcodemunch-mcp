@@ -4,21 +4,9 @@
 
 ### Changed - `upgrade` and the hooks refresh show the surface offer
 
-An install created before the `counter` default keeps its tool surface, on
-purpose: a package update never changes which tools a user is served. The
-priced offer to switch was printed only by `jcodemunch-mcp surface` and
-`install-status`, a log line at server start, and a notice on the first
-`resolve_repo` answer. The first three are places a user rarely looks. The
-fourth needs the agent to call the index, and on small tasks it often doesn't.
-So an install paying for the full tool list on every request was told almost
-nowhere.
+An install created before the `counter` default keeps its tool surface, on purpose: a package update never changes which tools a user is served. Until now the priced offer to switch showed up only in `jcodemunch-mcp surface`, `install-status`, a log line at server start, and a notice on the first `resolve_repo` answer, so an install still on the full tool list could go a long time without seeing it.
 
-`init --hooks`, which `upgrade` runs and a user refreshing hooks types, now
-prints the same offer. It's the same block and the same renderer
-`install-status` uses, so the figures are this install's own and the wording is
-unchanged. It is still a message: nothing changes until the user runs the
-switch command, `surface_offer_seen` silences it, and an install already on the
-default surface sees nothing.
+`init --hooks`, which `upgrade` runs and which a user types to refresh hooks, now prints the same offer: the same block and renderer `install-status` uses, with this install's own figures and unchanged wording. It's still only a message. Nothing changes until the user runs the switch command, `surface_offer_seen` silences it, and an install already on the default surface sees nothing.
 
 ## [1.108.424] - 2026-11-07 - a project config file can only tighten settings
 

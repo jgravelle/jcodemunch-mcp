@@ -3,9 +3,8 @@
 An install that predates the `counter` default stays on its surface on purpose,
 and `surface_offer.py` prices the move for it. The offer was shown only by
 `install-status`, `jcodemunch-mcp surface`, a log line at server start and a
-notice on the first `resolve_repo`. The first three are places a user rarely
-looks, and the fourth needs the agent to call the index, which on small tasks
-it often does not. `upgrade` re-runs `init --hooks --yes`, and a
+notice on the first `resolve_repo`, so an install on the full tool list could
+go a long time without seeing it. `upgrade` re-runs `init --hooks --yes`, and a
 user refreshing hooks types the same, so `init` with hooks prints the offer
 too.
 
