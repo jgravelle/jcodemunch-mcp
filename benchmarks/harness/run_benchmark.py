@@ -1372,12 +1372,9 @@ def main():
     if MEASURE_METHOD == "served":
         _use_default_install_config()
         _quiet_once_per_process_notices()
-        SESSION_COSTS = served_session_costs(repos[0])
 
     print(f"jcodemunch-mcp benchmark harness  |  tokenizer: {TOKENIZER}", flush=True)
     print(f"Counted: {MEASURE_METHOD}", flush=True)
-    if SESSION_COSTS is not None:
-        print(f"Once per session, outside every lookup: {SESSION_COSTS}", flush=True)
     print(f"Repos: {', '.join(repos)}", flush=True)
     print(f"Tasks: {len(TASKS)} queries × {len(repos)} repos = {len(TASKS) * len(repos)} measurements", flush=True)
     print()
@@ -1396,9 +1393,13 @@ def main():
             print(f"done ({elapsed:.1f}s)  avg reduction {avg_r:.1f}%")
         results.append(res)
 
-    if MEASURE_METHOD == "served" and SESSION_COSTS is not None:
+    measured = [r for r in results if "error" not in r]
+    if MEASURE_METHOD == "served" and measured:
+        # Sized on a repo this run measured: a repo that could not be measured
+        # is reported as such below, never by an exception from this step.
+        SESSION_COSTS = served_session_costs(measured[0].get("measured_repo") or measured[0]["repo"])
         SESSION_COSTS["one_session_extra_tokens"] = served_one_session_extra(results)
-        print(f"Same lookups as one session per repo, extra tokens: {SESSION_COSTS['one_session_extra_tokens']}", flush=True)
+        print(f"Once per session, outside every lookup: {SESSION_COSTS}", flush=True)
 
     if args.verify_determinism:
         print("\n  re-measuring in a fresh process ...", end=" ", flush=True)
