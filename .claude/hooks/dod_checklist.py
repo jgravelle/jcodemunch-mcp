@@ -43,6 +43,34 @@ from _common import (
 RATE_KEY_RE = re.compile(
     r'^\+.*["\'](\w+_(?:pct|rate|share)|confidence)["\']\s*:', re.M
 )
+REMOVED_RATE_KEY_RE = re.compile(
+    r'^-.*["\'](\w+_(?:pct|rate|share)|confidence)["\']\s*:', re.M
+)
+_HUNK_START_RE = re.compile(r"^(?=@@ |diff --git )", re.M)
+
+
+def new_rate_keys(diff: str) -> list[str]:
+    """Rate-shaped keys the diff ADDS, sorted. A key whose line the same hunk
+    also removes is a changed value on an existing key, not a new one; a
+    removal in another hunk or file does not excuse an addition."""
+    new: set[str] = set()
+    for hunk in _HUNK_START_RE.split(diff):
+        removed = set(REMOVED_RATE_KEY_RE.findall(hunk))
+        new.update(k for k in RATE_KEY_RE.findall(hunk) if k not in removed)
+    return sorted(new)
+
+
+def row8_verdict(src_diff: str) -> tuple[str, str]:
+    """DoD item 8: a new published rate needs a *_basis sibling or a refusal path."""
+    rates = new_rate_keys(src_diff)
+    if not rates:
+        return "n.a.", "no new rate/share/confidence key in the diff"
+    basis = "_basis" in src_diff or "refus" in src_diff
+    return (
+        "met" if basis else "unmet",
+        f"new keys {rates[:5]}; a *_basis sibling or a refusal path must appear in the diff",
+    )
+
 BACKGROUND_RE = re.compile(
     r"^\+.*(?:threading\.Thread|socket\.socket|httpx\.|asyncio\.create_task|schedule)",
     re.M,
@@ -1192,16 +1220,7 @@ def main() -> int:
         )
 
     # 8 *_basis beside a published rate
-    rates = RATE_KEY_RE.findall(src_diff)
-    if not rates:
-        row(8, "n.a.", "no new rate/share/confidence key in the diff")
-    else:
-        basis = "_basis" in src_diff or "refus" in src_diff
-        row(
-            8,
-            "met" if basis else "unmet",
-            f"new keys {sorted(set(rates))[:5]}; a *_basis sibling or a refusal path must appear in the diff",
-        )
+    row(8, *row8_verdict(src_diff))
 
     # 9 contributor PR
     if not a.contributor:
