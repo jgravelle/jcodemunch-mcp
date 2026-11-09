@@ -1,6 +1,6 @@
 """A license key reaches every consumer from every place a customer puts it.
 
-Three of four licensing issues were customers who had just paid: #364 (a key
+Several licensing issues came from customers who had just paid: #364 (a key
 in config.jsonc not read, then "evaluation" with a valid key), #418 (a valid
 key refused for a pack download) and #58 (a placeholder buy link).
 
@@ -8,8 +8,8 @@ key refused for a pack download) and #58 (a placeholder buy link).
 function that decides WHERE the key comes from. #364 was a defect in exactly
 that resolution, so a test that replaces the resolver cannot see it again.
 This file patches only network edges, validate.php
-(`org.license._check_server`) and the pack API (`install_pack.httpx.get` and
-`install_pack._catalog_version`), plus the file writers of a real `init` run,
+(`org.license._check_server`) and the pack API (`install_pack.httpx.get`,
+`install_pack.httpx.stream` and `install_pack._catalog_version`), plus the file writers of a real `init` run,
 and drives the real entry point for each consumer, so key resolution, the
 config load, the cache and the gate all run as a customer's install runs them.
 
@@ -39,7 +39,10 @@ def _isolated(tmp_path, monkeypatch):
     monkeypatch.setenv("CODE_INDEX_PATH", str(store))
     monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.setenv("USERPROFILE", str(tmp_path))
-    monkeypatch.delenv("JCODEMUNCH_LICENSE_KEY", raising=False)
+    # `license --key` writes os.environ itself. delenv on an absent variable
+    # records no undo, so set it first: teardown then restores absence.
+    monkeypatch.setenv("JCODEMUNCH_LICENSE_KEY", "unset-by-teardown")
+    monkeypatch.delenv("JCODEMUNCH_LICENSE_KEY")
     return store
 
 
@@ -286,8 +289,12 @@ def quiet_init(monkeypatch):
     return _run_init
 
 
-def test_init_prints_no_license_line_for_a_key_in_config(quiet_init, server, capsys, _isolated):
-    _key_in_config(_isolated, TEST_KEY)
+@pytest.mark.parametrize("source", ["env", "config"])
+def test_init_prints_no_license_line_for_a_key_from(source, quiet_init, server, capsys, monkeypatch, _isolated):
+    if source == "env":
+        _key_in_env(monkeypatch, TEST_KEY)
+    else:
+        _key_in_config(_isolated, TEST_KEY)
     out = quiet_init(capsys)
     assert "Done." in out
     assert not any(m in out for m in _INIT_MARKERS), out
@@ -322,7 +329,7 @@ def fresh_process(monkeypatch):
     `--list` path reads the key through `config.get`'s lazy load, which fires
     only when nothing was loaded, so under conftest's state the list path never
     sees config.jsonc. A real `install-pack --list` starts unloaded and does
-    see it (checked in a subprocess, 2026-11-01). The download path loads
+    see it. The download path loads
     explicitly instead (`resolve_effective_license_key`); the list path's
     reliance on the lazy load is LEDGER L-267.
     """
@@ -330,9 +337,18 @@ def fresh_process(monkeypatch):
     monkeypatch.setattr(config_module, "_GLOBAL_CONFIG", {})  # `_ensure_loaded` needs both
 
 
-def test_install_pack_list_hides_the_sales_line_for_a_key_in_config(catalog, fresh_process, server, capsys, _isolated):
-    _key_in_config(_isolated, TEST_KEY)
-    out = _run(capsys, ["install-pack", "--list"]).out
+@pytest.mark.parametrize("source", ["flag", "env", "config"])
+def test_install_pack_list_hides_the_sales_line_for_a_key_from(
+    source, catalog, fresh_process, server, capsys, monkeypatch, _isolated
+):
+    args = ["install-pack", "--list"]
+    if source == "flag":
+        args += ["--license", TEST_KEY]
+    elif source == "env":
+        _key_in_env(monkeypatch, TEST_KEY)
+    else:
+        _key_in_config(_isolated, TEST_KEY)
+    out = _run(capsys, args).out
     assert "fastapi" in out
     assert "Get a license" not in out
     assert server == []
@@ -360,7 +376,7 @@ def test_receipt_ends_without_the_license_line_for_a_key_from(
     """`receipt` is dispatched above `main`'s shared config load, so a key in
     config.jsonc reaches its license line only through `config.get`'s lazy
     load, the same reliance as `install-pack --list` (hence `fresh_process`)."""
-    from jcodemunch_mcp.license_reminder import RECEIPT_TEXT
+    from jcodemunch_mcp.license_reminder import BUY_URL, RECEIPT_TEXT
 
     if source == "env":
         _key_in_env(monkeypatch, TEST_KEY)
@@ -369,17 +385,18 @@ def test_receipt_ends_without_the_license_line_for_a_key_from(
     out = _receipt(capsys, tmp_path, monkeypatch)
     assert out.strip(), "receipt printed nothing, so the cell checks nothing"
     assert RECEIPT_TEXT not in out
-    assert "buying.php" not in out
+    assert BUY_URL not in out
     assert server == []
 
 
 def test_receipt_ends_with_a_real_license_link_with_no_key(fresh_process, capsys, monkeypatch, tmp_path):
     """The control for the cell above, and #58's shape for this surface."""
-    from jcodemunch_mcp.license_reminder import RECEIPT_TEXT
+    from jcodemunch_mcp.license_reminder import BUY_URL, RECEIPT_TEXT
 
     out = _receipt(capsys, tmp_path, monkeypatch)
     assert out.rstrip().endswith(RECEIPT_TEXT)
-    assert "https://jcodemunch.com/buying.php" in out
+    assert BUY_URL.startswith("https://jcodemunch.com/")  # #58: never a placeholder
+    assert BUY_URL in out
 
 
 @pytest.mark.parametrize("source", ["env", "config"])
