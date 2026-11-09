@@ -2,9 +2,9 @@
 
 ## [Unreleased]
 
-### Changed - a hook starts without loading the server, and the Grep answer reads the sources it proved unchanged
+### Changed - a hook answers in about a second, and the Grep answer reads the sources it proved unchanged
 
-Every hook command used to import the whole server (the MCP SDK, httpx and every tool) before it read its input, and the opt-in Grep answer's 4-second budget started only after that. On a freshly indexed Home Assistant copy the import took 1.5 to 2.1 s, so an answered Grep took 5.1 s from process start, and a declined one ran past its budget by the same amount. A bare `jcodemunch-mcp hook-<name>`, the form `init` writes, now runs its handler directly after the same first steps the server takes: UTF-8 output, the package integrity check, and keyring resolution of environment values. Every other command goes through the server as before. On four fresh copies the whole hook process now takes 1.07 to 1.21 s for an answered Grep, and 0.86 s for a decline at a 0.6 s budget.
+An answered Grep now takes 1.07 to 1.21 s for the whole hook process, measured on four fresh Home Assistant copies, and a decline at a 0.6 s budget takes 0.86 s. Before, every hook command imported the whole server (the MCP SDK, httpx and every tool) before it read its input, and the opt-in Grep answer's 4-second budget started only after that. On a freshly indexed copy the import took 1.5 to 2.1 s, so an answered Grep took 5.1 s from process start, and a declined one ran past its budget by the same amount. A bare `jcodemunch-mcp hook-<name>`, the form `init` writes, now runs its handler directly after the same first steps the server takes: UTF-8 output, the package integrity check, and keyring resolution of environment values. Every other command goes through the server as before.
 
 Once its freshness check has proved every file in scope unchanged since indexing, the Grep answer now reads each file from the source tree instead of the index's cached copy. The copy holds the same text, but on a just-indexed workspace it was written moments ago, and on Windows its first open measured 15.2 ms per file against 0.08 ms for the source the indexer had just read. A path that leaves the source root is not read, and every other `search_text` call still reads the cached copies.
 
