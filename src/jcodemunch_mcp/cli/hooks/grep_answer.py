@@ -329,6 +329,10 @@ def answer_grep(tool_input: dict, cwd: str, session_id: str) -> "str | None":
             # be whole; past the cap the page is truncated and declined.
             scan_limit=SCAN_LIMIT,
             _index=view,
+            # Freshness just proved every file in scope unchanged, so its
+            # source holds the cached copy's text, and on a just-indexed
+            # workspace it opens far faster than the freshly written copy.
+            _read_root=getattr(view, "source_root", "") or None,
         )
         return resolved["repo"], res
 
