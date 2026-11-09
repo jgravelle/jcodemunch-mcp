@@ -60,7 +60,14 @@ def server(monkeypatch):
 
 @pytest.fixture
 def pack_api(monkeypatch):
-    """The pack download endpoint, recording the headers of every request."""
+    """The pack download endpoint, recording the headers of every request.
+
+    The download streams (`with httpx.stream("GET", ...)`, #1346). `get` is
+    served too, so the cells keep recording if the download path changes
+    shape again; conftest's network guard fails any request neither catches.
+    """
+    from contextlib import contextmanager
+
     sent: list[dict] = []
 
     class _Resp:
@@ -70,12 +77,20 @@ def pack_api(monkeypatch):
         def json(self):
             return {"error": "stopped by the test after the request was recorded"}
 
+        def read(self):
+            return b""
+
     def _get(url, **kwargs):
         sent.append(dict(kwargs.get("headers") or {}))
         return _Resp()
 
+    @contextmanager
+    def _stream(method, url, **kwargs):
+        yield _get(url, **kwargs)
+
     monkeypatch.setattr(install_pack, "_catalog_version", lambda pack_id: None)
     monkeypatch.setattr(install_pack.httpx, "get", _get)
+    monkeypatch.setattr(install_pack.httpx, "stream", _stream)
     return sent
 
 
@@ -94,10 +109,13 @@ def _key_in_env(monkeypatch, key):
 
 
 def _run(capsys, argv):
-    from jcodemunch_mcp.server import main
+    """The console script itself (`pyproject.toml`'s `jcodemunch-mcp`), so the
+    command runs as a customer's does: through `cli_entry.cli`, then
+    `server.cli` and its after-command license reminder, then `server.main`."""
+    from jcodemunch_mcp.cli_entry import cli
 
     try:
-        main(argv)
+        cli(argv)
     except SystemExit:
         pass  # install-pack exits 1 on the refusal the fake pack API returns
     return capsys.readouterr()
@@ -206,15 +224,27 @@ def test_install_pack_without_a_key_sends_none(pack_api, capsys):
 # A project's `.jcodemunch.jsonc` is not a key source
 # --------------------------------------------------------------------------- #
 
-def test_a_key_in_project_config_is_not_read(server, capsys, monkeypatch, tmp_path):
+def test_a_key_in_project_config_is_not_read(server, capsys, monkeypatch, tmp_path, caplog):
     """Records today's answer: `_license_key` reads `config.get("license_key")`
     with no repo, so only the env var and the GLOBAL config.jsonc supply a key.
-    CONFIGURATION.md says so. If project config should become a source, change
-    the code, CONFIGURATION.md and this cell together."""
+    CONFIGURATION.md says so, including that no warning names the ignored key.
+    If project config should become a source, change the code, CONFIGURATION.md
+    and this cell together.
+
+    The project file is loaded the way the server loads it when the repo is
+    indexed, so the cell holds in a process that HAS read the file, not only in
+    a `license` run that never looks at it."""
+    import logging
+
     project = tmp_path / "project"
     project.mkdir()
     (project / ".jcodemunch.jsonc").write_text(json.dumps({"license_key": TEST_KEY}), encoding="utf-8")
     monkeypatch.chdir(project)
+    with caplog.at_level(logging.WARNING, logger="jcodemunch_mcp.config"):
+        config_module.load_project_config(str(project))
+    assert config_module.get("license_key", repo=str(project)) == TEST_KEY  # the file WAS read
+    assert lic.licence_key_configured() is False
+    assert not [r for r in caplog.records if "license_key" in r.getMessage()]
     payload = json.loads(_run(capsys, ["license", "--json"]).out)
     assert server == []
     assert payload["key_status"] == "absent"
@@ -313,6 +343,43 @@ def test_install_pack_list_shows_a_real_sales_link_with_no_key(catalog, fresh_pr
     links = [ln for ln in out.splitlines() if "Get a license" in ln]
     assert len(links) == 1
     assert "https://jcodemunch.com/" in links[0]  # #58: never a placeholder
+
+
+def _receipt(capsys, tmp_path, monkeypatch):
+    """`receipt` over an empty transcript tree, so it scans nothing real."""
+    monkeypatch.delenv("CLAUDE_CONFIG_DIR", raising=False)
+    root = tmp_path / "transcripts"
+    root.mkdir(exist_ok=True)
+    return _run(capsys, ["receipt", "--projects-root", str(root)]).out
+
+
+@pytest.mark.parametrize("source", ["env", "config"])
+def test_receipt_ends_without_the_license_line_for_a_key_from(
+    source, fresh_process, server, capsys, monkeypatch, tmp_path, _isolated
+):
+    """`receipt` is dispatched above `main`'s shared config load, so a key in
+    config.jsonc reaches its license line only through `config.get`'s lazy
+    load, the same reliance as `install-pack --list` (hence `fresh_process`)."""
+    from jcodemunch_mcp.license_reminder import RECEIPT_TEXT
+
+    if source == "env":
+        _key_in_env(monkeypatch, TEST_KEY)
+    else:
+        _key_in_config(_isolated, TEST_KEY)
+    out = _receipt(capsys, tmp_path, monkeypatch)
+    assert out.strip(), "receipt printed nothing, so the cell checks nothing"
+    assert RECEIPT_TEXT not in out
+    assert "buying.php" not in out
+    assert server == []
+
+
+def test_receipt_ends_with_a_real_license_link_with_no_key(fresh_process, capsys, monkeypatch, tmp_path):
+    """The control for the cell above, and #58's shape for this surface."""
+    from jcodemunch_mcp.license_reminder import RECEIPT_TEXT
+
+    out = _receipt(capsys, tmp_path, monkeypatch)
+    assert out.rstrip().endswith(RECEIPT_TEXT)
+    assert "https://jcodemunch.com/buying.php" in out
 
 
 @pytest.mark.parametrize("source", ["env", "config"])
