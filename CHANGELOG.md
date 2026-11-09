@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+### Changed - a no-change re-index of a large repository reads no symbols
+
+Re-indexing a folder where nothing changed used to load the whole stored index, every symbol row, to learn which git root and source root it was built from and to use it as the base to compare against. Neither needs a symbol. Both reads are now a selective view of the stored index, which holds the repository's metadata, file hashes and modification times and reads no symbol rows. When a later step does need the symbols, because a file was edited, added or deleted, the view loads them at that point, so the result is unchanged and only the cost moves. An index still stored in the legacy JSON format is loaded in full as before.
+
+Before indexing, every file is checked to resolve inside the folder being indexed. That check resolved the folder itself again for every file, one extra system call per file. The folder is now resolved once per call. Each file is still resolved and checked against it, so a path that leaves the folder through `..`, a symlink or a junction is still refused, and a folder that is itself a link, pointed somewhere else between two re-indexes, is resolved again on the next one.
+
 ## [1.108.429] - 2026-11-09 - a hook answers in about a second
 
 ### Changed - a hook answers in about a second, and the Grep answer reads the sources it proved unchanged (#1369)

@@ -105,6 +105,100 @@ def test_a_change_after_the_selective_read_is_still_indexed(indexed):
     assert any(s.get("name") == "added" for s in idx.symbols), "the new function is missing"
 
 
+def _stored_symbol_names(storage: Path) -> set:
+    from jcodemunch_mcp.storage import IndexStore
+
+    _cold_cache()
+    store = IndexStore(base_path=str(storage))
+    (owner, name) = next((x["repo"].split("/", 1) for x in store.list_repos()), (None, None))
+    return {s.get("name") for s in store.load_index(owner, name).symbols}
+
+
+def test_a_file_added_after_the_last_index_is_indexed(indexed):
+    src, storage = indexed
+    (src / "c.py").write_text("def brand_new():\n    return 4\n")
+    _cold_cache()
+    r = _index(src, storage)
+    assert r["success"], r
+    assert r.get("message") != "No changes detected", r
+    assert r.get("new") == 1, r
+    assert "brand_new" in _stored_symbol_names(storage)
+
+
+def test_a_file_deleted_after_the_last_index_leaves_it(indexed):
+    src, storage = indexed
+    (src / "b.py").unlink()
+    _cold_cache()
+    r = _index(src, storage)
+    assert r["success"], r
+    assert r.get("message") != "No changes detected", r
+    assert r.get("deleted") == 1, r
+    assert "B" not in _stored_symbol_names(storage)
+
+
+def _dir_link(link: Path, target: Path) -> None:
+    """A directory link that needs no privilege: a junction on Windows."""
+    if os.name == "nt":
+        import _winapi
+
+        _winapi.CreateJunction(str(target), str(link))
+    else:
+        os.symlink(target, link, target_is_directory=True)
+
+
+def test_a_directory_link_out_of_the_root_is_refused_with_a_cached_root(tmp_path):
+    """A junction needs no privilege, so this case runs on every Windows box,
+    unlike the file symlink above."""
+    root = tmp_path / "root"
+    root.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "secret.py").write_text("")
+    _dir_link(root / "linked", outside)
+    target = root / "linked" / "secret.py"
+    cached = str(root.resolve())
+    assert security.validate_path(root, target) is False
+    assert security.validate_path(root, target, root_resolved=cached) is False
+
+
+def test_a_root_repointed_between_calls_is_resolved_again(tmp_path, monkeypatch):
+    """The cached root lives for one call. A root that is a link moved to
+    another directory between two re-indexes is resolved afresh, so the second
+    call checks its files against where the root points now."""
+    from jcodemunch_mcp.tools import index_folder as mod
+
+    first = tmp_path / "first"
+    second = tmp_path / "second"
+    for d in (first, second):
+        d.mkdir()
+        (d / "a.py").write_text("def a():\n    return 1\n")
+    root = tmp_path / "root"
+    _dir_link(root, first)
+    storage = tmp_path / ".code-index"
+
+    calls: list = []
+    real = security.validate_path
+
+    def spy(r, target, **kw):
+        calls.append(kw.get("root_resolved"))
+        return real(r, target, **kw)
+
+    monkeypatch.setattr(mod, "validate_path", spy)
+    _cold_cache()
+    _index(root, storage)
+    seen_first = set(calls)
+    calls.clear()
+    if os.name == "nt":
+        os.rmdir(root)  # removes the junction, not its target
+    else:
+        root.unlink()
+    _dir_link(root, second)
+    _cold_cache()
+    _index(root, storage)
+    assert seen_first == {str(first.resolve())}
+    assert set(calls) == {str(second.resolve())}
+
+
 def test_the_discovery_pass_resolves_its_root_once(indexed, monkeypatch):
     from jcodemunch_mcp.tools import index_folder as mod
 
