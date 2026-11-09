@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.430] - 2026-11-09 - a Java or Kotlin import is an edge to the file that declares it
+
 ### Fixed - a Java or Kotlin import is an edge to the file that declares the class (#1374)
 
 On a Java or Kotlin repository the import graph had no edges, so `find_importers`, `get_dependency_graph`, `get_architecture_metrics`, `get_repo_health` and `check_delete_safe` all read an empty graph, and the last two answered with confidence: a healthy repo with no unstable modules, and an imported class safe to delete. Reported by @randyhbh on a Gradle monorepo. The import was extracted (`import com.acme.app.util.Hosts`) and then never resolved, for two reasons: `.java` and `.kt` were not among the extensions the resolver tries, and the only source roots it tried were the repo root and the Python ones, which it finds by `__init__.py`. Maven and Gradle keep sources under `<module>/src/<sourceSet>/java` or `.../kotlin`, often several modules deep. So even the class at the repo root resolved to nothing, and a dotted JDK name fell through to the Python reading instead: `java.util.List` bound a `java/util/List.ts` when one existed.
