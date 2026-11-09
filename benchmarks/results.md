@@ -118,6 +118,6 @@
 | Reduction vs grep-top-3, pooled totals | 97.4% |
 | Ratio vs grep-top-3, pooled totals | 38.1x |
 
-> **Baseline B is the number to quote**, as the mean reduction per lookup. The pooled totals weigh the lookups with the largest grep baselines most. Read-all is a ceiling nobody pays: it assumes an agent opens every file in the repository before acting. Grep-then-read is what a competent agent without this tool actually does, and it is 11.8% of the read-all figure — so measuring against read-all overstates the advantage by about 8x.
+> **Baseline B is the number to quote**, as the mean reduction per lookup. The pooled totals weigh the lookups with the largest grep baselines most. Read-all is a ceiling nobody pays: it assumes an agent opens every file in the repository before acting. Grep-then-read is what a competent agent without this tool actually does, and it is 11.8% of the read-all figure, so measuring against read-all overstates the advantage by about 8x.
 
 > Measured with tiktoken `cl100k_base`. Read-all = every indexed source file. Grep-top-3 = `rg -l` the query terms, then open the top 3 matching files whole. jMunch = search_symbols (top 5) + get_symbol x 3 per query. Both baselines are measured in THIS run against THIS corpus.
