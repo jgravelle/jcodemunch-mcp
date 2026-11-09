@@ -5,8 +5,7 @@
 ### Added - a caller says on which lines it calls the target
 
 `get_call_hierarchy` gave each caller's definition line, so "where is `f`
-called" still sent an agent into every caller to find the call. On a public
-call-site benchmark that grades `file:line`, that scored near zero.
+called" still sent an agent into every caller to find the call.
 
 Each caller row now carries `call_lines`: the lines in that caller's body
 that call the target, as a word followed by `(` (`obj.f(` counts, `def f(`
