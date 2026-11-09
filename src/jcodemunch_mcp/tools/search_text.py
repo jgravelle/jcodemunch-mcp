@@ -8,6 +8,7 @@ from ._enclosing import attach_enclosing_symbols
 from typing import Optional
 
 from ..storage import IndexStore, record_savings, cost_avoided
+from ..storage.read_ahead import read_ahead
 from ._utils import index_status_to_tool_error, resolve_repo
 
 logger = logging.getLogger(__name__)
@@ -141,19 +142,31 @@ def _count_matches(store, content_dir, files, pattern, query_lower, deadline, te
     # some non-ASCII letters to ASCII (U+212A KELVIN SIGN to "k", U+0130 to
     # "i" plus a dot), which bytes.lower() cannot see.
     probe = query_lower.encode("ascii") if query_lower is not None and query_lower.isascii() else None
-    for file_path in files:
+
+    def entries():
+        for file_path in files:
+            if text_filter is not None and text_filter.rules_out(file_path)[0]:
+                continue
+            yield file_path, store._safe_content_path(content_dir, file_path)
+
+    def read(entry):
+        with open(entry[1], "rb") as f:
+            return f.read()
+
+    # The files are opened ahead on a few threads (first opens of fresh
+    # cached copies are slow on Windows); matching stays here, in order.
+    reader = read_ahead(entries(), read, skip=lambda e: not e[1])
+    try:
+        return _count_read(reader, counts, unreadable, probe, pattern, query_lower, deadline)
+    finally:
+        reader.close()
+
+
+def _count_read(reader, counts, unreadable, probe, pattern, query_lower, deadline):
+    for (file_path, full_path), raw, err in reader:
         if deadline is not None and time.perf_counter() > deadline:
             return counts, False, unreadable
-        if text_filter is not None and text_filter.rules_out(file_path)[0]:
-            continue
-        full_path = store._safe_content_path(content_dir, file_path)
-        if not full_path:
-            unreadable += 1
-            continue
-        try:
-            with open(full_path, "rb") as f:
-                raw = f.read()
-        except OSError:
+        if not full_path or err is not None or raw is None:
             unreadable += 1
             continue
         if probe is not None and raw.isascii() and probe not in raw.lower():
@@ -396,71 +409,82 @@ def search_text(
 
     cut_index = -1
     cut_rest: list[str] = []
-    for file_index, file_path in enumerate(files):
-        if _budget_deadline is not None and time.perf_counter() > _budget_deadline:
-            timed_out = True
-            break
-        # #377 hardening item 7: an eligible file the scan could not read is a
-        # gap in the scan, not a file that contained no match. Counted so a
-        # zero-result response cannot present a partial sweep as exhaustive.
-        # A file whose current trigram bitmap rules the query out holds no
-        # match, so it counts as searched without being opened.
-        ruled_out, stamp = text_filter.rules_out(file_path)
-        if ruled_out:
-            files_searched += 1
-            continue
-        full_path = store._safe_content_path(content_dir, file_path)
-        if not full_path:
-            files_unreadable += 1
-            continue
-        try:
-            with open(full_path, "r", encoding="utf-8", errors="replace") as f:
-                lines = f.readlines()
-        except OSError:
-            files_unreadable += 1
-            continue
-        text_filter.note_read(file_path, stamp, "".join(lines))
 
-        files_searched += 1
-        file_matches = []
-        for line_index, line in enumerate(lines):
-            # Check the budget every 256 lines — cheap, and bounds worst-case
-            # blowup on any single regex/line pair.
-            if (
-                _budget_deadline is not None
-                and (line_index & 0xFF) == 0
-                and time.perf_counter() > _budget_deadline
-            ):
+    # The trigram test runs here, in order, a little ahead of the scan; only
+    # the opening and reading of a candidate goes to the read-ahead threads.
+    # A ruled-out file is still yielded (and not opened), so the counts below
+    # never include a file the scan didn't reach.
+    def scan_entries():
+        for file_index, file_path in enumerate(files):
+            ruled_out, stamp = text_filter.rules_out(file_path)
+            full_path = None if ruled_out else store._safe_content_path(content_dir, file_path)
+            yield file_index, file_path, ruled_out, stamp, full_path
+
+    def read_lines(entry):
+        with open(entry[4], "r", encoding="utf-8", errors="replace") as f:
+            return f.readlines()
+
+    reader = read_ahead(scan_entries(), read_lines, skip=lambda e: e[2] or not e[4])
+    try:
+        for (file_index, file_path, ruled_out, stamp, full_path), lines, read_error in reader:
+            if _budget_deadline is not None and time.perf_counter() > _budget_deadline:
                 timed_out = True
                 break
-            line = line.rstrip("\n")
-            hit = pattern.search(line) if pattern else (query_lower in line.lower())
-            if not hit:
+            # #377 hardening item 7: an eligible file the scan could not read is a
+            # gap in the scan, not a file that contained no match. Counted so a
+            # zero-result response cannot present a partial sweep as exhaustive.
+            # A file whose current trigram bitmap rules the query out holds no
+            # match, so it counts as searched without being opened.
+            if ruled_out:
+                files_searched += 1
                 continue
-            text = line.rstrip()[:200]
-            match = {
-                "line": line_index + 1,
-                "text": text,
-            }
-            if context_lines > 0:
-                before_start = max(0, line_index - context_lines)
-                after_end = min(len(lines), line_index + context_lines + 1)
-                before = [v.rstrip()[:200] for v in lines[before_start:line_index]]
-                after = [v.rstrip()[:200] for v in lines[line_index + 1:after_end]]
-                match["before"] = before
-                match["after"] = after
-            file_matches.append(match)
-            result_count += 1
-            if result_count >= max_results:
-                truncated = True
-                cut_index, cut_rest = file_index, lines[line_index + 1:]
+            if not full_path or read_error is not None or lines is None:
+                files_unreadable += 1
+                continue
+            text_filter.note_read(file_path, stamp, "".join(lines))
+
+            files_searched += 1
+            file_matches = []
+            for line_index, line in enumerate(lines):
+                # Check the budget every 256 lines — cheap, and bounds worst-case
+                # blowup on any single regex/line pair.
+                if (
+                    _budget_deadline is not None
+                    and (line_index & 0xFF) == 0
+                    and time.perf_counter() > _budget_deadline
+                ):
+                    timed_out = True
+                    break
+                line = line.rstrip("\n")
+                hit = pattern.search(line) if pattern else (query_lower in line.lower())
+                if not hit:
+                    continue
+                text = line.rstrip()[:200]
+                match = {
+                    "line": line_index + 1,
+                    "text": text,
+                }
+                if context_lines > 0:
+                    before_start = max(0, line_index - context_lines)
+                    after_end = min(len(lines), line_index + context_lines + 1)
+                    before = [v.rstrip()[:200] for v in lines[before_start:line_index]]
+                    after = [v.rstrip()[:200] for v in lines[line_index + 1:after_end]]
+                    match["before"] = before
+                    match["after"] = after
+                file_matches.append(match)
+                result_count += 1
+                if result_count >= max_results:
+                    truncated = True
+                    cut_index, cut_rest = file_index, lines[line_index + 1:]
+                    break
+
+            if file_matches:
+                results.append({"file": file_path, "matches": file_matches})
+
+            if truncated or timed_out:
                 break
-
-        if file_matches:
-            results.append({"file": file_path, "matches": file_matches})
-
-        if truncated or timed_out:
-            break
+    finally:
+        reader.close()
 
     # A cut page names the files it left off. The rest of the scope is
     # counted with the page's own line test and inside its time budget.
