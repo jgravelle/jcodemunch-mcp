@@ -374,7 +374,7 @@ def test_install_pack_list_shows_a_real_sales_link_with_no_key(catalog, fresh_pr
     out = _run(capsys, ["install-pack", "--list"]).out
     links = [ln for ln in out.splitlines() if "Get a license" in ln]
     assert len(links) == 1
-    urls = re.findall(r"https?://[^\s]+", links[0])
+    urls = re.findall(r"https?://[^\s\x1b]+", links[0])
     assert len(urls) == 1 and _is_our_url(urls[0]), links  # #58: never a placeholder
 
 
