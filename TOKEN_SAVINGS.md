@@ -6,11 +6,11 @@ jCodeMunch saves tokens on two independent axes:
 2. **Encoding (MUNCH)** — responses that do go to the agent are packed in a
    purpose-built compact wire format, not verbose JSON.
 
-The retrieval axis is the big number: **86-99% on code-reading tasks, 94.5%
+The retrieval axis is the big number: **90-99% on code-reading tasks, 96.2%
 fewer tokens per lookup on average** against a grep-and-read agent across 15 tasks and 3 pinned
 repositories. Quote the range, not the average alone: per-query results span
-7.6x to 77.2x, so the average on its own overstates the low end. The larger
-99.6% / 225.2x figure is against a *read-every-file* baseline, which is a
+10.4x to 132.5x, so the average on its own overstates the low end. The larger
+99.7% / 321.9x figure is against a *read-every-file* baseline, which is a
 ceiling nobody actually pays; see `benchmarks/METHODOLOGY.md` for why both are
 published and which one to lead with. Encoding is a smaller-but-independent
 multiplier on whatever traffic remains.
