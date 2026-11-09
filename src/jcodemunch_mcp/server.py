@@ -24,6 +24,7 @@ from mcp.server import Server
 from mcp.server.lowlevel.helper_types import ReadResourceContents
 from mcp.types import Tool, ToolAnnotations, TextContent, Resource, Prompt, PromptMessage, GetPromptResult, CallToolResult
 
+from .cli._stdio import _force_utf8_stdio
 from . import __version__
 from . import config as config_module
 from .embeddings.advice import PROVIDER_HINT as _PROVIDER_HINT
@@ -1378,7 +1379,9 @@ def _index_target_is_local(target: str) -> bool:
     )
 
 
-def _warn_capped_index(result: object, *, local: bool) -> None:
+def _warn_capped_index(
+    result: object, *, local: bool, cap_key: Optional[str] = None
+) -> None:
     """Tell the person at the terminal, on stderr, that the file cap dropped files.
 
     The result JSON already says so, but a capped index still reports success
@@ -1393,15 +1396,22 @@ def _warn_capped_index(result: object, *, local: bool) -> None:
         return
     if skipped <= 0:
         return
-    key, env = (
-        ("max_folder_files", "JCODEMUNCH_MAX_FOLDER_FILES")
-        if local
-        else ("max_index_files", "JCODEMUNCH_MAX_INDEX_FILES")
-    )
+    # A local `index` names the key that bound its cap (`cap_key`, from
+    # get_cli_folder_cap). cli_max_folder_files has no env var, and raising
+    # max_folder_files when it did not bind would only raise the agent's cap.
+    from .security import cap_raise_advice
+
+    if not local:
+        key = "max_index_files"
+    elif cap_key == "cli_max_folder_files":
+        key = cap_key
+    else:
+        key = "max_folder_files"
+    raise_it = cap_raise_advice(key)
     print(
         f"jcodemunch-mcp: warning: the index holds {result.get('files_indexed')} of "
         f"{result.get('files_discovered')} files; {skipped} were left out by the "
-        f"{key} cap. Raise {key} in config.jsonc (or set {env}) and index again.",
+        f"{key} cap. {raise_it} and index again.",
         file=sys.stderr,
     )
 
@@ -5790,6 +5800,18 @@ def _normalize_order_args(action: str, args: dict) -> dict:
     return out
 
 
+def _refused_as_disabled(name: str, repo: Optional[str]) -> bool:
+    """Would ``call_tool`` refuse ``name`` for ``repo`` because it is turned off?
+
+    The call-time rule and the suggestion pool both ask this, so ``order``
+    never suggests what it would refuse, and keeps suggesting a tier control a
+    user listed but that still runs (issue #299's safety net).
+    """
+    allow_disable_tier = config_module.get("allow_disabling_tier_controls", False, repo=repo)
+    protected = frozenset() if allow_disable_tier else _UNDISABLEABLE_TOOLS
+    return name not in protected and config_module.is_tool_disabled(name, repo=repo)
+
+
 async def _handle_order(arguments: dict) -> list[TextContent] | CallToolResult:
     """order(action, args): validate against the catalog + charter gate, then
     re-enter the normal pipeline for the resolved action."""
@@ -5798,7 +5820,10 @@ async def _handle_order(arguments: dict) -> list[TextContent] | CallToolResult:
     if not isinstance(args, dict):
         return _error_call_result(json.dumps({"error": "order 'args' must be an object."}, indent=2))
     allow = bool(arguments.get("allow_state_change", False))
-    err = _counter.order_gate(action, _catalog_names(), allow)
+    names = _catalog_names()
+    repo = args.get("repo") if isinstance(args.get("repo"), str) else None
+    suggest = {n for n in names if not _refused_as_disabled(n, repo)}
+    err = _counter.order_gate(action, names, allow, suggest_from=suggest)
     if err is not None:
         return _error_call_result(json.dumps({"error": err, "tool": "order"}, indent=2))
     return await call_tool(action, _normalize_order_args(action, dict(args)))
@@ -6104,7 +6129,14 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent] | CallToolR
     _count_frame: dict = {"inner": False}
     _count_token = _COUNT_FRAME.set(_count_frame)
     _counted_result: "list[TextContent] | CallToolResult | None" = None
+    _outer_counted = False
     try:
+        if _count_parent is None:
+            # A BM25 write-back in progress moves the .db; a call started now
+            # would read it as a rebuild (#1343).
+            await _await_bm25_flush()
+            _bm25_outer_calls[0] += 1
+            _outer_counted = True
         result = _enforce_response_cap(name, await _call_tool_impl(name, arguments))
         _dispatch_ok = not bool(getattr(result, "isError", False))
         _counted_result = result
@@ -6134,7 +6166,49 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent] | CallToolR
             )
         except Exception:
             logger.debug("Latency recording failed for %s", name, exc_info=True)
+        if _outer_counted:
+            _bm25_outer_calls[0] -= 1
+            if _bm25_outer_calls[0] == 0:
+                _schedule_bm25_flush()
         end_call_context(call_token)
+
+
+# BM25 statistics a search computed are stored in the index after the response
+# is sent, and only while no tool call runs in this server; calls that arrive
+# during the write wait for it. Both halves keep the write outside every
+# call's before/after check on the .db, which would otherwise read it as a
+# rebuild and refuse an absence (#1343).
+_bm25_outer_calls = [0]
+_bm25_flush_task: "list[asyncio.Task | None]" = [None]
+
+
+def _schedule_bm25_flush() -> None:
+    """Start the write-back in the background if anything is queued. Never raises."""
+    try:
+        from .storage import bm25_stats as _bm25_stats
+
+        if not _bm25_stats.pending_count():
+            return
+        task = _bm25_flush_task[0]
+        if task is not None and not task.done() and not task.get_loop().is_closed():
+            return  # what is queued now is stored by the next one
+        _bm25_flush_task[0] = asyncio.get_running_loop().create_task(
+            asyncio.to_thread(_bm25_stats.flush_pending)
+        )
+    except Exception:
+        logger.debug("BM25 statistics write-back not scheduled", exc_info=True)
+
+
+async def _await_bm25_flush() -> None:
+    """Wait for a write-back in progress. Never raises."""
+    task = _bm25_flush_task[0]
+    if task is None or task.done():
+        return
+    try:
+        if task.get_loop() is asyncio.get_running_loop():
+            await asyncio.shield(task)
+    except Exception:
+        logger.debug("BM25 statistics write-back failed", exc_info=True)
 
 
 async def _call_tool_impl(name: str, arguments: dict) -> list[TextContent] | CallToolResult:
@@ -6254,14 +6328,25 @@ async def _call_tool_impl(name: str, arguments: dict) -> list[TextContent] | Cal
         # rejection happens here since schema is global (can't be changed per-project).
         # `allow_disabling_tier_controls=true` lets users opt out of the
         # _UNDISABLEABLE_TOOLS safety net (issue #299).
-        allow_disable_tier = config_module.get("allow_disabling_tier_controls", False, repo=repo_arg)
-        protected_at_call = frozenset() if allow_disable_tier else _UNDISABLEABLE_TOOLS
-        if name not in protected_at_call and config_module.is_tool_disabled(name, repo=repo_arg):
+        if _refused_as_disabled(name, repo_arg):
+            source = config_module.disabled_tool_source(name, repo=repo_arg)
+            where = (
+                "this project's .jcodemunch.jsonc" if source == "project"
+                else "the global config.jsonc"
+            )
+            # On the counter surface a hidden tool is named the way it is called.
+            label = (
+                _counter.as_order_call(name) if _effective_surface() == "counter"
+                else f"Tool '{name}'"
+            )
+            ships = (
+                " It ships turned off; the package's default list names it."
+                if config_module.ships_disabled(name) else ""
+            )
             return _fail(json.dumps({
                 "error": (
-                    f"Tool '{name}' is disabled in this project's configuration. "
-                    f"Project-level tool disabling is set via the 'disabled_tools' key "
-                    f"in the .jcodemunch.jsonc file. Remove '{name}' from 'disabled_tools' to re-enable."
+                    f"{label} is turned off: it is listed in 'disabled_tools' in {where}.{ships} "
+                    f"Ask the user whether to turn it back on; do not edit that setting yourself."
                 )
             }, indent=2))
 
@@ -7754,6 +7839,22 @@ async def _call_tool_impl(name: str, arguments: dict) -> list[TextContent] | Cal
                 if isinstance(_sym, dict):
                     _sym.pop("content_hash", None)
 
+        # A result drawn from a capped index says so in the BODY, before the
+        # display filter below can strip `_meta.index_truncated`: on the default
+        # `meta_fields: []` a search that found something otherwise read as a
+        # search of the whole repo. `index_warning` is a key every compact
+        # encoder carries (`schema_driven.is_universal_body_key`). A new dict,
+        # because `result` may be an object a cache still holds.
+        try:
+            if isinstance(result, dict) and "index_warning" not in result:
+                from .retrieval.verdict import index_truncation_warning as _itw
+
+                _cap_line = _itw((result.get("_meta") or {}).get("index_truncated"))
+                if _cap_line:
+                    result = {**result, "index_warning": _cap_line}
+        except Exception:
+            logger.debug("index-cap warning attach failed", exc_info=True)
+
         if isinstance(result, dict):
             meta_fields = config_module.get("meta_fields")
             if meta_fields == [] or arguments.get("suppress_meta"):
@@ -7848,20 +7949,19 @@ async def _call_tool_impl(name: str, arguments: dict) -> list[TextContent] | Cal
         # Turn-economy steering (v1.108.158): count hop vs bundle traffic; after
         # _STEER_NUDGE_AT hop calls with no bundle call, advise the one-call
         # opener ONCE, on a search response (where the next-query decision is
-        # made). Forces JSON for that single response so the hint can't be
-        # dropped by a lossy compact encoding.
+        # made). Every schema encoder carries `_meta.steer_hint` (it is in
+        # `UNIVERSAL_META_JSON`), so the response keeps its compact encoding.
         try:
             _steer_note_call(name, arguments, result)
             if _steer_hint_due(name, result):
                 _steer_state["nudged"] = True
-                result.setdefault("_meta", {})["hint"] = (
+                result.setdefault("_meta", {})["steer_hint"] = (
                     "Several search/read hops and no bundle call yet this session. "
                     "For exploration questions, get_ranked_context(repo, query, "
                     "token_budget) returns ranked, budget-packed context in ONE call. "
                     "Pass compress=True to fit more symbols in the same budget; "
                     "repo also accepts '.' or a filesystem path."
                 )
-                _requested_format = "json"
         except Exception:
             logger.debug("Steering attach failed", exc_info=True)
 
@@ -8984,15 +9084,16 @@ def _run_config(check: bool = False, init: bool = False, upgrade: bool = False) 
     # override is silently invisible in diagnostic output.
     _project_repo_key: Optional[str] = None
     _project_loaded_keys: set = set()
+    _project_ignored_keys: set = set()
     _project_config_path_for_display = Path.cwd() / ".jcodemunch.jsonc"
     if _project_config_path_for_display.is_file():
         try:
             _cfg.load_project_config(str(Path.cwd()))
             _project_repo_key = str(Path.cwd().resolve())
             try:
-                _pc_content = _project_config_path_for_display.read_text(encoding="utf-8")
-                import json as _json_pc
-                _project_loaded_keys = set(_json_pc.loads(_cfg._strip_jsonc(_pc_content)).keys())
+                # Only the keys the project file sets AND that apply: a key the
+                # off-never-on rule ignores is not an override.
+                _project_loaded_keys, _project_ignored_keys = _cfg.project_keys_in_effect(str(Path.cwd()))
             except Exception:
                 _project_loaded_keys = set()
         except Exception:
@@ -9055,6 +9156,13 @@ def _run_config(check: bool = False, init: bool = False, upgrade: bool = False) 
 
     # Load config to get effective values
     _cfg.load_config()
+    if _project_repo_key is not None:
+        # Again, now the user's own config is loaded: whether a project key
+        # applies depends on it.
+        try:
+            _project_loaded_keys, _project_ignored_keys = _cfg.project_keys_in_effect(str(Path.cwd()))
+        except Exception:
+            logger.debug("Could not resolve the project config keys in effect", exc_info=True)
 
     tty = hasattr(sys.stdout, "isatty") and sys.stdout.isatty()
     enc = getattr(sys.stdout, "encoding", "ascii") or "ascii"
@@ -9114,6 +9222,11 @@ def _run_config(check: bool = False, init: bool = False, upgrade: bool = False) 
             f"  {green(CHECK)} .jcodemunch.jsonc loaded from cwd: {_project_config_path_for_display} "
             f"{dim(f'({len(_project_loaded_keys)} key(s) override global)')}"
         )
+        if _project_ignored_keys:
+            print(
+                f"  {yellow(WARN)} .jcodemunch.jsonc keys ignored (a project file may turn "
+                f"these off, never on): {', '.join(sorted(_project_ignored_keys))}"
+            )
     elif _project_config_path_for_display.is_file():
         print(
             f"  {yellow(WARN)} .jcodemunch.jsonc present but failed to load: "
@@ -9157,6 +9270,7 @@ def _run_config(check: bool = False, init: bool = False, upgrade: bool = False) 
     # exists to spare people (#375, @dkiaulakis).
     row("max_file_size", _cfg.get("max_file_size", 512000), _detect_source("max_file_size", 512000))
     row("max_folder_files", _cfg.get("max_folder_files", 2000), _detect_source("max_folder_files", 2000))
+    row("cli_max_folder_files", _cfg.get("cli_max_folder_files", 30000), _detect_source("cli_max_folder_files", 30000))
     row("max_index_files", _cfg.get("max_index_files", 10000), _detect_source("max_index_files", 10000))
     row("staleness_days", _cfg.get("staleness_days", 7), _detect_source("staleness_days", 7))
     row("max_results", _cfg.get("max_results", 500), _detect_source("max_results", 500))
@@ -9780,53 +9894,6 @@ def _format_refresh(out: dict) -> str:
     return "\n".join(lines)
 
 
-def _force_utf8_stdio() -> None:
-    """Make CLI output UTF-8 regardless of the platform locale (v1.108.262).
-
-    ⚠⚠ On Windows, `sys.stdout` is the **console** stream (already UTF-8) when
-    attached to a terminal and the **locale** stream (cp1252) when piped or
-    redirected. So a command that prints any character cp1252 cannot encode
-    works interactively and dies the moment anyone consumes it:
-
-        jcodemunch-mcp receipt --explain            # fine
-        jcodemunch-mcp receipt --explain | more     # UnicodeEncodeError, no output
-
-    Measured: `receipt --explain` writes U+2212 MINUS SIGN and `render_diagram`
-    writes U+2713 CHECK MARK. That is a hard traceback out of a shipped command,
-    in the one configuration nobody exercises by hand and every script uses.
-    Sibling of the cp1252 DECODE class swept in v1.108.230; that sweep covered
-    subprocess input and left output alone.
-
-    Fixed at the entry point rather than per string, because the next non-ASCII
-    character someone adds must not reintroduce this.
-
-    ⚠ The MCP stdio transport is unaffected: it wraps `sys.stdout.buffer` in its
-    own TextIOWrapper, so it never reads the text layer being reconfigured here.
-    Verified before this shipped.
-
-    ⚠ `errors="replace"` is deliberate. Filesystem paths can carry surrogates
-    from a `surrogateescape` decode, and those raise even under UTF-8. Mangling
-    one character in a display string beats killing the command.
-
-    ⚠ `PYTHONIOENCODING` is honoured as an explicit opt-out: if the operator
-    named an encoding, that is a decision, not an accident.
-    """
-    if os.environ.get("PYTHONIOENCODING"):
-        return
-    for stream_name in ("stdout", "stderr"):
-        stream = getattr(sys, stream_name, None)
-        reconfigure = getattr(stream, "reconfigure", None)
-        if reconfigure is None:  # replaced by a test harness or a captured buffer
-            continue
-        current = (getattr(stream, "encoding", "") or "").lower().replace("-", "")
-        if current in ("utf8", "utf8mb4"):
-            continue
-        try:
-            reconfigure(encoding="utf-8", errors="replace")
-        except (ValueError, OSError):
-            # A stream that refuses reconfiguration is not a reason to refuse to
-            # run; the command simply keeps the behaviour it had before.
-            logger.debug("Could not force UTF-8 on sys.%s", stream_name, exc_info=True)
 
 
 def _cli_license_reminder(argv: Optional[list[str]]) -> None:
@@ -11839,10 +11906,17 @@ def main(argv: Optional[list[str]] = None):
 
         is_local = _index_target_is_local(t)
         identity_mode = getattr(args, "identity_mode", "config")
+        # The key that set the CLI cap, for the stderr warning: one resolver
+        # answers both, so the warning names the cap that was applied.
+        _cap_key: Optional[str] = None
         if is_local:
             from .tools.index_folder import index_folder as _index_folder
+            from .security import get_cli_folder_cap as _cli_cap
+            _cap, _cap_key = _cli_cap(repo=str(Path(t).resolve()))
             result = _index_folder(
                 path=t,
+                max_folder_files=_cap,
+                cap_key=_cap_key,
                 use_ai_summaries=use_ai,
                 storage_path=os.environ.get("CODE_INDEX_PATH"),
                 extra_ignore_patterns=args.extra_ignore,
@@ -11874,7 +11948,7 @@ def main(argv: Optional[list[str]] = None):
                 storage_path=os.environ.get("CODE_INDEX_PATH"),
             ))
         print(_json.dumps(result, indent=2))
-        _warn_capped_index(result, local=is_local)
+        _warn_capped_index(result, local=is_local, cap_key=_cap_key)
         if not result.get("success"):
             sys.exit(1)
     elif args.command == "index-file":

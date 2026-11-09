@@ -4,10 +4,12 @@ import itertools
 import logging
 import re
 import time
+from pathlib import Path
 from ._enclosing import attach_enclosing_symbols
 from typing import Optional
 
 from ..storage import IndexStore, record_savings, cost_avoided
+from ..storage.read_ahead import read_ahead
 from ._utils import index_status_to_tool_error, resolve_repo
 
 logger = logging.getLogger(__name__)
@@ -77,6 +79,10 @@ SOURCE_MAX_SYMBOLS = 3
 SOURCE_MAX_LINES = 60
 SOURCE_MAX_BYTES = 8000
 
+# The most matching lines one `scan_limit` call collects. A ceiling on memory
+# for an in-process caller, not a page size: the MCP tool keeps its 100.
+SCAN_LIMIT_MAX = 5000
+
 
 def _file_patterns(file_pattern: str) -> list[str]:
     """The pattern as written, then its brace expansions (bounded, no nesting)."""
@@ -137,19 +143,31 @@ def _count_matches(store, content_dir, files, pattern, query_lower, deadline, te
     # some non-ASCII letters to ASCII (U+212A KELVIN SIGN to "k", U+0130 to
     # "i" plus a dot), which bytes.lower() cannot see.
     probe = query_lower.encode("ascii") if query_lower is not None and query_lower.isascii() else None
-    for file_path in files:
+
+    def entries():
+        for file_path in files:
+            if text_filter is not None and text_filter.rules_out(file_path)[0]:
+                continue
+            yield file_path, store._safe_content_path(content_dir, file_path)
+
+    def read(entry):
+        with open(entry[1], "rb") as f:
+            return f.read()
+
+    # The files are opened ahead on a few threads (first opens of fresh
+    # cached copies are slow on Windows); matching stays here, in order.
+    reader = read_ahead(entries(), read, skip=lambda e: not e[1])
+    try:
+        return _count_read(reader, counts, unreadable, probe, pattern, query_lower, deadline)
+    finally:
+        reader.close()
+
+
+def _count_read(reader, counts, unreadable, probe, pattern, query_lower, deadline):
+    for (file_path, full_path), raw, err in reader:
         if deadline is not None and time.perf_counter() > deadline:
             return counts, False, unreadable
-        if text_filter is not None and text_filter.rules_out(file_path)[0]:
-            continue
-        full_path = store._safe_content_path(content_dir, file_path)
-        if not full_path:
-            unreadable += 1
-            continue
-        try:
-            with open(full_path, "rb") as f:
-                raw = f.read()
-        except OSError:
+        if not full_path or err is not None or raw is None:
             unreadable += 1
             continue
         if probe is not None and raw.isascii() and probe not in raw.lower():
@@ -212,14 +230,16 @@ def _symbols_of_matched_files(store, owner: str, name: str, index, results: list
     files = list(dict.fromkeys(group["file"] for group in results))
     if not files:
         return []
-    narrow = store.open_selective(owner, name, files=files)
+    # Meta and symbol rows only: the view already holds the file list, and
+    # reading the files table again decodes every file row a second time.
+    narrow = store.read_file_symbols(owner, name, files)
     if (
-        isinstance(narrow, SelectiveIndexView)
+        narrow is not None
         and index.generation is not None
-        and narrow.generation == index.generation
-        and narrow._loaded_mtime_ns == index._loaded_mtime_ns
+        and narrow[0] == index.generation
+        and narrow[1] == index._loaded_mtime_ns
     ):
-        return narrow.selected_symbols()
+        return narrow[2]
     return index.symbols
 
 
@@ -283,6 +303,9 @@ def search_text(
     storage_path: Optional[str] = None,
     *,
     selective_load: bool = False,
+    scan_limit: Optional[int] = None,
+    _index=None,
+    _read_root: Optional[str] = None,
 ) -> dict:
     """Search for text across all indexed files in a repository.
 
@@ -291,6 +314,26 @@ def search_text(
     files' symbols instead of the whole index, and caches nothing. A server
     leaves it off, so its first search loads and caches the full index and the
     next ones answer from memory. Not an MCP argument.
+
+    ``_index`` is an index or selective view the caller already opened for
+    this repo, so a one-shot caller that read it for another check doesn't pay
+    the same read twice. Not an MCP argument.
+
+    ``scan_limit`` replaces ``max_results`` and its 100-line clamp, up to
+    SCAN_LIMIT_MAX, for an in-process caller that needs the whole match set
+    (the Grep-answer hook counts it before deciding to answer). The server
+    never passes it, so the tool's page size is unchanged. Not an MCP argument.
+
+    ``_read_root`` reads each file's text from that directory (the indexed
+    source root) instead of the index's cached copy. Only for a caller that
+    has just proved every file in scope unchanged since indexing, as the
+    Grep-answer hook does by comparing each file's mtime with its indexed one:
+    the cached copy is the source as read at index time, decoded the same way,
+    so the text is the same. On a just-indexed workspace the source is a file
+    the indexer already opened, while the cached copy was just written, and on
+    Windows that first open is slow (15.2 ms against 0.08 ms per file measured
+    on a fresh Home Assistant index). A path that leaves the root is not read.
+    Not an MCP argument.
 
     Useful when symbol search misses — e.g., searching for string literals,
     comments, configuration values, or patterns not captured as symbols.
@@ -315,7 +358,10 @@ def search_text(
         return arg_err
 
     start = time.perf_counter()
-    max_results = max(1, min(max_results, 100))
+    if scan_limit is not None:
+        max_results = max(1, min(int(scan_limit), SCAN_LIMIT_MAX))
+    else:
+        max_results = max(1, min(max_results, 100))
     context_lines = max(0, min(context_lines, 10))
 
     # For regex mode, compile the user pattern. For substring mode, use
@@ -337,7 +383,7 @@ def search_text(
     # cached index comes back as is). A server loads and caches the full
     # index, so later calls are memory reads. None from open_selective means
     # "take the ordinary path", never an absence.
-    index = (
+    index = _index or (
         store.open_selective(owner, name) if selective_load else None
     ) or store.load_index(owner, name)
 
@@ -359,6 +405,9 @@ def search_text(
     _state_before = _subject.capture(index)
 
     content_dir = store._content_dir(owner, name)
+    # Where file text is read from: the cached copies, or the source root a
+    # caller proved unchanged. The trigram filter always reads the content dir.
+    read_base = Path(_read_root) if _read_root else content_dir
     from ..storage.text_filter import Filter as _TextFilter
 
     text_filter = _TextFilter(content_dir, query_lower)
@@ -376,71 +425,87 @@ def search_text(
 
     cut_index = -1
     cut_rest: list[str] = []
-    for file_index, file_path in enumerate(files):
-        if _budget_deadline is not None and time.perf_counter() > _budget_deadline:
-            timed_out = True
-            break
-        # #377 hardening item 7: an eligible file the scan could not read is a
-        # gap in the scan, not a file that contained no match. Counted so a
-        # zero-result response cannot present a partial sweep as exhaustive.
-        # A file whose current trigram bitmap rules the query out holds no
-        # match, so it counts as searched without being opened.
-        ruled_out, stamp = text_filter.rules_out(file_path)
-        if ruled_out:
-            files_searched += 1
-            continue
-        full_path = store._safe_content_path(content_dir, file_path)
-        if not full_path:
-            files_unreadable += 1
-            continue
-        try:
-            with open(full_path, "r", encoding="utf-8", errors="replace") as f:
-                lines = f.readlines()
-        except OSError:
-            files_unreadable += 1
-            continue
-        text_filter.note_read(file_path, stamp, "".join(lines))
 
-        files_searched += 1
-        file_matches = []
-        for line_index, line in enumerate(lines):
-            # Check the budget every 256 lines — cheap, and bounds worst-case
-            # blowup on any single regex/line pair.
-            if (
-                _budget_deadline is not None
-                and (line_index & 0xFF) == 0
-                and time.perf_counter() > _budget_deadline
-            ):
+    # The trigram test runs here, in order, a little ahead of the scan; only
+    # the opening and reading of a candidate goes to the read-ahead threads.
+    # A ruled-out file is still yielded (and not opened), so the counts below
+    # never include a file the scan didn't reach.
+    def scan_entries():
+        for file_index, file_path in enumerate(files):
+            ruled_out, stamp = text_filter.rules_out(file_path)
+            full_path = None if ruled_out else store._safe_content_path(read_base, file_path)
+            yield file_index, file_path, ruled_out, stamp, full_path
+
+    def read_lines(entry):
+        with open(entry[4], "r", encoding="utf-8", errors="replace") as f:
+            return f.readlines()
+
+    reader = read_ahead(scan_entries(), read_lines, skip=lambda e: e[2] or not e[4])
+    try:
+        for (file_index, file_path, ruled_out, stamp, full_path), lines, read_error in reader:
+            if _budget_deadline is not None and time.perf_counter() > _budget_deadline:
                 timed_out = True
                 break
-            line = line.rstrip("\n")
-            hit = pattern.search(line) if pattern else (query_lower in line.lower())
-            if not hit:
+            # #377 hardening item 7: an eligible file the scan could not read is a
+            # gap in the scan, not a file that contained no match. Counted so a
+            # zero-result response cannot present a partial sweep as exhaustive.
+            # A file whose current trigram bitmap rules the query out holds no
+            # match, so it counts as searched without being opened.
+            if ruled_out:
+                files_searched += 1
                 continue
-            text = line.rstrip()[:200]
-            match = {
-                "line": line_index + 1,
-                "text": text,
-            }
-            if context_lines > 0:
-                before_start = max(0, line_index - context_lines)
-                after_end = min(len(lines), line_index + context_lines + 1)
-                before = [v.rstrip()[:200] for v in lines[before_start:line_index]]
-                after = [v.rstrip()[:200] for v in lines[line_index + 1:after_end]]
-                match["before"] = before
-                match["after"] = after
-            file_matches.append(match)
-            result_count += 1
-            if result_count >= max_results:
-                truncated = True
-                cut_index, cut_rest = file_index, lines[line_index + 1:]
+            if not full_path or read_error is not None or lines is None:
+                files_unreadable += 1
+                continue
+            # The trigram row is keyed by the cached copy's stamp, so only the
+            # cached copy's text may write it. A source read would record the
+            # source under that stamp, and a later search for text only the
+            # cached copy holds would be ruled out and come back empty.
+            if not _read_root:
+                text_filter.note_read(file_path, stamp, "".join(lines))
+
+            files_searched += 1
+            file_matches = []
+            for line_index, line in enumerate(lines):
+                # Check the budget every 256 lines — cheap, and bounds worst-case
+                # blowup on any single regex/line pair.
+                if (
+                    _budget_deadline is not None
+                    and (line_index & 0xFF) == 0
+                    and time.perf_counter() > _budget_deadline
+                ):
+                    timed_out = True
+                    break
+                line = line.rstrip("\n")
+                hit = pattern.search(line) if pattern else (query_lower in line.lower())
+                if not hit:
+                    continue
+                text = line.rstrip()[:200]
+                match = {
+                    "line": line_index + 1,
+                    "text": text,
+                }
+                if context_lines > 0:
+                    before_start = max(0, line_index - context_lines)
+                    after_end = min(len(lines), line_index + context_lines + 1)
+                    before = [v.rstrip()[:200] for v in lines[before_start:line_index]]
+                    after = [v.rstrip()[:200] for v in lines[line_index + 1:after_end]]
+                    match["before"] = before
+                    match["after"] = after
+                file_matches.append(match)
+                result_count += 1
+                if result_count >= max_results:
+                    truncated = True
+                    cut_index, cut_rest = file_index, lines[line_index + 1:]
+                    break
+
+            if file_matches:
+                results.append({"file": file_path, "matches": file_matches})
+
+            if truncated or timed_out:
                 break
-
-        if file_matches:
-            results.append({"file": file_path, "matches": file_matches})
-
-        if truncated or timed_out:
-            break
+    finally:
+        reader.close()
 
     # A cut page names the files it left off. The rest of the scope is
     # counted with the page's own line test and inside its time budget.
@@ -453,7 +518,7 @@ def search_text(
         complete = finished
         if finished:
             later, complete, unreadable = _count_matches(
-                store, content_dir, files[cut_index + 1:], pattern, query_lower, _budget_deadline,
+                store, read_base, files[cut_index + 1:], pattern, query_lower, _budget_deadline,
                 # Only a substring query has trigrams to test.
                 **({"text_filter": text_filter} if text_filter.grams else {}),
             )
@@ -560,7 +625,7 @@ def search_text(
     }
     if more_files is not None:
         body.update(more_files)
-    _attach_sources(body, results, lambda f: _read_stored_lines(store, content_dir, f))
+    _attach_sources(body, results, lambda f: _read_stored_lines(store, read_base, f))
     if files_eligible == 0 and file_pattern:
         # An empty result over a scope that matched no file is not an absence.
         note = f"file_pattern {file_pattern!r} matched no indexed file, so nothing was searched."

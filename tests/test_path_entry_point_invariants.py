@@ -120,15 +120,20 @@ class TestProjectConfigReachesEveryPathEntryPoint:
     without ensuring the overlay is loaded has a parameter that does nothing."""
 
     @pytest.fixture
-    def project(self, tmp_path):
+    def project(self, tmp_path, monkeypatch):
         store = tmp_path / "store"
         store.mkdir()
         proj = _make_repo(tmp_path / "proj", {"main.py": "def main():\n    return 1\n"})
-        # Matches a built-in secret rule AND has a supported extension, so it is
-        # refused unless the project's opt-out applies.
+        # Matches a built-in secret rule AND has a supported extension. The
+        # user's own config excludes it; a project file may only narrow that,
+        # so the project's empty list makes it secret again, and only when the
+        # overlay is loaded.
         (proj / "settings.env.py").write_text("TOKEN = 'x'\n")
+        from jcodemunch_mcp import config as cfg
+
+        monkeypatch.setitem(cfg._GLOBAL_CONFIG, "exclude_secret_patterns", ["settings.env.py"])
         (proj / ".jcodemunch.jsonc").write_text(
-            json.dumps({"exclude_secret_patterns": ["settings.env.py"]}, indent=2)
+            json.dumps({"exclude_secret_patterns": []}, indent=2)
         )
         _git(proj, "add", "-A")
         _git(proj, "commit", "-q", "-m", "add settings")
@@ -147,7 +152,7 @@ class TestProjectConfigReachesEveryPathEntryPoint:
             storage_path=project.store_path,
         )
         skipped = (result.get("discovery_skip_counts") or {}).get("secret", 0)
-        assert skipped == 0, (
+        assert skipped == 1, (
             "the project's exclude_secret_patterns did not apply to index_folder"
         )
 
@@ -169,7 +174,7 @@ class TestProjectConfigReachesEveryPathEntryPoint:
             storage_path=project.store_path,
         )
 
-        assert result.get("success") is True, (
-            f"index_file refused a file the project's opt-out permits: "
-            f"{result.get('error')!r}"
+        assert result.get("success") is False, (
+            "index_file accepted a file the project's exclude_secret_patterns "
+            "makes secret: the overlay was not loaded"
         )

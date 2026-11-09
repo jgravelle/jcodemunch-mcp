@@ -1,0 +1,68 @@
+# VS Code extension: build, type-check and package (docs/cicd/DESIGN.md section 5a).
+#
+# Purpose:  vscode-extension/ is TypeScript and nothing else in CI builds it,
+#           so a broken compile or a bad dependency bump went unseen until a
+#           publish. This job installs from the lockfile, compiles, and packages
+#           the .vsix, which it uploads as an artifact for the maintainer to
+#           publish with his own marketplace account.
+# Trigger:  pull_request and push to main touching vscode-extension/ or this
+#           file; dispatch.
+# Blocks:   INFORMS. It is not a required check: adding one is a branch
+#           protection change (docs/cicd/RUNBOOK.md section 8).
+# Rules:    actions SHA-pinned; minimal permissions; no continue-on-error;
+#           this job never publishes.
+name: VS Code extension
+
+on:
+  pull_request:
+    paths:
+      - "vscode-extension/**"
+      - ".github/workflows/vscode-extension.yml"
+  push:
+    branches: [main]
+    paths:
+      - "vscode-extension/**"
+      - ".github/workflows/vscode-extension.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: vscode-extension-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  # A runner is not a user: its tool calls must not be reported to the public savings total (cicd C-23).
+  JCODEMUNCH_SHARE_SAVINGS: "0"
+
+jobs:
+  build:
+    name: "vscode: build and package"
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: vscode-extension
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v7.1.0
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: vscode-extension/package-lock.json
+      - name: Install from the lockfile
+        run: npm ci
+      - name: Compile
+        run: npm run compile
+      - name: Package the .vsix
+        # vsce is a locked devDependency, so npm ci installed the exact version.
+        run: npm exec --no -- vsce package --skip-license --out jcodemunch-mcp-vscode.vsix
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
+        with:
+          name: jcodemunch-mcp-vscode-vsix
+          path: vscode-extension/jcodemunch-mcp-vscode.vsix
+          if-no-files-found: error
+          retention-days: 30

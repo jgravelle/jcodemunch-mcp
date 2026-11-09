@@ -10,7 +10,7 @@ import sys
 import threading
 from collections import deque
 from pathlib import Path
-from typing import Optional
+from typing import Iterable, Optional
 
 from .astro_shared import mask_html_comments_keep_offsets, split_astro_frontmatter
 from .languages import template_underlying_language
@@ -2548,12 +2548,23 @@ def _norm_alias_replacement(rep: str, tsconfig_dir_rel: str = "") -> str:
         return (base + "/*") if is_wildcard else base
 
 
-def _load_tsconfig_aliases(source_root: str) -> dict[str, list[str]]:
+def _load_tsconfig_aliases(
+    source_root: str, known_files: "Optional[Iterable[str]]" = None
+) -> dict[str, list[str]]:
     """Read tsconfig.json / jsconfig.json path aliases for a project root.
 
     Returns a dict mapping tsconfig pattern strings (e.g. ``"@/*"``) to lists
     of normalized replacement strings (e.g. ``["src/*"]``).  All replacements
     are repo-root-relative.  Results are module-level cached by source_root.
+
+    ``known_files`` is a complete list of the repo's files (an index's own
+    ``source_files``) when the caller has one. If it names no tsconfig or
+    jsconfig file, the tree walk is skipped: on a repo with none it read
+    every directory to depth 5 and found nothing, and every cold load paid
+    for it. ⚠ Pass it only when the list is whole; ``None``
+    keeps the walk. ⚠⚠ A skipped walk is never cached: the cache is keyed by
+    ``source_root`` alone, so a result read off an old file list would answer
+    a later load whose list now names a tsconfig.
     """
     if not source_root:
         return {}
@@ -2660,11 +2671,19 @@ def _load_tsconfig_aliases(source_root: str) -> dict[str, list[str]]:
         except PermissionError:
             pass
 
+    if known_files is not None and not any(_is_tsconfig_name(f) for f in known_files):
+        return alias_map  # walk skipped: not cached, see above
     _walk_tsconfigs(root, 0)
 
     with _ALIAS_MAP_LOCK:
         _alias_map_cache[source_root] = alias_map
     return alias_map
+
+
+def _is_tsconfig_name(rel_path: str) -> bool:
+    """True for a file the tsconfig walk would read: ``tsconfig*.json`` or ``jsconfig*.json``."""
+    base = rel_path.replace("\\", "/").rsplit("/", 1)[-1]
+    return base.endswith(".json") and (base.startswith("tsconfig") or base.startswith("jsconfig"))
 
 
 def _expand_aliases(specifier: str, alias_map: dict[str, list[str]]) -> list[str]:
