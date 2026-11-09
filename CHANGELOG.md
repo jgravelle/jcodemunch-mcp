@@ -10,6 +10,12 @@ An import from a `.java`, `.kt` or `.kts` file now resolves to the `.java` or `.
 
 Found while checking the fix through `index_folder`: an import ending in `;` and then a carriage return or trailing spaces was not extracted, because the import pattern stopped there. In a CRLF checkout (Windows) that was every Java import; Kotlin without `;` was unaffected. That pattern is fixed too, and `PARSER_GENERATION` moves to 30 so an existing index re-parses its files and gains the edges; the resolver half needs no re-parse. Wildcard imports (`import a.b.*`), Kotlin top-level functions and same-package references are separate issues and unchanged here. Tests: `tests/test_jvm_import_resolution.py`.
 
+### Changed - a no-change re-index of a large repository reads no symbols
+
+Re-indexing a folder where nothing changed used to load the whole stored index, every symbol row, to learn which git root and source root it was built from and to use it as the base to compare against. Neither needs a symbol. Both reads are now a selective view of the stored index, which holds the repository's metadata, file hashes and modification times and reads no symbol rows. When a later step does need the symbols, because a file was edited, added or deleted, the view loads them at that point, so the result is unchanged and only the cost moves. An index still stored in the legacy JSON format is loaded in full as before.
+
+Before indexing, every file is checked to resolve inside the folder being indexed, once while the folder is walked and again just before parsing. Each check resolved the folder itself again for every file, one extra system call per file. The second check now resolves the folder once per call; the check during the walk still resolves it per file. Each file is still resolved and checked against it, so a path that leaves the folder through `..`, a symlink or a junction is still refused, and a folder that is itself a link, pointed somewhere else between two re-indexes, is resolved again on the next one.
+
 ## [1.108.429] - 2026-11-09 - a hook answers in about a second
 
 ### Changed - a hook answers in about a second, and the Grep answer reads the sources it proved unchanged (#1369)
