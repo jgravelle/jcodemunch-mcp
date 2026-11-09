@@ -3176,3 +3176,9 @@ The 1.108.424 entry, verbatim as it stood in `CLAUDE.md`:
 The 1.108.425 entry, verbatim as it stood in `CLAUDE.md`:
 
 - **Prior (1.108.425):** **the Grep answer reaches large repositories** (#1356, #1355, #1335): on a 23,186-file Home Assistant index the opt-in Grep answer replies in 2.0 s warm (was 6.2 s, over budget): an index load skips the tsconfig/jsconfig walk when a full-walk, uncapped file list names none (a skipped walk is never cached), freshness covers only the Grep's scope, one hook call reads the files table once; `upgrade`/`init --hooks` print the surface offer; `receipt` and `diagnose` read `_savings.json` through the meter's own reader. Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-09, release 1.108.429)
+
+The 1.108.426 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.426):** **a function assigned to a member is a JavaScript symbol** (#1312, #1357, #1359): `obj.name = function ...`, `exports.name = ...` and `Foo.prototype.name = ...` at module scope are symbols (`PARSER_GENERATION` 29), and a bound function's signature ends at its body; on Windows the trigram filter reads one listing per folder and a selective view decodes imports on first read (freshness keeps one stat per file); the steering-hint answer stays compact. Full text: `CHANGELOG.md`.

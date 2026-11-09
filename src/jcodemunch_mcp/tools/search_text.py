@@ -4,6 +4,7 @@ import itertools
 import logging
 import re
 import time
+from pathlib import Path
 from ._enclosing import attach_enclosing_symbols
 from typing import Optional
 
@@ -304,6 +305,7 @@ def search_text(
     selective_load: bool = False,
     scan_limit: Optional[int] = None,
     _index=None,
+    _read_root: Optional[str] = None,
 ) -> dict:
     """Search for text across all indexed files in a repository.
 
@@ -321,6 +323,17 @@ def search_text(
     SCAN_LIMIT_MAX, for an in-process caller that needs the whole match set
     (the Grep-answer hook counts it before deciding to answer). The server
     never passes it, so the tool's page size is unchanged. Not an MCP argument.
+
+    ``_read_root`` reads each file's text from that directory (the indexed
+    source root) instead of the index's cached copy. Only for a caller that
+    has just proved every file in scope unchanged since indexing, as the
+    Grep-answer hook does by comparing each file's mtime with its indexed one:
+    the cached copy is the source as read at index time, decoded the same way,
+    so the text is the same. On a just-indexed workspace the source is a file
+    the indexer already opened, while the cached copy was just written, and on
+    Windows that first open is slow (15.2 ms against 0.08 ms per file measured
+    on a fresh Home Assistant index). A path that leaves the root is not read.
+    Not an MCP argument.
 
     Useful when symbol search misses — e.g., searching for string literals,
     comments, configuration values, or patterns not captured as symbols.
@@ -392,6 +405,9 @@ def search_text(
     _state_before = _subject.capture(index)
 
     content_dir = store._content_dir(owner, name)
+    # Where file text is read from: the cached copies, or the source root a
+    # caller proved unchanged. The trigram filter always reads the content dir.
+    read_base = Path(_read_root) if _read_root else content_dir
     from ..storage.text_filter import Filter as _TextFilter
 
     text_filter = _TextFilter(content_dir, query_lower)
@@ -417,7 +433,7 @@ def search_text(
     def scan_entries():
         for file_index, file_path in enumerate(files):
             ruled_out, stamp = text_filter.rules_out(file_path)
-            full_path = None if ruled_out else store._safe_content_path(content_dir, file_path)
+            full_path = None if ruled_out else store._safe_content_path(read_base, file_path)
             yield file_index, file_path, ruled_out, stamp, full_path
 
     def read_lines(entry):
@@ -441,7 +457,12 @@ def search_text(
             if not full_path or read_error is not None or lines is None:
                 files_unreadable += 1
                 continue
-            text_filter.note_read(file_path, stamp, "".join(lines))
+            # The trigram row is keyed by the cached copy's stamp, so only the
+            # cached copy's text may write it. A source read would record the
+            # source under that stamp, and a later search for text only the
+            # cached copy holds would be ruled out and come back empty.
+            if not _read_root:
+                text_filter.note_read(file_path, stamp, "".join(lines))
 
             files_searched += 1
             file_matches = []
@@ -497,7 +518,7 @@ def search_text(
         complete = finished
         if finished:
             later, complete, unreadable = _count_matches(
-                store, content_dir, files[cut_index + 1:], pattern, query_lower, _budget_deadline,
+                store, read_base, files[cut_index + 1:], pattern, query_lower, _budget_deadline,
                 # Only a substring query has trigrams to test.
                 **({"text_filter": text_filter} if text_filter.grams else {}),
             )
@@ -604,7 +625,7 @@ def search_text(
     }
     if more_files is not None:
         body.update(more_files)
-    _attach_sources(body, results, lambda f: _read_stored_lines(store, content_dir, f))
+    _attach_sources(body, results, lambda f: _read_stored_lines(store, read_base, f))
     if files_eligible == 0 and file_pattern:
         # An empty result over a scope that matched no file is not an absence.
         note = f"file_pattern {file_pattern!r} matched no indexed file, so nothing was searched."
