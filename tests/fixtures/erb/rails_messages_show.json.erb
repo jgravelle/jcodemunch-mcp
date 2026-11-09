@@ -1,0 +1,8 @@
+<%# Source: https://github.com/rails/rails/blob/dcb4f3121bba525e3bb64596ef08dd1e32a3a947/actiontext/test/dummy/app/views/messages/show.json.erb %>
+<%# Copyright (c) 37signals LLC. Licensed under the MIT license; full text in SOURCES.md. %>
+<%# Vendored verbatim except for this provenance header. %>
+{
+  "id": <%= @message.id %>,
+  "subject": "<%= j @message.subject %>",
+  "content": "<%= j @message.content %>"
+}

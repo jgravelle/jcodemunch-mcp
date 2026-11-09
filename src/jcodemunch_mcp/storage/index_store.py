@@ -686,7 +686,18 @@ INDEX_VERSION = 17
 #   bump does not rewrite a stored AI summary that already says GET: a
 #   re-parse keeps paid AI summaries (see 21), so those need
 #   `summarize_repo(force=true)`.
-PARSER_GENERATION = 26
+# 27 (L-202): a XAML view with `x:Class` gains an edge to its code-behind,
+#   carrying the class and the handler names its markup wires. `files.imports`
+#   changes on UNCHANGED content, so a re-parse is the only way an existing
+#   index gains the edge (the generation-25 shape).
+# 28 (#1315): C-family `#import`, `#include_next`, an indented `#include` and
+#   `# include` are edges. `files.imports` changes on UNCHANGED content (the
+#   generation-25 shape). The resolver half of #1315 needs no re-parse.
+# 29 (L-263, L-291): a JS/TS function assigned to a member at module scope is a
+#   symbol (`res.send = function () {}`, `exports.f = ...`,
+#   `Foo.prototype.m = ...`), and a bound function's signature is its header,
+#   not its body. Symbols and signatures change on UNCHANGED content.
+PARSER_GENERATION = 29
 
 
 @dataclass(frozen=True)
@@ -848,7 +859,15 @@ class CodeIndex:
         if not self.alias_map and self.source_root:
             try:
                 from ..parser.imports import _load_tsconfig_aliases
-                self.alias_map = _load_tsconfig_aliases(self.source_root)
+                # The file list vouches for the tree only after a full
+                # discovery walk the file cap didn't cut. A `paths=` first
+                # index, or one from before coverage was recorded, keeps the walk.
+                whole = (self.coverage or {}).get("walk") == "full" and not (
+                    (self.file_cap_status or {}).get("truncated")
+                )
+                self.alias_map = _load_tsconfig_aliases(
+                    self.source_root, known_files=self.source_files if whole else None
+                )
             except Exception:
                 pass
         # Load PSR-4 namespace map from composer.json if PHP files are present
@@ -1264,6 +1283,7 @@ class IndexStore:
         git_root: str = "",
         source_roots: Optional[list[str]] = None,
         file_cap_status: Optional[dict] = None,
+        parser_generation: Optional[int] = None,
     ) -> "CodeIndex":
         """Save index via SQLite backend."""
         # Validate owner/name for path separators (before any slug computation)
@@ -1295,6 +1315,7 @@ class IndexStore:
             file_blob_shas=file_blob_shas, file_mtimes=file_mtimes,
             package_names=package_names, git_root=git_root,
             source_roots=source_roots, file_cap_status=file_cap_status,
+            parser_generation=parser_generation,
         )
 
         # Clean up any legacy JSON now that data is safely in SQLite.
@@ -1408,6 +1429,10 @@ class IndexStore:
         must migrate before anything can read it.
         """
         return self._sqlite.open_selective(owner, name, **kwargs)
+
+    def read_file_symbols(self, owner: str, name: str, files: list):
+        """``(indexed_at, mtime_ns, symbols)`` for the named files, or None (use another path)."""
+        return self._sqlite.read_file_symbols(owner, name, files)
 
     def get_symbol_content(self, owner: str, name: str, symbol_id: str, _index: Optional["CodeIndex"] = None) -> Optional[str]:
         """Read symbol source using stored byte offsets.

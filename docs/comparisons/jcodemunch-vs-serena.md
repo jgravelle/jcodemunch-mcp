@@ -27,7 +27,7 @@ Both are MCP servers that let a coding agent find code by symbol instead of read
 
 ## Tokens
 
-On our benchmark, 15 lookups (5 each on express, fastapi and gin at pinned commits), jCodeMunch (one symbol search, then the source of the top 3 matches) returned 96.2% fewer tokens than a scripted grep-and-read baseline (search the query terms, read the top 3 matching files), counted with the cl100k tokenizer. Method and raw data are in `benchmarks/`.
+On our benchmark, 15 lookups (5 each on express, fastapi and gin at pinned commits), jCodeMunch (one symbol search, then the source of the top 3 matches) returned 96.2% fewer tokens per lookup on average than a scripted grep-and-read baseline (search the query terms, read the top 3 matching files), counted with the cl100k tokenizer. Method and raw data are in `benchmarks/`.
 
 That's against grep-and-read, not against Serena. We haven't published a measurement of the two side by side, and Serena's README doesn't publish a token benchmark either. If you want to know which one reads less on your code, run both on the same questions.
 

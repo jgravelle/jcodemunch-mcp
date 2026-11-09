@@ -39,7 +39,7 @@ class _FakeManager:
 def _wire(monkeypatch, repos, captured):
     monkeypatch.setattr(mod, "WatcherManager", _FakeManager)
     monkeypatch.setattr(mod, "_is_wsl", lambda: False)
-    monkeypatch.setattr(mod, "discover_local_repos", lambda storage_path=None: list(repos))
+    monkeypatch.setattr(mod, "watch_all_scope", lambda storage_path=None, **kw: (list(repos), {}))
     monkeypatch.setattr(
         mod, "_watcher_output",
         lambda msg, **kw: captured.append(msg),

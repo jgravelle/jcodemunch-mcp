@@ -51,11 +51,12 @@ jcodemunch-mcp config --check
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | `max_folder_files` | int | `2000` | Maximum files indexed for local folders. Lower than repo default because folder indexing runs synchronously within the MCP timeout window. |
+| `cli_max_folder_files` | int | `30000` | The same cap for an index built from the command line (`init`, `jcodemunch-mcp index`, `refresh`), which runs outside any client's tool timeout. The larger of this and `max_folder_files` applies. If you set `max_folder_files` and leave this at its default, the command line keeps using `max_folder_files`; writing the default value, 30000, counts the same as leaving it out. An agent's later re-index of a larger index re-reads changed files within its own cap and never deletes the files its cap skipped. |
 | `max_index_files` | int | `10000` | Maximum files indexed for GitHub repos (async, no timeout constraint). |
 | `use_ai_summaries` | bool or str | `"auto"` | Enable AI-generated symbol summaries. `"auto"` (default) uses AI when a provider is detected, else falls back to signature-only summaries. `true`/`false` force the choice. Requires an API key (Anthropic, Google, or local LLM). |
 | `summarizer_concurrency` | int | `4` | Parallel batch requests to the AI summarizer. |
 | `allow_remote_summarizer` | bool | `false` | Allow remote AI summarizer even when local LLM is configured. |
-| `summarizer_body_chars` | int | `0` | `0` sends the AI summarizer each symbol's signature only, plus the `Context:` lines (git blame or provider context) a prompt already carries when its symbols have them. Above `0`, each symbol's prompt also carries its decorators (when it has any) and its own source from the index's copy of the file (not the file on disk), redacted with `redact.redact_text` and cut to this many characters. This sends source to the provider: a remote provider (the default Anthropic endpoint, Gemini, a remote OpenAI-compatible base) gets it only when `allow_remote_summarizer` is also `true`, otherwise the prompt stays signature-only and the log says so. A symbol the index holds no text for (e.g. `summarize_repo` on an index written in metadata-only cache mode) stays signature-only. Existing summaries are refreshed with `summarize_repo(force=true)`. Per-repo via `.jcodemunch.jsonc`. |
+| `summarizer_body_chars` | int | `0` | `0` sends the AI summarizer each symbol's signature only, plus the `Context:` lines (git blame or provider context) a prompt already carries when its symbols have them. Above `0`, each symbol's prompt also carries its decorators (when it has any) and its own source from the index's copy of the file (not the file on disk), redacted with `redact.redact_text` and cut to this many characters. This sends source to the provider: a remote provider (the default Anthropic endpoint, Gemini, a remote OpenAI-compatible base) gets it only when `allow_remote_summarizer` is also `true`, otherwise the prompt stays signature-only and the log says so. A symbol the index holds no text for (e.g. `summarize_repo` on an index written in metadata-only cache mode) stays signature-only. Existing summaries are refreshed with `summarize_repo(force=true)`. A project `.jcodemunch.jsonc` may lower it for its repo, never raise it. |
 | `extra_ignore_patterns` | list | `[]` | Additional gitignore-style patterns to exclude from indexing. Merged with per-call patterns. |
 | `exclude_skip_directories` | list | `[]` | Remove entries from the built-in skip directory list. Example: `["proto"]` to index protobuf dirs skipped by default. `["migrations"]` also indexes generated migrations, which are otherwise skipped (counted as `generated_migrations`) while a hand-written `migrations` package is indexed. |
 | `exclude_secret_patterns` | list | `[]` | Remove entries from the built-in secret-file skip patterns. |
@@ -204,6 +205,8 @@ The legacy `suppress_meta` per-call parameter still works for backward compatibi
 | `watch_idle_timeout` | int or null | `null` | Auto-stop watcher after N minutes with no re-indexing. `null` = disabled. |
 | `watch_log` | str or null | `null` | Log watcher output to file. `"auto"` = temp file. `null` = quiet. |
 | `watch_paths` | list | `[]` | Folder(s) to watch. Empty = current working directory. |
+| `watch_all_skip_temp` | bool | `true` | `watch-all` leaves unwatched any indexed repo under the system temp directory or a top-level `tmp`/`temp` folder. The index stays searchable. |
+| `watch_all_max_idle_days` | int | `14` | `watch-all` leaves unwatched any indexed repo whose newest indexed file and last indexed commit are both older than this. Before skipping, the tree is checked too (the indexed commit is still checked out; no indexed file or its folder is newer), at most every 10 minutes per repo, so an edited or committed repo is watched again. `0` = watch every repo. |
 | `freshness_mode` | str | `"relaxed"` | `"relaxed"` = serve immediately. `"strict"` = wait for fresh results (500ms timeout). |
 | `claude_poll_interval` | float | `5.0` | Poll interval (seconds) for Claude Code worktree discovery. |
 
@@ -222,6 +225,7 @@ The legacy `suppress_meta` per-call parameter still works for backward compatibi
 | `stats_file_interval` | int | `3` | Calls between `session_stats.json` writes. `0` = disable (reduces NVMe writes). |
 | `share_savings` | bool | `true` | Send anonymous token savings telemetry to the community counter. |
 | `perf_telemetry_enabled` | bool | `false` | Persist per-tool latency rows + the ranking ledger to `~/.code-index/telemetry.db`. The in-memory latency ring (queryable via `analyze_perf` and `get_session_stats`) is always tracked; this flag only controls durable persistence. |
+| `license_reminder` | bool | `true` | The work-license reminder, 7 days after the first index and then at most every 30 days. Never shown with a license key set. `false` silences it, the one-time license notice and the license line at the end of `receipt`, for good: `jcodemunch-mcp config set license_reminder false`. Read from the global config only; a project `.jcodemunch.jsonc` does not set it. |
 | `perf_telemetry_max_rows` | int | `100000` | Rolling cap on persisted perf rows; oldest rows trimmed in 1k-row batches once exceeded. |
 | `allow_paid_summaries` | bool | `false` | Paid-cloud summary providers (Anthropic, Gemini, and similar) are **never auto-selected** from a bare API key in the environment — a stray key must not silently bill you. Naming a provider explicitly via `summarizer_provider` always works; this flag (or `JCODEMUNCH_ALLOW_PAID_SUMMARIES=1`) additionally allows auto-detection to pick paid providers. Free/local endpoints (e.g. a localhost `OPENAI_API_BASE`) auto-detect regardless. |
 
@@ -361,6 +365,17 @@ Place a `.jcodemunch.jsonc` file in your project root. It merges over the global
 }
 ```
 
+A project file may turn a setting off but never on, for the settings that decide which folders are trusted, what is read or run, what is sent off the machine, and what a summarizer may bill:
+
+- `trusted_folders` and `trusted_folders_whitelist_mode` are read from your own config only.
+- `allow_paid_summaries`, `allow_remote_summarizer`, `use_ai_summaries`, `summarizer_body_chars`, `openai_extra_body`, `git_blame_enabled`, `redact_source_root`, `response_max_bytes` and `enrichment` are read from a project file only when the value is no more permissive than yours (for example `"use_ai_summaries": false`, `"redact_source_root": true`, or a smaller `response_max_bytes`). In `enrichment`, a project may set `lsp_enabled` to `false` but not `true`, and may not change `lsp_servers`.
+- `disabled_tools` in a project file adds to your list; it cannot re-enable a tool you disabled.
+- `exclude_secret_patterns` in a project file keeps only the exclusions your own config also makes.
+- `summarizer_provider` and `summarizer_model` are read from a project file only when your own opt-in covers the choice: a paid provider needs `allow_paid_summaries`, and an OpenAI-compatible base that is not on this machine needs `allow_paid_summaries` and `allow_remote_summarizer`. A local base needs neither. `"summarizer_provider": "none"` always applies.
+- `max_file_size`, `max_folder_files` and `max_index_files` are read from a project file as written.
+
+A project value that is ignored is logged once, naming the key. Set it in your own `config.jsonc` or environment instead.
+
 Project config is loaded automatically when a repo is indexed. It uses hash-based caching — the file is only re-parsed when its content changes, not on every watcher cycle.
 
 A license key is not read from a project file. `license_key` comes from the `JCODEMUNCH_LICENSE_KEY` environment variable or the global `config.jsonc` only; a `license_key` in `.jcodemunch.jsonc` is ignored. `tests/test_license_key_paths.py` pins this.
@@ -392,6 +407,8 @@ Every `JCODEMUNCH_*` env var maps to a config key:
 | `JCODEMUNCH_PORT` | `port` |
 | `JCODEMUNCH_WATCH` | `watch` |
 | `JCODEMUNCH_WATCH_DEBOUNCE_MS` | `watch_debounce_ms` |
+| `JCODEMUNCH_WATCH_ALL_SKIP_TEMP` | `watch_all_skip_temp` |
+| `JCODEMUNCH_WATCH_ALL_MAX_IDLE_DAYS` | `watch_all_max_idle_days` |
 | `JCODEMUNCH_FRESHNESS_MODE` | `freshness_mode` |
 | `JCODEMUNCH_CLAUDE_POLL_INTERVAL` | `claude_poll_interval` |
 | `JCODEMUNCH_LOG_LEVEL` | `log_level` |
@@ -566,7 +583,7 @@ When `adaptive_tiering` is false, `plan_turn(model=...)` and `announce_model(...
 
 `tool_surface` is written into your config exactly once, when it is first created, and is deliberately absent from the config template so a package update can never inject it. That is what guarantees an upgrade never collapses your tool list — and it also means an install created before the `counter` default **stays on `full` permanently**, because nothing migrates it.
 
-So `jcodemunch-mcp surface` and `jcodemunch-mcp install-status` print a one-time offer showing what the move would cost and save **on your install**, computed at the moment you run it:
+So `jcodemunch-mcp surface`, `jcodemunch-mcp install-status`, `jcodemunch-mcp upgrade` and `jcodemunch-mcp init --hooks` print an offer showing what the move would cost and save **on your install**, computed at the moment you run it:
 
 ```
 Tool surface: full (91 tools, 26,943 schema tokens)

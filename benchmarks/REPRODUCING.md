@@ -82,21 +82,24 @@ worth checking on your hardware rather than taking on faith.
 
 ## What you should get
 
-Captured on CI 2026-10-22 at jcodemunch-mcp 1.108.391, commit `15afcf75`, whose version string is 1.108.391 but which also carries the settings-file ranking change released in 1.108.392 and the field/constant change released after it (the symbol counts move with the
+Captured on CI 2026-11-08 (benchmark.yml run 42525783321, reference=true) at jcodemunch-mcp 1.108.426 with the served-response count of #1361 (the benchmark counts the text the server sends on a default install) (the symbol counts move with the
 extractor; the files and baseline tokens are fixed by the pins):
 
 | Repo | Commit | Files | Symbols | Baseline tokens |
 |------|--------|------:|--------:|----------------:|
-| expressjs/express | `1faf228935aa` | 186 | 989 | 154,569 |
+| expressjs/express | `1faf228935aa` | 186 | 1,085 | 154,569 |
 | fastapi/fastapi | `a64dfbbd21a4` | 1,186 | 13,699 | 825,326 |
 | gin-gonic/gin | `75ccf94d605a` | 98 | 1,822 | 151,842 |
 
 Grand total across 15 task-runs, both baselines measured in the same run:
 
-| Baseline | Tokens | jCodeMunch | Reduction | Ratio |
-|---|--:|--:|--:|--:|
-| **Grep-top-3** (quote this) | **664,975** | 25,132 | **96.2%** | **26.5x** |
-| Read-all (ceiling) | 5,658,685 | 25,132 | 99.6% | 225.2x |
+| Baseline | Tokens | jCodeMunch |
+|---|--:|--:|
+| **Grep-top-3, total tokens** | **670,032** | 17,581 |
+| Read-all (ceiling) | 5,658,685 | 17,581 |
+
+This table sums the totals; `results.md` has the pooled reduction and ratio. The figure to quote is 96.2% fewer tokens per
+lookup on average against grep-top-3, from the Grand Summary of `results.md`.
 
 Small differences in `file_count` are expected across installations and are not
 a bug in either run: what a machine can index depends on its grammar pack and

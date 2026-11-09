@@ -85,6 +85,7 @@ class TestLivenessIsNotDecidedByDisplayText:
         with patch.object(si, "_run_schtasks", lambda args: (0, si._decode_windows_output(stdout), "")), \
              patch.object(si, "_scheduled_task_state", lambda: state), \
              patch.object(si, "_scheduled_task_settings", lambda: None), \
+             patch.object(si, "_scheduled_task_command", lambda: None), \
              patch.object(si, "_windows_console_code_pages", lambda: ["cp936", "utf-8"]):
             return si._status_windows()
 

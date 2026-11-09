@@ -55,6 +55,15 @@ UNIVERSAL_META_JSON = frozenset({
     # and is read on demand — so an encoder that drops it silently converts an
     # opted-in call back into one that proved nothing.
     "receipts",
+    # A savings meter that stopped measuring: without it a compact response
+    # keeps `_meta.total_tokens_saved` and presents a frozen total as current.
+    # Present only when the meter is NOT current (`server._label_lifetime_total`).
+    "lifetime_meter",
+    # The once-per-session steering hint (`server._steer_hint_due`). Its own
+    # key, so a tool's ordinary `_meta.hint` stays off the wire as before.
+    # Carried here so the response that holds it keeps its compact encoding;
+    # it used to force JSON for that one response instead.
+    "steer_hint",
 })
 
 

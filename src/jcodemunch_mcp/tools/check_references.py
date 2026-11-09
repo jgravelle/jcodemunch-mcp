@@ -173,6 +173,9 @@ def _check_single(
         defining_spans.setdefault(file_path, []).append((lo, max(lo, hi)))
 
     content_references = []
+    # True once a matching file beyond the cap is seen: the scan reads one
+    # matching file past `max_content_results` to know the page was cut.
+    content_truncated = False
 
     if search_content:
         content_dir = store._content_dir(owner, name)
@@ -204,10 +207,11 @@ def _check_single(
                 })
 
             if file_matches:
-                content_references.append({"file": file_path, "matches": file_matches})
-                # Stop after N files, not N lines
+                # Stop after N files, not N lines, and say so when a file was left out.
                 if len(content_references) >= max_content_results:
+                    content_truncated = True
                     break
+                content_references.append({"file": file_path, "matches": file_matches})
 
     content_count = len(content_references)
     attach_enclosing_symbols(content_references, index.symbols)
@@ -227,6 +231,7 @@ def _check_single(
 
     if search_content:
         result["content_references"] = content_references
+        result["content_truncated"] = content_truncated
 
     return result
 

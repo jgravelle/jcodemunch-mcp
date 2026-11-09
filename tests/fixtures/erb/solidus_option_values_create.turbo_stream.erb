@@ -1,0 +1,6 @@
+<%# Source: https://github.com/solidusio/solidus/blob/f41bf95d44143830fe4c7d16cc57851621c07d6a/admin/app/views/solidus_admin/option_values/create.turbo_stream.erb %>
+<%# Copyright (c) 2007-2014, Spree Commerce Inc. and other contributors; 2015-2026, Solidus contributors. Licensed under the BSD-3-Clause license; full text in SOURCES.md. %>
+<%# Vendored verbatim except for this provenance header. %>
+<%= turbo_stream.update("option_values_table", component("option_values/table").new(@option_type)) %>
+<%= turbo_stream.update(resource_form_frame, nil) %>
+<%= turbo_stream.replace("flash_toasts", component("layout/flashes").new) %>
