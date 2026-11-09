@@ -38,6 +38,8 @@ from .parser.symbols import KIND_ORDER, VALID_KINDS
 from .summarizer import get_provider_name
 from .reindex_state import await_freshness_if_strict
 from .storage import result_cache_invalidate as _result_cache_invalidate
+from .storage import result_cache_write_epoch as _result_cache_write_epoch
+from .storage import result_cache_evict_if_written_since as _result_cache_evict_if_written_since
 from .storage import write_pulse as _write_pulse
 
 try:
@@ -6235,6 +6237,7 @@ async def _call_tool_impl(name: str, arguments: dict) -> list[TextContent] | Cal
 
     _reporter_ref = None  # progress reporter; drained in finally (#359)
     _deferred_watch = None  # folder to start watching AFTER dispatch (#384)
+    _cache_epoch = None  # result-cache eviction count before the tool ran
     try:   # main handler try starts here, before coerce
         # Extract cross-cutting args that are not part of any tool's schema.
         # `format` controls compact-output encoding (see .encoding package).
@@ -6349,6 +6352,28 @@ async def _call_tool_impl(name: str, arguments: dict) -> list[TextContent] | Cal
                     f"Ask the user whether to turn it back on; do not edit that setting yourself."
                 )
             }, indent=2))
+
+        # refresh_on_read (on by default): before a read answers on a git
+        # repository, re-index what changed since the index was built, or say
+        # why not. Runs before the tool loads the index, so the tool reads one
+        # generation, and after the disabled-tool check, so a refused call writes
+        # nothing. The block rides the body (`index_refresh`), not `_meta`.
+        _index_refresh = None
+        if repo_arg and config_module.get("refresh_on_read", True, repo=repo_arg):
+            try:
+                from . import refresh_on_read as _ror
+                if name in _ror.READ_TOOLS:
+                    _index_refresh = await asyncio.to_thread(
+                        _ror.refresh_before_read, repo_arg, storage_path
+                    )
+            except Exception:
+                logger.debug("refresh_on_read failed", exc_info=True)
+        # Read AFTER the inline refresh, whose own eviction the tool need not
+        # repeat: the tool below reads the index it wrote. What this catches is
+        # a write that lands WHILE the tool runs (the `in_progress` worker, the
+        # in-process watcher): the tool read the old index and `cache_put`s
+        # after the store's eviction, so the dispatcher evicts again below.
+        _cache_epoch = _result_cache_write_epoch()
 
         # Auto-watch: ensure unwatched repos are indexed before tool execution
         try:
@@ -7974,6 +7999,9 @@ async def _call_tool_impl(name: str, arguments: dict) -> list[TextContent] | Cal
         except Exception:
             logger.debug("policy notice attach failed", exc_info=True)
 
+        if _index_refresh and isinstance(result, dict) and "error" not in result:
+            result = {**result, "index_refresh": _index_refresh}
+
         # (2026-10-28, jjg option B) The license notice, once per machine, on
         # the first successful answer of any tool: an install that never ran
         # `init` never saw its license line. A plain statement, in the body and
@@ -8101,6 +8129,16 @@ async def _call_tool_impl(name: str, arguments: dict) -> list[TextContent] | Cal
                 await drain_reporter(_reporter_ref)
             except Exception:
                 logger.debug("Progress drain failed for %s", name, exc_info=True)
+        # An index written WHILE the tool ran (refresh on read's `in_progress`
+        # worker, the in-process watcher) evicted the result cache before the
+        # tool's own `cache_put`, so an answer computed from the old index
+        # survived it. One check here, below every cached tool, instead of one
+        # per tool: the next tool that caches inherits it.
+        if _cache_epoch is not None:
+            try:
+                _result_cache_evict_if_written_since(_cache_epoch)
+            except Exception:
+                logger.debug("post-call cache eviction failed", exc_info=True)
         # Deferred auto-watch (#384): the tool has now indexed this folder, so
         # the watch task can start without repeating that work. Runs even when
         # the tool failed — add_folder is cheap and the watcher's own change

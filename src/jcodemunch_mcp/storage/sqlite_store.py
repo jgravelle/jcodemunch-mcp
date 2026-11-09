@@ -1533,6 +1533,7 @@ class SQLiteIndexStore:
                 new_symbols, raw_files, git_head, base_head, file_hashes,
                 file_mtimes, file_languages, file_summaries, file_imports,
             )
+        _evict_result_cache(owner, name)
 
     def _save_branch_delta_locked(
         self,
@@ -1997,13 +1998,15 @@ class SQLiteIndexStore:
                     f"Could not acquire index-write lock for {lock_target} "
                     f"after 60s{detail}"
                 )
-            return self._save_index_locked(
+            saved = self._save_index_locked(
                 owner, name, db_path, index, symbols,
                 normalized_source_files, raw_files,
                 file_hashes, file_languages, file_mtimes,
                 file_blob_shas, file_summaries, file_sizes, imports,
                 bm25_blob=bm25_blob,
             )
+        _evict_result_cache(owner, name)
+        return saved
 
     def _save_index_locked(
         self,
@@ -2619,12 +2622,14 @@ class SQLiteIndexStore:
                     f"Could not acquire index-write lock for {lock_target} "
                     f"after 60s{detail}"
                 )
-            return self._incremental_save_locked(
+            saved = self._incremental_save_locked(
                 owner, name, changed_files, new_files, deleted_files,
                 new_symbols, raw_files, languages, git_head, file_summaries,
                 file_languages, imports, context_metadata, file_blob_shas,
                 file_hashes, file_mtimes, package_names, file_cap_status,
             )
+        _evict_result_cache(owner, name)
+        return saved
 
     def update_symbol_summaries(
         self, owner: str, name: str, summaries: dict[str, tuple[str, str]]
@@ -4433,3 +4438,21 @@ class SQLiteIndexStore:
             sidecar.unlink(missing_ok=True)
 
         return self.load_index(owner, name)
+
+
+def _evict_result_cache(owner: str, name: str) -> None:
+    """Drop this process's cached tool results for a repository after its index is written.
+
+    The shared result LRU keys on ``owner/name`` and holds no index
+    generation, so before this only the dispatcher's own index tools cleared
+    it, and a write by any other caller in the process (refresh on read, the
+    in-process watcher) left `find_references` and `get_blast_radius` serving
+    answers from before the write. Process-local: another process's cache
+    does not hear this.
+    """
+    try:
+        from .token_tracker import result_cache_invalidate
+
+        result_cache_invalidate(f"{owner}/{name}")
+    except Exception:
+        logger.debug("result cache eviction failed for %s/%s", owner, name, exc_info=True)
