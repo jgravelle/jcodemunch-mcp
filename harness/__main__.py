@@ -45,19 +45,31 @@ _VERDICT_RE = re.compile(
 )
 
 #: A check a tier runs that is not a Floor: the corpus checksums, the asset
-#: warm-up, a pytest exit code, ruff, a bench step's exit. Each prints one line
-#: so `summary_markdown` gives it a row. Before, a corpus MISMATCH reached only
-#: the console; the summary showed its timing rows alone and the hooks read
-#: that as a CI-judged timing miss.
-_CHECK_RE = re.compile(r"^(check\.\S+)\s+(PASS|FAIL)(?:\s+(.*))?$")
+#: warm-up, a pytest exit code, ruff, a bench step's exit. Each one goes
+#: through `_check`, so `summary_markdown` gives it a row. Before, a corpus
+#: MISMATCH reached only the console; the summary showed its timing rows alone
+#: and the hooks read that as a CI-judged timing miss.
+#:
+#: The row comes from the call, never from printed text: `_Tee` also sees the
+#: raw pytest tail, and a failing test that drove a tier prints these same
+#: lines in its captured stdout. Parsing them would let that echo add a row.
+_CHECK_VERDICTS = ("PASS", "FAIL", "SKIP")
 
 
-def _check_line(cid: str, passed: bool, detail: str = "") -> str:
-    """The one printed form of a non-Floor check; `cid` starts with `check.`."""
+def _check_line(cid: str, verdict: str, detail: str = "") -> str:
+    """The printed form of a non-Floor check; `cid` starts with `check.`."""
     detail = " ".join(str(detail).split()).replace("|", "/")
-    return f"{cid:<40} {'PASS' if passed else 'FAIL'}" + (
-        f"  {detail}" if detail else ""
-    )
+    return f"{cid:<40} {verdict}" + (f"  {detail}" if detail else "")
+
+
+def _check(cid: str, passed: "bool | None", detail: str = "") -> None:
+    """Print a non-Floor check and record its summary row; `passed=None` is SKIP."""
+    verdict = "SKIP" if passed is None else ("PASS" if passed else "FAIL")
+    line = _check_line(cid, verdict, detail)
+    record = getattr(sys.stdout, "record_check", None)
+    if record is not None:
+        record(cid, verdict, line[len(f"{cid:<40} {verdict}") :].strip())
+    print(line)
 
 
 class _Tee:
@@ -73,6 +85,11 @@ class _Tee:
         self.real = real
         self.lines: list[str] = []
         self._buf = ""
+        self._checks: list[tuple[str, str, str]] = []
+
+    def record_check(self, cid: str, verdict: str, detail: str) -> None:
+        assert verdict in _CHECK_VERDICTS, verdict
+        self._checks.append((cid, verdict, detail))
 
     def write(self, text):
         self.real.write(text)
@@ -93,12 +110,7 @@ class _Tee:
         return out
 
     def checks(self) -> list[tuple[str, str, str]]:
-        out = []
-        for ln in self.lines:
-            m = _CHECK_RE.match(ln.strip())
-            if m:
-                out.append((m.group(1), m.group(2), m.group(3) or ""))
-        return out
+        return list(self._checks)
 
     def summary_markdown(self, title: str, ok: bool) -> str:
         rows = [
@@ -132,7 +144,7 @@ class _Tee:
         # Same row shape as a Floor (`| `id` | ... | **FAIL** |`), so a reader
         # of FAIL rows sees a failed check exactly as it sees a failed Floor.
         check_rows = [
-            f"| `{cid}` | {detail} | {'**FAIL**' if verdict == 'FAIL' else 'PASS'} |"
+            f"| `{cid}` | {detail} | {'**FAIL**' if verdict == 'FAIL' else verdict} |"
             for cid, verdict, detail in self.checks()
         ]
         if check_rows:
@@ -923,6 +935,13 @@ def tier_fast(result: dict) -> bool:
     ok = True
     print("== corpora checksums")
     bad = C.verify()
+    _check(
+        "check.corpora_checksums",
+        not bad,
+        f"{len(bad)} mismatched: " + "; ".join(bad)
+        if bad
+        else "all pinned corpora match",
+    )
     if bad:
         ok = False
         for b in bad:
@@ -930,17 +949,8 @@ def tier_fast(result: dict) -> bool:
         _annotate_failure("fast tier: corpus checksum", "\n".join(bad))
     else:
         print("  all pinned corpora match harness/corpora.json")
-    print(
-        _check_line(
-            "check.corpora_checksums",
-            not bad,
-            f"{len(bad)} mismatched: " + "; ".join(bad)
-            if bad
-            else "all pinned corpora match",
-        )
-    )
     warm_fast = warm_assets()
-    print(_check_line("check.assets_warm", warm_fast, "tiktoken asset"))
+    _check("check.assets_warm", warm_fast, "tiktoken asset")
     if not warm_fast:
         ok = False
     files = TIERS["fast"]
@@ -950,7 +960,7 @@ def tier_fast(result: dict) -> bool:
     )
     summ = _pytest_summary(out)
     print("  ", summ["line"])
-    print(_check_line("check.pytest_exit", rc == 0, f"exit {rc}: {summ['line']}"))
+    _check("check.pytest_exit", rc == 0, f"exit {rc}: {summ['line']}")
     if rc != 0:
         ok = False
         print(out[-4000:])
@@ -966,12 +976,10 @@ def tier_fast(result: dict) -> bool:
     print("== ruff check src/")
     rc2, out2, _ = _run([PY, "-m", "ruff", "check", "src/"])
     print("  ", out2.strip().splitlines()[-1] if out2.strip() else "")
-    print(
-        _check_line(
-            "check.ruff_src",
-            rc2 == 0,
-            f"exit {rc2}: " + (out2.strip().splitlines()[-1] if out2.strip() else ""),
-        )
+    _check(
+        "check.ruff_src",
+        rc2 == 0,
+        f"exit {rc2}: " + (out2.strip().splitlines()[-1] if out2.strip() else ""),
     )
     if rc2 != 0:
         ok = False
@@ -1049,8 +1057,8 @@ def tier_full(result: dict) -> bool:
     )
     summ = _pytest_summary(out)
     print("  ", summ["line"])
-    print(_check_line("check.assets_warm", warm_ok, "tiktoken asset"))
-    print(_check_line("check.pytest_exit", rc == 0, f"exit {rc}: {summ['line']}"))
+    _check("check.assets_warm", warm_ok, "tiktoken asset")
+    _check("check.pytest_exit", rc == 0, f"exit {rc}: {summ['line']}")
     ok = rc == 0 and warm_ok
     if rc != 0:
         print(out[-6000:])
@@ -1089,6 +1097,7 @@ def tier_bench(result: dict, *, offline: bool, write_results: bool = False) -> b
     for step in TIERS["bench"]:
         if step.get("network") and offline:
             print(f"== {step['name']}: SKIPPED (--offline; needs network)")
+            _check(f"check.bench_{step['name']}", None, "offline; needs network")
             arts[step["name"]] = {"skipped": "offline"}
             continue
         cmd = list(step["cmd"])
@@ -1111,11 +1120,7 @@ def tier_bench(result: dict, *, offline: bool, write_results: bool = False) -> b
             store = Path(tempfile.mkdtemp(prefix="harness-self-index-"))
             rid = self_index(store)
             if rid is None:
-                print(
-                    _check_line(
-                        f"check.bench_{step['name']}", False, "self index failed"
-                    )
-                )
+                _check(f"check.bench_{step['name']}", False, "self index failed")
                 ok = False
                 arts[step["name"]] = {
                     "rc": 1,
@@ -1140,7 +1145,7 @@ def tier_bench(result: dict, *, offline: bool, write_results: bool = False) -> b
         shown = verdicts + rest[-3:]
         print(f"   rc={rc} {secs:.1f}s\n   " + "\n   ".join(shown))
         arts[step["name"]] = {"rc": rc, "seconds": round(secs, 2), "tail": tail}
-        print(_check_line(f"check.bench_{step['name']}", rc == 0, f"exit {rc}"))
+        _check(f"check.bench_{step['name']}", rc == 0, f"exit {rc}")
         if rc != 0:
             ok = False
         else:
@@ -1156,16 +1161,20 @@ def tier_bench(result: dict, *, offline: bool, write_results: bool = False) -> b
                 if m
             }
             unjudged = [t for t in step.get("thresholds", []) if t not in judged]
+            if judged and not unjudged:
+                _check(
+                    f"check.bench_{step['name']}_judged",
+                    True,
+                    f"{len(judged)} Floor verdicts printed",
+                )
             if judged and unjudged:
                 print(
                     f"   UNJUDGED: {step['name']} declares {unjudged} and printed no verdict for them"
                 )
-                print(
-                    _check_line(
-                        f"check.bench_{step['name']}_judged",
-                        False,
-                        f"no verdict for {', '.join(unjudged)}",
-                    )
+                _check(
+                    f"check.bench_{step['name']}_judged",
+                    False,
+                    f"no verdict for {', '.join(unjudged)}",
                 )
                 ok = False
         if step.get("restore"):
