@@ -10,12 +10,18 @@ on, the dispatcher calls :func:`refresh_before_read` before a read tool runs.
   untracked files. A modified file whose mtime is not newer than the index's
   record is skipped, since the index already holds it (the edit hook ran).
 - **Few changes** (at most :data:`REFRESH_MAX_FILES`) are re-indexed inline,
-  through the watcher's change-set path, inside :data:`REFRESH_BUDGET_SECONDS`.
+  through the watcher's change-set path.
 - **Otherwise** the read answers from the index as it is, and the block says
   why (``too_many_files``, ``locked``, ``failed``) and names the MCP call that
   fixes it; a re-index that outlives the budget says ``in_progress``. The
   block is a body key every encoder carries, never ``_meta``, which a default
   install strips.
+- **One budget**, :data:`REFRESH_BUDGET_SECONDS`, bounds the whole call on the
+  caller's thread: every git call gets what is left of it as its timeout, the
+  per-path walk rule stops at it, and the re-index is waited on for the rest.
+  A budget that bounded only the wait left the git calls and the walk rule
+  unbounded ahead of it (review). When git runs out of budget the answer is
+  ``undetermined`` with ``unchecked: "budget"``, never "nothing stale".
 
 Git repositories only: a non-git folder keeps today's per-row freshness flag.
 It never waits on another writer, and never raises: any failure is a None.
@@ -37,9 +43,15 @@ logger = logging.getLogger(__name__)
 # most once per repository per cooldown, in each server process.
 REFRESH_COOLDOWN_SECONDS = 30.0
 REFRESH_MAX_FILES = 50
+# The caller's wall-clock bound for the WHOLE check: git, the walk rule and the
+# wait on the re-index share it (tests/test_refresh_on_read.py measures the
+# git half on this repository).
 REFRESH_BUDGET_SECONDS = 2.0
 
-_GIT_TIMEOUT_SECONDS = 5.0
+
+class _BudgetExpired(Exception):
+    """The check ran out of :data:`REFRESH_BUDGET_SECONDS` before git answered."""
+
 
 # The read tools that check first: each takes `repo` and answers from the
 # index's symbols or file bodies. Index-writing and session tools never do.
@@ -80,16 +92,26 @@ def reset_cooldowns() -> None:
         _in_flight.clear()
 
 
-def _git(source_root: str, *args: str) -> Optional[bytes]:
+def _remaining(deadline: float) -> float:
+    return deadline - time.monotonic()
+
+
+def _git(source_root: str, deadline: float, *args: str) -> Optional[bytes]:
+    """stdout of a git command, None when it failed; raises when the budget is gone."""
+    left = _remaining(deadline)
+    if left <= 0:
+        raise _BudgetExpired(args[0])
     try:
         out = subprocess.run(
             ["git", *args],
             cwd=source_root,
             capture_output=True,
-            timeout=_GIT_TIMEOUT_SECONDS,
+            timeout=left,
             check=False,
             stdin=subprocess.DEVNULL,
         )
+    except subprocess.TimeoutExpired:
+        raise _BudgetExpired(args[0]) from None
     except (OSError, subprocess.SubprocessError):
         logger.debug(
             "refresh_on_read: git %s failed in %s", args[:2], source_root, exc_info=True
@@ -98,18 +120,19 @@ def _git(source_root: str, *args: str) -> Optional[bytes]:
     return out.stdout if out.returncode == 0 else None
 
 
-def _is_git_worktree(source_root: str) -> bool:
-    out = _git(source_root, "rev-parse", "--is-inside-work-tree")
+def _is_git_worktree(source_root: str, deadline: float) -> bool:
+    out = _git(source_root, deadline, "rev-parse", "--is-inside-work-tree")
     return out is not None and out.strip() == b"true"
 
 
 def _changes(
-    source_root: str, indexed_head: Optional[str], index
+    source_root: str, indexed_head: Optional[str], index, deadline: float
 ) -> Optional[tuple[list[tuple[str, str]], bool]]:
     """((change_type, absolute path) list, every candidate checked), or None when git cannot say."""
     base = indexed_head or "HEAD"
     diff = _git(
         source_root,
+        deadline,
         "diff",
         "--name-status",
         "--no-renames",
@@ -123,6 +146,7 @@ def _changes(
         # The indexed commit is gone (a rewritten history): compare to HEAD.
         diff = _git(
             source_root,
+            deadline,
             "diff",
             "--name-status",
             "--no-renames",
@@ -133,7 +157,14 @@ def _changes(
             ".",
         )
     untracked = _git(
-        source_root, "ls-files", "--others", "--exclude-standard", "-z", "--", "."
+        source_root,
+        deadline,
+        "ls-files",
+        "--others",
+        "--exclude-standard",
+        "-z",
+        "--",
+        ".",
     )
     if diff is None or untracked is None:
         return None
@@ -166,13 +197,15 @@ def _changes(
         rel = rel.replace("\\", "/")
         if rel and rel not in indexed:
             candidates.append(rel)
-    added, complete = _indexable(root, index, dict.fromkeys(candidates))
+    added, complete = _indexable(root, index, dict.fromkeys(candidates), deadline)
     for rel in added:
         found.setdefault(rel, "added")
     return [(kind, str(root / rel)) for rel, kind in sorted(found.items())], complete
 
 
-def _indexable(root: Path, index, candidates) -> tuple[list[str], bool]:
+def _indexable(
+    root: Path, index, candidates, deadline: float
+) -> tuple[list[str], bool]:
     """(the not-yet-indexed paths a full walk would index, whether every candidate was asked).
 
     Asked of `index_file`'s `_walk_refusal`, the walk's own rule for one path,
@@ -180,20 +213,39 @@ def _indexable(root: Path, index, candidates) -> tuple[list[str], bool]:
     stale file: re-indexing it changes nothing, and the walk would drop it.
     Stops once more than :data:`REFRESH_MAX_FILES` are found, since the answer
     is then "too many" whatever the rest are, and after
-    :data:`_MAX_REFUSALS_CHECKED` refusals, reporting the rest as unchecked.
+    :data:`_MAX_REFUSALS_CHECKED` refusals or at the deadline, reporting the
+    rest as unchecked.
     """
     from .tools.index_file import _walk_refusal, _walk_root_for
+    from .tools.index_folder import _scan_package_json_forced_paths
+
+    # The walk rule pre-scans the tree for package.json files for every
+    # candidate over the size cap (#25); once per check is enough, and that
+    # one scan is the longest step the budget cannot cut short (measured
+    # 1.0 s on this repository).
+    memo: dict[Path, set[str]] = {}
+
+    def forced_paths_for(walk_root: Path) -> set[str]:
+        if walk_root not in memo:
+            memo[walk_root] = _scan_package_json_forced_paths(walk_root)
+        return memo[walk_root]
 
     source_root = root.resolve()
     out: list[str] = []
     refused = 0
     for rel in candidates:
+        if _remaining(deadline) <= 0:
+            return out, False
         path = source_root / rel
         if not path.is_file():
             continue
         try:
             refusal = _walk_refusal(
-                path, source_root, _walk_root_for(index, source_root, rel), rel
+                path,
+                source_root,
+                _walk_root_for(index, source_root, rel),
+                rel,
+                forced_paths_for=forced_paths_for,
             )
         except Exception:
             logger.debug("refresh_on_read: walk rule failed for %s", rel, exc_info=True)
@@ -237,7 +289,9 @@ def _reindex(source_root: str, changes: list, storage_path: Optional[str]) -> di
 def _unrepaired(n: int, reason: str, source_root: str) -> dict:
     block = {
         "stale_files": n,
-        "refreshed": 0,
+        # `failed`: index_folder may have committed part of the set before it
+        # raised, so the count written is unknown, never a verified zero.
+        "refreshed": None if reason == "failed" else 0,
         "reason": reason,
         "call": "index_folder",
         "args": {"path": source_root, "incremental": True},
@@ -248,15 +302,19 @@ def _unrepaired(n: int, reason: str, source_root: str) -> dict:
     return block
 
 
-def _undetermined() -> dict:
-    """More not-indexed paths than the check asks about: it cannot say the index is current."""
-    return {
-        "reason": "undetermined",
-        "refreshed": None,
-        "unchecked": "not_indexed_paths",
+def _undetermined(unchecked: str = "not_indexed_paths") -> dict:
+    """The check could not ask every path, so it cannot say the index is current.
+
+    ``not_indexed_paths``: more not-indexed paths than it asks about;
+    ``budget``: git did not answer inside :data:`REFRESH_BUDGET_SECONDS`.
+    """
+    block = {"reason": "undetermined", "refreshed": None, "unchecked": unchecked}
+    if unchecked == "not_indexed_paths":
         # `index_folder` cannot clear this: the paths are ones it refuses.
-        "hint": "Add the directory of files you never index (a dependency or build tree) to .gitignore.",
-    }
+        block["hint"] = (
+            "Add the directory of files you never index (a dependency or build tree) to .gitignore."
+        )
+    return block
 
 
 def _in_progress(n: Optional[int]) -> dict:
@@ -276,7 +334,10 @@ def refresh_before_read(
     question could not be asked. Returns ``{"refreshed": n}`` after a repair,
     ``in_progress`` while an earlier re-index of this repository is still
     running, or an unrepaired block naming the reason and the call that fixes it.
+    The caller's thread is held for at most :data:`REFRESH_BUDGET_SECONDS`
+    plus the return of one git process that was told to stop at the deadline.
     """
+    deadline = time.monotonic() + REFRESH_BUDGET_SECONDS
     try:
         from .storage import IndexStore
         from .tools._utils import resolve_repo
@@ -304,9 +365,11 @@ def refresh_before_read(
         source_root = getattr(index, "source_root", "") or ""
         if not source_root or not os.path.isdir(source_root):
             return None
-        if not _is_git_worktree(source_root):
+        if not _is_git_worktree(source_root, deadline):
             return None
-        asked = _changes(source_root, getattr(index, "git_head", None) or None, index)
+        asked = _changes(
+            source_root, getattr(index, "git_head", None) or None, index, deadline
+        )
         if asked is None:
             return None
         changes, complete = asked
@@ -319,7 +382,9 @@ def refresh_before_read(
             return _unrepaired(len(changes), "locked", source_root)
         with _lock:
             if key in _in_flight:
-                return _in_progress(len(changes))
+                # Another read started the re-index between the lock check and
+                # here: its outcome is unknown, so no count (the docs' promise).
+                return _in_progress(None)
             _in_flight.add(key)
         result: dict = {}
 
@@ -336,7 +401,7 @@ def refresh_before_read(
 
         worker = threading.Thread(target=_run, name="jcm-refresh-on-read", daemon=True)
         worker.start()
-        worker.join(REFRESH_BUDGET_SECONDS)
+        worker.join(max(_remaining(deadline), 0.0))
         if worker.is_alive():
             # The re-index keeps running and finishes on its own; this answer
             # is served from the index as it was, and its outcome is unknown.
@@ -347,6 +412,9 @@ def refresh_before_read(
         if not complete:
             done["unchecked"] = "not_indexed_paths"
         return done
+    except _BudgetExpired as exc:
+        logger.debug("refresh_on_read: git %s ran out of budget for %s", exc, repo)
+        return _undetermined("budget")
     except Exception:
         logger.debug("refresh_on_read failed for %s", repo, exc_info=True)
         return None

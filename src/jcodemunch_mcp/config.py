@@ -2933,11 +2933,12 @@ def generate_template() -> str:
   // "refresh_on_read": true,
   //   true - Default. Before a read tool answers on a git repository, re-index the
   //          files that changed since the index was built (a rebase, a
-  //          branch switch, an edit outside the agent), when there are few,
-  //          within a 2 s budget. Otherwise the answer says the index is
-  //          stale and names the index_folder call that fixes it. Runs
-  //          read-only git commands at most once per repo every 30 s and
-  //          writes only the local index. Nothing leaves the machine.
+  //          branch switch, an edit outside the agent), when there are at
+  //          most 50; the whole check holds the answer for at most 2 s.
+  //          Otherwise the answer says the index is stale and names the
+  //          index_folder call that fixes it. Runs read-only git commands at
+  //          most once per repo every 30 s and writes only the local index.
+  //          Nothing leaves the machine.
   //   false - Answer from the index as it is; a stale row is only flagged.
   // "claude_poll_interval": 5.0,
   //   Seconds between polling Claude Code worktrees for changes.

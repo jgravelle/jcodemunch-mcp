@@ -12,8 +12,11 @@ per repository per cooldown.
 from __future__ import annotations
 
 import json
+import re
 import subprocess
+import threading
 import time
+from pathlib import Path
 
 import pytest
 
@@ -134,37 +137,156 @@ def test_a_held_write_lock_answers_unrepaired_without_waiting(indexed, monkeypat
 def test_a_refresh_past_its_budget_says_so(indexed, monkeypatch):
     src, repo, store = indexed
     (src / "app.py").write_text("def a4(x):\n    return x\n")
-    monkeypatch.setattr(ror, "REFRESH_BUDGET_SECONDS", 0.05)
     real = ror._reindex
-
-    def slow(*a, **k):
-        time.sleep(0.5)
-        return real(*a, **k)
-
+    release = threading.Event()
     started = []
 
-    def counted(*a, **k):
+    def held(*a, **k):
         started.append(1)
-        return slow(*a, **k)
+        release.wait(10)  # the re-index outlives the budget until the test says so
+        return real(*a, **k)
 
-    monkeypatch.setattr(ror, "_reindex", counted)
+    monkeypatch.setattr(ror, "_reindex", held)
+    t0 = time.monotonic()
     block = ror.refresh_before_read(repo, storage_path=store)
+    waited = time.monotonic() - t0
     # The re-index is still running: its outcome is unknown, so no count of
-    # zero and no call that would start a second write.
-    assert block["reason"] == "in_progress"
-    assert block["refreshed"] is None
-    assert "call" not in block
-    # A check while it runs starts no second writer, even past the cooldown.
+    # zero and no call that would start a second write. The count of stale
+    # files is known, since this call listed them.
+    assert block == {"reason": "in_progress", "refreshed": None, "stale_files": 1}
+    # The caller was held for the budget, no longer: git and the walk rule
+    # spent part of it, the wait took the rest.
+    assert waited < ror.REFRESH_BUDGET_SECONDS + 1.0
+    # A check while it runs starts no second writer, even past the cooldown,
+    # and carries no count: it did not list the files.
     with ror._lock:
         ror._last_check.clear()
     again = ror.refresh_before_read(repo, storage_path=store)
-    assert again["reason"] == "in_progress"
+    assert again == {"reason": "in_progress", "refreshed": None}
     assert started == [1]
+    release.set()
     deadline = time.monotonic() + 10
     while ror._in_flight and time.monotonic() < deadline:
         time.sleep(0.05)
     assert not ror._in_flight
     assert "a4" in _names(repo, store, "a4")
+
+
+def test_a_second_read_racing_the_in_flight_mark_gets_no_count(indexed, monkeypatch):
+    """The docs promise a concurrent read `in_progress` with no count; the gap
+    between the lock check and the in-flight mark used to return one."""
+    src, repo, store = indexed
+    (src / "app.py").write_text("def a4b(x):\n    return x\n")
+    monkeypatch.setattr(ror, "_reindex", lambda *a, **k: {"success": True})
+    key_seen = []
+    real_locked = ror._index_write_locked
+
+    def mark_in_flight_first(*a):
+        # Another read wins the race while this one is between the lock
+        # check and `_in_flight.add`.
+        with ror._lock:
+            key_seen.extend(ror._last_check)
+            ror._in_flight.add(key_seen[0])
+        return real_locked(*a)
+
+    monkeypatch.setattr(ror, "_index_write_locked", mark_in_flight_first)
+    block = ror.refresh_before_read(repo, storage_path=store)
+    assert block == {"reason": "in_progress", "refreshed": None}
+    assert "stale_files" not in block
+    ror.reset_cooldowns()
+
+
+def test_a_failed_reindex_claims_no_count(indexed, monkeypatch):
+    """`index_folder` may have committed part of the set before raising, so
+    `refreshed` is unknown, never a verified zero."""
+    src, repo, store = indexed
+    (src / "app.py").write_text("def a6(x):\n    return x\n")
+
+    def boom(*a, **k):
+        raise RuntimeError("disk full")
+
+    monkeypatch.setattr(ror, "_reindex", boom)
+    block = ror.refresh_before_read(repo, storage_path=store)
+    assert block["reason"] == "failed"
+    assert block["refreshed"] is None
+    assert block["stale_files"] == 1
+    assert block["call"] == "index_folder"
+
+
+def test_git_past_the_budget_answers_undetermined_inside_the_budget(
+    indexed, monkeypatch
+):
+    """The budget bounds the whole check, git included: a git that does not
+    answer in time is cut at the deadline and the answer never reads as
+    "nothing stale"."""
+    src, repo, store = indexed
+    (src / "app.py").write_text("def a7(x):\n    return x\n")
+    monkeypatch.setattr(ror, "REFRESH_BUDGET_SECONDS", 0.3)
+    real = subprocess.run
+
+    def slow_git(cmd, *a, **k):
+        if "diff" in cmd:
+            time.sleep(0.6)  # past the deadline; the real call's timeout cuts it
+        return real(cmd, *a, **k)
+
+    monkeypatch.setattr(ror.subprocess, "run", slow_git)
+    t0 = time.monotonic()
+    block = ror.refresh_before_read(repo, storage_path=store)
+    assert time.monotonic() - t0 < 1.5
+    assert block == {"reason": "undetermined", "refreshed": None, "unchecked": "budget"}
+    assert "handle_order" in _names(repo, store, "handle_order")  # nothing written
+
+
+def test_the_walk_rule_stops_at_the_deadline_and_says_so(indexed, monkeypatch):
+    """The per-path walk rule shares the budget: at the deadline it stops and
+    the rest is reported unchecked, never as "nothing stale"."""
+    from pathlib import Path
+
+    from jcodemunch_mcp.storage import IndexStore
+    from jcodemunch_mcp.tools import index_file as _if
+
+    src, repo, store = indexed
+    _refused_tree(src, 40)
+    owner, name = repo.split("/", 1)
+    index = IndexStore(base_path=store).open_selective(owner, name, symbol_ids=())
+    real = _if._walk_refusal
+    asked = []
+
+    def slow_rule(*a, **k):
+        asked.append(1)
+        time.sleep(0.05)
+        return real(*a, **k)
+
+    monkeypatch.setattr(_if, "_walk_refusal", slow_rule)
+    cands = dict.fromkeys(f"node_modules/m{i}.js" for i in range(40))
+    out, complete = ror._indexable(Path(src), index, cands, time.monotonic() + 0.3)
+    assert out == []
+    assert complete is False
+    assert 0 < len(asked) < 40, "the deadline cut the walk rule short"
+
+
+def test_the_package_json_prescan_runs_once_per_check(indexed, monkeypatch):
+    """The walk rule pre-scans the tree for every file over the size cap; a
+    check with several such files paid the scan each time (0.7 s each here)."""
+    from jcodemunch_mcp.tools import index_folder as _ifo
+
+    src, repo, store = indexed
+    monkeypatch.setitem(
+        __import__("jcodemunch_mcp.config", fromlist=["x"])._GLOBAL_CONFIG,
+        "max_file_size",
+        100,
+    )
+    for i in range(3):
+        (src / f"big{i}.py").write_text("x = 1\n" * 40)
+    scans = []
+    real = _ifo._scan_package_json_forced_paths
+    monkeypatch.setattr(
+        _ifo,
+        "_scan_package_json_forced_paths",
+        lambda root: scans.append(root) or real(root),
+    )
+    ror.refresh_before_read(repo, storage_path=store)
+    assert len(scans) == 1
 
 
 def test_a_file_the_indexer_never_takes_is_not_stale(indexed):
@@ -306,6 +428,58 @@ async def test_a_cached_answer_does_not_survive_the_refresh(tmp_path, monkeypatc
 
 
 @pytest.mark.asyncio
+async def test_an_answer_cached_after_the_workers_eviction_does_not_survive(
+    indexed, monkeypatch
+):
+    """Review: on the `in_progress` path the tool reads the pre-write index, the
+    worker commits and the store evicts, and THEN the tool's `cache_put` lands,
+    so the stale answer survived in the shared LRU. The order is pinned, not
+    raced: the fake tool runs the eviction itself between its read and its put.
+    Closed in the dispatcher, below every cached tool: an eviction during the
+    call evicts again when the call ends."""
+    from jcodemunch_mcp import config as cfg
+    from jcodemunch_mcp.server import call_tool
+    from jcodemunch_mcp.storage import result_cache_get, result_cache_put
+    import importlib
+
+    from jcodemunch_mcp.storage import sqlite_store
+
+    _fr = importlib.import_module("jcodemunch_mcp.tools.find_references")
+
+    src, repo, store = indexed
+    monkeypatch.setenv("CODE_INDEX_PATH", store)
+    monkeypatch.setitem(cfg._GLOBAL_CONFIG, "server_output", "raw")
+    monkeypatch.setitem(cfg._GLOBAL_CONFIG, "refresh_on_read", True)
+    monkeypatch.setattr(ror, "refresh_before_read", lambda *a, **k: ror._in_progress(1))
+    owner, name = repo.split("/", 1)
+    key = ("helper",)
+    order = []
+
+    def tool_reads_then_worker_commits_then_tool_caches(**kw):
+        assert result_cache_get("find_references", repo, key) is None
+        order.append("tool read the old index")
+        sqlite_store._evict_result_cache(owner, name)  # the worker's commit
+        order.append("worker committed and evicted")
+        stale = {"references": [{"file": "old.py"}], "total": 1}
+        result_cache_put("find_references", repo, key, stale)
+        order.append("tool cached its answer")
+        return stale
+
+    monkeypatch.setattr(
+        _fr, "find_references", tool_reads_then_worker_commits_then_tool_caches
+    )
+    await call_tool("find_references", {"repo": repo, "identifier": "helper"})
+    assert order == [
+        "tool read the old index",
+        "worker committed and evicted",
+        "tool cached its answer",
+    ]
+    assert result_cache_get("find_references", repo, key) is None, (
+        "an answer computed from the pre-write index survived the write's eviction"
+    )
+
+
+@pytest.mark.asyncio
 async def test_a_disabled_tool_writes_nothing(indexed, monkeypatch):
     from jcodemunch_mcp import config as cfg
     from jcodemunch_mcp.server import call_tool
@@ -352,3 +526,73 @@ def test_past_the_refusal_cap_with_nothing_else_the_answer_is_undetermined(
     assert block["refreshed"] is None
     assert "call" not in block
     assert ".gitignore" in block["hint"]
+
+
+_ROOT = Path(__file__).resolve().parents[1]
+
+
+def _passages() -> dict[str, str]:
+    """Every prose copy of the refresh-on-read figures, by file."""
+    changelog = (_ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+    m = re.search(
+        r"^### Added - a read re-indexes.*?(?=^## |^### )", changelog, re.S | re.M
+    )
+    assert m, "the CHANGELOG entry is gone"
+    readme = (_ROOT / "README.md").read_text(encoding="utf-8")
+    r = re.search(
+        r"[^.]*On a git repository, a read tool[^\n]*?`refresh_on_read: false` turns that off\.",
+        readme,
+    )
+    assert r, "the README disclosure sentence is gone"
+    security = (_ROOT / "SECURITY.md").read_text(encoding="utf-8")
+    s = re.search(r"^- \*\*Refresh on read.*?$", security, re.M)
+    assert s, "the SECURITY.md bullet is gone"
+    configuration = (_ROOT / "CONFIGURATION.md").read_text(encoding="utf-8")
+    c = re.search(r"^\| `refresh_on_read` \|.*$", configuration, re.M)
+    assert c, "the CONFIGURATION.md row is gone"
+    from jcodemunch_mcp.config import generate_template
+
+    t = re.search(
+        r'  // "refresh_on_read": true,\n(?:  //   .*\n)+', generate_template()
+    )
+    assert t, "the config template block is gone"
+    return {
+        "CHANGELOG.md": m.group(0),
+        "README.md": r.group(0),
+        "SECURITY.md": s.group(0),
+        "CONFIGURATION.md": c.group(0),
+        "config.py template": t.group(0),
+    }
+
+
+def test_every_figure_in_the_prose_is_a_module_constant():
+    """The cooldown, the file limit, the budget and the refusal cap are
+    restated in five places; each copy must be the module's value, and the
+    first three must be present everywhere. A measured timing is written as a
+    decimal (0.8 s) and a file count with a thousands comma (1,549); neither
+    reads as a constant here, nor does an env var's `=0`."""
+    allowed = {
+        int(ror.REFRESH_COOLDOWN_SECONDS),
+        ror.REFRESH_MAX_FILES,
+        int(ror.REFRESH_BUDGET_SECONDS),
+        ror._MAX_REFUSALS_CHECKED,
+    }
+    required = {
+        str(int(ror.REFRESH_COOLDOWN_SECONDS)),
+        str(ror.REFRESH_MAX_FILES),
+        str(int(ror.REFRESH_BUDGET_SECONDS)),
+    }
+    for where, text in _passages().items():
+        found = {int(n) for n in re.findall(r"(?<![\w.=])(?<!\d,)(\d+)(?![\w.])(?!,\d)", text)}
+        assert found <= allowed, (
+            f"{where} states {sorted(found - allowed)}, which no constant holds"
+        )
+        assert required <= set(re.findall(r"(?<![\w.=])(?<!\d,)(\d+)(?![\w.])(?!,\d)", text)), (
+            f"{where} omits one of the cooldown, the file limit or the budget"
+        )
+
+
+def test_the_figure_check_sees_a_drifted_copy(monkeypatch):
+    monkeypatch.setattr(ror, "REFRESH_MAX_FILES", 51)
+    with pytest.raises(AssertionError, match="no constant holds"):
+        test_every_figure_in_the_prose_is_a_module_constant()
