@@ -12,9 +12,10 @@ on, the dispatcher calls :func:`refresh_before_read` before a read tool runs.
 - **Few changes** (at most :data:`REFRESH_MAX_FILES`) are re-indexed inline,
   through the watcher's change-set path, inside :data:`REFRESH_BUDGET_SECONDS`.
 - **Otherwise** the read answers from the index as it is, and the block says
-  why (``too_many_files``, ``locked``, ``budget``) and names the MCP call that
-  fixes it. The block is a body key every encoder carries, never ``_meta``,
-  which a default install strips.
+  why (``too_many_files``, ``locked``, ``failed``) and names the MCP call that
+  fixes it; a re-index that outlives the budget says ``in_progress``. The
+  block is a body key every encoder carries, never ``_meta``, which a default
+  install strips.
 
 Git repositories only: a non-git folder keeps today's per-row freshness flag.
 It never waits on another writer, and never raises: any failure is a None.
