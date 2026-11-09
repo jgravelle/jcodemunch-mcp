@@ -32,6 +32,9 @@ from ..security import (
     DEFAULT_MAX_FILE_SIZE,
     get_max_file_size,
     get_max_folder_files,
+    get_cli_folder_cap,
+    cap_label,
+    cap_remedy,
     get_extra_ignore_patterns,
     get_respect_cachedir_tag,
     get_skip_directories,
@@ -71,7 +74,9 @@ from ..path_map import parse_path_map, remap
 SKIP_FILES_REGEX = re.compile("(" + "|".join(re.escape(p) for p in SKIP_FILES) + ")$")
 
 
-def _file_cap_report(skip_counts: dict, max_files: int) -> dict:
+def _file_cap_report(
+    skip_counts: dict, max_files: int, cap_key: Optional[str] = None
+) -> dict:
     """Summarise whether the max_folder_files walk cap dropped files (#366).
 
     Returns the full truncation block when the cap was hit, else
@@ -87,7 +92,122 @@ def _file_cap_report(skip_counts: dict, max_files: int) -> dict:
         "files_indexed": max_files,
         "files_skipped_cap": dropped,
         "max_folder_files": max_files,
+        # The key that set this cap, when it is not max_folder_files (the
+        # command line's cli_max_folder_files): the advice raises that one.
+        **({"cap_key": cap_key} if cap_key and cap_key != "max_folder_files" else {}),
     }
+
+
+def _with_cli_remedy(cap: dict, folder_path: Path) -> dict:
+    """A cap status over kept files, with the command line's cap that re-parses them."""
+    if not cap.get("truncated"):
+        return cap
+    cli_cap, cli_key = get_cli_folder_cap(str(folder_path))
+    return {**cap, "cli_cap": cli_cap, "cli_cap_key": cli_key}
+
+
+def _cap_kept_warning(
+    rebuild_reason: Optional[str],
+    max_files: int,
+    folder_path: Path,
+    discovered: int,
+    stale: int = 0,
+    cap_key: Optional[str] = None,
+) -> str:
+    """Why a capped call kept files it did not re-parse, and the call that does."""
+    head = f"A full re-parse was due ({rebuild_reason}), but this" if rebuild_reason else "This"
+    changed = (
+        f" {stale} of them changed on disk since, so a search can't treat a name as "
+        "absent until they're re-parsed."
+        if stale
+        else ""
+    )
+    remedy = cap_remedy(
+        _with_cli_remedy(
+            {"truncated": True, "files_discovered": discovered}, folder_path
+        )
+    )
+    return (
+        f"{head} call's file cap ({cap_key or 'max_folder_files'} = {max_files}) is below the files the index holds, so "
+        f"it kept the files past the cap as they were last parsed.{changed} {remedy}"
+    )
+
+
+def _stale_kept(dropped_paths: list, folder_path: Path, index, rels: set) -> set:
+    """The kept files (``rels``) whose disk copy may differ from the stored parse.
+
+    A kept file was not re-read by this call, so it counts as present only when
+    its mtime still equals the one stored with it. A file with no stored mtime,
+    or one that can't be read, is UNKNOWN and counts as not verified.
+    """
+    if not rels:
+        return set()
+    stored = getattr(index, "file_mtimes", None) or {}
+    stale: set = set()
+    for _p in dropped_paths:
+        try:
+            rel = _p.relative_to(folder_path).as_posix()
+        except ValueError:
+            continue
+        if rel not in rels:
+            continue
+        want = stored.get(rel)
+        try:
+            have = os.stat(_p).st_mtime_ns
+        except OSError:
+            stale.add(rel)
+            continue
+        if want is None or int(want) != have:
+            stale.add(rel)
+    return stale
+
+
+def _cap_status_to_save(cap: dict, paths, existing) -> dict:
+    """The cap status a save records: this call's, or the stored one.
+
+    A call without a path list walks the whole tree, so its status is
+    current. A call with one is treated as partial even when the list names
+    the whole folder, so it keeps the stored status: writing its own made a
+    partial index read as complete. That errs safe, since a stored
+    `truncated` only makes searches withhold absence claims until the next
+    whole-tree walk. Every save route asks this one rule. With no stored
+    index there is nothing to keep, so the call's own status is recorded.
+    """
+    if paths is None or existing is None:
+        return cap
+    return dict(getattr(existing, "file_cap_status", None) or {})
+
+
+def _cap_status_after_promotion(cap: dict, promoted: int) -> dict:
+    """The cap status once ``promoted`` cut files were parsed after all.
+
+    They move from skipped to indexed; the files discovered do not change.
+    """
+    if not cap.get("truncated") or promoted <= 0:
+        return cap
+    skipped = int(cap.get("files_skipped_cap", 0) or 0) - promoted
+    if skipped <= 0:
+        return {"truncated": False}
+    return {
+        **cap,
+        "files_indexed": int(cap.get("files_indexed", 0) or 0) + promoted,
+        "files_skipped_cap": skipped,
+    }
+
+
+def _cap_status_for_kept(cap: dict, dropped: set, stored: set) -> dict:
+    """The cap status of an index that kept the files this walk's cap cut.
+
+    A capped call over an index built past its cap keeps those files, so the
+    index holds more than the walk parsed: report what the index holds.
+    """
+    if not cap.get("truncated"):
+        return cap
+    missing = len(dropped - stored)
+    if missing == 0:
+        return {"truncated": False}
+    discovered = int(cap.get("files_discovered") or 0)
+    return {**cap, "files_indexed": discovered - missing, "files_skipped_cap": missing}
 
 
 def _attach_cap_report(result: dict, cap: Optional[dict]) -> None:
@@ -101,12 +221,21 @@ def _attach_cap_report(result: dict, cap: Optional[dict]) -> None:
     result["files_discovered"] = cap["files_discovered"]
     result["files_indexed"] = cap["files_indexed"]
     result["files_skipped_cap"] = cap["files_skipped_cap"]
+    # The cap and the key that set it, so a reader of the result (init's
+    # summary line) names them the way the stored status does.
+    result["max_folder_files"] = cap["max_folder_files"]
+    if cap.get("cap_key"):
+        result["cap_key"] = cap["cap_key"]
     result.setdefault("warnings", []).append(
         f"File cap reached: {cap['files_discovered']} files discovered, "
         f"{cap['files_indexed']} indexed, {cap['files_skipped_cap']} dropped "
-        f"(max_folder_files={cap['max_folder_files']}). Entire files are missing "
-        f"from the index. Raise max_folder_files in config.jsonc (or set "
-        f"JCODEMUNCH_MAX_FOLDER_FILES) and re-index, or narrow the path."
+        f"({cap_label(cap)}={cap['max_folder_files']}). Entire files are missing "
+        "from the index. "
+        + (
+            cap_remedy(cap)
+            or "Raise max_folder_files in config.jsonc (or set "
+            "JCODEMUNCH_MAX_FOLDER_FILES) and re-index, or narrow the path."
+        )
     )
 
 
@@ -126,7 +255,96 @@ WITHHELD_SKIP_REASONS = frozenset({
     "too_large",     # over max_file_size, which until v1.108.193 could not be raised
     "file_limit",    # over max_folder_files / max_index_files
     "unreadable",    # a permission or IO failure, NOT a statement about the file
+    "parse_failed",  # its parse ran past the budget or raised: the file is in the
+                     # tree, its symbols are not in the index (L-316)
 })
+
+#: Coverage key holding the paths whose most recent parse failed. It lives in
+#: the stored coverage so a later run that does not re-parse a file carries its
+#: failure forward, and one that re-parses it clears or keeps it. It is not
+#: copied into an answer: `index_coverage_meta` reads named keys only, and
+#: `withheld.parse_failed` carries the count.
+PARSE_FAILED_FILES_KEY = "parse_failed_files"
+
+
+def _with_parse_failures(coverage: dict, failed) -> dict:
+    """``coverage`` with its parse failures set to ``failed``.
+
+    The count goes in ``skip_counts`` and ``withheld`` like every other withheld
+    reason. A known failure makes ``complete`` False even when the walk could
+    not reconcile its counts (``complete: None``), because a file whose
+    symbols are missing is proof of a gap, not the absence of a measurement.
+    With no failures left, ``complete`` is recomputed from the stored counts.
+    On a walk that could not reconcile them (``complete: None`` with
+    ``files_indexed`` above ``files_accepted``) the recompute reads False, not
+    unknown, until the next full walk: it errs toward refusing absence, never
+    toward claiming it.
+    """
+    cov = dict(coverage or {})
+    names = sorted(set(failed or ()))
+    skips = dict(cov.get("skip_counts") or {})
+    if names:
+        skips["parse_failed"] = len(names)
+        cov[PARSE_FAILED_FILES_KEY] = names
+    else:
+        skips.pop("parse_failed", None)
+        cov.pop(PARSE_FAILED_FILES_KEY, None)
+    cov["skip_counts"] = skips
+    withheld = {
+        k: int(v) for k, v in skips.items()
+        if k in WITHHELD_SKIP_REASONS and int(v or 0) > 0
+    }
+    if withheld:
+        cov["withheld"] = withheld
+    else:
+        cov.pop("withheld", None)
+    if names:
+        cov["complete"] = False
+    elif cov.get("complete") is not None and cov.get("files_accepted") is not None:
+        cov["complete"] = (
+            int(cov.get("files_indexed") or 0) == int(cov["files_accepted"])
+            and not cov.get("dropped_after_discovery")
+            and not withheld
+        )
+    return cov
+
+
+def _carried_parse_failures(prior_coverage, parsed, failed, present=None) -> list:
+    """The files whose last parse failed, after a run that parsed ``parsed``.
+
+    A file this run parsed is judged by this run alone: it is in ``failed`` or
+    it is not. A file it did not parse keeps the verdict of the run that last
+    did, provided it is still in the index (``present``; None keeps all).
+    """
+    prior = set((prior_coverage or {}).get(PARSE_FAILED_FILES_KEY) or ())
+    keep = prior - set(parsed or ())
+    if present is not None:
+        keep &= set(present)
+    return sorted(keep | set(failed or ()))
+
+
+def _store_parse_failures(store, owner: str, repo_name: str, parsed, failed, deleted=()) -> None:
+    """Amend the stored coverage after a targeted save (best-effort).
+
+    A run that re-parses only named files records no new coverage, so without
+    this a file that failed on a watcher or `index_file` re-index left the
+    index reading complete, and one that now parses stayed withheld. An index
+    with no coverage contract is left alone: its coverage is unknown either way.
+    """
+    try:
+        current = store._sqlite.get_coverage(owner, repo_name) or {}
+        if not current:
+            return
+        names = _carried_parse_failures(
+            current, set(parsed or ()) | set(deleted or ()), failed,
+        )
+        if names == sorted(current.get(PARSE_FAILED_FILES_KEY) or ()):
+            return
+        store._sqlite.set_coverage(owner, repo_name, _with_parse_failures(current, names))
+    except Exception:
+        logger.debug(
+            "Failed to record parse failures for %s/%s", owner, repo_name, exc_info=True
+        )
 
 
 def _coverage_report(
@@ -203,22 +421,43 @@ def _coverage_report(
     return report
 
 
+def _coverage_counts_with_kept(
+    skip_counts: dict, files_accepted: int, kept: int
+) -> tuple[dict, int]:
+    """The coverage inputs of a walk whose save kept ``kept`` files its cap cut.
+
+    Those files are in the index, as last parsed, so they are neither withheld
+    nor missing: move them from the cap's skip count to the accepted count.
+    """
+    if not kept:
+        return skip_counts, files_accepted
+    adjusted = dict(skip_counts or {})
+    adjusted["file_limit"] = max(0, int(adjusted.get("file_limit", 0) or 0) - kept)
+    return adjusted, int(files_accepted) + kept
+
+
 def _record_coverage(
     store, owner: str, repo_name: str,
     skip_counts: dict, files_indexed: int, no_symbols_count: int,
     files_accepted: Optional[int] = None,
     post_discovery_drops: Optional[dict] = None,
+    parse_failed=(),
 ) -> None:
-    """Persist the coverage contract after a save (best-effort, never raises)."""
+    """Persist the coverage contract after a save (best-effort, never raises).
+
+    ``parse_failed`` is every file in the index whose last parse failed; a walk
+    that re-parsed only some files passes the carried set
+    (`_carried_parse_failures`).
+    """
     try:
-        store._sqlite.set_coverage(
-            owner, repo_name,
-            _coverage_report(
-                skip_counts, files_indexed, no_symbols_count,
-                files_accepted=files_accepted,
-                post_discovery_drops=post_discovery_drops,
-            ),
+        report = _coverage_report(
+            skip_counts, files_indexed, no_symbols_count,
+            files_accepted=files_accepted,
+            post_discovery_drops=post_discovery_drops,
         )
+        if parse_failed:
+            report = _with_parse_failures(report, parse_failed)
+        store._sqlite.set_coverage(owner, repo_name, report)
     except Exception:
         logger.debug(
             "Failed to record coverage for %s/%s", owner, repo_name, exc_info=True
@@ -906,16 +1145,24 @@ def _merge_subdir_into_existing(
     new_file_imports: dict,
     new_context_metadata: dict,
     new_pkg_names: list[str],
+    keep: Optional[set] = None,
+    carry_outside_prefix: bool = True,
 ) -> dict:
     """Merge a fresh subdir walk into an existing v1.96 index.
 
     Files in ``existing`` outside ``walk_prefix`` carry over unchanged;
     everything else is replaced by the fresh walk.  Returns a dict with
     the merged state, suitable for splat into ``save_index`` keyword args.
+
+    ``keep`` names stored files that also carry over although they are inside
+    the walk: the files this walk's file cap cut. ``carry_outside_prefix=False``
+    carries only those, for a full save that is not a subdir merge.
     """
+    _keep = set(keep or ())
     carry_files = [
         f for f in existing.source_files
-        if _file_outside_walk_prefix(f, walk_prefix)
+        if (carry_outside_prefix and _file_outside_walk_prefix(f, walk_prefix))
+        or f in _keep
     ]
     carry_set = set(carry_files)
 
@@ -1193,6 +1440,17 @@ def _attach_hash_delta(
     result["file_hashes_removed"] = sorted(deleted_files or [])
 
 
+def _watcher_change_parts(item) -> tuple[str, str, str]:
+    """``(change_type, absolute_path, old_hash)`` of one watcher change.
+
+    Accepts a ``WatcherChange`` and the documented legacy tuples
+    ``(change_type, path)`` and ``(change_type, path, old_hash)``.
+    """
+    if isinstance(item, WatcherChange):
+        return item.change_type, item.path, item.old_hash
+    return item[0], item[1], (item[2] if len(item) > 2 else "")
+
+
 def _rel_to_root(abs_path: Path, root: Path) -> Optional[str]:
     """Root-relative posix path for a watcher change, or None if genuinely outside.
 
@@ -1370,6 +1628,7 @@ def resolve_explicit_paths(
     max_size: Optional[int] = None,
     follow_symlinks: bool = False,
     honor_gitignore: bool = True,
+    cap_dropped: Optional[list] = None,
 ) -> tuple[list[Path], list[str], dict[str, int], list[str]]:
     """Materialise a caller-supplied list of paths into the (files, warnings,
     skip_counts, requested_rels) shape that the standard indexing pipeline
@@ -1399,6 +1658,12 @@ def resolve_explicit_paths(
     Used by ``index_folder(paths=...)`` so agents can re-index exactly the
     files they already know about (git-diff list, edited-files list,
     rg-matched list) without paying the cost of a full directory walk.
+
+    ``cap_dropped``, like ``discover_local_files``'s, receives the files the
+    listed entries resolved to and the cap then cut. A capped call must not
+    delete those from an index built under a higher cap, so they are recorded,
+    never silently left out by stopping early; ``skip_counts["file_limit"]``
+    counts them.
     """
     # Same resolve-on-entry rule as discover_local_files: the explicit-paths
     # route is a second walk entry point, and a cap that applies to one and not
@@ -1413,10 +1678,16 @@ def resolve_explicit_paths(
 
     cap = max_files if max_files is not None else 10_000_000
     gitignore_cache: dict = {}
+    # Files accepted after the cap filled: cut, not absent (see cap_dropped).
+    overflow: list[Path] = []
+
+    def _place(f: Path) -> None:
+        if len(files) < cap:
+            files.append(f)
+        else:
+            overflow.append(f)
 
     for raw in paths:
-        if len(files) >= cap:
-            break
         if not isinstance(raw, str) or not raw.strip():
             warnings.append(f"Skipped empty/non-string path: {raw!r}")
             continue
@@ -1444,29 +1715,33 @@ def resolve_explicit_paths(
             continue
 
         if p.is_dir():
-            remaining = cap - len(files)
+            # The subtree walk keeps its own cut list, so nothing past the cap
+            # is lost; _place decides what this call keeps. (A max_files of 0
+            # is refused by the resolver, hence the floor of 1.)
+            sub_dropped: list[Path] = []
             sub_files, sub_warnings, sub_skip = discover_local_files(
                 p,
-                max_files=remaining,
+                max_files=max(1, cap - len(files)),
                 max_size=max_size,
                 follow_symlinks=follow_symlinks,
+                cap_dropped=sub_dropped,
             )
             warnings.extend(sub_warnings)
             for k, v in sub_skip.items():
+                if k == "file_limit":
+                    continue  # recounted below from what this call cut
                 skip_counts[k] = skip_counts.get(k, 0) + v
             # The subtree walk reads the .gitignore files inside ``p``; the
             # ones above it, up to ``walk_root``, are applied here.
             above = _gitignore_specs_on_path(walk_root, p) if honor_gitignore and p != walk_root else []
-            for f in sub_files:
+            for f in list(sub_files) + sub_dropped:
                 fr = f.resolve()
                 if above and _is_gitignored_fast(str(fr), above):
                     skip_counts["gitignore"] = skip_counts.get("gitignore", 0) + 1
                     continue
                 if fr not in seen:
                     seen.add(fr)
-                    files.append(f)
-                    if len(files) >= cap:
-                        break
+                    _place(f)
             continue
 
         if not p.is_file():
@@ -1519,9 +1794,13 @@ def resolve_explicit_paths(
         pr = p.resolve()
         if pr not in seen:
             seen.add(pr)
-            files.append(p)
+            _place(p)
 
-    return files[:cap], warnings, skip_counts, requested_rels
+    if overflow:
+        skip_counts["file_limit"] = len(overflow)
+        if cap_dropped is not None:
+            cap_dropped.extend(overflow)
+    return files, warnings, skip_counts, requested_rels
 
 
 def discover_local_files(
@@ -1530,6 +1809,7 @@ def discover_local_files(
     max_size: Optional[int] = None,
     extra_ignore_patterns: Optional[list[str]] = None,
     follow_symlinks: bool = False,
+    cap_dropped: Optional[list] = None,
 ) -> tuple[list[Path], list[str], dict[str, int]]:
     """Discover source files in a local folder with security filtering.
 
@@ -1541,6 +1821,8 @@ def discover_local_files(
         follow_symlinks: Whether to include symlinked files in indexing.
             Symlinked directories are never followed to prevent infinite
             loops from circular symlinks. Default False for safety.
+        cap_dropped: When given, receives the files the walk accepted and the
+            file cap then cut, so a caller can tell a skipped file from a gone one.
 
     Returns:
         Tuple of (list of Path objects for source files, list of warning strings).
@@ -1702,6 +1984,8 @@ def discover_local_files(
             return (len(priority_dirs), rel_path.count("/"), rel_path)
 
         files.sort(key=priority_key)
+        if cap_dropped is not None:
+            cap_dropped.extend(files[max_files:])
         files = files[:max_files]
 
     return files, warnings, skip_counts
@@ -1741,6 +2025,8 @@ def index_folder(
     force_reparse: bool = False,
     max_size: Optional[int] = None,
     paths_honor_gitignore: bool = True,
+    max_folder_files: Optional[int] = None,
+    cap_key: Optional[str] = None,
 ) -> dict:
     """Index a local folder containing source code.
 
@@ -1825,6 +2111,8 @@ def index_folder(
     # learn that the operation it requested was substituted for another one.
     _requested_incremental = incremental
     rebuild_reason: Optional[str] = None
+    # Set by the one rebuild that must stay a rebuild under the cap (see below).
+    _rebuild_for_root_marker = False
     trusted_folders = _config.get("trusted_folders", [], repo=str(folder_path))
     whitelist_mode = _config.get(
         "trusted_folders_whitelist_mode", True, repo=str(folder_path)
@@ -1980,7 +2268,9 @@ def index_folder(
     # `walk_root`, matching both `load_project_config` above and the key
     # `_discover_source_files` builds, and it is read BEFORE the git-root
     # retarget moves `folder_path`.
-    max_files = get_max_folder_files(repo=str(walk_root.resolve()))
+    # A command-line caller passes its own, higher cap
+    # (`security.get_cli_max_folder_files`); an agent's call never does.
+    max_files = get_max_folder_files(max_folder_files, repo=str(walk_root.resolve()))
 
     try:
         t0 = time.monotonic()
@@ -2247,16 +2537,8 @@ def index_folder(
                 rel_path_map_fast: dict[str, Path] = {}
 
                 for wc_item in changed_paths:
-                    # Support both WatcherChange (with .change_type/.path/.old_hash)
-                    # and legacy (change_type, path) or (change_type, path, old_hash) tuples
-                    if isinstance(wc_item, WatcherChange):
-                        change_type = wc_item.change_type
-                        abs_path_str = wc_item.path
-                        old_hash = wc_item.old_hash
-                    else:
-                        change_type = wc_item[0]
-                        abs_path_str = wc_item[1]
-                        old_hash = wc_item[2] if len(wc_item) > 2 else ""
+                    # WatcherChange or a legacy (change_type, path[, old_hash]) tuple.
+                    change_type, abs_path_str, old_hash = _watcher_change_parts(wc_item)
 
                     abs_path = Path(abs_path_str)
                     rel_path = _rel_to_root(abs_path, folder_path)
@@ -2405,6 +2687,7 @@ def index_folder(
                 _fast_phase("read_hash")
                 files_to_parse = set(changed_files) | set(new_files)
                 # Split pipeline: parse immediately (no AI), fire summarization thread.
+                _fast_parse_failed: list[str] = []
                 new_symbols, incr_file_summaries, incr_file_languages, incr_file_imports, incremental_no_symbols = (
                     parse_immediate(
                         files_to_parse=files_to_parse,
@@ -2412,6 +2695,7 @@ def index_folder(
                         active_providers=active_providers,
                         warnings=fast_warnings,
                         repo=str(folder_path),
+                        parse_failures=_fast_parse_failed,
                     )
                 )
 
@@ -2469,6 +2753,9 @@ def index_folder(
                         # Refresh the package registry so a manifest add/rename on
                         # the incremental path isn't stale until a full reindex (W7).
                         package_names=_extract_package_names(str(folder_path)),
+                    )
+                    _store_parse_failures(
+                        store, owner, repo_name, files_to_parse, _fast_parse_failed, deleted_files,
                     )
 
                 # Fire daemon thread for deferred summarization — index is already saved
@@ -2544,6 +2831,7 @@ def index_folder(
         # entries. Validation matches the walk path (outside-root, traversal,
         # symlink-escape, oversize, unsupported-extension all warn-and-skip).
         requested_rels: Optional[list[str]] = None
+        _cap_dropped_paths: list[Path] = []
         if paths is not None:
             source_files, discover_warnings, skip_counts, requested_rels = resolve_explicit_paths(
                 walk_root,
@@ -2552,6 +2840,7 @@ def index_folder(
                 max_size=max_size,
                 follow_symlinks=follow_symlinks,
                 honor_gitignore=paths_honor_gitignore,
+                cap_dropped=_cap_dropped_paths,
             )
         else:
             source_files, discover_warnings, skip_counts = discover_local_files(
@@ -2560,6 +2849,7 @@ def index_folder(
                 max_size=max_size,
                 extra_ignore_patterns=_merged_ignore or None,
                 follow_symlinks=follow_symlinks,
+                cap_dropped=_cap_dropped_paths,
             )
         warnings.extend(discover_warnings)
         logger.info("Discovery skip counts: %s", skip_counts)
@@ -2567,7 +2857,45 @@ def index_folder(
         # Truncation status for this walk (#366). Persisted on every save path so a
         # silently-capped index is loud in the index result, in resolve_repo, and
         # in query _meta. Always a dict (self-heals when a raised cap clears it).
-        _cap_status = _file_cap_report(skip_counts, max_files)
+        _cap_status = _file_cap_report(skip_counts, max_files, cap_key)
+        # Files this walk found (before the cap), for the kept-files advice.
+        _cap_walk_discovered = int(_cap_status.get("files_discovered") or len(source_files))
+        # Files the walk accepted and the cap then cut, in the stored key form.
+        # They exist and are wanted, so a capped call must not delete them from
+        # an index that already holds them (built under a higher cap: the CLI's).
+        _cap_dropped_rels: set[str] = set()
+        for _p in _cap_dropped_paths:
+            try:
+                _cap_dropped_rels.add(_p.relative_to(folder_path).as_posix())
+            except ValueError:
+                continue
+        # A watcher event names the files it saw change. One past the cap is
+        # re-read like the rest: when this call reaches the full walk (a parser
+        # upgrade is due) the cap would otherwise keep the old copy and drop
+        # the edit until the next command-line index.
+        if _cap_dropped_rels and changed_paths:
+            _by_rel = {}
+            for _p in _cap_dropped_paths:
+                try:
+                    _by_rel[_p.relative_to(folder_path).as_posix()] = _p
+                except ValueError:
+                    continue
+            _promoted = 0
+            for _ch in changed_paths:
+                _ctype, _cpath, _ = _watcher_change_parts(_ch)
+                if _ctype == "deleted":
+                    continue
+                _rel = _rel_to_root(Path(_cpath), folder_path)
+                if _rel is not None and _rel in _cap_dropped_rels and _rel in _by_rel:
+                    _cap_dropped_rels.discard(_rel)
+                    source_files.append(_by_rel[_rel])
+                    _promoted += 1
+            if _promoted:
+                # The promoted files are parsed now, so they are neither cut
+                # nor missing: the cap status follows the new count.
+                skip_counts = dict(skip_counts)
+                skip_counts["file_limit"] = max(0, int(skip_counts.get("file_limit", 0) or 0) - _promoted)
+                _cap_status = _cap_status_after_promotion(_cap_status, _promoted)
 
         # Warn when no root .gitignore is present and the file count is large —
         # a common cause of bloated indexes that then overflow get_file_tree.
@@ -2699,6 +3027,7 @@ def index_folder(
                 # upgrading is a rebuild for anyone whose index was last written
                 # by a subdir walk. It happens once per index, not per run.
                 incremental = False
+                _rebuild_for_root_marker = True
                 logger.info(
                     "index_folder: full-root walk supersedes partial source_roots "
                     "for %s/%s; rebuilding once to establish the full-root marker",
@@ -2980,6 +3309,33 @@ def index_folder(
             and not _is_branch_delta
             and walk_prefix in (getattr(_merge_with_existing, "source_roots", None) or [])
         )
+        _cap_rebuild_warning: Optional[str] = None
+        _cap_fallback_reason: Optional[str] = None
+        _cap_stale: set = set()
+        # A full re-parse replaces the whole stored index with what this walk
+        # found. Under the cap, that would drop every file the cap cut from an
+        # index built past it (by the CLI). Update the changed files instead and
+        # say what is still due; the CLI re-parses everything.
+        if (
+            not incremental
+            and existing_index is not None
+            and _cap_dropped_rels
+            and paths is None
+            and _merge_with_existing is None
+            and not _rebuild_for_root_marker
+            and _cap_dropped_rels & set(getattr(existing_index, "source_files", None) or [])
+        ):
+            incremental = True
+            if PARSER_UPGRADE_WARNING in warnings:
+                warnings.remove(PARSER_UPGRADE_WARNING)
+            _cap_rebuild_warning = _cap_kept_warning(
+                rebuild_reason, max_files, folder_path, _cap_walk_discovered,
+                cap_key=cap_key,
+            )
+            _cap_fallback_reason = rebuild_reason
+            warnings.append(_cap_rebuild_warning)
+            rebuild_reason = None
+
         if incremental and existing_index is not None and (
             _merge_with_existing is None or _subdir_incremental
         ):
@@ -2993,6 +3349,37 @@ def index_folder(
                     fp for fp in deleted
                     if not _file_outside_walk_prefix(fp, walk_prefix)
                 ]
+
+            # The cap cut these files from THIS walk; they are still on disk and
+            # still wanted, so they are not deleted. A file gone from disk or
+            # newly excluded is not in the set and still leaves.
+            if _cap_dropped_rels:
+                deleted = [fp for fp in deleted if fp not in _cap_dropped_rels]
+                _inc_stored = set(getattr(existing_index, "source_files", None) or [])
+                _inc_kept = _cap_dropped_rels & _inc_stored
+                # A kept file this call did not re-read is present only if it
+                # has not changed since it was parsed: the rest count as cut.
+                _cap_stale = _stale_kept(
+                    _cap_dropped_paths, folder_path, existing_index, _inc_kept
+                )
+                _cap_status = _cap_status_for_kept(
+                    _cap_status, _cap_dropped_rels, _inc_stored - _cap_stale,
+                )
+                if _inc_kept:
+                    _cap_status = _with_cli_remedy(_cap_status, folder_path)
+                if _inc_kept and _cap_rebuild_warning is None:
+                    _cap_rebuild_warning = _cap_kept_warning(
+                        None, max_files, folder_path, _cap_walk_discovered,
+                        len(_cap_stale), cap_key=cap_key,
+                    )
+                    warnings.append(_cap_rebuild_warning)
+                elif _cap_rebuild_warning is not None and _cap_stale:
+                    _updated = _cap_kept_warning(
+                        _cap_fallback_reason, max_files, folder_path,
+                        _cap_walk_discovered, len(_cap_stale), cap_key=cap_key,
+                    )
+                    warnings[warnings.index(_cap_rebuild_warning)] = _updated
+                    _cap_rebuild_warning = _updated
 
             # Subset refresh (paths=[...]): detect_changes_with_mtimes diffs the
             # supplied subset against the ENTIRE stored index, so every unlisted
@@ -3014,7 +3401,10 @@ def index_folder(
                         fp for fp in old_files
                         if any(fp == req or fp.startswith(req + "/") for req in requested_rels)
                     }
-                deleted = sorted(covered - set(file_mtimes))
+                # Files this call's cap cut are not deleted here either: the
+                # rescope recomputes `deleted`, so the cap exclusion above has
+                # to be applied again.
+                deleted = sorted(covered - set(file_mtimes) - _cap_dropped_rels)
 
                 # v1.108.259 (#395): re-parse the listed files even when their
                 # content is unchanged. `detect_changes_with_mtimes` compares
@@ -3057,6 +3447,36 @@ def index_folder(
                 _stamp_incremental_outcome(
                     _no_change_result, _requested_incremental, True
                 )
+                if _cap_rebuild_warning:
+                    # The re-parse that was due did not run: say so even here.
+                    _no_change_result["warnings"] = [_cap_rebuild_warning]
+                # Nothing changed, but this walk may still see files the index
+                # lacks: new files past the cap. Record what it saw, so the
+                # stored cap status and coverage stay true to the index.
+                _stored_cap = getattr(existing_index, "file_cap_status", None) or {}
+                _cap_to_save = _cap_status_to_save(_cap_status, paths, existing_index)
+                if _cap_to_save != _stored_cap:
+                    store._sqlite.set_file_cap_status(owner, repo_name, _cap_to_save)
+                    _nc_kept_files = (
+                        (_cap_dropped_rels & set(getattr(existing_index, "source_files", None) or []))
+                        - set(updated_mtimes)
+                        - _cap_stale
+                    )
+                    _nc_kept = len(_nc_kept_files)
+                    _nc_skips, _nc_accepted = _coverage_counts_with_kept(
+                        skip_counts, len(source_files), _nc_kept
+                    )
+                    _record_coverage(
+                        store, owner, repo_name,
+                        _nc_skips, len(updated_mtimes) + _nc_kept,
+                        int((getattr(existing_index, "coverage", None) or {}).get("no_symbols_count", 0) or 0),
+                        files_accepted=_nc_accepted,
+                        post_discovery_drops=post_discovery_drops,
+                        parse_failed=_carried_parse_failures(
+                            getattr(existing_index, "coverage", None), (), (),
+                            present=set(updated_mtimes) | _nc_kept_files,
+                        ),
+                    )
                 # This ran a full discovery walk, so a still-truncated index
                 # stays loud even when nothing changed (#366).
                 _attach_cap_report(_no_change_result, _cap_status)
@@ -3081,6 +3501,7 @@ def index_folder(
                 progress_cb(_incr_total, _incr_total, "Parsing complete")
 
             # Shared pipeline: parse, enrich, summarize, extract metadata
+            _incr_parse_failed: list[str] = []
             new_symbols, incr_file_summaries, incr_file_languages, incr_file_imports, incremental_no_symbols = (
                 parse_and_prepare_incremental(
                     files_to_parse=files_to_parse,
@@ -3089,6 +3510,7 @@ def index_folder(
                     use_ai_summaries=use_ai_summaries,
                     warnings=warnings,
                     repo=str(folder_path),
+                    parse_failures=_incr_parse_failed,
                 )
             )
 
@@ -3168,25 +3590,48 @@ def index_folder(
                     # Refresh the package registry so a manifest add/rename on
                     # the incremental path isn't stale until a full reindex (W7).
                     package_names=_extract_package_names(str(folder_path)),
-                    # This path did a full discovery walk, so refresh the cap
-                    # status (self-heals when a raised cap now clears it) (#366).
-                    file_cap_status=_cap_status,
+                    # A whole-tree walk refreshes the cap status (self-heals
+                    # when a raised cap now clears it) (#366); a path list
+                    # keeps the stored one.
+                    file_cap_status=_cap_status_to_save(_cap_status, paths, existing_index),
                 )
 
             # This path did a full discovery walk (paths=None), so the skip
             # counts describe the whole corpus — refresh the coverage contract.
             if paths is None:
+                # The files the cap cut and the index kept: `updated_mtimes` is
+                # built from this walk, so it never holds them.
+                _cov_kept_files = (
+                    (_cap_dropped_rels & set(getattr(existing_index, "source_files", None) or []))
+                    - set(updated_mtimes)
+                    - _cap_stale
+                )
+                _cov_kept = len(_cov_kept_files)
+                _cov_skips, _cov_accepted = _coverage_counts_with_kept(
+                    skip_counts, len(source_files), _cov_kept,
+                )
                 _record_coverage(
                     store, owner, repo_name,
-                    skip_counts,
+                    _cov_skips,
                     # The COMPOSED file set (carried + changed + new - deleted),
                     # not the walk's accepted list: on this path they are only
                     # equal if nothing was dropped, which is the thing being
                     # measured.
-                    len(updated_mtimes),
+                    len(updated_mtimes) + _cov_kept,
                     len(incremental_no_symbols),
-                    files_accepted=len(source_files),
+                    files_accepted=_cov_accepted,
                     post_discovery_drops=post_discovery_drops,
+                    # The kept files are in the index, as last parsed: a failure
+                    # recorded for one of them still holds.
+                    parse_failed=_carried_parse_failures(
+                        getattr(existing_index, "coverage", None),
+                        files_to_parse, _incr_parse_failed,
+                        present=set(updated_mtimes) | _cov_kept_files,
+                    ),
+                )
+            elif not _is_branch_delta:
+                _store_parse_failures(
+                    store, owner, repo_name, files_to_parse, _incr_parse_failed, deleted,
                 )
 
             # An empty discovery over an existing index removed every indexed
@@ -3249,6 +3694,7 @@ def index_folder(
         from ..storage import text_filter as _text_filter
 
         _filter_rows: list = []
+        _full_parse_failed: list[str] = []
         for _file_idx, rel_path in enumerate(source_file_list):
             if progress_cb:
                 progress_cb(_file_idx, _total_files, rel_path)
@@ -3288,6 +3734,7 @@ def index_folder(
             except Exception as e:
                 warnings.append(f"Failed to parse {rel_path}: {e}")
                 logger.debug("PARSE ERROR: %s — %s", rel_path, e)
+                _full_parse_failed.append(rel_path)
 
             # Extract imports while content is in scope
             imps = extract_imports(content, rel_path, language, repo=str(folder_path))
@@ -3380,6 +3827,11 @@ def index_folder(
         _cut_now = set(_provider_cut_names(folder_path))
         if _merge_with_existing is not None or _is_branch_delta:
             _cut_now |= set(_stored_provider_cut(existing_index))
+        _cap_keep: set = set()
+        # The files the full save below writes. A capped walk or a subdir merge
+        # also keeps files it did not re-parse; their recorded parse failures
+        # carry (L-316).
+        _pf_saved_files: list = list(source_file_list)
         full_context_metadata = _stamp_provider_cut(
             full_context_metadata, sorted(_cut_now),
             existing_index, carry_existing=False,
@@ -3476,7 +3928,7 @@ def index_folder(
                     display_name=folder_path.name, imports=file_imports,
                     context_metadata=full_context_metadata, file_mtimes=file_mtimes,
                     package_names=_pkg_names, git_root=_git_root,
-                    file_cap_status=_cap_status,
+                    file_cap_status=_cap_status_to_save(_cap_status, paths, base_index),
                 )
         else:
             # v1.96: when an existing v1.96-format index covers the same
@@ -3494,10 +3946,26 @@ def index_folder(
             _save_context_metadata = full_context_metadata
             _save_pkg_names = _pkg_names
             _save_source_roots = [walk_prefix] if walk_prefix else [""]
+            _save_parser_generation: Optional[int] = None
 
-            if _merge_with_existing is not None:
+            # Every full save replaces the stored files inside this walk with
+            # what the walk parsed, so a file the cap cut would leave the index.
+            # Keep the stored copy of each one, whichever route led here: a
+            # subdir merge, the root-marker rebuild, a forced rebuild the
+            # incremental fallback above did not take. A file gone from disk or
+            # newly excluded is not in the cut set and still leaves.
+            _cap_base = _merge_with_existing if _merge_with_existing is not None else existing_index
+            _cap_keep = (
+                _cap_dropped_rels & set(getattr(_cap_base, "source_files", None) or [])
+                # A v1.95 index keys its files from a subdir, not the git root,
+                # so its names cannot be matched to this walk's: it is rebuilt.
+                if _cap_base is not None and paths is None and not _v195_legacy_rebuild
+                else set()
+            )
+
+            if _merge_with_existing is not None or _cap_keep:
                 merged = _merge_subdir_into_existing(
-                    existing=_merge_with_existing,
+                    existing=_cap_base,
                     walk_prefix=walk_prefix,
                     new_source_files=source_file_list,
                     new_symbols=all_symbols,
@@ -3508,8 +3976,11 @@ def index_folder(
                     new_file_imports=file_imports,
                     new_context_metadata=full_context_metadata or {},
                     new_pkg_names=_pkg_names or [],
+                    keep=_cap_keep,
+                    carry_outside_prefix=_merge_with_existing is not None,
                 )
                 _save_source_files = merged["source_files"]
+                _pf_saved_files = list(_save_source_files)
                 # Carried symbols (dicts) + freshly parsed Symbols.
                 # save_index serializes Symbols itself; we pre-serialize
                 # the carryover dicts by leaving them as dicts (save_index
@@ -3521,9 +3992,38 @@ def index_folder(
                 _save_file_mtimes = merged["file_mtimes"]
                 _save_imports = merged["imports"]
                 _save_languages = merged["languages"]
-                _save_context_metadata = merged["context_metadata"]
-                _save_pkg_names = merged["package_names"]
-                _save_source_roots = merged["source_roots"]
+                if _merge_with_existing is not None:
+                    # Only a subdir merge overlays the old metadata: a full walk
+                    # re-ran every provider, so its record replaces the stored one.
+                    _save_context_metadata = merged["context_metadata"]
+                    _save_pkg_names = merged["package_names"]
+                    _save_source_roots = merged["source_roots"]
+                if _cap_keep:
+                    # The kept files were parsed by an older run: record the
+                    # older generation, so an upgrade still due stays due.
+                    _save_parser_generation = min(
+                        int(getattr(_cap_base, "parser_generation", 0) or 0),
+                        PARSER_GENERATION,
+                    )
+                    # Kept, but present only if unchanged since that parse.
+                    _cap_stale = _stale_kept(
+                        _cap_dropped_paths, folder_path, _cap_base, _cap_keep
+                    )
+                    _cap_status = _with_cli_remedy(
+                        _cap_status_for_kept(
+                            _cap_status, _cap_dropped_rels,
+                            set(_save_source_files) - _cap_stale,
+                        ),
+                        folder_path,
+                    )
+                    if PARSER_UPGRADE_WARNING in warnings:
+                        warnings.remove(PARSER_UPGRADE_WARNING)
+                    warnings.append(
+                        _cap_kept_warning(
+                            rebuild_reason, max_files, folder_path,
+                            _cap_walk_discovered, len(_cap_stale), cap_key=cap_key,
+                        )
+                    )
                 logger.info(
                     "v1.96 subdir merge: %d carried + %d new = %d files "
                     "(%d source_roots: %s)",
@@ -3553,17 +4053,33 @@ def index_folder(
                 package_names=_save_pkg_names,
                 git_root=_git_root,
                 source_roots=_save_source_roots,
-                file_cap_status=_cap_status,
+                file_cap_status=_cap_status_to_save(_cap_status, paths, existing_index),
+                parser_generation=_save_parser_generation,
             )
 
         # Full-save paths above all followed a full discovery walk (paths=None);
         # record the coverage contract the verdicts disclose at query time.
         if paths is None:
+            _cov_kept_n = len(_cap_keep - _cap_stale)
+            _cov_skips, _cov_accepted = _coverage_counts_with_kept(
+                skip_counts, len(source_files), _cov_kept_n
+            )
             _record_coverage(
                 store, owner, repo_name,
-                skip_counts, len(source_file_list), len(no_symbols_files),
-                files_accepted=len(source_files),
+                _cov_skips, len(source_file_list) + _cov_kept_n, len(no_symbols_files),
+                files_accepted=_cov_accepted,
                 post_discovery_drops=post_discovery_drops,
+                parse_failed=_carried_parse_failures(
+                    getattr(
+                        _merge_with_existing if _merge_with_existing is not None else existing_index,
+                        "coverage", None,
+                    ),
+                    source_file_list, _full_parse_failed, present=_pf_saved_files,
+                ),
+            )
+        else:
+            _store_parse_failures(
+                store, owner, repo_name, source_file_list, _full_parse_failed,
             )
 
         # Identify languages that were indexed (symbols found) but have no import extractor

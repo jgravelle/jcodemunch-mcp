@@ -1,5 +1,5 @@
 """Enable `python -m jcodemunch_mcp ...` invocation."""
-from .server import main
+from .cli_entry import cli
 
 if __name__ == "__main__":
-    main()
+    cli()

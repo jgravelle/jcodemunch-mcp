@@ -31,6 +31,77 @@ def _offload():
         return None
 
 
+# Kinds whose body is mostly other symbols' bodies. A class's methods are
+# symbols of their own, one fetch away, so by default a class fetch returns the
+# class's own lines with each method's body collapsed to its signature.
+OUTLINE_KINDS = frozenset({"class"})
+# Members whose body is collapsed. A field or constant is a line of the class's
+# own and stays as written.
+_COLLAPSED_KINDS = frozenset({"method", "function", "class"})
+CLASS_BODY_MODES = ("outline", "full")
+
+
+def _direct_members(store, owner: str, name: str, symbol: dict) -> Optional[list]:
+    """The rows whose parent is ``symbol``, from one read of its file, or None.
+
+    None means the members could not be read, and the caller serves the full
+    body. Never ``index.symbols``: on a selective view that hydrates the corpus.
+    """
+    try:
+        view = store.open_selective(owner, name, files=[symbol["file"]])
+    except Exception:
+        logger.debug("member read failed for %s", symbol.get("id"), exc_info=True)
+        return None
+    if view is None:
+        return None
+    pick = getattr(view, "selected_symbols", None)
+    rows: list
+    if callable(pick):
+        rows = list(pick())  # type: ignore[call-overload]
+    else:  # a cached full index answers from memory
+        cached: list = getattr(view, "symbols", None) or []
+        rows = [s for s in cached if s.get("file") == symbol["file"]]
+    return [r for r in rows if r.get("parent") == symbol["id"]]
+
+
+def _class_outline(source: str, symbol: dict, members: list) -> tuple[Optional[str], int]:
+    """The class's own lines with each direct member's body collapsed to its
+    signature, and how many members were collapsed. ``(None, 0)`` when no
+    member lies inside the class's span, so there is nothing to collapse."""
+    start, end = symbol["line"], symbol["end_line"]
+    newline = "\r\n" if "\r\n" in source else "\n"
+    lines = source.split(newline)
+    spans = sorted(
+        (
+            m for m in members
+            if m.get("kind") in _COLLAPSED_KINDS
+            and isinstance(m.get("line"), int) and isinstance(m.get("end_line"), int)
+            and start < m["line"] <= m["end_line"] <= end
+        ),
+        key=lambda m: m["line"],
+    )
+    out: list = []
+    cursor = start
+    collapsed = 0
+    for m in spans:
+        if m["line"] < cursor:
+            continue  # overlaps a span already collapsed
+        out.extend(lines[cursor - start: m["line"] - start])
+        first = lines[m["line"] - start] if m["line"] - start < len(lines) else ""
+        indent = first[: len(first) - len(first.lstrip())]
+        if first.lstrip().startswith("@"):
+            # The span starts at a decorator; keep the decorators it removes.
+            out.extend(indent + d.strip() for d in (m.get("decorators") or []))
+        signature = (m.get("signature") or m.get("name") or "").strip()
+        out.extend(indent + ln.strip() if i == 0 else ln for i, ln in enumerate(signature.split("\n")))
+        cursor = m["end_line"] + 1
+        collapsed += 1
+    if not collapsed:
+        return None, 0
+    out.extend(lines[cursor - start:])
+    return newline.join(out), collapsed
+
+
 def _make_meta(timing_ms: float, **kwargs) -> dict:
     """Build a _meta envelope dict."""
     meta = {"timing_ms": round(timing_ms, 1)}
@@ -378,8 +449,9 @@ def get_symbol_source(
     max_source_lines: Optional[int] = None,
     max_source_bytes: Optional[int] = None,
     max_total_source_bytes: Optional[int] = None,
+    class_body: str = "outline",
 ) -> dict:
-    """Get full source of one or more symbols by ID.
+    """Get the source of one or more symbols by ID (a class as an outline by default).
 
     Pass symbol_id (string) for one symbol — returns flat symbol object.
     Pass symbol_ids (array) for batch — returns {symbols, errors}.
@@ -406,6 +478,16 @@ def get_symbol_source(
     is a slice, not the verified bytes). ``verify`` always hashes the *full*
     indexed body. ``context_lines`` may not be combined with any source bound
     (rejected) so it can never expand the payload past the requested bound.
+
+    Class outline (``class_body``, default ``"outline"``): a ``class`` symbol
+    with members comes back as the class's own lines with each member's body
+    collapsed to its signature; a member's id is ``<file>::<Class>.<name>#<kind>``
+    and its body is one fetch away. The entry carries ``source_outline: true``,
+    ``source_outline_members`` (members collapsed), ``source_total_lines``,
+    ``source_is_bounded_view`` and ``source_outline_full_body`` (the argument
+    that returns the whole body). ``class_body="full"`` returns the whole body, as
+    does any source bound or a class with no members. ``verify`` still hashes
+    the full body.
     """
     # FQN resolution: translate PHP FQN → symbol_id
     if fqn and symbol_id is None and symbol_ids is None:
@@ -421,6 +503,9 @@ def get_symbol_source(
         return {"error": "Provide symbol_id (string), symbol_ids (array), or fqn (PHP FQN)."}
     if symbol_id is not None and symbol_ids is not None:
         return {"error": "Provide symbol_id or symbol_ids, not both."}
+
+    if class_body not in CLASS_BODY_MODES:
+        return {"error": f"class_body must be one of {list(CLASS_BODY_MODES)}."}
 
     batch_mode = symbol_ids is not None
     ids = symbol_ids if batch_mode else [symbol_id]
@@ -538,6 +623,17 @@ def get_symbol_source(
             display_source = bound_meta["text"]
             total_source_used += len(display_source.encode("utf-8"))
 
+        outline_members = 0
+        if (
+            class_body == "outline" and not bounds_requested and source
+            and symbol.get("kind") in OUTLINE_KINDS
+        ):
+            members = _direct_members(store, owner, name, symbol)
+            if members:
+                text, outline_members = _class_outline(source, symbol, members)
+                if text is not None:
+                    display_source = text
+
         entry = {
             "id": symbol["id"],
             "kind": symbol["kind"],
@@ -556,6 +652,16 @@ def get_symbol_source(
             "content_hash": symbol.get("content_hash", ""),
             "source": display_source,
         }
+        if outline_members:
+            # A view, not the indexed bytes: the evidence producer reads
+            # `source_is_bounded_view` and does not hash it as the body.
+            entry["source_outline"] = True
+            entry["source_outline_members"] = outline_members
+            entry["source_total_lines"] = symbol["end_line"] - symbol["line"] + 1
+            entry["source_is_bounded_view"] = True
+            # The way back, in the body: a reason in `_meta` is stripped on a
+            # default install (`meta_fields: []`).
+            entry["source_outline_full_body"] = 'class_body="full"'
         if bound_meta is not None:
             entry["source_truncated"] = bound_meta["truncated"]
             if bound_meta["truncated"]:

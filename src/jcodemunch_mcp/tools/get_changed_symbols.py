@@ -130,7 +130,9 @@ def get_changed_symbols(
         Every changed file is symbol-diffed or listed in
         `unparsed_changed_files` with its reason (`no_language`, `unreadable`,
         `parse_failed`); `symbol_diff_complete` is true only when none was
-        skipped (#874).
+        skipped (#874). A renamed file is diffed against its old path, so a
+        moved symbol with an unchanged body is no change; `renamed_files`
+        lists each move as `{from, to}` (L-67).
     """
     start = time.perf_counter()
     max_blast_depth = max(1, min(max_blast_depth, 5))
@@ -196,7 +198,9 @@ def get_changed_symbols(
         # `--name-status` (review of #874): the status says which sides of the
         # diff exist, so a side that should exist and cannot be read is
         # `unreadable`, never diffed against nothing.
-        ["diff", "--relative", "--name-status", "-z", "--diff-filter=ACDMRT", resolved_since, resolved_until],
+        # `-M` (LEDGER L-67): rename detection is asked for, not left to the
+        # repository's `diff.renames`, so a move reads the same everywhere.
+        ["diff", "--relative", "--name-status", "-z", "-M", "--diff-filter=ACDMRT", resolved_since, resolved_until],
         cwd=cwd,
     )
     if rc3 != 0:
@@ -204,6 +208,9 @@ def get_changed_symbols(
 
     all_diff_files: list[str] = []
     status_by_path: dict[str, str] = {}
+    # (L-67) A renamed file's before side lives at its OLD path; reading it at
+    # the new one found nothing and published every symbol as added.
+    old_path_by_path: dict[str, str] = {}
     _fields = diff_out.split("\0") if diff_out else []
     _i = 0
     while _i < len(_fields):
@@ -218,6 +225,8 @@ def get_changed_symbols(
         if _path.strip():
             all_diff_files.append(_path)
             status_by_path[_path] = _status[0]
+            if _status[0] == "R":
+                old_path_by_path[_path] = _fields[_i - 2]
 
     # Exclude any files that live inside the index storage directory when it
     # happens to be under the repo root (e.g. .index/ as a test-time storage dir).
@@ -381,22 +390,26 @@ def get_changed_symbols(
             unparsed.append({"file": file_path, "reason": "no_language"})
             continue
 
-        before_content = _get_file_content_at(resolved_since, file_path, cwd)
+        # A rename's before side is read, and parsed, at its old path (L-67), so
+        # a moved symbol whose body did not change is not a change and one
+        # deleted in the move is removed where it was.
+        before_path = old_path_by_path.get(file_path, file_path)
+        before_content = _get_file_content_at(resolved_since, before_path, cwd)
         after_content = _get_file_content_at(resolved_until, file_path, cwd)
         # The before side exists unless the file was added (or arrived by a
-        # rename or copy, which is read at its new path, as before); the after
-        # side exists unless it was deleted. A side that exists and could not
-        # be read would diff against nothing and publish every symbol as added
-        # or removed.
+        # copy, which is read at its new path, so its symbols are new); the
+        # after side exists unless it was deleted. A side that exists and could
+        # not be read would diff against nothing and publish every symbol as
+        # added or removed.
         _st = status_by_path.get(file_path, "M")
-        if (before_content is None and _st not in "ARC") or (after_content is None and _st != "D"):
+        if (before_content is None and _st not in "AC") or (after_content is None and _st != "D"):
             unparsed.append({"file": file_path, "reason": "unreadable"})
             continue
 
         before_parsed: Optional[dict[str, dict]] = {}
         after_parsed: Optional[dict[str, dict]] = {}
         if before_content is not None:
-            before_parsed = _parse_symbols_from_content(before_content, file_path, repo=cwd)
+            before_parsed = _parse_symbols_from_content(before_content, before_path, repo=cwd)
         if after_content is not None:
             after_parsed = _parse_symbols_from_content(after_content, file_path, repo=cwd)
         if before_parsed is None or after_parsed is None:
@@ -420,7 +433,9 @@ def get_changed_symbols(
             entry = dict(before_syms[key])
             entry["change_type"] = "removed"
             if include_blast_radius and rev_adj is not None:
-                _attach_blast(entry, file_path)
+                # A removed symbol is named at the path it was removed from, so
+                # its blast is that path's importers (review of L-67).
+                _attach_blast(entry, before_path)
             removed_symbols.append(entry)
 
         for key in before_keys & after_keys:
@@ -474,6 +489,11 @@ def get_changed_symbols(
         "is_local": True,
         "changed_files": changed_files,
         "changed_files_count": len(changed_files),
+        # (L-67) One row per renamed file in `changed_files`, so it is bounded
+        # by that list; a pure move otherwise shows no symbol change at all.
+        "renamed_files": [
+            {"from": old_path_by_path[f], "to": f} for f in changed_files if f in old_path_by_path
+        ],
         "parsed_changed_files_count": parsed_count,
         "unparsed_changed_files": unparsed,
         "symbol_diff_complete": not unparsed,

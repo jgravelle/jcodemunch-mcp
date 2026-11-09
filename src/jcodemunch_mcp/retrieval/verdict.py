@@ -32,20 +32,60 @@ def index_truncation_meta(cap: Optional[dict]) -> Optional[dict]:
     """
     if not cap or not cap.get("truncated"):
         return None
-    return {
+    from ..security import cap_label, cap_remedy
+
+    remedy = cap_remedy(cap)
+    block = {
         "truncated": True,
         "files_discovered": cap.get("files_discovered"),
         "files_indexed": cap.get("files_indexed"),
         "files_skipped_cap": cap.get("files_skipped_cap"),
         "max_folder_files": cap.get("max_folder_files"),
         "note": (
-            "This index is incomplete: the max_folder_files cap dropped "
+            f"This index is incomplete: the {cap_label(cap)} cap dropped "
             f"{cap.get('files_skipped_cap')} file(s) at index time, so entire files "
             "are absent from search. A missing or thin result may be truncation, not "
-            "absence. Raise max_folder_files in config.jsonc (or set "
-            "JCODEMUNCH_MAX_FOLDER_FILES) and re-index."
+            "absence. "
+            + (
+                remedy
+                or "Raise max_folder_files in config.jsonc (or set "
+                "JCODEMUNCH_MAX_FOLDER_FILES) and re-index."
+            )
         ),
     }
+    if remedy:
+        # Not the plain agent-cap case: the answer line names this step instead.
+        block["remedy"] = remedy
+    return block
+
+
+def index_truncation_warning(block: Optional[dict]) -> Optional[str]:
+    """The answer-body line for a result drawn from a capped index, or None.
+
+    ``block`` is the ``_meta.index_truncated`` dict from :func:`index_truncation_meta`.
+    The dispatcher puts this line in the BODY because ``meta_fields: []``, the
+    shipped default, strips ``_meta``: without it a search that finds something
+    on a capped index reads as a search of the whole repo.
+    """
+    if not isinstance(block, dict) or not block.get("truncated"):
+        return None
+    indexed, discovered = block.get("files_indexed"), block.get("files_discovered")
+    held = (
+        f"{indexed:,} of {discovered:,} files"
+        if isinstance(indexed, int) and isinstance(discovered, int)
+        else "only part of the repo's files"
+    )
+    remedy = block.get("remedy")
+    if isinstance(remedy, str) and remedy:
+        return (
+            f"This index holds {held} as current, so these results come only from "
+            f"those files. {remedy}"
+        )
+    return (
+        f"This index holds {held} (the max_folder_files cap), so these results come "
+        "only from those files. Raise max_folder_files in config.jsonc, or set "
+        "JCODEMUNCH_MAX_FOLDER_FILES, and re-index to search the rest."
+    )
 
 
 # Version pin for the confidence/score heuristics the verdict reports.

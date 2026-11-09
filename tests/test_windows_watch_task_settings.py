@@ -60,7 +60,7 @@ class TestTaskXml:
         exec_ = self._xml().find("t:Actions/t:Exec", _NS)
 
         assert exec_.findtext("t:Command", namespaces=_NS) == f'"{_EXEC[0]}"'
-        assert exec_.findtext("t:Arguments", namespaces=_NS) == "-m jcodemunch_mcp watch-all"
+        assert exec_.findtext("t:Arguments", namespaces=_NS).startswith("-m jcodemunch_mcp watch-all --log-file ")
 
     def test_markup_in_the_interpreter_path_cannot_break_the_document(self):
         with patch.object(si, "_exec_cmd", lambda: [r"C:\a&b<c>\python.exe", "-m", "jcodemunch_mcp", "watch-all"]):
@@ -136,7 +136,8 @@ class TestStatusSaysWhenNothingRuns:
     def _status(self, *, state, settings=None):
         with patch.object(si, "_run_schtasks", lambda args: (0, "TaskName: \\jcodemunch-watch", "")), \
              patch.object(si, "_scheduled_task_state", lambda: state), \
-             patch.object(si, "_scheduled_task_settings", lambda: settings):
+             patch.object(si, "_scheduled_task_settings", lambda: settings), \
+             patch.object(si, "_scheduled_task_command", lambda: None):
             return si._status_windows()
 
     _FIXED = {
@@ -246,12 +247,16 @@ if _may_register_a_real_task():
         `watch-install` fail for every Windows user. Registers our definition
         and the old switch form under throwaway names, compares what Windows
         stored, deletes both. Never started: the action runs only at logon."""
-        cmd = si._exec_cmd() if exec_cmd is None else exec_cmd
+        if exec_cmd is None:
+            cmd = si._windows_exec_cmd()
+        else:
+            with patch.object(si, "_exec_cmd", lambda: list(exec_cmd)):
+                cmd = si._windows_exec_cmd()
         suffix = uuid.uuid4().hex[:8]
         xml_name = f"{si.SERVICE_NAME}-ci-xml-{suffix}"
         old_name = f"{si.SERVICE_NAME}-ci-old-{suffix}"
         xml_path = Path(tempfile.mkdtemp()) / "task.xml"
-        with patch.object(si, "_exec_cmd", lambda: list(cmd)):
+        with patch.object(si, "_windows_exec_cmd", lambda: list(cmd)):
             xml_path.write_text(si._windows_task_xml(), encoding="utf-16")
         cmd_str = " ".join(si._cmd_quote(x) for x in cmd)
         try:

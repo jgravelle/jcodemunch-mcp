@@ -167,4 +167,9 @@ def test_control_added_deleted_and_renamed_files_are_diffed(tmp_path):
     assert sorted(result["changed_files"]) == ["app/fresh.py", "app/gone.py", "app/new_name.py"]
     assert result["unparsed_changed_files"] == []
     assert result["symbol_diff_complete"] is True
-    assert {"gone", "fresh", "moved"} <= _names(result)
+    assert {"gone", "fresh"} <= _names(result)
+    # L-67: a moved symbol with an unchanged body is not a change; the move is
+    # named in `renamed_files`. This line used to require "moved" among the
+    # changes, which only the defect (every symbol read as added) supplied.
+    assert "moved" not in _names(result)
+    assert result["renamed_files"] == [{"from": "app/old_name.py", "to": "app/new_name.py"}]

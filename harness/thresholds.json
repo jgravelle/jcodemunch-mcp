@@ -477,7 +477,7 @@
       "criterion": "3",
       "metric": "cold index_folder of a copy of src/ (275 files, 4,055 symbols), median of 3 fresh-subprocess runs (benchmarks/self_latency/measure.py, self corpus)",
       "comparator": "<=",
-      "floor": 5.2,
+      "floor": 10.4,
       "target": 2.6,
       "unit": "seconds",
       "set_at": {
@@ -490,6 +490,41 @@
         "commit": "35f7bec",
         "date": "2026-09-03",
         "env": "Windows-11-10.0.26200-SP0"
+      },
+      "history": [
+        {
+          "floor": 5.2,
+          "commit": "35f7bec",
+          "date": "2026-09-03",
+          "reason": "2x the median of three runs on the dev box; failed 3 of 22 CI readings on 2026-11-04..06, at commits e757bfe4 and 8a9fd241 (LEDGER L-314)"
+        }
+      ],
+      "loosened": {
+        "by": "jjg, 2026-11-06 ('ratio', LEDGER L-314); backstop 10.4 approved by jjg, 2026-11-06 ('10.4 ok')",
+        "reason": "5.2 -> 10.4: the cold index is judged by index.cold_over_one_file_ratio, which divides out runner speed. This row stays as a backstop at 2x its old floor, for a change that slows cold indexing and one-file reindexing by the same factor, which the ratio cannot see."
+      },
+      "enforced_by": [
+        "benchmarks/self_latency/measure.py",
+        "harness/__main__.py"
+      ]
+    },
+    {
+      "id": "index.cold_over_one_file_ratio",
+      "criterion": "3",
+      "metric": "index.cold_self_seconds in ms over index.one_file_reindex_ms, both from the same run of benchmarks/self_latency/measure.py (self corpus); runner speed divides out",
+      "comparator": "<=",
+      "floor": 59,
+      "unit": "ratio",
+      "set_at": {
+        "commit": "c6afbc80",
+        "date": "2026-11-06",
+        "reason": "LEDGER L-314: 22 CI readings 2026-11-04..06 at 19 commits, 977d3f24 to c6afbc80 (harness/results/self_latency_ci_runs_2026-11-06.json), read 35.8 to 45.6, median 43.7, while the cold time alone ran 2.901 to 5.328 s. Floor = 1.3x the highest reading (59.3), rounded down, so a cold-only step the size of the F-44 regression (1.3x) fails even from the highest normal reading. The denominator moves the ratio too: a one-file reindex speedup beyond about 1.3x fails this row, which means re-setting the band from new readings, and a one-file reindex regression lowers it, which index.one_file_reindex_ms judges on its own floor."
+      },
+      "measured": {
+        "value": 43.7,
+        "commit": "c6afbc80",
+        "date": "2026-11-06",
+        "env": "GitHub-hosted ubuntu runners (Linux azure/aws), 22 runs"
       },
       "history": [],
       "enforced_by": [
@@ -689,7 +724,7 @@
     {
       "id": "deps.vuln_max",
       "criterion": "8",
-      "metric": "pip-audit advisories in the runtime dependency set, minus unexpired allowlist entries",
+      "metric": "pip-audit advisories in the runtime dependency set with every optional extra, for the interpreter and platform the audit runs on (CI: ubuntu, Python 3.12), minus unexpired allowlist entries",
       "comparator": "<=",
       "floor": 0,
       "unit": "advisories",

@@ -39,6 +39,7 @@ _PROTECTIVE = sorted({
     "skip_virtualenvs",
     "trusted_folders_whitelist_mode",
     "runtime_redact_enabled",
+    "watch_all_skip_temp",
 })
 _TYPOS = ["ture", "flase", "enabled", "disabled", "2", "on-ish", " "]
 

@@ -2,7 +2,7 @@
 
 A small VS Code extension that does two things:
 
-1. **Auto-reindex on save** — keeps `jcodemunch-mcp`'s index fresh when you edit files outside Claude Code.
+1. **Auto-reindex on save** — re-indexes each file you save in the editor.
 2. **Risk-density gutter** *(new in 0.2.0)* — paints a colored dot in the editor gutter at every risky function/method header. Hover for the per-axis breakdown; green is invisible (signal-to-noise stays high).
 
 ## Why
@@ -10,6 +10,8 @@ A small VS Code extension that does two things:
 ### Auto-reindex on save
 
 Claude Code's PostToolUse hook handles auto-reindexing in its own ecosystem. VS Code-side MCP clients (GitHub Copilot Chat, Continue, Cline, Roo Code, …) don't fire those hooks — so when you edit a file in the editor and another session queries jCodeMunch, the second session sees a stale index. This extension closes the gap by listening for `onDidSaveTextDocument` and shelling out to `jcodemunch-mcp index-file <path>`.
+
+To keep every indexed repo current, including edits made outside VS Code (a branch switch, a pull, another editor), run `jcodemunch-mcp watch-all`. The save hook is a per-file nudge on top of that, and the two work together.
 
 ### Risk-density gutter
 
@@ -52,10 +54,10 @@ Or via the Extensions panel — search for "jCodeMunch".
 
 ```bash
 cd vscode-extension
-npm install
+npm ci
 npm run compile
-npx @vscode/vsce package
-code --install-extension jcodemunch-mcp-vscode-0.1.0.vsix
+npm run package
+code --install-extension jcodemunch-mcp-vscode-0.2.1.vsix
 ```
 
 ## Issues
