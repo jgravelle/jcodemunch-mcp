@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+### Changed - a hook starts without loading the server, and the Grep answer reads the sources it proved unchanged
+
+Every hook command used to import the whole server (the MCP SDK, httpx and every tool) before it read its input, and the opt-in Grep answer's 4-second budget started only after that. On a freshly indexed Home Assistant copy the import took 1.5 to 2.1 s, so an answered Grep took 5.1 s from process start, and a declined one ran past its budget by the same amount. A bare `jcodemunch-mcp hook-<name>`, the form `init` writes, now runs its handler directly after the same first steps the server takes: UTF-8 output, the package integrity check, and keyring resolution of environment values. Every other command goes through the server as before. On four fresh copies the whole hook process now takes 1.07 to 1.21 s for an answered Grep, and 0.86 s for a decline at a 0.6 s budget.
+
+Once its freshness check has proved every file in scope unchanged since indexing, the Grep answer now reads each file from the source tree instead of the index's cached copy. The copy holds the same text, but on a just-indexed workspace it was written moments ago, and on Windows its first open measured 15.2 ms per file against 0.08 ms for the source the indexer had just read. A path that leaves the source root is not read, and every other `search_text` call still reads the cached copies.
+
+The console entry point is now `jcodemunch_mcp.cli_entry:cli`. A launcher that still names `jcodemunch_mcp.server:cli` keeps working.
+
 ### Changed - the published benchmark counts the answer an agent receives
 
 The published token benchmark is re-measured with the served count: the text the server sends on a fresh install's default settings, with the same calls and the same fetched symbols. jCodeMunch uses 96.2% fewer tokens per lookup on average than grep-and-read on the 15-lookup benchmark (90.4% to 99.2% across the lookups, 10.4x to 132.5x per query). The fifth query changed from "context bind" to "param bind" on all three repositories, because on express "context bind" returned no symbols; every one of the 15 lookups now returns symbols. `benchmarks/jcm_reference.json` records `method: served` and the costs measured beside a lookup (license notice 160 tokens, steering hint 66 tokens, the already-delivered note when one session runs a repo's five lookups: express 475, fastapi 324, gin 0). `results.md`, `METHODOLOGY.md`, `REPRODUCING.md`, `benchmarks/README.md`, `README.md`, `TOKEN_SAVINGS.md` and the provenance registry carry the new run. A dated methodology-change note opens `results.md`; it lives in `benchmarks/results_notes.md`, which `run_benchmark.py --out` writes under the title, so a re-capture keeps it (`tests/test_results_notes_survive_a_capture.py`).
