@@ -154,3 +154,75 @@ def test_the_compact_encoding_keeps_call_lines_and_call_sites(repo):
     back = schema.decode(payload)
     assert back["call_sites"] == res["call_sites"]
     assert _caller(back, "g")["call_lines"] == [5, 9]
+
+
+def test_twelve_calls_give_ten_lines_at_the_shipped_cap(tmp_path):
+    src = tmp_path / "proj"
+    src.mkdir()
+    (src / "lib.py").write_text(LIB, encoding="utf-8")
+    body = "".join(f"    f({i})\n" for i in range(12))
+    (src / "use.py").write_text(
+        "from lib import f\n\ndef g():\n" + body, encoding="utf-8"
+    )
+    store = tmp_path / "store"
+    rid = index_folder(str(src), use_ai_summaries=False, storage_path=str(store))[
+        "repo"
+    ]
+    res = get_call_hierarchy(
+        rid, "f", direction="callers", depth=1, storage_path=str(store)
+    )
+    g = _caller(res, "g")
+    assert gch.CALL_LINES_CAP == 10
+    assert g["call_lines"] == list(range(4, 14))
+    assert g["call_lines_total"] == 12
+    assert g["call_lines_truncated"] is True
+    # The flat list keeps every site under its own cap.
+    assert res["call_sites_total"] == 12
+    assert res["call_sites_truncated"] is False
+
+    from jcodemunch_mcp.encoding.schemas import get_call_hierarchy as schema
+
+    back = schema.decode(schema.encode("get_call_hierarchy", res)[0])
+    bg = _caller(back, "g")
+    assert bg["call_lines"] == list(range(4, 14))
+    assert bg["call_lines_total"] == 12
+    assert bg["call_lines_truncated"] is True
+
+
+def _three_homes(tmp_path):
+    src = tmp_path / "proj"
+    src.mkdir()
+    for mod in ("a", "b", "c"):
+        (src / f"{mod}.py").write_text("def h():\n    return 1\n", encoding="utf-8")
+        (src / f"use_{mod}.py").write_text(
+            f"from {mod} import h\n\ndef p_{mod}():\n    return h()\n",
+            encoding="utf-8",
+        )
+    store = tmp_path / "store"
+    rid = index_folder(str(src), use_ai_summaries=False, storage_path=str(store))[
+        "repo"
+    ]
+    return rid, str(store)
+
+
+def test_a_name_with_more_homes_than_the_cap_still_refuses(tmp_path, monkeypatch):
+    rid, store = _three_homes(tmp_path)
+    monkeypatch.setattr(gch, "DEFINITIONS_CAP", 2)
+    res = get_call_hierarchy(rid, "h", direction="callers", depth=1, storage_path=store)
+    assert "Ambiguous" in res["error"]
+    assert "up to 2 definitions" in res["error"]
+    assert len(res["candidates"]) == 3
+    monkeypatch.setattr(gch, "DEFINITIONS_CAP", 3)
+    ok = get_call_hierarchy(rid, "h", direction="callers", depth=1, storage_path=store)
+    assert "error" not in ok
+    assert len(ok["definitions"]) == 3
+
+
+def test_definitions_survive_the_compact_encoding(tmp_path):
+    from jcodemunch_mcp.encoding.schemas import get_call_hierarchy as schema
+
+    rid, store = _three_homes(tmp_path)
+    res = get_call_hierarchy(rid, "h", direction="callers", depth=1, storage_path=store)
+    back = schema.decode(schema.encode("get_call_hierarchy", res)[0])
+    assert back["definitions"] == res["definitions"]
+    assert back["call_lines_basis"] == res["call_lines_basis"]

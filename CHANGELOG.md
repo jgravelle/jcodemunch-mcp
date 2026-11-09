@@ -16,12 +16,17 @@ callers. Both are capped (10 lines a row, 50 sites) and say when they were
 cut (`call_lines_total`/`call_lines_truncated`, `call_sites_total`/
 `call_sites_truncated`). With `direction="callers"`, a name with several
 definitions answers for all of them and lists them in `definitions`, instead
-of refusing as ambiguous; `callees` and `both` still refuse. The compact
-encoding is `ch3` (`ch1` and `ch2` stay decodable).
+of refusing as ambiguous; `callees` and `both` still refuse. A name with more
+than 10 definitions still refuses with `direction="callers"` too, and says
+so: `__init__` has 171 in this repository, and answering for all of them took
+8.6 s and 81 KB for a list nobody could use. The compact encoding is `ch3`
+(`ch1` and `ch2` stay decodable).
 
-Measured over this repository's own `src/`: +170 to +334 bytes on answers with
-one to eight callers, and +4,657 bytes (+23%) for `resolve_repo`'s 80 callers,
-most of it the `call_sites` list.
+Measured on this repository's own index, the same target before and after:
+`_find_symbol` (5 callers) grows from 2,061 to 2,487 bytes of JSON, and
+`_utils.resolve_repo` (116 callers) from 28,548 to 33,200 bytes (+16%),
+2,173 of them the capped `call_sites` list; the compact form grows from
+18,970 to 22,322.
 
 ## [1.108.429] - 2026-11-09 - a hook answers in about a second
 

@@ -162,7 +162,8 @@ def get_call_hierarchy(
         call the target (capped at CALL_LINES_CAP). The response carries
         ``call_sites``: ``file:line`` of each call by a direct caller (capped at
         CALL_SITES_CAP). With direction='callers', a name with several
-        definitions answers for all of them and lists them in ``definitions``.
+        definitions (at most DEFINITIONS_CAP) answers for all of them and
+        lists them in ``definitions``; a name with more still refuses.
     """
     depth = max(1, min(depth, 5))
     if direction not in ("callers", "callees", "both"):
@@ -193,18 +194,26 @@ def get_call_hierarchy(
     # A bare name with several definitions: callers-only answers for all of
     # them (a call-site question names a function, not one of its homes);
     # callees still refuse, because each definition calls different things.
+    # Past DEFINITIONS_CAP the name is too common for a union to mean anything
+    # (`__init__` has 171 homes in this repo, and answering for all of them
+    # took 8.6 s and 81 KB), so it refuses as before and says why.
     definitions: list[dict] = []
-    if len(matches) > 1 and direction == "callers":
+    if 1 < len(matches) <= DEFINITIONS_CAP and direction == "callers":
         definitions = [
             {"id": s["id"], "name": s["name"], "file": s["file"], "line": s.get("line", 0)}
             for s in matches
         ]
     elif len(matches) > 1:
         ambiguous = [{"name": s["name"], "file": s["file"], "id": s["id"]} for s in matches]
+        why = (
+            f" direction='callers' answers for up to {DEFINITIONS_CAP} definitions."
+            if direction == "callers"
+            else ""
+        )
         return {
             "error": (
                 f"Ambiguous symbol '{symbol_id}': found {len(matches)} definitions. "
-                "Use the symbol 'id' field to disambiguate."
+                "Use the symbol 'id' field to disambiguate." + why
             ),
             "candidates": ambiguous,
         }
@@ -383,6 +392,9 @@ def get_call_hierarchy(
 # per row and the flat file:line list (1.x list-field rule: bounded on arrival).
 CALL_LINES_CAP = 10
 CALL_SITES_CAP = 50
+# A bare name with more homes than this refuses as ambiguous rather than
+# answering for the union; `definitions` is bounded by it on arrival.
+DEFINITIONS_CAP = 10
 CALL_LINES_BASIS = "name_in_caller_body"
 # Text before a match that makes it a definition, not a call.
 _DEF_PREFIX = re.compile(r"\b(?:def|function|func|fn|fun|sub|proc)\s+$")
