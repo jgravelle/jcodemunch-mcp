@@ -17,6 +17,8 @@ Tested configurations:
 | **Gemini CLI (Google)** | `jcodemunch-mcp init`, or add a `jcodemunch` entry under `mcpServers` in `~/.gemini/settings.json` (or project `.gemini/settings.json`) — a *different file* from Antigravity's `~/.gemini/config/mcp_config.json` above. *(config per [vendor docs](https://geminicli.com/docs/tools/mcp-server/))* |
 | **Qwen Code** | Add under `mcpServers` in `~/.qwen/settings.json` (or project `.qwen/settings.json`). *(config per [vendor docs](https://qwenlm.github.io/qwen-code-docs/en/users/features/mcp/))* |
 | **Kiro (AWS)** | Add under `mcpServers` in `.kiro/settings/mcp.json` (workspace) or `~/.kiro/settings/mcp.json` (user). *(config per [vendor docs](https://kiro.dev/docs/mcp/configuration/))* |
+| **JetBrains AI Assistant** | Settings, then Tools, then AI Assistant, then Model Context Protocol (MCP), then Add. In the JSON configuration field, set `command` to `uvx` and `args` to `["jcodemunch-mcp"]`. If Claude Desktop already has jCodeMunch, **Import from Claude** adds every server configured there. Each server can be global or for the current project. *(config per [vendor docs](https://www.jetbrains.com/help/ai-assistant/mcp.html), checked 2026-10-28; not tested here)* |
+| **Junie (JetBrains)** | Add under `mcpServers` in `.junie/mcp/mcp.json` at the project root, or `~/.junie/mcp/mcp.json` for all projects. Junie CLI and Junie in JetBrains IDEs use the same MCP JSON format. *(config per [vendor docs](https://junie.jetbrains.com/docs/junie-cli-mcp-configuration.html), checked 2026-10-28; not tested here)* |
 | **OpenAI Codex CLI** | `jcodemunch-mcp init`, or add an `[mcp_servers.jcodemunch]` block to `~/.codex/config.toml` by hand (see below — **do not use `uvx` here**) |
 | **opencode** | `jcodemunch-mcp init`, or add a `jcodemunch` entry under the top-level `mcp` key in `~/.config/opencode/opencode.json`. ⚠ Not the `mcpServers` shape — see below. *(config per [vendor docs](https://opencode.ai/docs/mcp-servers/))* |
 | **Cline / Roo Code** | `jcodemunch-mcp init` writes the Cline **CLI** config (`~/.cline/mcp.json`). For the IDE extension use the MCP marketplace UI, or paste `command: uvx`, `args: ["jcodemunch-mcp"]` — Cline does not document the extension's settings path per-platform, so `init` does not guess at it. |
@@ -42,8 +44,29 @@ refusal is deliberate; the paragraph below is why.
 **Recommended (pre-installed binary, no `uvx`).** Codex's rmcp transport
 is strict about the first JSON-RPC frame on stdout. `uvx`'s install
 chatter on first run can poison the handshake, which historically
-manifests as a silent multi-hour hang. Install the package into a
-project venv and point Codex at the resolved binary directly:
+manifests as a silent multi-hour hang. Install it once with uv, which
+also means there's no download when Codex first starts the server:
+
+```bash
+uv tool install jcodemunch-mcp
+jcodemunch-mcp init
+```
+
+On Windows, when `jcodemunch-mcp` on your `PATH` is the install `init` is
+configuring, `init` writes the bare name, so the entry keeps working after a
+reinstall moves the binary. When `PATH` finds a different install, or none,
+it writes the absolute path instead. On macOS and Linux it always writes the
+absolute path: Codex started from a GUI or a non-login shell can have a
+narrower `PATH` than the shell you ran `init` in, and bare-name launch was
+tested on Windows only.
+
+```toml
+# ~/.codex/config.toml
+[mcp_servers.jcodemunch]
+command = "jcodemunch-mcp"
+```
+
+Or install into a project venv and point Codex at the binary directly:
 
 ```bash
 python3 -m venv .venv
@@ -65,12 +88,29 @@ the window.
 
 **Note for `codex review --background` and other non-interactive runs.**
 Codex's MCP elicitation/approval system can silently *decline* tool
-calls to unrecognised servers in non-interactive mode (visible in
+calls to unrecognized servers in non-interactive mode (visible in
 `~/.codex/logs_2.sqlite` as `ResolveElicitation { decision: Decline }`
-with no chatter on the server side). This is a Codex-side concern, not
-a jcodemunch one — track upstream
-[here](https://github.com/openai/codex) for the right per-server
-auto-approve key. Interactive `codex` runs are unaffected.
+with no chatter on the server side). Interactive `codex` runs are
+unaffected. Codex has a per-server approval key,
+`default_tools_approval_mode`, and its `writes` value "prompts for tools
+that aren't marked read-only". Every jCodeMunch tool that only reads
+carries the MCP `readOnlyHint` annotation, so with `writes` the read
+tools run without a prompt and indexing still asks (on the `full`
+surface; on `counter`, `order` and `route` are writers and still ask, see
+"Fewer approval prompts" below):
+
+```toml
+[mcp_servers.jcodemunch]
+command = "jcodemunch-mcp"
+default_tools_approval_mode = "writes"
+```
+
+A single tool can be overridden with
+`[mcp_servers.jcodemunch.tools.<tool>]` and an `approval_mode` value.
+Codex's docs don't say how these modes behave in a non-interactive run,
+so check a background run's log after changing them. Source:
+[Codex MCP docs](https://learn.chatgpt.com/docs/extend/mcp?surface=cli),
+checked 2026-10-28.
 
 **Legacy `uvx` config** (kept for reference; works on tolerant clients,
 not recommended for Codex):
@@ -79,7 +119,15 @@ not recommended for Codex):
 [mcp_servers.jcodemunch]
 command = "uvx"
 args = ["jcodemunch-mcp"]
+# The first run filled 251 MB of uv cache before the server answered.
+startup_timeout_sec = 30
 ```
+
+Codex waits 10 seconds for a server to start unless `startup_timeout_sec`
+says otherwise ([Codex MCP docs](https://learn.chatgpt.com/docs/extend/mcp?surface=cli)).
+Measured on 2026-10-28 (Windows, home broadband, `uvx` alone rather than
+inside Codex): 7.0 s to the first reply with an empty uv cache, then 2.6 s
+and 2.5 s once cached. A slower link can pass 10 s on the first run.
 </details>
 
 <details>
@@ -242,6 +290,126 @@ suite stays usable in plan mode.
 > is verified; the container-to-host network dial depends on your Docker setup.
 
 </details>
+
+## Fewer approval prompts
+
+Most jCodeMunch tools only read the index. Each of those carries the MCP
+`readOnlyHint` annotation. The tools that change index, session or config state
+(indexing, cache invalidation, weight tuning, handoff records) are marked
+as writers. If your client asks before every tool call, you can allow the
+read tools and keep the prompt for the rest.
+
+These steps name the tools of the `full` surface. A first-ever install
+starts on the `counter` surface, which serves three front-door tools
+instead: `menu` only reads, while `order` and `route` are marked as writers
+because they can dispatch any tool, indexing included. There the client
+keeps asking before each `order` and `route` call. To allow the read tools
+by name, set `"tool_surface": "full"` in your global `config.jsonc`
+(`~/.code-index/` by default, or under `CODE_INDEX_PATH`), or set
+`JCODEMUNCH_TOOL_SURFACE=full`, which wins over the file.
+
+**Claude Code.** In `.claude/settings.json` (the project, committable) or
+`~/.claude/settings.json` (you), list the tools to allow. Tool names are
+`mcp__<server>__<tool>`, and the server name `init` writes is `jcodemunch`:
+
+```json
+{
+  "permissions": {
+    "allow": [
+      "mcp__jcodemunch__resolve_repo",
+      "mcp__jcodemunch__plan_turn",
+      "mcp__jcodemunch__search_symbols",
+      "mcp__jcodemunch__search_text",
+      "mcp__jcodemunch__get_symbol_source",
+      "mcp__jcodemunch__get_file_outline",
+      "mcp__jcodemunch__get_ranked_context",
+      "mcp__jcodemunch__find_references",
+      "mcp__jcodemunch__check_references",
+      "mcp__jcodemunch__get_repo_outline",
+      "mcp__jcodemunch__get_file_tree"
+    ]
+  }
+}
+```
+
+`"mcp__jcodemunch__*"` allows every tool, indexing included.
+*(per [Claude Code permissions](https://code.claude.com/docs/en/permissions), checked 2026-10-28)*
+
+**Codex.** Set `default_tools_approval_mode = "writes"` on the server
+entry; see the Codex block above.
+
+**VS Code (Copilot Chat).** When a jCodeMunch tool asks, you can approve
+it for the session, the workspace, or all future calls. Tools are grouped
+by server, so you can trust the whole server at once. Setting
+`chat.tools.eligibleForAutoApproval` to `false` for a tool keeps it
+manual. `chat.tools.global.autoApprove` removes prompts for every tool
+from every server, so it isn't a way to allow just this one.
+*(per [VS Code approvals](https://code.visualstudio.com/docs/agents/run/approvals), checked 2026-10-28)*
+
+**Cursor.** Cursor asks before using MCP tools by default. In Auto-review
+mode, allowlisted MCP tools run immediately, and an Enterprise admin can set a
+tool allowlist for each approved server.
+*(per [Cursor MCP docs](https://cursor.com/docs/context/mcp), checked 2026-10-28)*
+
+## Share it with your team
+
+Commit a `.mcp.json` at the repo root and everyone who clones it gets the
+same servers. This one adds jCodeMunch beside Context7 (library docs):
+
+```json
+{
+  "mcpServers": {
+    "jcodemunch": {
+      "command": "uvx",
+      "args": ["jcodemunch-mcp"]
+    },
+    "context7": {
+      "type": "http",
+      "url": "https://mcp.context7.com/mcp"
+    }
+  }
+}
+```
+
+Claude Code asks each person to approve project servers the first time.
+GitHub Copilot CLI reads the same file, from the working directory or any
+parent up to the repo root, and loads it after you confirm folder trust
+on first launch. An entry with no `type` is a local server to both.
+*(per [Claude Code MCP docs](https://code.claude.com/docs/en/mcp) and [Copilot CLI docs](https://docs.github.com/en/enterprise-cloud@latest/copilot/how-tos/copilot-cli/customize-copilot/add-mcp-servers), checked 2026-10-28)*
+VS Code reads a different file (`.vscode/mcp.json`, top-level key
+`servers`); see the Copilot block above.
+
+Each developer still needs [`uv`](https://docs.astral.sh/uv/getting-started/installation/).
+Keep API keys out of a committed file. Personal, academic and other
+non-commercial use is free; use inside a for-profit company needs a
+commercial license ([buying guide](https://jcodemunch.com/buying.php)).
+
+## Run it as a shared HTTP server
+
+jCodeMunch can serve over HTTP for a team or a container instead of
+running per developer over stdio:
+
+```bash
+JCODEMUNCH_HTTP_TOKEN=change-me jcodemunch-mcp serve --transport streamable-http
+```
+
+It listens on `127.0.0.1:8901` by default (`--host`, `--port`). Clients
+connect to `http://<host>:8901/mcp` and send
+`Authorization: Bearer change-me`; without the token they get 401. The
+token is optional and everyone shares it; there are no per-user accounts.
+The server has no TLS of its own. To reach it from other machines, put it
+behind your own HTTPS reverse proxy rather than opening `--host 0.0.0.0`
+to the network.
+
+Every client sees the same repos and the same index. Saves from different
+clients wait for each other, but indexing itself isn't coordinated, so
+don't index the same repo from two clients at once.
+
+To cap requests, set `JCODEMUNCH_RATE_LIMIT` (requests per minute per
+client IP, off by default; over the limit returns HTTP 429 with
+`Retry-After`). Behind a reverse proxy every request comes from the
+proxy's IP, so it becomes one shared limit. You run and secure the host;
+there is no hosted jCodeMunch service.
 
 ## Paperclip (multi-agent orchestration)
 

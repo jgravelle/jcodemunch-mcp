@@ -2,7 +2,7 @@
 
 import threading
 import time
-from fnmatch import fnmatch
+from ..path_glob import matches as _glob_match
 from typing import Optional
 
 from ..storage import IndexStore, record_savings, estimate_savings, cost_avoided as _cost_avoided
@@ -14,6 +14,7 @@ from ..retrieval.scoring import rank_factor
 from .search_symbols import (
     _bm25_score,
     _NEGATIVE_EVIDENCE_THRESHOLD,
+    _attach_index_truncation,
     BYTES_PER_TOKEN,
     ensure_bm25_cache,
 )
@@ -198,7 +199,7 @@ def _exact_seed_symbols(
         cands = [
             s for s in cands
             if (not include_kinds or s.get("kind") in include_kinds)
-            and (not scope or fnmatch(s.get("file", ""), scope))
+            and (not scope or _glob_match(s.get("file", ""), scope))
         ]
         if tok.get("parent"):
             want = f"{tok['parent']}.{tok['name']}".lower()
@@ -365,7 +366,7 @@ def get_ranked_context(
     for sym in candidates:
         if include_kinds and sym.get("kind") not in include_kinds:
             continue
-        if scope and not fnmatch(sym.get("file", ""), scope):
+        if scope and not _glob_match(sym.get("file", ""), scope):
             continue
 
         raw_bm25 = _bm25_score(sym, query_terms, idf, avgdl, raw_query=query)
@@ -420,6 +421,7 @@ def get_ranked_context(
                 "total_tokens_saved": 0,
             },
         }
+        _attach_index_truncation(result["_meta"], index)
         # This path asserts "Do not claim this feature exists" in prose, and
         # until #377 item 6 it did so with none of the machinery that decides
         # whether such a claim is allowed: no verdict, no freshness, no
@@ -584,6 +586,7 @@ def get_ranked_context(
     )
     _probe.annotate(context_items)
     result["_meta"]["freshness"] = _probe.summary(context_items)
+    _attach_index_truncation(result["_meta"], index)
     _attach_confidence(result, context_items, is_stale=_probe.repo_is_stale)
     from ..retrieval.verdict import build_verdict as _build_verdict
     from ..retrieval.verdict import index_changed_since_load as _index_changed_since_load
@@ -679,7 +682,7 @@ def _get_ranked_context_fusion(
         candidates = [
             sym for sym in candidates
             if (not include_kinds or sym.get("kind") in include_kinds)
-            and (not scope or fnmatch(sym.get("file", ""), scope))
+            and (not scope or _glob_match(sym.get("file", ""), scope))
         ]
 
     if not candidates:
@@ -690,7 +693,7 @@ def _get_ranked_context_fusion(
         # v1.108.179; this is the exit that was missed.
         from ..retrieval.verdict import retrieval_verdict_for_index as _rv
         elapsed = (time.perf_counter() - start) * 1000
-        return {
+        _empty_scope = {
             "context_items": [],
             "total_tokens": 0,
             "budget_tokens": token_budget,
@@ -720,6 +723,8 @@ def _get_ranked_context_fusion(
                 )["verdict"],
             },
         }
+        _attach_index_truncation(_empty_scope["_meta"], index)
+        return _empty_scope
 
     # Centrality for BM25 tiebreaker
     cache = index._bm25_cache
@@ -828,6 +833,7 @@ def _get_ranked_context_fusion(
         file_rel = sid.split("::", 1)[0] if "::" in sid else ""
         item["_freshness"] = _probe.classify(file_rel)
     fusion_result["_meta"]["freshness"] = _probe.summary(context_items)
+    _attach_index_truncation(fusion_result["_meta"], index)
     # v1.108.187. This exit passed NO ledger features, so `top1_score`, `top2_score`
     # and `identity_hit` were recorded as their defaults on every row it has ever
     # written — three of regret's six signals read those columns, and a default is

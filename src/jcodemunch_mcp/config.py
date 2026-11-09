@@ -88,6 +88,8 @@ ENV_VAR_MAPPING = {
     "JCODEMUNCH_WATCH_IDLE_TIMEOUT": "watch_idle_timeout",
     "JCODEMUNCH_WATCH_LOG": "watch_log",
     "JCODEMUNCH_WATCH_PATHS": "watch_paths",
+    "JCODEMUNCH_WATCH_ALL_SKIP_TEMP": "watch_all_skip_temp",
+    "JCODEMUNCH_WATCH_ALL_MAX_IDLE_DAYS": "watch_all_max_idle_days",
     "JCODEMUNCH_FRESHNESS_MODE": "freshness_mode",
     "JCODEMUNCH_SUMMARIZER_PROVIDER": "summarizer_provider",
     "JCODEMUNCH_SUMMARIZER_MODEL": "summarizer_model",
@@ -362,6 +364,7 @@ DEFAULTS = {
     "skip_virtualenvs": True,
     "response_max_bytes": 1048576,
     "max_folder_files": 2000,
+    "cli_max_folder_files": 30000,
     "max_index_files": 10000,
     "staleness_days": 7,
     "max_results": 500,
@@ -494,6 +497,8 @@ DEFAULTS = {
     "watch_idle_timeout": None,
     "watch_log": None,
     "watch_paths": [],
+    "watch_all_skip_temp": True,
+    "watch_all_max_idle_days": 14,
     "freshness_mode": "relaxed",
     "strict_timeout_ms": 500,
     "summarizer_provider": "",
@@ -516,6 +521,7 @@ DEFAULTS = {
     "runtime_ingest_enabled": False,
     "org_ingest_enabled": False,
     "license_key": "",  # jCodeMunch license key; gates the org-rollup (team SKU) feature only
+    "license_reminder": True,  # work-license reminder; false silences it for good (item 650)
     "runtime_ingest_max_body_bytes": 5_242_880,  # 5 MB
     "summarizer_concurrency": 4,
     "summarizer_max_failures": 3,
@@ -561,6 +567,7 @@ CONFIG_TYPES = {
     "skip_virtualenvs": bool,
     "response_max_bytes": int,
     "max_folder_files": int,
+    "cli_max_folder_files": int,
     "max_index_files": int,
     "staleness_days": int,
     "max_results": int,
@@ -601,6 +608,8 @@ CONFIG_TYPES = {
     "watch_idle_timeout": (int, type(None)),
     "watch_log": (str, type(None)),
     "watch_paths": list,
+    "watch_all_skip_temp": bool,
+    "watch_all_max_idle_days": int,
     "freshness_mode": str,
     "strict_timeout_ms": int,
     "summarizer_provider": str,
@@ -623,6 +632,7 @@ CONFIG_TYPES = {
     "runtime_ingest_enabled": bool,
     "org_ingest_enabled": bool,
     "license_key": str,
+    "license_reminder": bool,
     "runtime_ingest_max_body_bytes": int,
     "summarizer_concurrency": int,
     "summarizer_max_failures": int,
@@ -897,6 +907,7 @@ BOOL_ENV_TYPO_KEEPS_DEFAULT: frozenset[str] = frozenset({
     "skip_virtualenvs",
     "trusted_folders_whitelist_mode",
     "runtime_redact_enabled",
+    "watch_all_skip_temp",
 })
 
 
@@ -1165,6 +1176,242 @@ def racket_config_digest(repo: str | None) -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
 
 
+# A project's `.jcodemunch.jsonc` may tighten a setting, never loosen it:
+# it may turn a setting off, never on.
+#
+# Never read from a project file: which folders this install trusts.
+_PROJECT_NEVER_SETS = frozenset({"trusted_folders", "trusted_folders_whitelist_mode"})
+# Read from a project file only as far as the value is no more permissive than
+# the user's own (global or environment) value. `_apply_project_value` says,
+# key by key, what "more permissive" means.
+_PROJECT_MAY_ONLY_LOWER = frozenset({
+    "allow_paid_summaries",
+    "allow_remote_summarizer",
+    "use_ai_summaries",
+    "summarizer_body_chars",
+    "openai_extra_body",
+    "exclude_secret_patterns",
+    "enrichment",
+    "disabled_tools",
+    "git_blame_enabled",
+    "redact_source_root",
+    "response_max_bytes",
+})
+# Read from a project file only when the user's own opt-in covers the choice:
+# a paid provider needs `allow_paid_summaries`, a remote base needs
+# `allow_remote_summarizer` (#304 keeps working for a user who opted in).
+_PROJECT_NEEDS_USER_OPT_IN = frozenset({"summarizer_provider", "summarizer_model"})
+_PROJECT_GATED = _PROJECT_MAY_ONLY_LOWER | _PROJECT_NEEDS_USER_OPT_IN
+_PROJECT_KEYS_WARNED: set[tuple[str, str]] = set()
+
+
+def _use_ai_level(value: Any) -> int:
+    """0 off, 1 auto-detect, 2 explicit (the order `_create_summarizer` reads)."""
+    if isinstance(value, bool):
+        return 2 if value else 0
+    s = str(value if value is not None else "auto").strip().lower()
+    if s in ("false", "0", "no", "off"):
+        return 0
+    return 1
+
+
+def _level(key: str, value: Any) -> int:
+    if key == "use_ai_summaries":
+        return _use_ai_level(value)
+    if key == "summarizer_body_chars":
+        try:
+            return max(0, int(value or 0))
+        except (TypeError, ValueError):
+            return 0
+    return 1 if value else 0
+
+
+def _response_cap(value: Any) -> float:
+    """The reply ceiling a `response_max_bytes` value yields, read the way
+    `security.get_max_response_bytes` reads it: 0 is no ceiling, and an
+    invalid or negative value falls back to the default."""
+    default = DEFAULTS["response_max_bytes"]
+    if isinstance(value, bool) or not isinstance(value, int):
+        return default
+    if value == 0:
+        return float("inf")
+    return default if value < 0 else value
+
+
+def _str_list(value: Any) -> list[str]:
+    if not isinstance(value, (list, tuple)):
+        return []
+    return [str(v) for v in value]
+
+
+def _user_allows_paid_summaries() -> bool:
+    """The user's own paid-summaries opt-in, read the way the summarizer's
+    paid gate reads it (`_paid_summaries_allowed`): the environment variable
+    first, then the user's config."""
+    env = os.environ.get("JCODEMUNCH_ALLOW_PAID_SUMMARIES", "").strip().lower()
+    if env in ("1", "true", "yes", "on"):
+        return True
+    return bool(_GLOBAL_CONFIG.get("allow_paid_summaries"))
+
+
+def _openai_base_is_remote() -> bool:
+    from .summarizer.batch_summarize import _is_localhost_url
+
+    return not _is_localhost_url(os.environ.get("OPENAI_API_BASE", "https://api.openai.com/v1"))
+
+
+def _provider_allowed(name: str) -> bool:
+    """Whether the user's own opt-ins cover a provider a project file names.
+
+    A paid provider needs the user's `allow_paid_summaries`; the
+    OpenAI-compatible provider on a remote base bills and sends code off the
+    machine, so it needs that and `allow_remote_summarizer`. What counts as
+    paid is the summarizer's own rule (`_auto_entry_is_paid_cloud`).
+    """
+    from .summarizer.batch_summarize import _auto_entry_is_paid_cloud
+
+    if _auto_entry_is_paid_cloud("", name) and not _user_allows_paid_summaries():
+        return False
+    if name == "openai" and _openai_base_is_remote():
+        return bool(_GLOBAL_CONFIG.get("allow_remote_summarizer"))
+    return True
+
+
+def _apply_project_value(key: str, value: Any, user_value: Any, repo: str | None = None) -> Any:
+    """The value a project file's ``value`` for ``key`` yields.
+
+    A value no more permissive than ``user_value`` comes back unchanged. A
+    scalar that is more permissive comes back as ``user_value``. A list or the
+    `enrichment` table keeps the project's restrictions and drops the rest:
+    `disabled_tools` adds to the user's list, `exclude_secret_patterns` keeps
+    only exclusions the user also makes, and `enrichment` cannot raise
+    `lsp_enabled` or name a different language-server program.
+    """
+    if key == "openai_extra_body":
+        return value if (not value or value == user_value) else user_value
+    if key == "disabled_tools":
+        user = _str_list(user_value)
+        return user + [t for t in _str_list(value) if t not in user]
+    if key == "exclude_secret_patterns":
+        user = set(_str_list(user_value))
+        return [p for p in _str_list(value) if p in user]
+    if key == "enrichment":
+        if not isinstance(value, dict):
+            return value  # read as an empty table: LSP off
+        user = user_value if isinstance(user_value, dict) else {}
+        applied = dict(value)
+        if bool(applied.get("lsp_enabled")) and not bool(user.get("lsp_enabled")):
+            applied["lsp_enabled"] = bool(user.get("lsp_enabled", False))
+        if "lsp_servers" in applied and applied["lsp_servers"] != user.get("lsp_servers"):
+            if "lsp_servers" in user:
+                applied["lsp_servers"] = user["lsp_servers"]
+            else:
+                applied.pop("lsp_servers")
+        return applied
+    if key == "redact_source_root":
+        return value if (bool(value) or not bool(user_value)) else user_value
+    if key == "response_max_bytes":
+        return value if _response_cap(value) <= _response_cap(user_value) else user_value
+    if key in _PROJECT_MAY_ONLY_LOWER:
+        return value if _level(key, value) <= _level(key, user_value) else user_value
+    if key in _PROJECT_NEEDS_USER_OPT_IN:
+        s = str(value or "").strip().lower()
+        if not s or (key == "summarizer_provider" and s == "none") or value == user_value:
+            return value  # unset, off, or the user's own choice
+        if key == "summarizer_provider":
+            return value if _provider_allowed(s) else user_value
+        # A model is billed by the provider it runs on: it needs the opt-in
+        # that provider needs, and a paid opt-in when the provider is not known.
+        provider = str(
+            get("summarizer_provider", "", repo=repo)
+            or os.environ.get("JCODEMUNCH_SUMMARIZER_PROVIDER", "")
+        ).strip().lower()
+        if provider and provider != "none":
+            return value if _provider_allowed(provider) else user_value
+        return value if _user_allows_paid_summaries() else user_value
+    return value
+
+
+def _project_value_allowed(key: str, value: Any, user_value: Any, repo: str | None = None) -> bool:
+    """Whether a project file's ``value`` for ``key`` applies in full.
+
+    A `disabled_tools` list applies in full when every tool it names ends up
+    disabled; the user's own entries kept beside it are not a refusal.
+    """
+    applied = _apply_project_value(key, value, user_value, repo=repo)
+    if key == "disabled_tools":
+        return set(_str_list(value)) <= set(_str_list(applied))
+    return applied == value
+
+
+def _project_override(key: str, default: Any, repo: str | None) -> tuple[bool, Any]:
+    """``(True, value)`` when ``repo``'s project file sets ``key``; ``value``
+    is what applies after the off-never-on rule. ``(False, None)`` otherwise.
+    """
+    if not repo:
+        return False, None
+    resolved = _resolve_repo_key(repo)
+    if not resolved:
+        return False, None
+    project = _PROJECT_CONFIGS.get(resolved)
+    if project is None or key not in project:
+        return False, None
+    if key in _PROJECT_NEVER_SETS:
+        return False, None
+    value = project[key]
+    if key not in _PROJECT_GATED:
+        return True, value
+    user_value = _GLOBAL_CONFIG.get(key, default)
+    applied = _apply_project_value(key, value, user_value, repo=repo)
+    if not _project_value_allowed(key, value, user_value, repo=repo):
+        _warn_project_key(
+            resolved, key,
+            "it names a summarizer or model your own opt-in does not cover "
+            "(allow_paid_summaries for a paid provider, allow_remote_summarizer "
+            "for a remote base)"
+            if key in _PROJECT_NEEDS_USER_OPT_IN else
+            "a project file may turn a setting off, never on",
+        )
+    return True, applied
+
+
+def project_keys_in_effect(repo: str) -> tuple[set[str], set[str]]:
+    """``(in_effect, ignored)`` for the keys ``repo``'s `.jcodemunch.jsonc` sets.
+
+    A key is ignored when it never reaches the overlay (a trusted-folders key,
+    an invalid type) or when `get` would not apply its value as written now.
+    The diagnostics read this so an ignored key is not shown as a project
+    override.
+    """
+    raw = _raw_jsonc_keys(Path(repo) / ".jcodemunch.jsonc")
+    if not raw:
+        return set(), set()
+    load_project_config(repo)
+    resolved = _resolve_repo_key(repo) or str(Path(repo).resolve())
+    overlay = _PROJECT_CONFIGS.get(resolved) or {}
+    in_effect: set[str] = set()
+    for key in raw:
+        if key not in overlay:
+            continue
+        if key in _PROJECT_GATED:
+            user_value = _GLOBAL_CONFIG.get(key, DEFAULTS.get(key))
+            if not _project_value_allowed(key, overlay[key], user_value, repo=repo):
+                continue
+        in_effect.add(key)
+    return in_effect, raw - in_effect
+
+
+def _warn_project_key(repo_key: str, key: str, why: str) -> None:
+    if (repo_key, key) in _PROJECT_KEYS_WARNED:
+        return
+    _PROJECT_KEYS_WARNED.add((repo_key, key))
+    logger.warning(
+        "Project config key '%s' in %s is not applied as written: %s. Set it in your own "
+        "config.jsonc or environment instead.",
+        key, Path(repo_key) / ".jcodemunch.jsonc", why,
+    )
+
+
 def get(key: str, default: Any = None, repo: str | None = None) -> Any:
     """Get config value, resolving project -> global -> default.
 
@@ -1198,12 +1445,13 @@ def get(key: str, default: Any = None, repo: str | None = None) -> Any:
     shared call was one edit from a fourth, and nothing failed loudly.
     """
     _ensure_loaded()
-    if repo:
-        resolved = _resolve_repo_key(repo)
-        if resolved:
-            project = _PROJECT_CONFIGS.get(resolved)
-            if project is not None and key in project:
-                return project[key]
+    # A project file may turn a setting off, never on (`_PROJECT_MAY_ONLY_LOWER`,
+    # `_PROJECT_NEEDS_USER_OPT_IN`). The check is here, at read time, so it
+    # compares against the user's value as it stands and every reader inherits
+    # it. `trusted_folders` never reaches the overlay at all.
+    found, value = _project_override(key, default, repo)
+    if found:
+        return value
     return _GLOBAL_CONFIG.get(key, default)
 
 
@@ -1298,9 +1546,9 @@ def config_report(repo: str | None = None) -> list[dict[str, Any]]:
     storage_path = os.environ.get("CODE_INDEX_PATH", str(Path.home() / ".code-index"))
     global_keys = _raw_jsonc_keys(Path(storage_path) / "config.jsonc")
     project_keys: set[str] = set()
+    project_ignored: set[str] = set()
     if repo:
-        load_project_config(repo)
-        project_keys = _raw_jsonc_keys(Path(repo) / ".jcodemunch.jsonc")
+        project_keys, project_ignored = project_keys_in_effect(repo)
 
     meta = _config_meta(generate_template())
 
@@ -1319,6 +1567,7 @@ def config_report(repo: str | None = None) -> list[dict[str, Any]]:
             "value": get(key, default, repo=repo),
             "default": default,
             "source": source,
+            **({"project_ignored": True} if key in project_ignored else {}),
             "group": group or "Other",
             "description": description,
         })
@@ -1366,51 +1615,15 @@ def load_project_config(source_root: str) -> None:
                 # made a later global edit invisible. See get()'s docstring.
                 overlay: dict[str, Any] = {}
                 for key, value in project_config.items():
+                    if key in _PROJECT_NEVER_SETS:
+                        _warn_project_key(
+                            repo_key, key,
+                            "which folders are trusted is set only in your own config",
+                        )
+                        continue
                     if key in CONFIG_TYPES:
                         if _validate_type(key, value, CONFIG_TYPES[key]):
-                            if key == "trusted_folders" and isinstance(value, list):
-                                valid_folders = set()
-                                project_root = Path(source_root).resolve()
-                                for folder in value:
-                                    if folder == "." or folder == "./":
-                                        expanded_folder = project_root
-                                    elif folder.startswith("./"):
-                                        expanded_folder = (
-                                            (project_root / folder[2:])
-                                            .expanduser()
-                                            .resolve()
-                                        )
-                                        if (
-                                            expanded_folder != project_root
-                                            and project_root
-                                            not in expanded_folder.parents
-                                        ):
-                                            raise ValueError(
-                                                "Project config key 'trusted_folders' entry escapes project root "
-                                                f"'{folder}'"
-                                            )
-                                    elif not Path(folder).expanduser().is_absolute():
-                                        expanded_folder = (
-                                            (project_root / folder)
-                                            .expanduser()
-                                            .resolve()
-                                        )
-                                        if (
-                                            expanded_folder != project_root
-                                            and project_root
-                                            not in expanded_folder.parents
-                                        ):
-                                            raise ValueError(
-                                                "Project config key 'trusted_folders' entry escapes project root "
-                                                f"'{folder}'"
-                                            )
-                                    else:
-                                        expanded_folder = (
-                                            Path(folder).expanduser().resolve()
-                                        )
-                                    valid_folders.add(expanded_folder)
-                                overlay[key] = list(valid_folders)
-                            elif key == "server_output" and isinstance(value, str):
+                            if key == "server_output" and isinstance(value, str):
                                 normalized = _normalize_server_output(value)
                                 if normalized is not None:
                                     overlay[key] = normalized
@@ -1490,8 +1703,34 @@ def load_all_project_configs() -> None:
 
 def is_tool_disabled(tool_name: str, repo: str | None = None) -> bool:
     """Check if a tool is in disabled_tools."""
-    disabled = get("disabled_tools", [], repo=repo)
-    return tool_name in disabled
+    return disabled_tool_source(tool_name, repo=repo) is not None
+
+
+def disabled_tool_source(tool_name: str, repo: str | None = None) -> str | None:
+    """Which file lists ``tool_name`` in ``disabled_tools``: "project", "global", or None.
+
+    Follows :func:`get`'s resolution: a project file that declares the key
+    adds to the user's list and cannot remove from it. :func:`is_tool_disabled`
+    asks this, so the call-time refusal and its explanation cannot disagree.
+
+    It says WHERE the setting is, never WHO wrote it: the fresh-config template
+    copies the shipped list into the user's own file, so a list cannot tell a
+    user's choice from the package's. :func:`ships_disabled` is the other fact.
+    """
+    _ensure_loaded()
+    # The same off-never-on rule `get` applies: a project list adds to the
+    # user's list and cannot re-enable a tool the user disabled.
+    found, _value = _project_override("disabled_tools", DEFAULTS.get("disabled_tools"), repo)
+    if found and repo:
+        own = (_PROJECT_CONFIGS.get(_resolve_repo_key(repo) or "") or {}).get("disabled_tools")
+        if tool_name in _str_list(own):
+            return "project"
+    return "global" if tool_name in (_GLOBAL_CONFIG.get("disabled_tools") or []) else None
+
+
+def ships_disabled(tool_name: str) -> bool:
+    """True when the package's own default ``disabled_tools`` lists ``tool_name``."""
+    return tool_name in (DEFAULTS.get("disabled_tools") or [])
 
 
 def is_language_enabled(language: str, repo: str | None = None) -> bool:
@@ -2301,6 +2540,15 @@ def generate_template() -> str:
   //   all report `truncated` with the discovered/indexed counts. Raise this and
   //   re-index if files are missing from results.
 
+  // "cli_max_folder_files": 30000,
+  //   The same cap for an index built from the command line (`init`,
+  //   `jcodemunch-mcp index`, `refresh`), which runs outside any client's tool
+  //   timeout. The larger of this and max_folder_files applies, except that a
+  //   max_folder_files you set binds the command line too while this key is
+  //   left at its default. An agent's later
+  //   re-index of such an index re-reads changed files only within its own cap
+  //   and never deletes the files its cap skipped.
+
   // "gitignore_warn_threshold": 500,
   //   Emit a warning during index_folder when no root .gitignore is found
   //   and the indexed file count reaches this value. Helps catch accidental
@@ -2629,6 +2877,12 @@ def generate_template() -> str:
   //   online against the licensing backend (sticky-offline; 14-day grace
   //   for a new org). Also settable via JCODEMUNCH_LICENSE_KEY. Check
   //   status with the `license` CLI.
+  // "license_reminder": true,
+  //   A short work-license reminder, 7 days after the first index and then
+  //   at most every 30 days, on stderr after a CLI command and on the first
+  //   tool answer of a process. Never shown with a license key set. false
+  //   silences it for good: jcodemunch-mcp config set license_reminder false
+  //   (global config only; a project .jcodemunch.jsonc does not set it).
 
   // === Watcher ===
   // "watch": false,
@@ -2653,6 +2907,15 @@ def generate_template() -> str:
   // "watch_log": null,
   //   Path to a file the watcher appends reindex activity to.
   //   null = log to stderr only.
+  // "watch_all_skip_temp": true,
+  //   `watch-all` leaves unwatched any indexed repo under the system temp
+  //   directory or a top-level tmp/temp folder (C:\\tmp, /tmp, /var/tmp).
+  //   Its index stays searchable. false watches them too.
+  // "watch_all_max_idle_days": 14,
+  //   `watch-all` leaves unwatched any indexed repo whose newest indexed
+  //   file AND last indexed commit are both older than this many days.
+  //   The tree is checked too, at most every 10 minutes, so a repo you edit
+  //   or commit in is watched again. 0 = watch every repo.
   // "freshness_mode": "relaxed",
   //   relaxed - Default. Index remains queryable during reindex.
   //             Best for interactive use (IDE, chat).

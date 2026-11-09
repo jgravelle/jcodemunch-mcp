@@ -893,6 +893,16 @@ class TestIsGitignoredfastCaseNormalization:
 # S9 — Rate-limiting middleware (T6)
 # ---------------------------------------------------------------------------
 
+def _load_config_from_env():
+    """Load config the way `main()` does before starting a server, from a
+    scratch directory, so JCODEMUNCH_RATE_LIMIT reaches the `rate_limit` key."""
+    import tempfile
+
+    from jcodemunch_mcp import config as config_module
+
+    config_module.load_config(storage_path=tempfile.mkdtemp(), create_missing=False)
+
+
 class TestRateLimitMiddleware:
     """T6: _make_rate_limit_middleware enforces per-IP request caps."""
 
@@ -917,6 +927,7 @@ class TestRateLimitMiddleware:
 
         with patch.dict(os.environ, {"JCODEMUNCH_RATE_LIMIT": "3"}):
             from jcodemunch_mcp.server import _make_rate_limit_middleware
+            _load_config_from_env()
             mw_wrapper = _make_rate_limit_middleware()
 
         assert mw_wrapper is not None
@@ -945,6 +956,7 @@ class TestRateLimitMiddleware:
 
         with patch.dict(os.environ, {"JCODEMUNCH_RATE_LIMIT": "2"}):
             from jcodemunch_mcp.server import _make_rate_limit_middleware
+            _load_config_from_env()
             mw_wrapper = _make_rate_limit_middleware()
 
         instance = mw_wrapper.cls(app=MagicMock())
@@ -976,6 +988,7 @@ class TestRateLimitMiddleware:
 
         with patch.dict(os.environ, {"JCODEMUNCH_RATE_LIMIT": "1"}):
             from jcodemunch_mcp.server import _make_rate_limit_middleware
+            _load_config_from_env()
             mw_wrapper = _make_rate_limit_middleware()
 
         instance = mw_wrapper.cls(app=MagicMock())

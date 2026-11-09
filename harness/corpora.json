@@ -69,12 +69,12 @@
     "schema_baseline": {
       "path": "benchmarks/schema_baseline.json",
       "pattern": null,
-      "sha256": "59e986ded7acb49b435c98741d94022ef4cac606a109fdec5c0895702b64e22a"
+      "sha256": "ce2a591803cfc591aa1f471b0eee8cf906baea1e712c8a068973b1213d52668b"
     },
     "token_tasks": {
       "path": "benchmarks/tasks.json",
       "pattern": null,
-      "sha256": "383a912cb8f309ec3fde7d00e4d28d2ddb36748242b00431cf614330bd6dc353"
+      "sha256": "4271c0cb184dfb48e3f2558902ff79a46f19c112ec3983340fe0c52ab636969c"
     }
   },
   "external_pins": {

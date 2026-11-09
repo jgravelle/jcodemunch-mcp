@@ -93,8 +93,6 @@ def summarize_repo(
         for sym in symbols:
             sym.summary = ""
 
-    before = {sym.id: sym.summary for sym in symbols}
-
     logger.info(
         "summarize_repo starting: repo=%s/%s symbols=%d force=%s",
         owner, name, len(symbols), force,
@@ -103,20 +101,45 @@ def summarize_repo(
     # Pass source_root as `repo` so project-aware config reads honor
     # `.jcodemunch.jsonc` overrides for summarizer_model / provider (#304).
     _index_source_root = getattr(index, "source_root", "") or None
+    report: dict = {}
     symbols = summarize_symbols(
         symbols, use_ai=True, repo=_index_source_root,
         # summarizer_body_chars sends the index's own text, not the file on disk.
         source_for=lambda rel: store.read_cached_source(owner, name, rel),
+        report=report,
     )
 
-    updated = sum(1 for sym in symbols if sym.summary != before.get(sym.id, ""))
+    stored = {d["id"]: d.get("summary", "") for d in index.symbols}
+
+    # (#1282) A symbol the provider was asked for and did not summarize (a 429,
+    # an error body, the circuit breaker, a blank answer) keeps what was stored
+    # rather than have its signature fallback saved over it, and the result
+    # says so: otherwise a failed forced run reads like a healthy one and a
+    # later plain run finds nothing to redo. The summarizer names those symbols;
+    # a fallback it did not name (no provider, the docstring tier switched off)
+    # is the pipeline's answer and is written as before.
+    failed = report.get("provider_failed") or set()
+    provider_fallbacks = 0
+    kept = 0
+    for sym in symbols:
+        if sym.id not in failed:
+            continue
+        provider_fallbacks += 1
+        previous = stored.get(sym.id, "")
+        if previous and previous != sym.summary:
+            sym.summary = previous
+            kept += 1
+
+    # `updated` counts summaries that differ from what was stored, so a kept
+    # summary is not counted as updated (#1282). Before, a forced run counted
+    # every summary against the blank it had just set.
+    updated = sum(1 for sym in symbols if sym.summary != stored.get(sym.id, ""))
     skipped = len(symbols) - updated
 
     # Persist only the summaries that differ from what is stored. A whole-row
     # rewrite from these Symbol objects stored NULL in every field
     # `_dict_to_symbol` does not copy: the complexity columns and the
     # call_references in `data` (#1161).
-    stored = {d["id"]: d.get("summary", "") for d in index.symbols}
     new_summaries = {
         sym.id: (sym.summary, sym.content_hash)
         for sym in symbols
@@ -148,4 +171,17 @@ def summarize_repo(
     if not_written > 0:
         result["not_written"] = not_written
         result["not_written_reason"] = "the symbol was re-indexed or removed during the refresh"
+    if provider_fallbacks > 0:
+        result["provider_fallbacks"] = provider_fallbacks
+        logger.warning(
+            "summarize_repo: %d symbol(s) got only a signature fallback from the configured provider "
+            "(%d kept their stored summary) for %s/%s",
+            provider_fallbacks, kept, owner, name,
+        )
+    if kept > 0:
+        result["previous_summaries_kept"] = kept
+        result["previous_summaries_kept_reason"] = (
+            "the AI provider was asked for these symbols and returned no summary (a failed or rate-limited request, or a blank answer), "
+            "so each kept the summary it already had; run summarize_repo(force=true) again to retry them"
+        )
     return result

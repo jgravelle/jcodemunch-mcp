@@ -1,6 +1,6 @@
 # jcodemunch-mcp — Token Efficiency Benchmark
 
-**Result: 96.2% average token reduction (26.5x) vs a grep-and-read agent · tiktoken cl100k_base · 15 task-runs · 3 repos**
+**Result: 96.2% fewer tokens per lookup on average vs a grep-and-read agent · tiktoken cl100k_base · 15 task-runs · 3 repos**
 
 ## What this measures
 
@@ -14,13 +14,18 @@ How many tokens a code-retrieval tool consumes versus an agent doing the same jo
 
 ## Reproducing the results
 
+The published numbers are measured on pinned upstream commits. Follow
+[`REPRODUCING.md`](REPRODUCING.md) for the clone, checkout and index steps:
+indexing a repo's current `main` measures a different tree and gives
+different numbers. In short:
+
 ```bash
 pip install jcodemunch-mcp tiktoken
 
-# Index the three canonical repos
-jcodemunch index_repo expressjs/express
-jcodemunch index_repo fastapi/fastapi
-jcodemunch index_repo gin-gonic/gin
+# Clone each repo and check out the commit REPRODUCING.md names, then:
+jcodemunch-mcp index ./express --no-ai-summaries
+jcodemunch-mcp index ./fastapi --no-ai-summaries
+jcodemunch-mcp index ./gin --no-ai-summaries
 
 # Run the benchmark (prints markdown table + grand summary)
 python benchmarks/harness/run_benchmark.py
@@ -39,7 +44,7 @@ Tasks are defined in [`tasks.json`](tasks.json) — 5 queries × 3 repos = 15 me
 | `middleware` | `middleware` | Middleware chaining and execution |
 | `error-exception` | `error exception` | Error handling and exception propagation |
 | `request-response` | `request response` | Request/response object definitions |
-| `context-bind` | `context bind` | Context creation and parameter binding |
+| `param-bind` | `param bind` | Request parameter binding into the handler's arguments |
 
 Repos: `expressjs/express`, `fastapi/fastapi`, `gin-gonic/gin`
 
@@ -49,13 +54,15 @@ Full per-task tables are in [`results.md`](results.md).
 
 | Repo | Files | Grep-top-3 baseline | Read-all baseline | jCodeMunch | vs grep | vs read-all |
 |------|------:|--------------------:|------------------:|-----------:|--------:|------------:|
-| expressjs/express | 186 | 15,724 avg | 154,569 | 990 avg | **15.9x** | 156.1x |
-| fastapi/fastapi | 1,186 | 85,296 avg | 825,326 | 2,556 avg | **33.4x** | 322.9x |
-| gin-gonic/gin | 98 | 31,975 avg | 151,842 | 1,481 avg | **21.6x** | 102.5x |
-| **Grand total (15 task-runs)** | — | **664,975** | **5,658,685** | **25,132** | **26.5x** | **225.2x** |
+| expressjs/express | 186 | 15,040 avg | 154,569 | 743 avg | **20.2x** | 208.0x |
+| fastapi/fastapi | 1,186 | 86,713 avg | 825,326 | 1,779 avg | **48.7x** | 463.9x |
+| gin-gonic/gin | 98 | 32,253 avg | 151,842 | 994 avg | **32.5x** | 152.8x |
+| **Grand total, pooled (15 task-runs)** | — | **670,032** | **5,658,685** | **17,581** |  | 321.9x |
 
-**96.2% average token reduction · 26.5x** against grep-and-read; 99.6% · 225.2x
-against read-all. tiktoken cl100k_base.
+**96.2% fewer tokens per lookup on average** against grep-and-read. The grand total
+row sums the tokens of all 15 lookups; the pooled reduction is in [`results.md`](results.md),
+labelled as total tokens. Against read-all the pooled figure is 99.7% · 321.9x.
+tiktoken cl100k_base, counting the text the server sends on a default install.
 
 ⚠ **This table was stale until 2026-08-03** — it carried a pre-v1.108.222 corpus
 (165/951/98 files, 5,122,105 tokens, 263.9x) that no other artifact had matched

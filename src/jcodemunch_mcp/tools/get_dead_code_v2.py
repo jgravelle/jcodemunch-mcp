@@ -1153,7 +1153,7 @@ def get_dead_code_v2(
         Each entry in ``dead_symbols``:
         ``{id, name, kind, file, line, confidence, signals}``
     """
-    import fnmatch
+    from .. import path_glob
     t0 = time.monotonic()
     try:
         cutoff = _resolve_cutoff(degeneracy_cutoff)
@@ -1462,7 +1462,7 @@ def get_dead_code_v2(
         if sid in seen_ids:
             continue
         # Caller's scope filter, applied to the OUTPUT only. See pass 1.
-        if file_pattern and not fnmatch.fnmatch(sym.get("file", ""), file_pattern):
+        if file_pattern and not path_glob.matches(sym.get("file", ""), file_pattern):
             continue
         counted = [s for s in signals if s in informative]
         # ⚠ Denominator stays 3, deliberately. Dividing by the number of
@@ -1537,8 +1537,10 @@ def get_dead_code_v2(
             "note": (
                 "unreachable_file was not decided for these files: a .NET project "
                 "file may consume them (build_consumed), a build or code generator may "
-                "compile a schema (schema_consumer), or a user control or master "
-                "page may be loaded by path at runtime (runtime_loadable); "
+                "compile a schema (schema_consumer), a user control or master "
+                "page may be loaded by path at runtime (runtime_loadable), or an "
+                "ERB view may be rendered by name or by convention "
+                "(template_rendered); "
                 "imported_by_one counts the files such a file imports. The index "
                 "carries neither edge. Their other signals still vote."
             ),
@@ -1650,7 +1652,7 @@ def _call_graph_only_dead_code(
     is asked (L-157): this mode has no import graph to say which files
     could call it.
     """
-    import fnmatch
+    from .. import path_glob
 
     get_callers = getattr(index, "get_callers_by_name", None)
     if not get_callers:
@@ -1710,7 +1712,7 @@ def _call_graph_only_dead_code(
             continue
         if not include_tests and _is_test_file(sym_file):
             continue
-        if file_pattern and not fnmatch.fnmatch(sym_file, file_pattern):
+        if file_pattern and not path_glob.matches(sym_file, file_pattern):
             continue
         # Skip entry-point decorated symbols (Flask routes, click commands etc.)
         if any(ENTRY_POINT_DECORATOR_RE.search(str(d))

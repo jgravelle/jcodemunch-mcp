@@ -47,8 +47,10 @@ def _no_own_executable(monkeypatch):
 # ---------------------------------------------------------------------------
 
 def test_codex_writes_the_resolved_binary(tmp_path, monkeypatch):
+    # PATH does not find this install, so the entry names it by absolute path.
     exe = "/opt/tools/bin/jcodemunch-mcp"
-    monkeypatch.setattr(init_mod.shutil, "which", lambda name: exe if name == "jcodemunch-mcp" else None)
+    monkeypatch.setattr(init_mod, "_codex_command", lambda: exe)
+    monkeypatch.setattr(init_mod.shutil, "which", lambda name: None)
     cfg = tmp_path / "config.toml"
 
     msg = init_mod._patch_codex_config(cfg, backup=False)
@@ -121,7 +123,9 @@ def test_codex_windows_path_survives_as_a_literal_string(tmp_path, monkeypatch):
     processing at all.
     """
     win = r"C:\Users\jjg\AppData\Local\uv\tools\jcodemunch-mcp.exe"
-    monkeypatch.setattr(init_mod.shutil, "which", lambda name: win)
+    # PATH does not find this install, so the absolute path is written.
+    monkeypatch.setattr(init_mod, "_codex_command", lambda: win)
+    monkeypatch.setattr(init_mod.shutil, "which", lambda name: None)
     cfg = tmp_path / "config.toml"
 
     init_mod._patch_codex_config(cfg, backup=False)

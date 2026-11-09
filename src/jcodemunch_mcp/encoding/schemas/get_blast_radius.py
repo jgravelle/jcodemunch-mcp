@@ -3,7 +3,11 @@
 from .. import schema_driven as sd
 
 TOOLS = ("get_blast_radius",)
-ENCODING_ID = "br2"
+ENCODING_ID = "br4"
+# br3 (main): br2 + caller_count, direct_caller_count, callers_by_depth.
+# br4 (L-262): br3 + the body-level `incomplete` and `dynamic_imports_unfollowed`
+# disclosures, which br3 dropped as undeclared top-level dicts.
+LEGACY_ENCODING_IDS = ("br2", "br3")
 
 _TABLES = [
     sd.TableSpec(
@@ -23,11 +27,15 @@ _TABLES = [
 _SCALARS = (
     "repo", "depth", "importer_count", "confirmed_count", "potential_count",
     "direct_dependents_count", "overall_risk_score",
+    "caller_count", "direct_caller_count",
 )
 _NESTED = {"symbol": ["id", "name", "kind", "file", "line"]}
 _META = ("timing_ms",)
 _META_JSON = ("verdict",)  # structured _meta that must survive compaction
-_JSON = ("impact_by_depth", "callers", "cross_repo_confirmed")
+_JSON = (
+    "impact_by_depth", "callers", "callers_by_depth", "cross_repo_confirmed",
+    "incomplete", "dynamic_imports_unfollowed",
+)
 
 
 def encode(tool: str, response: dict) -> tuple[str, str]:

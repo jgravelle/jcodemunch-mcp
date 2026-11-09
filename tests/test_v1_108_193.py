@@ -289,8 +289,12 @@ class TestWithheldFilesBreakCompleteness:
         assert cov["withheld"] == {"too_large": 2}
         assert cov["skip_counts"] == {"too_large": 2, "binary": 5}
 
-    def test_the_three_withheld_reasons(self):
-        assert WITHHELD_SKIP_REASONS == {"too_large", "file_limit", "unreadable"}
+    def test_the_withheld_reasons(self):
+        # `parse_failed` joined in L-316: a file whose parse ran past the
+        # budget or raised is real, current and wanted, and its symbols are
+        # missing because of our parser. Exact equality stays, so a reason
+        # added or dropped by accident still fails here.
+        assert WITHHELD_SKIP_REASONS == {"too_large", "file_limit", "unreadable", "parse_failed"}
 
     def test_file_limit_counts_too(self):
         assert _cov({"file_limit": 300})["complete"] is False

@@ -1085,6 +1085,94 @@ def get_max_folder_files(
     return DEFAULT_MAX_FOLDER_FILES
 
 
+# The command-line paths (`init`, `jcodemunch-mcp index`, `refresh`) run outside
+# any client's tool timeout, which is the only reason `max_folder_files` is low.
+# A design default, not a measured ceiling: it is meant to cover a large
+# application repo and stop short of a kernel-sized tree. Raise it for a
+# larger tree.
+DEFAULT_CLI_MAX_FOLDER_FILES = 30_000
+
+
+def get_cli_max_folder_files(repo: Optional[str] = None) -> int:
+    """The file cap for an index built from the command line.
+
+    The larger of ``cli_max_folder_files`` and the in-call cap: a CLI index is
+    never smaller than an agent's would be. An index built past the in-call cap
+    keeps its files when an agent re-indexes later, because a capped call never
+    deletes a file its cap skipped (``index_folder``).
+
+    A user who set ``max_folder_files`` and left ``cli_max_folder_files`` at its
+    default chose a cap before the CLI had its own, so the CLI keeps using it,
+    as it did before this key existed. "Set" is read as "not the default
+    value": a cap set to exactly the default gets the CLI default, which only
+    raises it.
+
+    ``repo`` is the folder about to be indexed. Its ``.jcodemunch.jsonc`` is
+    loaded here, because the CLI asks before ``index_folder`` would load it, and
+    a project's own cap read after the CLI has chosen one is read too late.
+    """
+    return get_cli_folder_cap(repo)[0]
+
+
+def get_cli_folder_cap(repo: Optional[str] = None) -> tuple[int, str]:
+    """The command-line file cap and the config key that set it.
+
+    The key is what a person raises to index more files from the command line:
+    ``max_folder_files`` when the in-call cap binds, ``cli_max_folder_files``
+    otherwise. Same rule as ``get_cli_max_folder_files``, which reads it here.
+    """
+    if repo and Path(repo).is_dir():
+        _config.load_project_config(repo)
+    in_call = get_max_folder_files(repo=repo)
+    value = _config.get("cli_max_folder_files", repo=repo)
+    cli_set = isinstance(value, int) and value > 0 and value != DEFAULT_CLI_MAX_FOLDER_FILES
+    if not cli_set and in_call != DEFAULT_MAX_FOLDER_FILES:
+        return in_call, "max_folder_files"
+    cli = value if isinstance(value, int) and value > 0 else DEFAULT_CLI_MAX_FOLDER_FILES
+    if in_call > cli:
+        return in_call, "max_folder_files"
+    return cli, "cli_max_folder_files"
+
+
+def cap_raise_advice(key: str) -> str:
+    """How to raise the file cap named ``key``: the config key, and its env var."""
+    if key == "cli_max_folder_files":
+        return "Raise cli_max_folder_files in config.jsonc"
+    if key == "max_index_files":
+        return "Raise max_index_files in config.jsonc (or set JCODEMUNCH_MAX_INDEX_FILES)"
+    return "Raise max_folder_files in config.jsonc (or set JCODEMUNCH_MAX_FOLDER_FILES)"
+
+
+def cap_label(status: dict) -> str:
+    """The config key that set the cap a stored file-cap status describes."""
+    return (status or {}).get("cap_key") or "max_folder_files"
+
+
+def cap_remedy(status: dict) -> Optional[str]:
+    """The step that gets a capped index the files it lacks, or None.
+
+    None means the plain case, an agent's capped index, whose readers keep
+    their own wording: raise ``max_folder_files`` and re-index. Otherwise the
+    status says which cap applies. ``cli_cap`` is present when the index holds
+    files past this call's cap (kept from a command-line index), and then the
+    command line's own cap is the one that re-parses them.
+    """
+    status = status or {}
+    discovered = status.get("files_discovered")
+    cli_cap = status.get("cli_cap")
+    if isinstance(cli_cap, int):
+        if isinstance(discovered, int) and cli_cap < discovered:
+            return (
+                f"{cap_raise_advice(status.get('cli_cap_key') or 'cli_max_folder_files')} "
+                f"to at least {discovered}, then run `jcodemunch-mcp index`."
+            )
+        return "Run `jcodemunch-mcp index` to re-parse every file."
+    key = cap_label(status)
+    if key == "max_folder_files":
+        return None
+    return f"{cap_raise_advice(key)} and index again."
+
+
 def should_exclude_file(
     file_path: Path,
     root: Path,

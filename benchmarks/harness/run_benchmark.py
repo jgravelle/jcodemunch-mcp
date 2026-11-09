@@ -11,7 +11,8 @@ Usage:
 If no repos are given, runs against all three canonical benchmark repos:
     expressjs/express  |  fastapi/fastapi  |  gin-gonic/gin
 
-Those repos must already be indexed (jcodemunch index_repo owner/repo).
+Those repos must already be indexed at the commits benchmarks/REPRODUCING.md
+pins (jcodemunch-mcp index <clone> --no-ai-summaries).
 
 Methodology
 -----------
@@ -88,14 +89,65 @@ def _load_corpus():
     # be visibly unpinned rather than quietly pinned to a stale constant.
     return (
         ["expressjs/express", "fastapi/fastapi", "gin-gonic/gin"],
-        ["router route handler", "middleware", "error exception", "request response", "context bind"],
+        ["router route handler", "middleware", "error exception", "request response", "param bind"],
         {},
     )
 
 DEFAULT_REPOS, TASKS, PINNED_SHAS = _load_corpus()
 
+
+def load_task_file(path: Path) -> list:
+    """Queries from a caller's own task file, for `--tasks`.
+
+    Takes the `tasks.json` shape (`{"tasks": [{"query": ...}]}`) or a plain
+    list of query strings. Refuses an empty or malformed file rather than
+    measuring nothing and reporting it.
+    """
+    data = json.loads(Path(path).read_text(encoding="utf-8"))
+    rows = data.get("tasks") if isinstance(data, dict) else data
+    if not isinstance(rows, list):
+        raise ValueError(f"{path}: expected a list of queries or {{\"tasks\": [...]}}")
+    queries = []
+    for row in rows:
+        query = row.get("query") if isinstance(row, dict) else row
+        if not isinstance(query, str) or not query.strip():
+            raise ValueError(f"{path}: every task needs a non-empty query, got {row!r}")
+        queries.append(query.strip())
+    if not queries:
+        raise ValueError(f"{path}: no tasks")
+    return queries
+
+
+def resolve_repo_arg(repo_arg: str) -> str:
+    """A repo argument as the store names it.
+
+    An existing local folder resolves through `resolve_repo`, the same rule the
+    server uses, so `run_benchmark.py C:/src/myapp` measures that folder's
+    index. Anything else is taken as an `owner/repo` id, as before. A folder
+    that is not indexed comes back unchanged and fails as "Not indexed".
+    """
+    if not os.path.isdir(repo_arg):
+        return repo_arg
+    from jcodemunch_mcp.tools.resolve_repo import resolve_repo
+
+    resolved = resolve_repo(os.path.abspath(repo_arg))
+    if resolved.get("indexed") and resolved.get("repo"):
+        return resolved["repo"]
+    return repo_arg
+
 SEARCH_MAX_RESULTS = 5
 SYMBOLS_FETCHED = 3        # get_symbol calls per query in the jMunch workflow
+
+# What is counted. "served" (the default) counts the text the MCP server hands
+# an agent: the response from `server.call_tool` on a default install's config,
+# after `_meta` is stripped (`meta_fields: []`) and the compact encoding is
+# applied (`server_output: adaptive`). "raw" counts `json.dumps` of the tool
+# FUNCTION's return value, which no agent receives; it was the only method
+# before 2026-11-08 and is kept so the two can be compared on one task set.
+MEASURE_METHODS = ("served", "raw")
+MEASURE_METHOD = "served"
+# Set by `main` on a served run: what a session pays once, outside any lookup.
+SESSION_COSTS: Optional[dict] = None
 
 TOKENIZER = "cl100k_base"  # tiktoken encoding name
 
@@ -113,6 +165,173 @@ def count_tokens(text: str) -> int:
 def _serialize(obj) -> str:
     """Stable JSON serialization of a tool response."""
     return json.dumps(obj, separators=(",", ":"), default=str)
+
+
+def _use_default_install_config() -> None:
+    """Put this process on a default install's config, whatever is on disk.
+
+    The served path reads `meta_fields`, `server_output` and the rest through
+    `config.get`, so a developer's own `~/.code-index/config.jsonc` (or a CI
+    runner's) would otherwise decide what the benchmark counts. `DEFAULTS` is
+    what a fresh install with no config file resolves to. Two settings are read
+    from the environment directly rather than through config, so they are
+    cleared too. `tool_surface` stays at `DEFAULTS` (`full`) where a first
+    `load_config` writes `counter`: measured on express, both serve the same
+    search and fetch text.
+    """
+    from copy import deepcopy
+
+    from jcodemunch_mcp import config as cfg
+
+    for name in ("JCODEMUNCH_TOOL_SURFACE", "JCODEMUNCH_REDACT_RESPONSE_SECRETS"):
+        os.environ.pop(name, None)
+
+    cfg._GLOBAL_CONFIG = deepcopy(cfg.DEFAULTS)
+    cfg._CONFIG_LOADED = True
+    cfg._PROJECT_CONFIGS.clear()
+    cfg._PROJECT_CONFIG_HASHES.clear()
+    cfg._REPO_PATH_CACHE.clear()
+    cfg._REPO_MISS_CACHE.clear()
+
+
+def _served_text(tool: str, args: dict) -> str:
+    """The text `server.call_tool` serves for one call, as an agent receives it."""
+    import asyncio
+
+    from jcodemunch_mcp import server
+
+    res = asyncio.run(server.call_tool(tool, dict(args)))
+    if getattr(res, "isError", False):
+        raise RuntimeError(f"{tool} returned an error: {res}")
+    items = getattr(res, "content", res)
+    return "".join(getattr(i, "text", "") for i in items)
+
+
+def _decode_served(text: str) -> dict:
+    """The served text read back the way an agent reads it."""
+    if text.lstrip().startswith("{"):
+        return json.loads(text)
+    from jcodemunch_mcp.encoding.decoder import decode
+
+    return decode(text)
+
+
+def _start_lookup_session() -> None:
+    """Make each lookup stand alone, as the per-lookup figure claims.
+
+    The server keeps per-session state that would otherwise leak from one
+    lookup into the next: the steering counters (a one-time hint after a few
+    search and read calls) and the already-delivered ledger (a note on a symbol
+    an earlier lookup fetched). Both are real costs of a long session; neither
+    belongs to a single lookup. `served_session_costs` and
+    `served_one_session_extra` measure both.
+    """
+    from jcodemunch_mcp import server
+    from jcodemunch_mcp.storage import token_tracker
+
+    server._steer_state.update({"hops": 0, "bundles": 0, "nudged": False, "repos": []})
+    with token_tracker._state._lock:
+        token_tracker._state._delivered.clear()
+
+
+def _quiet_once_per_process_notices() -> None:
+    """Take the license notice and the work-license reminder out of every counted answer.
+
+    Each is checked once per process, on the first successful answer, so marking
+    both checked here means no lookup carries either, and neither writes its
+    marker or state file under the caller's `CODE_INDEX_PATH` (a benchmark run
+    must not use up a developer's one notice). `served_session_costs` prices the
+    notice separately. The reminder is not priced: it is said 7 days after the
+    first index and then at most every 30 days, so it is not a session cost.
+    """
+    from jcodemunch_mcp import license_notice, license_reminder
+
+    license_notice.NOTICE_STATE["checked"] = True
+    license_reminder.REMINDER_STATE["checked"] = True
+
+
+def served_session_costs(repo_str: str) -> dict:
+    """What a session pays once, outside every lookup, each as a measured difference.
+
+    `license_notice_tokens`: the same search served with the once-per-machine
+    license notice and without it. The notice is forced with its marker pointed
+    at a temporary directory, so this neither depends on whether this machine
+    has seen it nor uses up its notice. The notice also switches that answer to
+    JSON, and the difference includes that.
+
+    `steering_hint_tokens`: the same search with the one-time steering hint
+    forced, minus without.
+
+    The already-delivered note is a per-lookup cost of a long session, not a
+    once-per-session one; `served_one_session_extra` measures it.
+    """
+    import tempfile
+    from pathlib import Path
+
+    from jcodemunch_mcp import license_notice, server
+
+    args = {"repo": repo_str, "query": TASKS[0], "max_results": SEARCH_MAX_RESULTS, "detail_level": "standard"}
+    _start_lookup_session()
+    plain = count_tokens(_served_text("search_symbols", args))
+
+    real_marker, real_skip = license_notice.marker_path, license_notice.skip_reason
+    try:
+        with tempfile.TemporaryDirectory() as tmp:
+            license_notice.marker_path = lambda: Path(tmp) / license_notice.MARKER_FILE
+            license_notice.skip_reason = lambda env=None: None
+            license_notice.NOTICE_STATE["checked"] = False
+            _start_lookup_session()
+            with_notice_text = _served_text("search_symbols", args)
+    finally:
+        license_notice.marker_path, license_notice.skip_reason = real_marker, real_skip
+        license_notice.NOTICE_STATE["checked"] = True
+    if "license_notice" in _decode_served(with_notice_text):
+        notice = count_tokens(with_notice_text) - plain
+    else:
+        notice = None  # the forced notice did not appear: not measured, never 0
+
+    _start_lookup_session()
+    server._steer_state.update({"hops": server._STEER_NUDGE_AT, "bundles": 0, "nudged": False})
+    hinted = count_tokens(_served_text("search_symbols", args))
+    _start_lookup_session()
+    return {
+        "license_notice_tokens": notice,
+        "steering_hint_tokens": hinted - plain,
+    }
+
+
+def served_one_session_extra(results: list[dict]) -> dict:
+    """What the per-lookup reset leaves out: the same lookups as ONE session per repo.
+
+    Within one session the server notes a symbol an earlier answer already
+    delivered (`_meta.already_delivered`, attached after the `_meta` strip, so
+    it reaches the agent on a default install). Re-runs each repo's lookups
+    without resetting between them (the steering hint held off, it is priced
+    on its own) and reports the extra tokens over the per-lookup total.
+    """
+    from jcodemunch_mcp import server
+
+    out = {}
+    for res in results:
+        if "error" in res:
+            continue
+        repo = res.get("measured_repo") or res["repo"]
+        _start_lookup_session()
+        server._steer_state["nudged"] = True
+        total = 0
+        for t in res["tasks"]:
+            if "error" in t:
+                continue
+            search_args = {"repo": repo, "query": t["query"], "max_results": SEARCH_MAX_RESULTS, "detail_level": "standard"}
+            text = _served_text("search_symbols", search_args)
+            total += count_tokens(text)
+            rows = _decode_served(text).get("results") or []
+            for sid in [r.get("id") for r in rows if isinstance(r, dict) and r.get("id")][:SYMBOLS_FETCHED]:
+                total += count_tokens(_served_text("get_symbol_source", {"repo": repo, "symbol_id": sid}))
+        per_lookup = sum(t["jmunch_tokens"] for t in res["tasks"] if "error" not in t)
+        out[res["repo"]] = total - per_lookup
+    _start_lookup_session()
+    return out
 
 
 def _parse_repo(repo_str: str) -> tuple[str, str]:
@@ -299,7 +518,7 @@ def _signature_diff(first, second, path: str = "", _out=None) -> list[str]:
     return out
 
 
-def _measure_in_subprocess(repos: list[str]) -> Optional[list[dict]]:
+def _measure_in_subprocess(repos: list[str], tasks_file: Optional[str] = None) -> Optional[list[dict]]:
     """Re-measure `repos` in a fresh interpreter and return the raw results.
 
     ⚠ The second pass has to be a new PROCESS, not a second loop in this one.
@@ -322,7 +541,8 @@ def _measure_in_subprocess(repos: list[str]) -> Optional[list[dict]]:
     with tempfile.TemporaryDirectory() as tmp:
         out = Path(tmp) / "second.json"
         proc = subprocess.run(
-            [sys.executable, str(Path(__file__).resolve()), *repos, "--json", str(out)],
+            [sys.executable, str(Path(__file__).resolve()), *repos, "--json", str(out), "--method", MEASURE_METHOD]
+            + (["--tasks", tasks_file] if tasks_file else []),
             capture_output=True,
             text=True,
             encoding="utf-8",
@@ -490,6 +710,8 @@ def measure_jmunch(repo_str: str, query: str) -> dict:
       1. search_symbols → serialize response → count tokens
       2. get_symbol for top N hits → count tokens
     """
+    if MEASURE_METHOD == "served":
+        return _measure_jmunch_served(repo_str, query)
     # 1. Search
     t0 = time.perf_counter()
     # v1.70.0: pin detail_level="standard" so benchmark numbers stay comparable
@@ -532,6 +754,41 @@ def measure_jmunch(repo_str: str, query: str) -> dict:
     }
 
 
+def _measure_jmunch_served(repo_str: str, query: str) -> dict:
+    """The same workflow, counted as the server serves it to an agent.
+
+    Same calls and arguments as the raw method. The ids fetched are the top
+    rows of the search answer as the agent decodes it.
+    """
+    _start_lookup_session()
+    search_args = {"repo": repo_str, "query": query, "max_results": SEARCH_MAX_RESULTS, "detail_level": "standard"}
+    t0 = time.perf_counter()
+    search_text = _served_text("search_symbols", search_args)
+    search_ms = (time.perf_counter() - t0) * 1000
+    search_tokens = count_tokens(search_text)
+
+    rows = _decode_served(search_text).get("results") or []
+    symbol_ids = [r.get("id") for r in rows if isinstance(r, dict) and r.get("id")][:SYMBOLS_FETCHED]
+
+    fetch_tokens = 0
+    for sid in symbol_ids:
+        fetch_tokens += count_tokens(_served_text("get_symbol_source", {"repo": repo_str, "symbol_id": sid}))
+
+    total = search_tokens + fetch_tokens
+    # The served text carries no `_meta` on a default install, so no wall-clock
+    # field rides in it: the stable count is the count.
+    return {
+        "tokens": total,
+        "search_tokens": search_tokens,
+        "fetch_tokens": fetch_tokens,
+        "stable_tokens": total,
+        "stable_search_tokens": search_tokens,
+        "stable_fetch_tokens": fetch_tokens,
+        "hits_fetched": len(symbol_ids),
+        "search_ms": round(search_ms, 1),
+    }
+
+
 # ---------------------------------------------------------------------------
 # Per-repo benchmark
 # ---------------------------------------------------------------------------
@@ -556,7 +813,14 @@ def benchmark_repo(repo_str: str) -> dict:
                 break
 
     if matched is None:
-        return {"error": f"Not indexed: {repo_str}. Run: jcodemunch index_repo {repo_str}"}
+        if os.path.isdir(repo_str):
+            return {"error": f"Not indexed: {repo_str}. Run: jcodemunch-mcp index {repo_str}"}
+        return {
+            "error": (
+                f"Not indexed: {repo_str}. Clone it at the commit benchmarks/REPRODUCING.md "
+                f"pins, then run: jcodemunch-mcp index <clone> --no-ai-summaries"
+            )
+        }
 
     actual_repo = matched["repo"]
     owner2, name2 = _parse_repo(actual_repo)
@@ -621,6 +885,7 @@ def benchmark_repo(repo_str: str) -> dict:
 
     return {
         "repo": repo_str,
+        "measured_repo": actual_repo,
         "display": matched.get("display_name", name2),
         "file_count": file_count,
         "symbol_count": symbol_count,
@@ -639,6 +904,9 @@ def benchmark_repo(repo_str: str) -> dict:
 # baseline token total with no way to say which tree produced them.
 REFERENCE_SCHEMA = "jcm-benchmark-reference/v2"
 REFERENCE_PATH = _REPO_ROOT / "benchmarks" / "jcm_reference.json"
+# Notes the published results.md carries above the run's own output (a methodology change, say).
+# render_markdown emits this file, so a re-capture keeps the notes instead of overwriting them.
+RESULTS_NOTES_PATH = _REPO_ROOT / "benchmarks" / "results_notes.md"
 
 
 def _jcm_version() -> str:
@@ -705,6 +973,8 @@ def build_reference(results: list[dict]) -> dict:
         "jcodemunch_version": _jcm_version(),
         "tokenizer": TOKENIZER,
         "workflow": f"search_symbols(max_results={SEARCH_MAX_RESULTS}) + get_symbol_source x{SYMBOLS_FETCHED}",
+        "method": MEASURE_METHOD,
+        **({"served_session_costs": SESSION_COSTS} if SESSION_COSTS is not None else {}),
         "baseline_definition": "all indexed source files concatenated",
         "grand": {
             "baseline_tokens": grand_baseline,
@@ -750,6 +1020,26 @@ def sync_measured_artifact(reference: dict, path: Path = MEASURED_JSON_PATH) -> 
     block["run_date"] = reference["captured_at"][:10]
     path.write_text(json.dumps(artifact, indent=2) + "\n", encoding="utf-8")
     return True
+
+
+def reference_method(reference: Optional[dict]) -> str:
+    """How the committed reference was counted; a reference that names none predates the served method."""
+    return (reference or {}).get("method") or "raw"
+
+
+def resolve_method(asked: Optional[str], floor: bool, writing_reference, reference: Optional[dict]) -> Optional[str]:
+    """The method this run uses, or None when it would compare two methods.
+
+    A `--floor` run is judged against the committed reference, so it counts the
+    way the reference did unless `--reference` replaces the reference in the
+    same run. Asking for the other method there is refused, not ignored.
+    """
+    if floor and not writing_reference:
+        ref = reference_method(reference)
+        if asked is not None and asked != ref:
+            return None
+        return ref
+    return asked or "served"
 
 
 def load_reference(path: Path = REFERENCE_PATH) -> Optional[dict]:
@@ -803,12 +1093,44 @@ def reference_drift(entry: Optional[dict], file_count: int, baseline_tokens: int
 # Markdown rendering
 # ---------------------------------------------------------------------------
 
+def results_notes_lines(path: Optional[Path] = None) -> list[str]:
+    """The committed notes block for results.md, followed by a blank line; [] when there is none.
+
+    Read at call time, never bound at import, so a test can point it at its own file.
+    """
+    path = RESULTS_NOTES_PATH if path is None else path
+    try:
+        text = path.read_text(encoding="utf-8").strip()
+    except FileNotFoundError:
+        return []
+    return text.splitlines() + [""] if text else []
+
+
 def render_markdown(results: list[dict], tokenizer: str) -> str:
     lines = []
     lines.append("# jcodemunch-mcp -- Token Efficiency Benchmark")
     lines.append("")
+    lines.extend(results_notes_lines())
     lines.append(f"**Tokenizer:** `{tokenizer}` (tiktoken)  ")
     lines.append(f"**Workflow:** `search_symbols` (top {SEARCH_MAX_RESULTS}) + `get_symbol` x {SYMBOLS_FETCHED}  ")
+    if MEASURE_METHOD == "served":
+        lines.append("**Counted:** the response text the server serves on a default install (`server.call_tool`, no config file)  ")
+        if SESSION_COSTS is not None:
+            notice = SESSION_COSTS["license_notice_tokens"]
+            notice_txt = "not measured" if notice is None else f"{notice} tokens"
+            lines.append(
+                f"**Once per session, not in any lookup:** license notice {notice_txt} "
+                f"(first answer on a machine), steering hint {SESSION_COSTS['steering_hint_tokens']} tokens (one search)  "
+            )
+            extra = SESSION_COSTS.get("one_session_extra_tokens")
+            if extra is not None:
+                lines.append(
+                    "**Each repo's lookups as one session instead:** "
+                    + ", ".join(f"{r} +{n}" for r, n in extra.items())
+                    + " tokens (the note on a symbol an earlier answer already delivered)  "
+                )
+    else:
+        lines.append("**Counted:** `json.dumps` of the tool function's return value (`--method raw`), which no agent receives  ")
     lines.append("**Baseline A (read-all):** all source files concatenated  ")
     lines.append(f"**Baseline B (grep-top-{GREP_FILES_READ}):** `rg -l` the query terms, then open the top {GREP_FILES_READ} files whole  ")
     lines.append("")
@@ -817,10 +1139,12 @@ def render_markdown(results: list[dict], tokenizer: str) -> str:
     grand_grep = 0
     grand_jmunch = 0
     grand_tasks = 0
+    # One reduction per lookup against grep-top-N; their mean is the quoted figure.
+    per_lookup_grep = []
 
     for res in results:
         if "error" in res:
-            lines.append(f"## {res.get('repo', '?')} — ERROR")
+            lines.append(f"## {res.get('repo', '?')}: ERROR")
             lines.append(f"> {res['error']}")
             lines.append("")
             continue
@@ -871,6 +1195,8 @@ def render_markdown(results: list[dict], tokenizer: str) -> str:
             grand_baseline += t["baseline_tokens"]
             grand_grep += t.get("grep_baseline_tokens") or 0
             grand_tasks += 1
+            if gb:
+                per_lookup_grep.append(1 - t["jmunch_tokens"] / gb)
 
         if valid_tasks:
             avg_ratio = sum(t["ratio"] for t in valid_tasks) / len(valid_tasks)
@@ -920,16 +1246,24 @@ def render_markdown(results: list[dict], tokenizer: str) -> str:
         lines.append(f"| Ratio vs read-all | {grand_ratio:.1f}x |")
         if grand_grep:
             g_red = (1 - grand_jmunch / grand_grep) * 100
-            lines.append(f"| **Reduction vs grep-top-{GREP_FILES_READ}** | **{g_red:.1f}%** |")
-            lines.append(f"| **Ratio vs grep-top-{GREP_FILES_READ}** | **{grand_grep / grand_jmunch:.1f}x** |")
+            if per_lookup_grep:
+                mean_red = sum(per_lookup_grep) / len(per_lookup_grep) * 100
+                lines.append(
+                    f"| **Mean reduction per lookup vs grep-top-{GREP_FILES_READ}** "
+                    f"({len(per_lookup_grep)} lookups) | **{mean_red:.1f}%** |"
+                )
+            lines.append(f"| Reduction vs grep-top-{GREP_FILES_READ}, pooled totals | {g_red:.1f}% |")
+            lines.append(f"| Ratio vs grep-top-{GREP_FILES_READ}, pooled totals | {grand_grep / grand_jmunch:.1f}x |")
         lines.append("")
         if grand_grep:
             lines.append(
-                f"> **Baseline B is the number to quote.** Read-all is a ceiling nobody "
+                f"> **Baseline B is the number to quote**, as the mean reduction per "
+                f"lookup. The pooled totals weigh the lookups with the largest grep "
+                f"baselines most. Read-all is a ceiling nobody "
                 f"pays: it assumes an agent opens every file in the repository before "
                 f"acting. Grep-then-read is what a competent agent without this tool "
                 f"actually does, and it is {grand_grep / grand_baseline * 100:.1f}% of the "
-                f"read-all figure — so measuring against read-all overstates the "
+                f"read-all figure, so measuring against read-all overstates the "
                 f"advantage by about {grand_baseline / grand_grep:.0f}x."
             )
             lines.append("")
@@ -957,7 +1291,28 @@ def main():
     # 2026-10-13). An explicit setting in the environment is kept.
     os.environ.setdefault("JCODEMUNCH_SHARE_SAVINGS", "0")
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("repos", nargs="*", help="owner/repo to benchmark (default: all 3 canonical repos)")
+    parser.add_argument(
+        "repos",
+        nargs="*",
+        help="owner/repo, or the path of an indexed local folder, to benchmark "
+             "(default: all 3 canonical repos)",
+    )
+    parser.add_argument(
+        "--tasks",
+        metavar="FILE",
+        help="measure these queries instead of benchmarks/tasks.json: a JSON list of "
+             "strings, or {\"tasks\": [{\"query\": ...}]}. Not allowed with "
+             "--reference or --floor, which judge the published corpus only.",
+    )
+    parser.add_argument(
+        "--method",
+        choices=MEASURE_METHODS,
+        default=None,
+        help="served (default): count the text server.call_tool serves on a default "
+             "install; raw: count json.dumps of the tool function's return value, the "
+             "method before 2026-11-08, kept for comparison. With --floor the default "
+             "is the committed reference's method, so a Floor compares like with like",
+    )
     parser.add_argument("--out", metavar="FILE", help="write markdown results to FILE")
     parser.add_argument("--json", metavar="FILE", dest="json_out", help="write raw JSON results to FILE")
     parser.add_argument(
@@ -1006,9 +1361,37 @@ def main():
               file=sys.stderr)
         return 2
 
-    repos = args.repos or DEFAULT_REPOS
+    if args.tasks:
+        if args.reference or args.floor:
+            # The reference and the Floors describe the published corpus; a run
+            # over someone's own queries must never replace or gate them.
+            print("--tasks cannot be combined with --reference or --floor", file=sys.stderr)
+            return 2
+        global TASKS
+        try:
+            TASKS = load_task_file(Path(args.tasks))
+        except (OSError, ValueError) as e:
+            print(f"--tasks: {e}", file=sys.stderr)
+            return 2
+
+    repos = [resolve_repo_arg(r) for r in (args.repos or DEFAULT_REPOS)]
+
+    global MEASURE_METHOD, SESSION_COSTS
+    MEASURE_METHOD = resolve_method(args.method, args.floor, args.reference, load_reference())
+    if MEASURE_METHOD is None:
+        print(
+            f"--method {args.method} cannot be judged by --floor against a reference measured "
+            f"with --method {reference_method(load_reference())}: the Floor would compare two "
+            "ways of counting, not two trees. Regenerate the reference with --reference first.",
+            file=sys.stderr,
+        )
+        return 2
+    if MEASURE_METHOD == "served":
+        _use_default_install_config()
+        _quiet_once_per_process_notices()
 
     print(f"jcodemunch-mcp benchmark harness  |  tokenizer: {TOKENIZER}", flush=True)
+    print(f"Counted: {MEASURE_METHOD}", flush=True)
     print(f"Repos: {', '.join(repos)}", flush=True)
     print(f"Tasks: {len(TASKS)} queries × {len(repos)} repos = {len(TASKS) * len(repos)} measurements", flush=True)
     print()
@@ -1027,9 +1410,17 @@ def main():
             print(f"done ({elapsed:.1f}s)  avg reduction {avg_r:.1f}%")
         results.append(res)
 
+    measured = [r for r in results if "error" not in r]
+    if MEASURE_METHOD == "served" and measured:
+        # Sized on a repo this run measured: a repo that could not be measured
+        # is reported as such below, never by an exception from this step.
+        SESSION_COSTS = served_session_costs(measured[0].get("measured_repo") or measured[0]["repo"])
+        SESSION_COSTS["one_session_extra_tokens"] = served_one_session_extra(results)
+        print(f"Once per session, outside every lookup: {SESSION_COSTS}", flush=True)
+
     if args.verify_determinism:
         print("\n  re-measuring in a fresh process ...", end=" ", flush=True)
-        second = _measure_in_subprocess(repos)
+        second = _measure_in_subprocess(repos, args.tasks)
         if second is None:
             print("FAILED to run")
             return 1
@@ -1125,6 +1516,14 @@ def main():
                 "(benchmarks/results.md, benchmarks/METHODOLOGY.md, README.md) "
                 "or tests/test_provenance.py will fail."
             )
+    # A repo the caller named that could not be measured fails the run, after
+    # the report is written. The default corpus keeps exit 0 on a missing repo,
+    # as it always has, so nothing that runs the canonical set changes.
+    failed = [r.get("error") for r in results if args.repos and "error" in r]
+    if failed:
+        for err in failed:
+            print(f"not measured: {err}", file=sys.stderr)
+        return 3
     return 0
 
 

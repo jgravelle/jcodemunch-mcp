@@ -44,7 +44,8 @@ convenience. See CLAUDE.md policy 2e.
 ```bash
 # 1. Bump EVERY pin site, not just pyproject.toml. jcm now has FOUR:
 #      pyproject.toml, server.json (version + packages[].version),
-#      .claude-plugin/plugin.json, uv.lock, whatsnew.json (FIFTH site,
+#      plugin/jcodemunch/.claude-plugin/plugin.json (version AND the uvx
+#      `jcodemunch-mcp==X.Y.Z` pin), uv.lock, whatsnew.json (FIFTH site,
 #      found 2026-08-09: both `current` AND a new `entries[]` record)
 #    `grep -rn "<old-version>" --include=*.json --include=*.toml --include=*.lock .`
 #    is the only reliable enumeration — the list GROWS (plugin.json arrived

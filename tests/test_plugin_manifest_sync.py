@@ -1,6 +1,6 @@
 """The Claude Code plugin manifest must stay in lockstep with pyproject.toml.
 
-`.claude-plugin/plugin.json` pins the plugin version. Claude Code caches the
+`plugin/jcodemunch/.claude-plugin/plugin.json` pins the plugin version. Claude Code caches the
 plugin against that string, so users receive updates ONLY when it changes.
 A stale version here means every user stays on an old copy while PyPI moves,
 which is the same failure server.json had for five months.
@@ -20,7 +20,7 @@ import re
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).parent.parent
-PLUGIN_JSON = REPO_ROOT / ".claude-plugin" / "plugin.json"
+PLUGIN_JSON = REPO_ROOT / "plugin" / "jcodemunch" / ".claude-plugin" / "plugin.json"
 PYPROJECT = REPO_ROOT / "pyproject.toml"
 
 
@@ -33,7 +33,7 @@ def _pyproject_field(field):
 
 def test_plugin_manifest_exists():
     assert PLUGIN_JSON.exists(), (
-        ".claude-plugin/plugin.json is the Claude Code plugin manifest"
+        "plugin/jcodemunch/.claude-plugin/plugin.json is the Claude Code plugin manifest"
     )
 
 
@@ -47,9 +47,15 @@ def test_plugin_version_matches_pyproject():
     )
 
 
-def test_plugin_description_matches_pyproject():
+def test_plugin_description_is_set():
+    """The plugin directory shows this text as the listing's summary.
+
+    It used to have to equal pyproject's description. The listing is written
+    for a person choosing a plugin and the package summary for PyPI, so they
+    may differ; an empty one may not.
+    """
     manifest = json.loads(PLUGIN_JSON.read_text(encoding="utf-8"))
-    assert manifest["description"] == _pyproject_field("description")
+    assert manifest["description"].strip()
 
 
 def test_no_root_mcp_json():
@@ -60,7 +66,7 @@ def test_no_root_mcp_json():
     belongs inline in plugin.json, where only plugin installs see it.
     """
     assert not (REPO_ROOT / ".mcp.json").exists(), (
-        "Declare mcpServers inline in .claude-plugin/plugin.json instead; a "
+        "Declare mcpServers inline in the plugin's plugin.json instead; a "
         "root .mcp.json leaks into project scope for anyone opening this repo"
     )
 
@@ -101,7 +107,7 @@ def test_mcp_config_launches_this_package():
     assert len(servers) == 1, f"expected exactly one server entry, got {list(servers)}"
 
     entry = next(iter(servers.values()))
-    assert package in entry["args"], (
+    assert f"{package}=={_pyproject_field('version')}" in entry["args"], (
         f".mcp.json args {entry['args']!r} do not name the package {package!r} "
         f"from pyproject.toml"
     )

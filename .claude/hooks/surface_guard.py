@@ -5,7 +5,7 @@ purpose:  an edit under the tool-registration path recomputes the listing and
           schema baseline are changed WITH the feature, not in the release commit
 invokes:  `python scripts/surface_diff.py --base-ref HEAD` (working tree vs
           HEAD; never a hand-typed count)
-produces: .claude/state/evidence/surface.md
+produces: .claude/state/evidence/surface_guard.md
 refuses:  nothing; warning only (exit 2 feedback)
 budget:   40 s
 """
@@ -50,7 +50,8 @@ def main() -> None:
         ok()
     budget = Budget(BUDGET_SECONDS)
     EVIDENCE.mkdir(parents=True, exist_ok=True)
-    out_path = EVIDENCE / "surface.md"
+    # Its own file: this diff is against HEAD, and surface.md is the PR's diff against the base.
+    out_path = EVIDENCE / "surface_guard.md"
     rc, out = run_budgeted(
         [
             sys.executable,

@@ -1,0 +1,15 @@
+<%# Hand-written for jcodemunch's ERB tests: a JavaScript host with tags inside a string, at an expression position, around statements and at a function-name position. %>
+var count = <%= @items.size %>;
+
+function renderWidget(target) {
+  var el = document.getElementById(target);
+  el.innerHTML = '<%= j render(partial: "widgets/widget", locals: { widget: @widget }) %>';
+  <% if @highlight %>
+  el.classList.add('highlight');
+  <% end %>
+  return el;
+}
+
+function <%= @callback_name %>Ready() {
+  return renderWidget('<%= dom_id(@widget) %>');
+}

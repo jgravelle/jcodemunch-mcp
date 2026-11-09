@@ -40,9 +40,61 @@ from _common import (
     tree_id,
 )
 
-RATE_KEY_RE = re.compile(
-    r'^\+.*["\'](\w+_(?:pct|rate|share)|confidence)["\']\s*:', re.M
-)
+_RATE_KEY_IN_LINE_RE = re.compile(r'["\'](\w+_(?:pct|rate|share)|confidence)["\']\s*:')
+
+
+def _change_runs(diff: str):
+    """Each contiguous run of removed and added lines inside a hunk, as
+    (removed_lines, added_lines). A context line, a hunk header or a file
+    header ends a run, so two edits a few lines apart are two runs even when
+    git merges them into one @@ hunk. File headers (--- / +++) are never read
+    as content: only lines after an @@ header count."""
+    removed: list[str] = []
+    added: list[str] = []
+    in_hunk = False
+    for line in diff.splitlines():
+        if line.startswith("diff --git ") or line.startswith("@@"):
+            if removed or added:
+                yield removed, added
+            removed, added = [], []
+            in_hunk = line.startswith("@@")
+            continue
+        if in_hunk and line.startswith("-"):
+            removed.append(line[1:])
+        elif in_hunk and line.startswith("+"):
+            added.append(line[1:])
+        else:
+            if removed or added:
+                yield removed, added
+            removed, added = [], []
+    if removed or added:
+        yield removed, added
+
+
+def new_rate_keys(diff: str) -> list[str]:
+    """Rate-shaped keys the diff ADDS, sorted. Within one run of changed lines,
+    each removed key excuses ONE added line with that key (a changed value on an
+    existing key); extra additions are new, and a removal in another run, hunk
+    or file excuses nothing."""
+    new: set[str] = set()
+    for removed, added in _change_runs(diff):
+        gone = collections.Counter(k for line in removed for k in _RATE_KEY_IN_LINE_RE.findall(line))
+        came = collections.Counter(k for line in added for k in _RATE_KEY_IN_LINE_RE.findall(line))
+        new.update(k for k, n in came.items() if n > gone.get(k, 0))
+    return sorted(new)
+
+
+def row8_verdict(src_diff: str) -> tuple[str, str]:
+    """DoD item 8: a new published rate needs a *_basis sibling or a refusal path."""
+    rates = new_rate_keys(src_diff)
+    if not rates:
+        return "n.a.", "no new rate/share/confidence key in the diff"
+    basis = "_basis" in src_diff or "refus" in src_diff
+    return (
+        "met" if basis else "unmet",
+        f"new keys {rates[:5]}; a *_basis sibling or a refusal path must appear in the diff",
+    )
+
 BACKGROUND_RE = re.compile(
     r"^\+.*(?:threading\.Thread|socket\.socket|httpx\.|asyncio\.create_task|schedule)",
     re.M,
@@ -1117,6 +1169,9 @@ def main() -> int:
         *(["--descriptions"] if has_desc else []),
         "--base-ref",
         base,
+        # The PR's surface report, a reviewer input; the script replaces the file.
+        "--summary",
+        str(EVIDENCE / "surface.md"),
     )
     desc_changed = "description changed:" in out
     if rc == 0 and "no surface change" in out and not desc_changed:
@@ -1189,16 +1244,7 @@ def main() -> int:
         )
 
     # 8 *_basis beside a published rate
-    rates = RATE_KEY_RE.findall(src_diff)
-    if not rates:
-        row(8, "n.a.", "no new rate/share/confidence key in the diff")
-    else:
-        basis = "_basis" in src_diff or "refus" in src_diff
-        row(
-            8,
-            "met" if basis else "unmet",
-            f"new keys {sorted(set(rates))[:5]}; a *_basis sibling or a refusal path must appear in the diff",
-        )
+    row(8, *row8_verdict(src_diff))
 
     # 9 contributor PR
     if not a.contributor:
