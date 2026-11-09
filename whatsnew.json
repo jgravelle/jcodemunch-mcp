@@ -1,6 +1,12 @@
 {
-  "current": "1.108.428",
+  "current": "1.108.429",
   "entries": [
+    {
+      "version": "1.108.429",
+      "date": "2026-11-09",
+      "title": "a hook answers in about a second",
+      "summary": "A hook command now answers in about a second: a bare hook command runs its handler without importing the server, so an answered Grep takes 1.07 to 1.21 s for the whole hook process, where it took 5.1 s before, and the Grep answer reads the source files its freshness check just proved unchanged."
+    },
     {
       "version": "1.108.428",
       "date": "2026-11-08",
