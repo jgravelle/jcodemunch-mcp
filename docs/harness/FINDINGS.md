@@ -62,7 +62,7 @@ the tests that carry them.
 
 ## Product-code seams
 
-One, after the build (2026-09-03, F-13): `src/jcodemunch_mcp/tools/search_symbols.py` ranks tied scores by symbol id instead of encounter order. Everything in the build itself was `benchmarks/`, `tests/`, `harness/`, `.github/workflows/`, `.gitignore`.
+One, after the build (2026-09-03, F-13): `src/jcodemunch_mcp/tools/search_symbols.py` ranks tied scores by symbol id instead of encounter order. Everything in the build itself was `benchmarks/`, `tests/`, `harness/`, `.github/workflows/`, `.gitignore`. Two, the served-count benchmark reference (2026-11-08, benchmark.yml run 42525783321): `src/jcodemunch_mcp/retrieval/provenance.py` `MEASURED["token_reduction"]["average_pct"]` moves from 99.6 to 99.7 to match `benchmarks/provenance/measured.json`. The value is served on the reporting surfaces (v1.108.139), so a benchmark capture moves a served number; the entry keeps its `"basis": BASIS_MEASURED`.
 
 ## Tests that fail against current code
 

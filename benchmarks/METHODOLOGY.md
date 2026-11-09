@@ -309,7 +309,7 @@ advantage by roughly 8.4x.** Quote Baseline B's per-lookup mean, 96.2%; this
 table pools the totals.
 
 ⚠ **The per-query spread on B is 10.4x to 132.5x** (median 29.4x), so no single
-multiple describes every query. The floor — `middleware` on gin at **10.4x** — is
+multiple describes every query. The floor, `middleware` on gin at **10.4x**, is
 the honest worst case and is published here rather than left in the JSON.
 
 ⚠ One thing that improved under the realistic baseline, and it is worth saying
