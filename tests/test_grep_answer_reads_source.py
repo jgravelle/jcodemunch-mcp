@@ -98,21 +98,79 @@ def test_without_a_read_root_the_cached_copies_are_read(repo, monkeypatch):
     assert not _under(seen, src)
 
 
-def test_a_file_that_leaves_the_root_is_not_read(repo, tmp_path, monkeypatch):
-    """A link inside the source root pointing outside it is refused, not followed."""
-    rid, store, src, _ = repo
-    outside = tmp_path / "outside.py"
-    outside.write_text("x = 'needle outside'\n", encoding="utf-8")
-    target = src / "m01.py"
-    target.unlink()
+def _link_dir(link, target):
+    """A directory link without admin rights: a symlink, or a junction on Windows."""
     try:
-        os.symlink(outside, target)
+        os.symlink(target, link, target_is_directory=True)
+        return
     except (OSError, NotImplementedError):
-        pytest.skip("symlinks are not available here")
+        if os.name != "nt":
+            raise
+    import _winapi
+
+    _winapi.CreateJunction(str(target), str(link))
+
+
+def test_a_file_that_leaves_the_root_is_not_read(tmp_path, monkeypatch):
+    """A directory link inside the source root pointing outside it is refused, not followed.
+
+    A junction needs no admin rights on Windows, so this runs there instead of
+    skipping like a file symlink would.
+    """
+    src = tmp_path / "proj"
+    (src / "sub").mkdir(parents=True)
+    (src / "a.py").write_text("x = 'needle inside'\n", encoding="utf-8")
+    (src / "sub" / "b.py").write_text("x = 'needle sub'\n", encoding="utf-8")
+    store = tmp_path / "store"
+    idx = index_folder(str(src), use_ai_summaries=False, storage_path=str(store))
+    assert idx["success"]
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "b.py").write_text("x = 'needle outside'\n", encoding="utf-8")
+    (src / "sub" / "b.py").unlink()
+    (src / "sub").rmdir()
+    _link_dir(src / "sub", outside)
     seen = _opened(monkeypatch)
-    res = st.search_text(rid, "needle", storage_path=store, scan_limit=1000, _read_root=str(src))
-    assert os.path.normcase(str(outside)) not in seen
+    res = st.search_text(idx["repo"], "needle", storage_path=str(store), scan_limit=1000, _read_root=str(src))
+    assert not _under(seen, outside)
     assert "needle outside" not in json.dumps(res)
+    assert "needle inside" in json.dumps(res)
+
+
+def test_a_source_read_records_no_trigram_row(tmp_path):
+    """The trigram sidecar answers for the cached copy's text, so a source read must not write it.
+
+    A source edited with its mtime kept passes the freshness check. Had the
+    search recorded the source's trigrams under the cached copy's stamp, a
+    later server search for the cached copy's text would be ruled out and
+    come back empty.
+    """
+    from jcodemunch_mcp.storage import text_filter as tf
+    import sqlite3
+
+    src = tmp_path / "proj"
+    src.mkdir()
+    f = src / "a.py"
+    f.write_text("def a():\n    return 'oldneedle'\n", encoding="utf-8")
+    (src / "b.py").write_text("def b():\n    return 1\n", encoding="utf-8")
+    store = tmp_path / "store"
+    res = index_folder(str(src), use_ai_summaries=False, storage_path=str(store))
+    assert res["success"]
+    rid = res["repo"]
+    owner, name = rid.split("/", 1)
+    content_dir = IndexStore(base_path=str(store))._content_dir(owner, name)
+    con = sqlite3.connect(str(tf.sidecar_path(content_dir)))
+    con.execute(f"DELETE FROM {tf._TABLE}")
+    con.commit()
+    con.close()
+    before = f.stat()
+    f.write_text("def a():\n    return 'newneedle'\n", encoding="utf-8")
+    os.utime(f, ns=(before.st_atime_ns, before.st_mtime_ns))
+
+    st.search_text(rid, "needle", storage_path=str(store), scan_limit=1000, _read_root=str(src))
+    assert tf.load(content_dir) == {}
+    plain = st.search_text(rid, "oldneedle", storage_path=str(store))
+    assert plain.get("result_count") == 1, plain
 
 
 # --- the hook passes the source root, and only after freshness -------------

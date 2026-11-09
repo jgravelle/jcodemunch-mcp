@@ -1,10 +1,9 @@
 """A hook command starts without importing the server module.
 
 Every hook went through `server.cli`, so each hook process imported
-`server.py`, the MCP SDK, httpx, jsonschema and every tool before it read its
-stdin. Measured on this project: 4.5 s of imports on a loaded machine, paid on
-every Read, Grep, Glob and Bash call once `init --guidance` installs the
-model-facing hooks. The console entry now runs a bare `hook-<name>` directly,
+`server.py`, the MCP SDK, httpx and jsonschema before it read its stdin,
+paid on every Read, Grep, Glob and Bash call once `init --guidance` installs
+the model-facing hooks. The console entry now runs a bare `hook-<name>` directly,
 after the same first steps as `server.main`.
 """
 
@@ -70,7 +69,9 @@ def test_the_console_scripts_point_at_the_thin_entry():
 
 def _run(code: str, stdin: str, tmp_path) -> subprocess.CompletedProcess:
     env = dict(os.environ)
-    env["PYTHONPATH"] = str(SRC.parent) + os.pathsep + env.get("PYTHONPATH", "")
+    # The package this test imported, so the child runs the same code.
+    pkg_root = Path(cli_entry.__file__).resolve().parents[1]
+    env["PYTHONPATH"] = str(pkg_root) + os.pathsep + env.get("PYTHONPATH", "")
     env["CODE_INDEX_PATH"] = str(tmp_path / "store")
     return subprocess.run(
         [sys.executable, "-c", code],

@@ -2,8 +2,8 @@
 
 Claude Code runs a hook command on every matching tool call, and each one is a
 fresh process. Every hook went through `server.cli`, so each imported
-`server.py` and with it the MCP SDK, httpx, jsonschema and every tool module
-before it read its stdin. A hook needs none of that, and the opt-in Grep
+`server.py` and with it the MCP SDK, httpx and jsonschema before it
+read its stdin. A hook needs none of that, and the opt-in Grep
 answer's time budget starts only after that import, so the import ran on top
 of the budget on every Grep.
 

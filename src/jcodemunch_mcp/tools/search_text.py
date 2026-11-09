@@ -457,7 +457,12 @@ def search_text(
             if not full_path or read_error is not None or lines is None:
                 files_unreadable += 1
                 continue
-            text_filter.note_read(file_path, stamp, "".join(lines))
+            # The trigram row is keyed by the cached copy's stamp, so only the
+            # cached copy's text may write it. A source read would record the
+            # source under that stamp, and a later search for text only the
+            # cached copy holds would be ruled out and come back empty.
+            if not _read_root:
+                text_filter.note_read(file_path, stamp, "".join(lines))
 
             files_searched += 1
             file_matches = []
