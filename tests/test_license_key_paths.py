@@ -43,6 +43,13 @@ def _isolated(tmp_path, monkeypatch):
     # records no undo, so set it first: teardown then restores absence.
     monkeypatch.setenv("JCODEMUNCH_LICENSE_KEY", "unset-by-teardown")
     monkeypatch.delenv("JCODEMUNCH_LICENSE_KEY")
+    # The reminder's off switches, CI runners included, silence the same lines
+    # a key does; with one set, a "key silences it" cell passes for the wrong
+    # reason and the no-key control fails.
+    from jcodemunch_mcp.license_reminder import CI_MARKERS, ENV_VAR, NOTICE_ENV_VAR
+
+    for name in (*CI_MARKERS, ENV_VAR, NOTICE_ENV_VAR):
+        monkeypatch.delenv(name, raising=False)
     return store
 
 
@@ -382,8 +389,11 @@ def test_receipt_ends_without_the_license_line_for_a_key_from(
         _key_in_env(monkeypatch, TEST_KEY)
     else:
         _key_in_config(_isolated, TEST_KEY)
+    from jcodemunch_mcp.license_reminder import switch_reason
+
     out = _receipt(capsys, tmp_path, monkeypatch)
     assert out.strip(), "receipt printed nothing, so the cell checks nothing"
+    assert switch_reason() == "licensed"  # silenced by the key, not another switch
     assert RECEIPT_TEXT not in out
     assert BUY_URL not in out
     assert server == []
