@@ -267,7 +267,7 @@ def test_the_walk_rule_stops_at_the_deadline_and_says_so(indexed, monkeypatch):
 
 def test_the_package_json_prescan_runs_once_per_check(indexed, monkeypatch):
     """The walk rule pre-scans the tree for every file over the size cap; a
-    check with several such files paid the scan each time (0.7 s each here)."""
+    check with several such files paid the scan each time."""
     from jcodemunch_mcp.tools import index_folder as _ifo
 
     src, repo, store = indexed
@@ -568,9 +568,9 @@ def _passages() -> dict[str, str]:
 def test_every_figure_in_the_prose_is_a_module_constant():
     """The cooldown, the file limit, the budget and the refusal cap are
     restated in five places; each copy must be the module's value, and the
-    first three must be present everywhere. A measured timing is written as a
-    decimal (0.8 s) and a file count with a thousands comma (1,549); neither
-    reads as a constant here, nor does an env var's `=0`."""
+    first three must be present everywhere. A decimal (a measured timing), a
+    number with a thousands comma and an env var's `=0` are not read as
+    constants."""
     allowed = {
         int(ror.REFRESH_COOLDOWN_SECONDS),
         ror.REFRESH_MAX_FILES,
@@ -583,13 +583,16 @@ def test_every_figure_in_the_prose_is_a_module_constant():
         str(int(ror.REFRESH_BUDGET_SECONDS)),
     }
     for where, text in _passages().items():
-        found = {int(n) for n in re.findall(r"(?<![\w.=])(?<!\d,)(\d+)(?![\w.])(?!,\d)", text)}
+        found = {
+            int(n)
+            for n in re.findall(r"(?<![\w.=])(?<!\d,)(\d+)(?![\w.])(?!,\d)", text)
+        }
         assert found <= allowed, (
             f"{where} states {sorted(found - allowed)}, which no constant holds"
         )
-        assert required <= set(re.findall(r"(?<![\w.=])(?<!\d,)(\d+)(?![\w.])(?!,\d)", text)), (
-            f"{where} omits one of the cooldown, the file limit or the budget"
-        )
+        assert required <= set(
+            re.findall(r"(?<![\w.=])(?<!\d,)(\d+)(?![\w.])(?!,\d)", text)
+        ), f"{where} omits one of the cooldown, the file limit or the budget"
 
 
 def test_the_figure_check_sees_a_drifted_copy(monkeypatch):

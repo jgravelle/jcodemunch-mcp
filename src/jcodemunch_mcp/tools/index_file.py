@@ -208,8 +208,8 @@ def _walk_refusal(
     """The refusal for a file the full walk would not index, or None.
 
     ``forced_paths_for(walk_root)`` replaces the package.json pre-scan a caller
-    asking about MANY files wants to pay once: the scan walks the whole tree
-    (1 s on this repository), and it runs for every file over the size cap.
+    asking about MANY files wants to pay once: the scan walks the whole tree,
+    and it runs for every file over the size cap.
     It must return what `_scan_package_json_forced_paths` returns; refresh on
     read passes a per-check memo of exactly that function.
 

@@ -44,8 +44,7 @@ logger = logging.getLogger(__name__)
 REFRESH_COOLDOWN_SECONDS = 30.0
 REFRESH_MAX_FILES = 50
 # The caller's wall-clock bound for the WHOLE check: git, the walk rule and the
-# wait on the re-index share it (tests/test_refresh_on_read.py measures the
-# git half on this repository).
+# wait on the re-index share it.
 REFRESH_BUDGET_SECONDS = 2.0
 
 
@@ -221,8 +220,7 @@ def _indexable(
 
     # The walk rule pre-scans the tree for package.json files for every
     # candidate over the size cap (#25); once per check is enough, and that
-    # one scan is the longest step the budget cannot cut short (measured
-    # 1.0 s on this repository).
+    # one scan is the longest step the budget cannot cut short.
     memo: dict[Path, set[str]] = {}
 
     def forced_paths_for(walk_root: Path) -> set[str]:
