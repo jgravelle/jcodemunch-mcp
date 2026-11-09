@@ -20,6 +20,7 @@ anything else, so no real key exists anywhere in this file.
 from __future__ import annotations
 
 import json
+import re
 
 import pytest
 
@@ -29,6 +30,14 @@ from jcodemunch_mcp.org import license as lic
 
 TEST_KEY = "JCM-TEST-0000-PATHS"
 WRONG_KEY = "JCM-TEST-9999-WRONG"
+
+
+def _is_our_url(url: str) -> bool:
+    """An https link whose host is exactly jcodemunch.com (#58: never a placeholder)."""
+    from urllib.parse import urlparse
+
+    parts = urlparse(url)
+    return parts.scheme == "https" and parts.hostname == "jcodemunch.com"
 
 
 @pytest.fixture(autouse=True)
@@ -177,7 +186,7 @@ def test_no_key_anywhere_is_absent_and_asks_nothing(server, capsys):
     payload = json.loads(_run(capsys, ["license", "--json"]).out)
     assert server == []
     assert payload["key_status"] == "absent"
-    assert payload["get_license"].startswith("https://jcodemunch.com/")  # #58: never a placeholder
+    assert _is_our_url(payload["get_license"])  # #58: never a placeholder
 
 
 # --------------------------------------------------------------------------- #
@@ -365,7 +374,8 @@ def test_install_pack_list_shows_a_real_sales_link_with_no_key(catalog, fresh_pr
     out = _run(capsys, ["install-pack", "--list"]).out
     links = [ln for ln in out.splitlines() if "Get a license" in ln]
     assert len(links) == 1
-    assert "https://jcodemunch.com/" in links[0]  # #58: never a placeholder
+    urls = re.findall(r"https?://[^\s]+", links[0])
+    assert len(urls) == 1 and _is_our_url(urls[0]), links  # #58: never a placeholder
 
 
 def _receipt(capsys, tmp_path, monkeypatch):
@@ -405,7 +415,7 @@ def test_receipt_ends_with_a_real_license_link_with_no_key(fresh_process, capsys
 
     out = _receipt(capsys, tmp_path, monkeypatch)
     assert out.rstrip().endswith(RECEIPT_TEXT)
-    assert BUY_URL.startswith("https://jcodemunch.com/")  # #58: never a placeholder
+    assert _is_our_url(BUY_URL)  # #58: never a placeholder
     assert BUY_URL in out
 
 
