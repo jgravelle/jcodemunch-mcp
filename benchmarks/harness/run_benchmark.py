@@ -89,7 +89,7 @@ def _load_corpus():
     # be visibly unpinned rather than quietly pinned to a stale constant.
     return (
         ["expressjs/express", "fastapi/fastapi", "gin-gonic/gin"],
-        ["router route handler", "middleware", "error exception", "request response", "context bind"],
+        ["router route handler", "middleware", "error exception", "request response", "param bind"],
         {},
     )
 
@@ -904,6 +904,9 @@ def benchmark_repo(repo_str: str) -> dict:
 # baseline token total with no way to say which tree produced them.
 REFERENCE_SCHEMA = "jcm-benchmark-reference/v2"
 REFERENCE_PATH = _REPO_ROOT / "benchmarks" / "jcm_reference.json"
+# Notes the published results.md carries above the run's own output (a methodology change, say).
+# render_markdown emits this file, so a re-capture keeps the notes instead of overwriting them.
+RESULTS_NOTES_PATH = _REPO_ROOT / "benchmarks" / "results_notes.md"
 
 
 def _jcm_version() -> str:
@@ -1090,10 +1093,24 @@ def reference_drift(entry: Optional[dict], file_count: int, baseline_tokens: int
 # Markdown rendering
 # ---------------------------------------------------------------------------
 
+def results_notes_lines(path: Optional[Path] = None) -> list[str]:
+    """The committed notes block for results.md, followed by a blank line; [] when there is none.
+
+    Read at call time, never bound at import, so a test can point it at its own file.
+    """
+    path = RESULTS_NOTES_PATH if path is None else path
+    try:
+        text = path.read_text(encoding="utf-8").strip()
+    except FileNotFoundError:
+        return []
+    return text.splitlines() + [""] if text else []
+
+
 def render_markdown(results: list[dict], tokenizer: str) -> str:
     lines = []
     lines.append("# jcodemunch-mcp -- Token Efficiency Benchmark")
     lines.append("")
+    lines.extend(results_notes_lines())
     lines.append(f"**Tokenizer:** `{tokenizer}` (tiktoken)  ")
     lines.append(f"**Workflow:** `search_symbols` (top {SEARCH_MAX_RESULTS}) + `get_symbol` x {SYMBOLS_FETCHED}  ")
     if MEASURE_METHOD == "served":
