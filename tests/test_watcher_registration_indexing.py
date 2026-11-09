@@ -237,6 +237,23 @@ class _WatchTrace:
             return result
         return traced
 
+    def last_progress(self):
+        """When the watcher last did something observable, or None.
+
+        A non-empty change batch and an index_folder start or end count. An
+        empty batch only shows the loop is alive, so it doesn't.
+        """
+        marks = [t for t, _ in list(self.batches)]
+        for call in [dict(c) for c in list(self.calls)]:
+            marks.append(call["start"])
+            if "end" in call:
+                marks.append(call["end"])
+        return max(marks) if marks else None
+
+    def busy(self):
+        """True while an index_folder call has started and not returned."""
+        return any("end" not in dict(c) for c in list(self.calls))
+
     def describe(self, path=None):
         # Copies first: an index_folder call may be writing its entry from the
         # watcher's worker thread while this runs on the loop thread.
@@ -253,6 +270,125 @@ class _WatchTrace:
         lines += [f"  batch @{t}s {changes[:8]}" for t, changes in batches]
         lines += [f"  index_folder {call}" for call in calls]
         return "\n".join(lines)
+
+
+WAIT_QUIET_SECONDS = 10.0
+WAIT_CAP_SECONDS = 120.0
+
+
+async def _wait_until(done, trace, task, *, quiet=WAIT_QUIET_SECONDS, cap=WAIT_CAP_SECONDS, poll=0.05):
+    """Wait for `done()`, failing only when the watcher has stopped making progress.
+
+    A fixed 10 s deadline failed on Windows runners while the watcher was
+    mid-reindex (L-307): one index_folder call on a four-file tree took 7 to
+    11 s there. This waits while an index_folder call is in flight, and gives
+    up `quiet` seconds after the watcher's last change batch or index_folder
+    start or end (or after the wait began, if later), so a missed event still
+    fails after the same 10 s. `cap` bounds the whole wait. Returns None when
+    `done()` holds, or the reason the wait gave up.
+    """
+    start = trace._now()
+    while not done():
+        if task is not None and task.done():
+            task.result()
+            pytest.fail("Watcher stopped before updating the index")
+        now = trace._now()
+        if now - start > cap:
+            reason = f"no result within the {cap:g} s cap"
+        elif not trace.busy() and now - max(start, trace.last_progress() or start) > quiet:
+            reason = f"no watcher progress for {quiet:g} s"
+        else:
+            await asyncio.sleep(poll)
+            continue
+        # A write that lands as the window closes is a pass, not a miss.
+        return None if done() else reason
+    return None
+
+
+def _run_wait(done, trace, **kwargs):
+    # The trace clock rounds to 0.01 s, so the elapsed-time bounds below carry
+    # 0.05 s of slack; each mutant they guard against misses by 0.25 s or more.
+    async def run():
+        t0 = time.monotonic()
+        reason = await _wait_until(done, trace, None, **kwargs)
+        return reason, time.monotonic() - t0
+    return asyncio.run(run())
+
+
+def test_wait_keeps_going_while_a_reindex_is_in_flight(tmp_path):
+    """L-307: an index_folder slower than the quiet window is not a miss.
+
+    On the Windows runners one index_folder call on a four-file tree took 7 to
+    11 s, so a fixed 10 s deadline failed with the edit observed and the reindex
+    still running. The wait counts a call in flight as progress.
+    """
+    trace = _WatchTrace(tmp_path)
+    call = {"start": trace._now()}
+    trace.calls.append(call)
+    finished = []
+
+    def done():
+        if trace._now() >= 0.6:
+            call["end"] = trace._now()
+            finished.append(True)
+        return bool(finished)
+
+    reason, elapsed = _run_wait(done, trace, quiet=0.2, cap=5)
+    assert reason is None
+    assert elapsed >= 0.55
+
+
+def test_wait_fails_after_the_quiet_window_when_nothing_happens(tmp_path):
+    """A missed event still fails: no batch and no reindex since the wait began."""
+    trace = _WatchTrace(tmp_path)
+    reason, elapsed = _run_wait(lambda: False, trace, quiet=0.3, cap=5)
+    assert reason is not None and "no watcher progress" in reason
+    assert 0.25 <= elapsed < 2
+
+
+def test_wait_counts_the_quiet_window_from_the_last_reindex_end(tmp_path):
+    """A reindex that ends without the symbol fails one quiet window later."""
+    trace = _WatchTrace(tmp_path)
+    call = {"start": trace._now()}
+    trace.calls.append(call)
+
+    def done():
+        if "end" not in call and trace._now() >= 0.5:
+            call["end"] = trace._now()
+        return False
+
+    reason, elapsed = _run_wait(done, trace, quiet=0.3, cap=5)
+    assert reason is not None and "no watcher progress" in reason
+    assert elapsed >= 0.75
+
+
+def test_wait_counts_a_change_batch_as_progress(tmp_path):
+    """A non-empty batch restarts the quiet window; an empty one doesn't."""
+    from collections import namedtuple
+
+    trace = _WatchTrace(tmp_path)
+    modified = namedtuple("Change", "name")("modified")
+    fed = []
+
+    def done():
+        now = trace._now()
+        if not fed and now >= 0.2:
+            trace.record_batch({(modified, str(tmp_path / "code.py"))})
+            fed.append(now)
+        trace.record_batch(set())  # the loop is alive, which is not progress
+        return False
+
+    reason, elapsed = _run_wait(done, trace, quiet=0.3, cap=5)
+    assert reason is not None and "no watcher progress" in reason
+    assert 0.45 <= elapsed < 2
+
+
+def test_wait_stops_at_the_cap_while_a_reindex_never_ends(tmp_path):
+    trace = _WatchTrace(tmp_path)
+    trace.calls.append({"start": trace._now()})
+    reason, elapsed = _run_wait(lambda: False, trace, quiet=0.1, cap=0.5)
+    assert reason is not None and "cap" in reason
+    assert 0.45 <= elapsed < 2
 
 
 def test_watch_trace_names_what_the_watcher_saw_and_did(tmp_path):
@@ -399,19 +535,12 @@ async def test_registration_race_updates_persisted_symbols(tmp_path, monkeypatch
     ))
 
     async def wait_for_symbol(symbol, file=target_rel, present=True):
-        async def observe():
-            while ((symbol, file) in symbols()) != present:
-                if task.done():
-                    task.result()
-                    pytest.fail("Watcher stopped before updating the index")
-                await asyncio.sleep(0.05)
-        try:
-            await asyncio.wait_for(observe(), 10)
-        except asyncio.TimeoutError as error:
+        reason = await _wait_until(lambda: ((symbol, file) in symbols()) == present, trace, task)
+        if reason:
             raise AssertionError(
-                f"Timed out waiting for {(symbol, file)} present={present}; "
+                f"Timed out ({reason}) waiting for {(symbol, file)} present={present}; "
                 f"persisted={symbols()}; arms={attempts}\n{trace.describe(root / file)}"
-            ) from error
+            )
         return symbols()
 
     try:
@@ -618,19 +747,12 @@ async def test_subdirectory_watch_reconciles_against_index_root_keys(tmp_path, m
     ))
 
     async def wait_for(symbol, file, present=True):
-        async def observe():
-            while ((symbol, file) in symbols()) != present:
-                if task.done():
-                    task.result()
-                    pytest.fail("Watcher stopped before updating the index")
-                await asyncio.sleep(0.05)
-        try:
-            await asyncio.wait_for(observe(), 10)
-        except asyncio.TimeoutError as error:
+        reason = await _wait_until(lambda: ((symbol, file) in symbols()) == present, trace, task)
+        if reason:
             raise AssertionError(
-                f"Timed out waiting for {(symbol, file)} present={present}; persisted={symbols()}"
-                f"\n{trace.describe(root / file)}"
-            ) from error
+                f"Timed out ({reason}) waiting for {(symbol, file)} present={present}; "
+                f"persisted={symbols()}\n{trace.describe(root / file)}"
+            )
         return symbols()
 
     try:
