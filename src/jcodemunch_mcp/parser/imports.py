@@ -104,7 +104,11 @@ _GO_IMPORT_ENTRY = re.compile(r"""(?:\w+\s+)?["']([^"']+)["']""")
 # Java/Kotlin: import com.example.Foo
 # (L-177) Kotlin's `import a.b.D as E` names `D`; without the alias clause the
 # line matched nothing and the file had no edge to `a.b.D`. Java has no `as`.
-_JAVA_IMPORT = re.compile(r"""^import\s+(?:static\s+)?([\w.]+)(?:\s+as\s+\w+)?\s*;?$""", re.MULTILINE)
+# (#1374) `[ \t\r]*` before the anchor: `$` stops at the newline, so a bare
+# `;?$` lost every `;`-terminated import followed by a carriage return (a
+# CRLF checkout) or by trailing spaces. That is every Java import; Kotlin
+# without `;` was unaffected.
+_JAVA_IMPORT = re.compile(r"""^import\s+(?:static\s+)?([\w.]+)(?:\s+as\s+\w+)?\s*;?[ \t\r]*$""", re.MULTILINE)
 
 # Rust: use crate::foo::{Bar, Baz}
 _RUST_USE = re.compile(r"""^use\s+([\w::{},\s*]+)\s*;""", re.MULTILINE)
@@ -2436,6 +2440,95 @@ def _gleam_source_roots(source_files) -> tuple[str, ...]:
     return result
 
 
+# (#1374) JVM imports. A `.kts` file (a Gradle script) imports classes but is
+# not one, so it is an importer and never a target. Java and Kotlin import each
+# other freely, so both target extensions are tried for every JVM importer.
+_JVM_IMPORTER_EXTENSIONS = (".java", ".kt", ".kts")
+_JVM_TARGET_EXTENSIONS = (".java", ".kt")
+_JVM_SOURCE_DIRS = ("java", "kotlin")
+
+# Cache: frozenset(source_files) -> {class path: ((file, module), ...)}.
+# Same keying rationale as _python_roots_cache, bounded like the specifier memo
+# because the class map holds an entry per JVM file, and read and written
+# under _TAIL_MEMO_LOCK as the memos are: graph tools run on worker threads,
+# and an unlocked evict beside a clear raises inside the tool.
+_jvm_layout_cache: dict[frozenset, dict] = {}
+
+
+def _jvm_split(path: str) -> tuple[Optional[str], Optional[str], str]:
+    """``(source root, module dir, path below the root)`` for a JVM file path.
+
+    A Maven or Gradle source root is ``<module>/src/<sourceSet>/java`` or
+    ``.../kotlin`` (``<module>`` may be empty, or several directories deep).
+    The first such run from the left is the root. A file under none has root
+    and module None and its whole path is the class path (the repo-root layout).
+    """
+    parts = path.split("/")
+    for i in range(len(parts) - 3):
+        if parts[i] == "src" and parts[i + 2] in _JVM_SOURCE_DIRS:
+            return "/".join(parts[: i + 3]), "/".join(parts[:i]), "/".join(parts[i + 3 :])
+    return None, None, path
+
+
+def _jvm_classes(source_files) -> dict:
+    """Map each class path (``a/b/C``) to the JVM files that declare it, once per file set.
+
+    The class path is the file's path below its Maven or Gradle source root
+    (``_jvm_split``), or its whole path for a file under none.
+    """
+    cache_key = source_files if isinstance(source_files, frozenset) else frozenset(source_files)
+    with _TAIL_MEMO_LOCK:
+        cached = _jvm_layout_cache.get(cache_key)
+    if cached is not None:
+        return cached
+
+    classes: dict[str, list[tuple[str, Optional[str]]]] = {}
+    for f in source_files:
+        if not f.endswith(_JVM_TARGET_EXTENSIONS):
+            continue
+        _, module, below = _jvm_split(f)
+        stem = below.rsplit(".", 1)[0]
+        classes.setdefault(stem, []).append((f, module))
+
+    result = {k: tuple(v) for k, v in classes.items()}
+    with _TAIL_MEMO_LOCK:
+        if cache_key not in _jvm_layout_cache and len(_jvm_layout_cache) >= _TAIL_MEMO_MAX:
+            _jvm_layout_cache.pop(next(iter(_jvm_layout_cache)), None)
+        _jvm_layout_cache[cache_key] = result
+    return result
+
+
+def _resolve_jvm_import(specifier: str, importer_path: str, source_files) -> Optional[str]:
+    """Resolve a Java or Kotlin import to the file that declares the class.
+
+    ``a.b.C`` names ``a/b/C.java`` or ``a/b/C.kt`` under any source root, or at
+    the repo root. When the full name matches no file, trailing segments are
+    dropped, down to two: that is ``import static a.b.C.member`` and a nested
+    class ``a.b.Outer.Inner``, both of which live in the outer class's file.
+    Among several matches the importer's own module wins, then its own
+    language, then the path. A JDK or library name matches nothing, so None.
+    """
+    if not specifier or "/" in specifier or "\\" in specifier:
+        return None
+    segments = specifier.split(".")
+    if not all(segments):
+        return None
+    classes = _jvm_classes(source_files)
+    _, own_module, _ = _jvm_split(importer_path)
+    if own_module is None:
+        own_module = posixpath.dirname(importer_path)
+    own_ext = ".java" if importer_path.endswith(".java") else ".kt"
+    for n in range(len(segments), 1, -1):
+        hits = classes.get("/".join(segments[:n]))
+        if hits:
+            best = min(
+                hits,
+                key=lambda h: (h[1] != own_module, not h[0].endswith(own_ext), h[0]),
+            )
+            return best[0]
+    return None
+
+
 def _python_package_parents(source_files) -> dict[str, tuple[str, ...]]:
     """Map every package basename to the parent dirs where it appears.
 
@@ -2977,6 +3070,14 @@ def _resolve_specifier_uncached(
     if not specifier.startswith(".") and _is_c_family_importer(importer_path):
         return _resolve_c_include(specifier, importer_path, source_files)
 
+    # Java and Kotlin `import a.b.C` (#1374). ⚠ Gated on the IMPORTER's
+    # extension, and a miss returns None without falling through, the C-family
+    # rule: the later steps read a dotted name as a Python module path and try
+    # every JavaScript, Python and Ruby extension, so `java.util.List` bound a
+    # `java/util/List.ts` while a real `Hosts.java` resolved to nothing.
+    if importer_path.endswith(_JVM_IMPORTER_EXTENSIONS) and not specifier.startswith("."):
+        return _resolve_jvm_import(specifier, importer_path, source_files)
+
     # Relative import
     if specifier.startswith("."):
         # Python's relative form is NOT a path. `..parser.fqn` means "up one
@@ -3160,6 +3261,7 @@ def clear_resolution_caches() -> None:
     with _TAIL_MEMO_LOCK:
         _tail_memos.clear()
         _answer_memos.clear()
+        _jvm_layout_cache.clear()
     _is_c_family_importer.cache_clear()
     global _last_answer_memo
     _last_answer_memo = None

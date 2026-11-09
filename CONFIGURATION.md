@@ -378,6 +378,8 @@ A project value that is ignored is logged once, naming the key. Set it in your o
 
 Project config is loaded automatically when a repo is indexed. It uses hash-based caching — the file is only re-parsed when its content changes, not on every watcher cycle.
 
+A license key is not read from a project file. Set `license_key` in your own `config.jsonc` or the `JCODEMUNCH_LICENSE_KEY` environment variable; `license --key` and `install-pack --license` also take a key for one run. A `license_key` in `.jcodemunch.jsonc` is ignored, and no warning names it.
+
 ## Migrating from environment variables
 
 Every `JCODEMUNCH_*` env var maps to a config key:
