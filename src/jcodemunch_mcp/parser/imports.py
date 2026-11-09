@@ -104,9 +104,10 @@ _GO_IMPORT_ENTRY = re.compile(r"""(?:\w+\s+)?["']([^"']+)["']""")
 # Java/Kotlin: import com.example.Foo
 # (L-177) Kotlin's `import a.b.D as E` names `D`; without the alias clause the
 # line matched nothing and the file had no edge to `a.b.D`. Java has no `as`.
-# (#1374) `[ \t\r]*` before the anchor: in a CRLF file `$` stops at
-# the newline, so a bare `;?$` left the carriage return unmatched and a
-# Windows checkout of a Java or Kotlin tree recorded no imports at all.
+# (#1374) `[ \t\r]*` before the anchor: `$` stops at the newline, so a bare
+# `;?$` lost every `;`-terminated import followed by a carriage return (a
+# CRLF checkout) or by trailing spaces. That is every Java import; Kotlin
+# without `;` was unaffected.
 _JAVA_IMPORT = re.compile(r"""^import\s+(?:static\s+)?([\w.]+)(?:\s+as\s+\w+)?\s*;?[ \t\r]*$""", re.MULTILINE)
 
 # Rust: use crate::foo::{Bar, Baz}
@@ -2446,10 +2447,12 @@ _JVM_IMPORTER_EXTENSIONS = (".java", ".kt", ".kts")
 _JVM_TARGET_EXTENSIONS = (".java", ".kt")
 _JVM_SOURCE_DIRS = ("java", "kotlin")
 
-# Cache: frozenset(source_files) -> (source roots, {class path: ((file, module), ...)}).
+# Cache: frozenset(source_files) -> {class path: ((file, module), ...)}.
 # Same keying rationale as _python_roots_cache, bounded like the specifier memo
-# because the class map holds an entry per JVM file.
-_jvm_layout_cache: dict[frozenset, tuple] = {}
+# because the class map holds an entry per JVM file, and read and written
+# under _TAIL_MEMO_LOCK as the memos are: graph tools run on worker threads,
+# and an unlocked evict beside a clear raises inside the tool.
+_jvm_layout_cache: dict[frozenset, dict] = {}
 
 
 def _jvm_split(path: str) -> tuple[Optional[str], Optional[str], str]:
@@ -2467,34 +2470,32 @@ def _jvm_split(path: str) -> tuple[Optional[str], Optional[str], str]:
     return None, None, path
 
 
-def _jvm_layout(source_files) -> tuple:
-    """Derive the JVM source roots and a class-path map once per file set."""
+def _jvm_classes(source_files) -> dict:
+    """Map each class path (``a/b/C``) to the JVM files that declare it, once per file set.
+
+    The class path is the file's path below its Maven or Gradle source root
+    (``_jvm_split``), or its whole path for a file under none.
+    """
     cache_key = source_files if isinstance(source_files, frozenset) else frozenset(source_files)
-    cached = _jvm_layout_cache.get(cache_key)
+    with _TAIL_MEMO_LOCK:
+        cached = _jvm_layout_cache.get(cache_key)
     if cached is not None:
         return cached
 
-    roots: set[str] = set()
     classes: dict[str, list[tuple[str, Optional[str]]]] = {}
     for f in source_files:
         if not f.endswith(_JVM_TARGET_EXTENSIONS):
             continue
-        root, module, below = _jvm_split(f)
-        if root is not None:
-            roots.add(root)
+        _, module, below = _jvm_split(f)
         stem = below.rsplit(".", 1)[0]
         classes.setdefault(stem, []).append((f, module))
 
-    result = (tuple(sorted(roots)), {k: tuple(v) for k, v in classes.items()})
-    if len(_jvm_layout_cache) >= _TAIL_MEMO_MAX:
-        _jvm_layout_cache.pop(next(iter(_jvm_layout_cache)), None)
-    _jvm_layout_cache[cache_key] = result
+    result = {k: tuple(v) for k, v in classes.items()}
+    with _TAIL_MEMO_LOCK:
+        if cache_key not in _jvm_layout_cache and len(_jvm_layout_cache) >= _TAIL_MEMO_MAX:
+            _jvm_layout_cache.pop(next(iter(_jvm_layout_cache)), None)
+        _jvm_layout_cache[cache_key] = result
     return result
-
-
-def _jvm_source_roots(source_files) -> tuple[str, ...]:
-    """The Maven and Gradle source roots in the indexed file set (#1374)."""
-    return _jvm_layout(source_files)[0]
 
 
 def _resolve_jvm_import(specifier: str, importer_path: str, source_files) -> Optional[str]:
@@ -2512,7 +2513,7 @@ def _resolve_jvm_import(specifier: str, importer_path: str, source_files) -> Opt
     segments = specifier.split(".")
     if not all(segments):
         return None
-    _, classes = _jvm_layout(source_files)
+    classes = _jvm_classes(source_files)
     _, own_module, _ = _jvm_split(importer_path)
     if own_module is None:
         own_module = posixpath.dirname(importer_path)

@@ -185,19 +185,25 @@ def test_the_jvm_step_is_gated_on_the_importers_extension(
     assert _resolve(spec, importer, files) == expected
 
 
-def test_the_source_roots_are_derived_once_per_file_set():
-    roots = imp._jvm_source_roots(GRADLE)
-    assert set(roots) >= {
-        "app/src/main/java",
-        "app/src/main/kotlin",
-        "app/src/test/java",
-        "lib/src/main/kotlin",
-        "lib/src/main/java",
-        "subprojects/core/billing/src/main/java",
-    }
-    assert imp._jvm_source_roots(GRADLE) is roots
-    assert "src/main/java" in imp._jvm_source_roots(
-        frozenset({"src/main/java/com/x/A.java"})
+def test_the_class_map_is_built_once_per_file_set(monkeypatch):
+    """Resolving many specifiers over one file set walks the set once."""
+    imp.clear_resolution_caches()
+    calls = []
+    real = imp._jvm_split
+    monkeypatch.setattr(imp, "_jvm_split", lambda p: calls.append(p) or real(p))
+    importer = "app/src/main/java/com/acme/app/OrderService.java"
+    for spec in ("com.acme.app.util.Hosts", "com.acme.lib.Money", "java.util.List"):
+        imp._resolve_jvm_import(spec, importer, GRADLE)
+    jvm_files = [f for f in GRADLE if f.endswith((".java", ".kt"))]
+    # One split per JVM file to build the map, plus one per call for the importer.
+    assert len(calls) == len(jvm_files) + 3
+    assert (
+        imp._resolve_jvm_import(
+            "com.x.A",
+            "src/main/java/com/x/B.java",
+            frozenset({"src/main/java/com/x/A.java"}),
+        )
+        == "src/main/java/com/x/A.java"
     )
 
 
@@ -263,3 +269,19 @@ def test_index_folder_then_find_importers_returns_the_edge(tmp_path, newline):
         "app/src/main/java/com/acme/app/OrderService.java",
         "app/src/main/java/com/acme/app/util/Hosts.java",
     }, out
+
+    # The tool that acts on the graph: the import is a blocker of its own. Main's
+    # code blocked only on a text match of the name (internal_reference), which a
+    # class used under another name would not have.
+    from jcodemunch_mcp.tools.check_delete_safe import check_delete_safe
+
+    verdict = check_delete_safe(
+        repo=r["repo"],
+        symbol="Money",
+        cross_repo=False,
+        include_runtime=False,
+        storage_path=str(store),
+    )
+    kinds = {b.get("kind") for b in verdict.get("blockers", [])}
+    assert "external_import" in kinds, verdict
+    assert verdict.get("verdict") != "safe_to_delete", verdict
