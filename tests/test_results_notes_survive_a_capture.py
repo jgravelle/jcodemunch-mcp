@@ -51,21 +51,27 @@ def test_a_capture_writes_the_notes_under_the_title(tmp_path, monkeypatch):
     # A second capture over the first one's output writes the same text because
     # nothing in the rendering reads the results.md it is about to replace.
     # Record every file the render opens and check that none is a results.md.
+    # Path.open is spied as well as open(): on Python 3.10 pathlib reads through
+    # its own reference to io.open, which a patch of builtins.open never reaches.
     import builtins
-    import io as _io
+    import pathlib
 
     opened = []
-    real_open, real_io_open = builtins.open, _io.open
+    real_open, real_path_open = builtins.open, pathlib.Path.open
 
     def spy(path, *a, **kw):
         opened.append(Path(path).name if not isinstance(path, int) else str(path))
         return real_open(path, *a, **kw)
 
+    def path_spy(self, *a, **kw):
+        opened.append(self.name)
+        return real_path_open(self, *a, **kw)
+
     monkeypatch.setattr(builtins, "open", spy)
-    monkeypatch.setattr(_io, "open", spy)
+    monkeypatch.setattr(pathlib.Path, "open", path_spy)
     h.render_markdown(_results(), h.TOKENIZER)
     monkeypatch.setattr(builtins, "open", real_open)
-    monkeypatch.setattr(_io, "open", real_io_open)
+    monkeypatch.setattr(pathlib.Path, "open", real_path_open)
     assert "results_notes.md" in opened, opened  # the spy sees the render's reads
     assert "results.md" not in opened, opened
 
