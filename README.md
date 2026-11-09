@@ -453,7 +453,7 @@ Then add an entry for it to the repo's `.cursor-plugin/marketplace.json`, follow
 ## FAQ
 
 **How much can I save on Claude / Opus tokens?**
-In retrieval-heavy workflows, code-reading tokens typically drop 86-99%, benchmarked at 96.2% fewer tokens per lookup on average against a grep-and-read agent across 15 lookups and 3 repositories. Per-query results span 10.4x to 132.5x. Methodology: [TOKEN_SAVINGS.md](TOKEN_SAVINGS.md) and [benchmarks/](benchmarks/).
+Code-reading tokens drop 90-99% per lookup on our benchmark: 96.2% fewer on average than a grep-and-read agent across 15 lookups and 3 repositories. Per-query results span 10.4x to 132.5x. Methodology: [TOKEN_SAVINGS.md](TOKEN_SAVINGS.md) and [benchmarks/](benchmarks/).
 
 **How is this different from RAG or grep-based tools?**
 jCodeMunch retrieves at the **symbol level** with byte-level precision (functions, classes, importers, blast radius, hierarchies) rather than fuzzy chunks (RAG) or raw line matches (grep) the agent still has to read and reason over.
