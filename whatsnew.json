@@ -1,6 +1,12 @@
 {
-  "current": "1.108.427",
+  "current": "1.108.428",
   "entries": [
+    {
+      "version": "1.108.428",
+      "date": "2026-11-08",
+      "title": "the published benchmark counts the answer an agent receives",
+      "summary": "The published token benchmark is re-measured on the text the server actually sends on a default install: jCodeMunch uses 96.2% fewer tokens per lookup on average than grep-and-read across the 15-lookup benchmark, and every one of the 15 lookups now returns symbols."
+    },
     {
       "version": "1.108.427",
       "date": "2026-11-08",
