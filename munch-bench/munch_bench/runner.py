@@ -12,7 +12,7 @@ from rich.table import Table
 
 from .corpus import Corpus, Question
 from .retrieval import retrieve, find_repo_id
-from .inference import infer
+from .inference import OPENAI_DEFAULT_MODEL, infer
 from .evaluate import evaluate_question, BenchmarkRun
 
 
@@ -34,7 +34,7 @@ def run_benchmark(
 
     defaults = {
         "groq": "llama-3.3-70b-versatile",
-        "openai": "gpt-4o-mini",
+        "openai": OPENAI_DEFAULT_MODEL,
         "anthropic": "claude-sonnet-5",
     }
     effective_model = model or defaults.get(provider, "unknown")
