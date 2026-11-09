@@ -1144,7 +1144,7 @@ def render_markdown(results: list[dict], tokenizer: str) -> str:
 
     for res in results:
         if "error" in res:
-            lines.append(f"## {res.get('repo', '?')} — ERROR")
+            lines.append(f"## {res.get('repo', '?')}: ERROR")
             lines.append(f"> {res['error']}")
             lines.append("")
             continue
@@ -1263,7 +1263,7 @@ def render_markdown(results: list[dict], tokenizer: str) -> str:
                 f"pays: it assumes an agent opens every file in the repository before "
                 f"acting. Grep-then-read is what a competent agent without this tool "
                 f"actually does, and it is {grand_grep / grand_baseline * 100:.1f}% of the "
-                f"read-all figure — so measuring against read-all overstates the "
+                f"read-all figure, so measuring against read-all overstates the "
                 f"advantage by about {grand_baseline / grand_grep:.0f}x."
             )
             lines.append("")
