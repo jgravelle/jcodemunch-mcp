@@ -2,7 +2,9 @@
 
 ## [Unreleased]
 
-### Changed - the published benchmark counts the answer an agent receives
+## [1.108.428] - 2026-11-08 - the published benchmark counts the answer an agent receives
+
+### Changed - the published benchmark counts the answer an agent receives (#1367)
 
 The published token benchmark is re-measured with the served count: the text the server sends on a fresh install's default settings, with the same calls and the same fetched symbols. jCodeMunch uses 96.2% fewer tokens per lookup on average than grep-and-read on the 15-lookup benchmark (90.4% to 99.2% across the lookups, 10.4x to 132.5x per query). The fifth query changed from "context bind" to "param bind" on all three repositories, because on express "context bind" returned no symbols; every one of the 15 lookups now returns symbols. `benchmarks/jcm_reference.json` records `method: served` and the costs measured beside a lookup (license notice 160 tokens, steering hint 66 tokens, the already-delivered note when one session runs a repo's five lookups: express 475, fastapi 324, gin 0). `results.md`, `METHODOLOGY.md`, `REPRODUCING.md`, `benchmarks/README.md`, `README.md`, `TOKEN_SAVINGS.md` and the provenance registry carry the new run. A dated methodology-change note opens `results.md`; it lives in `benchmarks/results_notes.md`, which `run_benchmark.py --out` writes under the title, so a re-capture keeps it (`tests/test_results_notes_survive_a_capture.py`).
 

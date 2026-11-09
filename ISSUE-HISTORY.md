@@ -3170,3 +3170,9 @@ The 1.108.423 entry, verbatim as it stood in `CLAUDE.md`:
 The 1.108.424 entry, verbatim as it stood in `CLAUDE.md`:
 
 - **Prior (1.108.424):** **a project config file can only tighten settings** (#1353): a project `.jcodemunch.jsonc` never sets `trusted_folders`; the summarizer, git-blame, LSP, redaction, reply-size and secret-exclusion settings apply from it only when no more permissive than the user's own; `disabled_tools` only adds; a provider or model needs the user's own `allow_paid_summaries` (and `allow_remote_summarizer` for a remote base). Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-08, release 1.108.428)
+
+The 1.108.425 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.425):** **the Grep answer reaches large repositories** (#1356, #1355, #1335): on a 23,186-file Home Assistant index the opt-in Grep answer replies in 2.0 s warm (was 6.2 s, over budget): an index load skips the tsconfig/jsconfig walk when a full-walk, uncapped file list names none (a skipped walk is never cached), freshness covers only the Grep's scope, one hook call reads the files table once; `upgrade`/`init --hooks` print the surface offer; `receipt` and `diagnose` read `_savings.json` through the meter's own reader. Full text: `CHANGELOG.md`.
