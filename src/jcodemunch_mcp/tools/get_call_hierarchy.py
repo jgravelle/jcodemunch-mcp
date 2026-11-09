@@ -161,9 +161,8 @@ def get_call_hierarchy(
         A caller entry also carries ``call_lines``: the lines in its body that
         call the target (capped at CALL_LINES_CAP). The response carries
         ``call_sites``: ``file:line`` of each call by a direct caller (capped at
-        CALL_SITES_CAP). With direction='callers', a name with several
-        definitions (at most DEFINITIONS_CAP) answers for all of them and
-        lists them in ``definitions``; a name with more still refuses.
+        CALL_SITES_CAP). A row whose lines could not be read carries
+        ``call_lines: None`` and names why in ``call_lines_unknown``.
     """
     depth = max(1, min(depth, 5))
     if direction not in ("callers", "callees", "both"):
@@ -191,29 +190,12 @@ def get_call_hierarchy(
     matches = _find_symbol(index, symbol_id)
     if not matches:
         return symbol_not_found(symbol_id, index.symbols)
-    # A bare name with several definitions: callers-only answers for all of
-    # them (a call-site question names a function, not one of its homes);
-    # callees still refuse, because each definition calls different things.
-    # Past DEFINITIONS_CAP the name is too common for a union to mean anything
-    # (`__init__` has 171 homes in this repo, and answering for all of them
-    # took 8.6 s and 81 KB), so it refuses as before and says why.
-    definitions: list[dict] = []
-    if 1 < len(matches) <= DEFINITIONS_CAP and direction == "callers":
-        definitions = [
-            {"id": s["id"], "name": s["name"], "file": s["file"], "line": s.get("line", 0)}
-            for s in matches
-        ]
-    elif len(matches) > 1:
+    if len(matches) > 1:
         ambiguous = [{"name": s["name"], "file": s["file"], "id": s["id"]} for s in matches]
-        why = (
-            f" direction='callers' answers for up to {DEFINITIONS_CAP} definitions."
-            if direction == "callers"
-            else ""
-        )
         return {
             "error": (
                 f"Ambiguous symbol '{symbol_id}': found {len(matches)} definitions. "
-                "Use the symbol 'id' field to disambiguate." + why
+                "Use the symbol 'id' field to disambiguate."
             ),
             "candidates": ambiguous,
         }
@@ -236,16 +218,10 @@ def get_call_hierarchy(
     depth_reached = 0
 
     if direction in ("callers", "both"):
-        seen_ids: set[str] = set()
-        for target in matches if definitions else [sym]:
-            found, dr = bfs_callers(
-                index, store, owner, name, target, reverse_adj, symbols_by_file, depth
-            )
-            for row in found:
-                if row["id"] not in seen_ids:
-                    seen_ids.add(row["id"])
-                    callers.append(row)
-            depth_reached = max(depth_reached, dr)
+        callers, dr = bfs_callers(
+            index, store, owner, name, sym, reverse_adj, symbols_by_file, depth
+        )
+        depth_reached = max(depth_reached, dr)
 
     if direction in ("callees", "both"):
         callees, dr = bfs_callees(
@@ -382,8 +358,6 @@ def get_call_hierarchy(
     if direction in ("callers", "both"):
         _attach_caller_gate_disclosure(response, index, sym, reverse_adj)
         _attach_call_lines(response, index, store, owner, name)
-    if definitions:
-        response["definitions"] = definitions
     return response
 
 
@@ -392,9 +366,6 @@ def get_call_hierarchy(
 # per row and the flat file:line list (1.x list-field rule: bounded on arrival).
 CALL_LINES_CAP = 10
 CALL_SITES_CAP = 50
-# A bare name with more homes than this refuses as ambiguous rather than
-# answering for the union; `definitions` is bounded by it on arrival.
-DEFINITIONS_CAP = 10
 CALL_LINES_BASIS = "name_in_caller_body"
 # Text before a match that makes it a definition, not a call.
 _DEF_PREFIX = re.compile(r"\b(?:def|function|func|fn|fun|sub|proc)\s+$")
@@ -420,42 +391,70 @@ def _call_lines_in(lines: list[str], start: int, end: int, target: str) -> list[
 
 
 def _attach_call_lines(response: dict, index, store, owner: str, name: str) -> None:
-    """Add ``call_lines`` to each caller row and a flat ``call_sites`` list."""
+    """Add ``call_lines`` to each caller row and a flat ``call_sites`` list.
+
+    Every row carries the same four keys, cut or not, so the compact encoding
+    decodes an uncut row as it was sent. A row whose lines could not be read
+    (the file could not be read, or the index holds no ``end_line`` for the
+    caller, so its body span is unknown) carries ``call_lines: None`` and a
+    reason in ``call_lines_unknown``; ``[]`` means the body was read and holds
+    no textual call. ``call_sites_total`` counts only the direct callers whose
+    lines were read, and ``call_sites_unknown_callers`` says how many it left
+    out.
+    """
     callers = response.get("callers") or []
     symbol_index: dict = getattr(index, "_symbol_index", {}) or {}
     target_name = str((response.get("symbol") or {}).get("name", "")).split(".")[-1]
-    file_lines: dict[str, list[str]] = {}
+    file_lines: dict[str, Optional[list[str]]] = {}
 
-    def lines_of(path: str) -> list[str]:
+    def lines_of(path: str) -> Optional[list[str]]:
         if path not in file_lines:
             try:
                 content = store.get_file_content(owner, name, path)
             except Exception:
                 logger.debug("call_lines: could not read %s", path, exc_info=True)
                 content = None
-            file_lines[path] = content.splitlines() if content else []
+            file_lines[path] = None if content is None else content.splitlines()
         return file_lines[path]
 
     sites: list[str] = []
+    unknown_rows = 0
+    unknown_direct = 0
     for row in callers:
         full = symbol_index.get(row.get("id", "")) or {}
         path = row.get("file") or full.get("file") or ""
         start = int(row.get("line") or full.get("line") or 0)
-        end = int(full.get("end_line") or start)
+        end = int(full.get("end_line") or 0)
         via = symbol_index.get(row.get("via", "")) if row.get("via") else None
         target = str(via.get("name", "")).split(".")[-1] if via else target_name
-        found = _call_lines_in(lines_of(path), start, end, target) if path else []
+        lines = lines_of(path) if path else None
+        if not path or lines is None:
+            reason: Optional[str] = "file_unreadable"
+        elif start <= 0 or end < start:
+            reason = "no_end_line"
+        else:
+            reason = None
+        if reason is not None or lines is None:
+            row["call_lines"] = None
+            row["call_lines_total"] = None
+            row["call_lines_truncated"] = None
+            row["call_lines_unknown"] = reason
+            unknown_rows += 1
+            if row.get("depth", 1) == 1:
+                unknown_direct += 1
+            continue
+        found = _call_lines_in(lines, start, end, target)
         row["call_lines"] = found[:CALL_LINES_CAP]
-        if len(found) > CALL_LINES_CAP:
-            row["call_lines_total"] = len(found)
-            row["call_lines_truncated"] = True
+        row["call_lines_total"] = len(found)
+        row["call_lines_truncated"] = len(found) > CALL_LINES_CAP
+        row["call_lines_unknown"] = None
         if row.get("depth", 1) == 1:
             sites.extend(f"{path}:{n}" for n in found)
-    if not callers:
-        return
     response["call_sites"] = sites[:CALL_SITES_CAP]
     response["call_sites_total"] = len(sites)
     response["call_sites_truncated"] = len(sites) > CALL_SITES_CAP
+    response["call_sites_unknown_callers"] = unknown_direct
+    response["call_lines_unknown_count"] = unknown_rows
     response["call_lines_basis"] = CALL_LINES_BASIS
 
 

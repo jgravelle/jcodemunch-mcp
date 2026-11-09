@@ -11,21 +11,27 @@ Each caller row now carries `call_lines`: the lines in that caller's body
 that call the target, as a word followed by `(` (`obj.f(` counts, `def f(`
 does not; comments are not told apart, and `call_lines_basis` says so). The
 response carries `call_sites`, a flat `file:line` list for the direct
-callers. Both are capped (10 lines a row, 50 sites) and say when they were
-cut (`call_lines_total`/`call_lines_truncated`, `call_sites_total`/
-`call_sites_truncated`). With `direction="callers"`, a name with several
-definitions answers for all of them and lists them in `definitions`, instead
-of refusing as ambiguous; `callees` and `both` still refuse. A name with more
-than 10 definitions still refuses with `direction="callers"` too, and says
-so: `__init__` has 171 in this repository, and answering for all of them took
-8.6 s and 81 KB for a list nobody could use. The compact encoding is `ch3`
+callers. Both are capped (10 lines a row, 50 sites). Every row carries
+`call_lines_total` and `call_lines_truncated`, and every callers answer
+carries `call_sites_total` and `call_sites_truncated`, cut or not and empty
+or not, so the compact encoding decodes a row as it was sent.
+
+A row whose lines could not be read says so. If the file cannot be read, or
+the index holds no `end_line` for the caller, the row carries
+`call_lines: null` and a reason in `call_lines_unknown` (`file_unreadable`
+or `no_end_line`). `[]` means the body was read and holds no textual call.
+`call_lines_unknown_count` counts the unknown rows, and
+`call_sites_unknown_callers` counts the direct callers that
+`call_sites_total` leaves out for that reason. A bare name with several
+definitions still refuses as ambiguous. The compact encoding is `ch3`
 (`ch1` and `ch2` stay decodable).
 
-Measured on this repository's own index, the same target before and after:
-`_find_symbol` (5 callers) grows from 2,061 to 2,487 bytes of JSON, and
-`_utils.resolve_repo` (116 callers) from 28,548 to 33,200 bytes (+16%),
-2,173 of them the capped `call_sites` list; the compact form grows from
-18,970 to 22,322.
+Measured on this repository's own index (callers, depth 1), against the same
+response with the call-site keys removed: `_find_symbol` (5 callers) grows
+from 2,052 to 2,918 bytes of JSON (+42.2%) and from 2,033 to 2,557 compact
+(+25.8%); `_utils.resolve_repo` (116 callers, 122 call sites, cut to 50)
+grows from 28,538 to 41,891 bytes of JSON (+46.8%), 2,187 of them the
+`call_sites` list, and from 19,492 to 22,620 compact (+16.0%).
 
 ## [1.108.429] - 2026-11-09 - a hook answers in about a second
 

@@ -3,8 +3,8 @@
 from .. import schema_driven as sd
 
 TOOLS = ("get_call_hierarchy",)
-# ch3: callers carry `call_lines` (a comma-joined cell) with their cap keys,
-# and the response carries `call_sites`, `definitions` and their scalars.
+# ch3: callers carry `call_lines` (a comma-joined cell) with its cap keys and
+# `call_lines_unknown`, and the response carries `call_sites` and its scalars.
 ENCODING_ID = "ch3"
 LEGACY_ENCODING_IDS = ("ch1", "ch2")
 
@@ -14,7 +14,13 @@ _TABLES = [
     sd.TableSpec(
         key="callers",
         tag="c",
-        cols=_ROW_COLS + ["call_lines", "call_lines_total", "call_lines_truncated"],
+        cols=_ROW_COLS
+        + [
+            "call_lines",
+            "call_lines_total",
+            "call_lines_truncated",
+            "call_lines_unknown",
+        ],
         intern=["file", "id", "via"],
         types={
             "line": "int",
@@ -49,6 +55,8 @@ _SCALARS = (
     "direct_callee_count",
     "call_sites_total",
     "call_sites_truncated",
+    "call_sites_unknown_callers",
+    "call_lines_unknown_count",
     "call_lines_basis",
 )
 _NESTED = {"symbol": ["id", "name", "kind", "file", "line"]}
@@ -59,12 +67,15 @@ _JSON = (
     "callers_by_depth",
     "callees_by_depth",
     "call_sites",
-    "definitions",
 )
 
 
 def _flatten(response: dict) -> dict:
-    """``call_lines`` [5, 9] rides as the cell "5,9"; an empty list as ""."""
+    """``call_lines`` [5, 9] rides as the cell "5,9"; an empty list as "".
+
+    An unknown row (``call_lines`` None) also rides as "", and decodes back to
+    None because its ``call_lines_unknown`` cell carries the reason.
+    """
     callers = response.get("callers")
     if not callers:
         return response
@@ -81,7 +92,9 @@ def _unflatten(decoded: dict) -> dict:
         cell = row.get("call_lines")
         if cell is None and "call_lines" not in row:
             continue
-        if isinstance(cell, int):
+        if row.get("call_lines_unknown"):
+            row["call_lines"] = None
+        elif isinstance(cell, int):
             row["call_lines"] = [cell]
         elif isinstance(cell, str):
             row["call_lines"] = [int(x) for x in cell.split(",") if x.strip()]
