@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+## [1.108.429] - 2026-11-09 - a hook answers in about a second
+
+### Changed - a hook answers in about a second, and the Grep answer reads the sources it proved unchanged (#1369)
+
+An answered Grep now takes 1.07 to 1.21 s for the whole hook process, measured on four fresh Home Assistant copies, and a decline at a 0.6 s budget takes 0.86 s. Before, every hook command imported the server and its dependencies (the MCP SDK, httpx and jsonschema) before it read its input, and the opt-in Grep answer's 4-second budget started only after that. On a freshly indexed copy the import took 1.5 to 2.1 s, so an answered Grep took 5.1 s from process start, and a declined one ran past its budget by the same amount. A bare `jcodemunch-mcp hook-<name>`, the form `init` writes, now runs its handler directly after the same first steps the server takes: UTF-8 output, the package integrity check, and keyring resolution of environment values. Every other command goes through the server as before. A hook process no longer runs the server module's own start-up and exit steps: with `session_resume` on it doesn't save session state at exit, and with `render_diagram_viewer_enabled` on it doesn't clear diagram-viewer temp files. Both serve the server, not a hook.
+
+Once its freshness check has proved every file in scope unchanged since indexing, the Grep answer now reads each file from the source tree instead of the index's cached copy. The copy holds the same text, but on a just-indexed workspace it was written moments ago, and on Windows its first open measured 15.2 ms per file against 0.08 ms for the source the indexer had just read. A path that leaves the source root is not read, and every other `search_text` call still reads the cached copies. Under `cache_mode: "metadata_only"` the answer reads the source tree too, the same files its freshness check just proved unchanged; before, it read whatever cached copy was on disk.
+
+The console entry point is now `jcodemunch_mcp.cli_entry:cli`. A launcher that still names `jcodemunch_mcp.server:cli` keeps working.
+
 ## [1.108.428] - 2026-11-08 - the published benchmark counts the answer an agent receives
 
 ### Changed - the published benchmark counts the answer an agent receives (#1367)
