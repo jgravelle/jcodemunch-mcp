@@ -2973,8 +2973,8 @@ def index_folder(
         # Metadata only (`git_root`, `source_root`), so a selective view: it
         # reads no symbol rows and promotes itself to a full load on the first
         # corpus-wide read, so a later use loses speed, never correctness.
-        # A full load here cost 8 s of a 32 s no-change re-index of a
-        # 24k-file repo (BACKLOG 31). None means a legacy JSON index.
+        # A full load here hydrated every symbol of a large repository to
+        # read two fields. None means a legacy JSON index.
         _existing_for_collision = store.open_selective(owner, repo_name)
         if _existing_for_collision is None:
             _existing_for_collision = store.load_index(owner, repo_name)
@@ -3223,8 +3223,9 @@ def index_folder(
             post_discovery_drops[reason] = post_discovery_drops.get(reason, 0) + 1
 
         # The root resolved once for the whole loop. `validate_path` resolved
-        # it again per file: 24k redundant system calls on a large repo
-        # (BACKLOG 31). Each file is still resolved and checked.
+        # it again per file, one system call per file. Each file is still
+        # resolved and checked. Discovery (`security._should_index_file`)
+        # still resolves the root per file; that check is not cached here.
         _folder_resolved = str(folder_path.resolve())
         for file_path in source_files:
             if not validate_path(folder_path, file_path, root_resolved=_folder_resolved):

@@ -1,13 +1,14 @@
 """A no-change re-index answers from metadata, and its root is resolved once.
 
-BACKLOG 31 profiled a no-change re-index of Home Assistant (24,347 files):
+A profile of a no-change re-index of a large repository found two costs:
 
-- `index_folder`'s full path loaded the whole base index twice (8.1 of 31.9 s),
-  only to read `git_root`, `source_root`, `branch` and the file hashes. The
+- `index_folder`'s full path loaded the whole base index twice, only to
+  read `git_root`, `source_root`, `branch` and the file hashes. The
   watcher's fast path had already moved to `open_selective` for the same
   reason (#557, tests/test_fast_path_no_hydration.py).
-- the discovery pass called `validate_path` once per file, and each call
-  resolved the walk root again.
+- `validate_path` ran once per file and resolved the folder root again each
+  time. The second pass in `index_folder` now resolves it once; the
+  discovery pass (`security._should_index_file`) still resolves it per file.
 
 ⚠ The hydration tests assert the OUTCOME, that no view promotes, not that
 `open_selective` is called. A view that promotes is still correct, so only an
