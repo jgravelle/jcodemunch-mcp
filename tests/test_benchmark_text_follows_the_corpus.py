@@ -42,6 +42,16 @@ def test_the_rag_fallback_queries_are_the_corpus_queries():
     assert _rag_fallback_queries() == [t["query"] for t in corpus["tasks"]]
 
 
+def test_the_rag_fallback_repos_are_the_corpus_repos():
+    tree = ast.parse((HARNESS / "run_rag_baseline.py").read_text(encoding="utf-8"))
+    node = next(
+        n for n in tree.body
+        if isinstance(n, ast.Assign) and [getattr(t, "id", None) for t in n.targets] == ["DEFAULT_REPOS"]
+    )
+    corpus = json.loads((ROOT / "benchmarks" / "tasks.json").read_text(encoding="utf-8"))
+    assert ast.literal_eval(node.value) == [r["id"] for r in corpus["repos"]]
+
+
 def _prose_lines(text: str) -> list[str]:
     """Lines that are not table rows: a table cell's lone dash is a placeholder."""
     return [ln for ln in text.splitlines() if not ln.lstrip().startswith("|")]
@@ -61,10 +71,14 @@ def test_the_results_template_writes_no_em_dash_into_prose():
         "grep_baseline_tokens": 100, "grep_ratio": 10.0, "grep_reduction_pct": 90.0,
         "search_tokens": 4, "fetch_tokens": 6, "hits_fetched": 3, "search_ms": 1.0,
     }
-    results = [{
-        "repo": "o/n", "display": "n", "file_count": 3, "symbol_count": 9,
-        "baseline_tokens": 10_000, "tasks": [task, dict(task, query="b")],
-    }]
+    results = [
+        {
+            "repo": "o/n", "display": "n", "file_count": 3, "symbol_count": 9,
+            "baseline_tokens": 10_000, "tasks": [task, dict(task, query="b")],
+        },
+        # The error branch writes its own heading.
+        {"repo": "o/broken", "error": "index failed"},
+    ]
     rendered = bench.render_markdown(results, bench.TOKENIZER)
     bad = [ln[:120] for ln in _prose_lines(rendered) if "—" in ln]
     assert bad == []

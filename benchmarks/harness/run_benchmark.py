@@ -1144,7 +1144,7 @@ def render_markdown(results: list[dict], tokenizer: str) -> str:
 
     for res in results:
         if "error" in res:
-            lines.append(f"## {res.get('repo', '?')} — ERROR")
+            lines.append(f"## {res.get('repo', '?')}: ERROR")
             lines.append(f"> {res['error']}")
             lines.append("")
             continue
