@@ -110,6 +110,20 @@ _GO_IMPORT_ENTRY = re.compile(r"""(?:\w+\s+)?["']([^"']+)["']""")
 # without `;` was unaffected.
 _JAVA_IMPORT = re.compile(r"""^import\s+(?:static\s+)?([\w.]+)(?:\s+as\s+\w+)?\s*;?[ \t\r]*$""", re.MULTILINE)
 
+# (#1375) `import a.b.*` names a package, `import static a.b.C.*` a class's
+# members. `_JAVA_IMPORT` cannot match either: `[\w.]+` stops at the `*`.
+_JAVA_WILDCARD_IMPORT = re.compile(r"""^import\s+(static\s+)?([\w.]+)\.\*\s*;?[ \t\r]*$""", re.MULTILINE)
+# What the type names of a JVM file are read from: comments and string
+# literals removed first, so a name in a doc comment or a string is no use.
+_JVM_NOISE = re.compile(
+    r"""/\*.*?\*/|//[^\n]*|\"\"\".*?\"\"\"|"(?:\\.|[^"\\\n])*"|'(?:\\.|[^'\\\n])*'""",
+    re.DOTALL,
+)
+_JVM_TYPE_NAME = re.compile(r"""\b([A-Z][A-Za-z0-9_]*)\b""")
+_JVM_DECLARED_TYPE = re.compile(
+    r"""\b(?:class|interface|enum|record|object|typealias)\s+([A-Z][A-Za-z0-9_]*)"""
+)
+
 # Rust: use crate::foo::{Bar, Baz}
 _RUST_USE = re.compile(r"""^use\s+([\w::{},\s*]+)\s*;""", re.MULTILINE)
 
@@ -1002,6 +1016,51 @@ def _extract_java_imports(content: str, language: str) -> list[dict]:
         parts = qualified.rsplit(".", 1)
         names = [parts[-1]] if len(parts) > 1 else []
         edges.append({"specifier": qualified, "names": names})
+    edges.extend(_jvm_wildcard_edges(content, edges))
+    return edges
+
+
+def _jvm_wildcard_edges(content: str, explicit: list[dict]) -> list[dict]:
+    """(#1375) The edges a wildcard import stands for.
+
+    ``import static a.b.C.*`` is an edge to ``a.b.C``, the class whose members
+    it imports. ``import a.b.*`` names a package, and every resolver consumer
+    maps ONE specifier to ONE file, so it becomes one ``a.b.Name`` edge per
+    type name the file uses, each marked ``wildcard: "a.b.*"``. Resolution
+    keeps the names the package declares and drops the rest (``String``,
+    ``Override``) against the file set at query time, so a class added to the
+    package later resolves without re-parsing this file.
+
+    A name the file imports explicitly, or declares itself, is not a wildcard
+    edge: both shadow the wildcard in Java and Kotlin.
+    """
+    found = list(_JAVA_WILDCARD_IMPORT.finditer(content))
+    if not found:
+        return []
+    edges: list[dict] = []
+    packages: list[str] = []
+    for m in found:
+        if m.group(1):
+            edges.append({"specifier": m.group(2), "names": []})
+        elif m.group(2) not in packages:
+            packages.append(m.group(2))
+    if not packages:
+        return edges
+    body = _JVM_NOISE.sub(" ", content)
+    shadowed = {n for e in explicit for n in e["names"]}
+    shadowed.update(_JVM_DECLARED_TYPE.findall(body))
+    names: list[str] = []
+    seen: set[str] = set()
+    for line in body.splitlines():
+        if line.lstrip().startswith(("import ", "package ")):
+            continue
+        for n in _JVM_TYPE_NAME.findall(line):
+            if n not in seen and n not in shadowed:
+                seen.add(n)
+                names.append(n)
+    for pkg in packages:
+        for n in names:
+            edges.append({"specifier": f"{pkg}.{n}", "names": [n], "wildcard": f"{pkg}.*"})
     return edges
 
 
