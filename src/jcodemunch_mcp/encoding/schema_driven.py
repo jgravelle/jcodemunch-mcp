@@ -76,6 +76,9 @@ UNIVERSAL_META_JSON = frozenset({
 # a warning a tool adds later needs no schema edit.
 UNIVERSAL_BODY_JSON = frozenset({
     "negative_evidence",  # search_symbols: the weak-match or no-match verdict
+    # refresh_on_read: the answer came from a stale index that was not repaired
+    # (or was repaired just now). Without it a stale answer reads as current.
+    "index_refresh",
 })
 
 

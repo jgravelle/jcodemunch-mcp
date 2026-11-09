@@ -203,8 +203,15 @@ def _walk_root_for(index, source_root: Path, rel_path: str) -> Path:
 
 def _walk_refusal(
     file_path: Path, source_root: Path, walk_root: Path, rel_path: str,
+    forced_paths_for=None,
 ) -> Optional[dict]:
     """The refusal for a file the full walk would not index, or None.
+
+    ``forced_paths_for(walk_root)`` replaces the package.json pre-scan a caller
+    asking about MANY files wants to pay once: the scan walks the whole tree,
+    and it runs for every file over the size cap.
+    It must return what `_scan_package_json_forced_paths` returns; refresh on
+    read passes a per-check memo of exactly that function.
 
     ⚠⚠ L-142: this used to apply ONE rule of the walk's filter (`is_secret_file`),
     so a file under `node_modules/`, `.next/`, a `CACHEDIR.TAG` directory or a
@@ -231,7 +238,7 @@ def _walk_refusal(
     # only when the exemption could change the answer, as the watcher does.
     try:
         if file_path.stat().st_size > cfg.max_size:
-            cfg.forced_paths = _scan_package_json_forced_paths(walk_root)
+            cfg.forced_paths = (forced_paths_for or _scan_package_json_forced_paths)(walk_root)
     except OSError:
         pass
     ok, reason, _rel, _warning = _should_index_file(

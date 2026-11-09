@@ -3182,3 +3182,9 @@ The 1.108.425 entry, verbatim as it stood in `CLAUDE.md`:
 The 1.108.426 entry, verbatim as it stood in `CLAUDE.md`:
 
 - **Prior (1.108.426):** **a function assigned to a member is a JavaScript symbol** (#1312, #1357, #1359): `obj.name = function ...`, `exports.name = ...` and `Foo.prototype.name = ...` at module scope are symbols (`PARSER_GENERATION` 29), and a bound function's signature ends at its body; on Windows the trigram filter reads one listing per folder and a selective view decodes imports on first read (freshness keeps one stat per file); the steering-hint answer stays compact. Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-09, release 1.108.430)
+
+The 1.108.427 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.427):** **the Grep answer replies right after a large index is built** (#1363, #1361): on a just-indexed Home Assistant copy the first Grep answer replies in 1.3 s at worst (1.108.426 ran out its 4 s budget): `search_text` reads candidates ahead on up to 32 daemon threads and the freshness stats run on 8, verdicts exact; the token benchmark counts the served response. Full text: `CHANGELOG.md`.

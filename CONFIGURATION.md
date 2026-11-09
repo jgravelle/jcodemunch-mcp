@@ -208,6 +208,7 @@ The legacy `suppress_meta` per-call parameter still works for backward compatibi
 | `watch_all_skip_temp` | bool | `true` | `watch-all` leaves unwatched any indexed repo under the system temp directory or a top-level `tmp`/`temp` folder. The index stays searchable. |
 | `watch_all_max_idle_days` | int | `14` | `watch-all` leaves unwatched any indexed repo whose newest indexed file and last indexed commit are both older than this. Before skipping, the tree is checked too (the indexed commit is still checked out; no indexed file or its folder is newer), at most every 10 minutes per repo, so an edited or committed repo is watched again. `0` = watch every repo. |
 | `freshness_mode` | str | `"relaxed"` | `"relaxed"` = serve immediately. `"strict"` = wait for fresh results (500ms timeout). |
+| `refresh_on_read` | bool | `true` | `true` = before a read tool answers on a git repository, re-index the files that changed since the index was built (a rebase, a branch switch, an edit outside the agent) when at most 50 of them are files the index would take; the whole check, git included, holds the answer for at most 2 s (a re-index that outlives it finishes in the background, and the answer says `in_progress`). Otherwise the answer carries `index_refresh` with the reason (`too_many_files`, `locked`, `failed`) and the `index_folder` call that fixes it; past 200 not-indexed paths the indexer refuses, it says `undetermined` or `unchecked` instead of calling the index current. Checks git at most once per repo every 30 s in each server process; writes only the local index, and re-indexed files get heuristic summaries. `false` answers from the index as it is and only flags a stale row. |
 | `claude_poll_interval` | float | `5.0` | Poll interval (seconds) for Claude Code worktree discovery. |
 
 ### Logging
@@ -378,6 +379,8 @@ A project value that is ignored is logged once, naming the key. Set it in your o
 
 Project config is loaded automatically when a repo is indexed. It uses hash-based caching — the file is only re-parsed when its content changes, not on every watcher cycle.
 
+A license key is not read from a project file. Set `license_key` in your own `config.jsonc` or the `JCODEMUNCH_LICENSE_KEY` environment variable; `license --key` and `install-pack --license` also take a key for one run. A `license_key` in `.jcodemunch.jsonc` is ignored, and no warning names it.
+
 ## Migrating from environment variables
 
 Every `JCODEMUNCH_*` env var maps to a config key:
@@ -408,6 +411,7 @@ Every `JCODEMUNCH_*` env var maps to a config key:
 | `JCODEMUNCH_WATCH_ALL_SKIP_TEMP` | `watch_all_skip_temp` |
 | `JCODEMUNCH_WATCH_ALL_MAX_IDLE_DAYS` | `watch_all_max_idle_days` |
 | `JCODEMUNCH_FRESHNESS_MODE` | `freshness_mode` |
+| `JCODEMUNCH_REFRESH_ON_READ` | `refresh_on_read` |
 | `JCODEMUNCH_CLAUDE_POLL_INTERVAL` | `claude_poll_interval` |
 | `JCODEMUNCH_LOG_LEVEL` | `log_level` |
 | `JCODEMUNCH_LOG_FILE` | `log_file` |
