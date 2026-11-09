@@ -697,7 +697,12 @@ INDEX_VERSION = 17
 #   symbol (`res.send = function () {}`, `exports.f = ...`,
 #   `Foo.prototype.m = ...`), and a bound function's signature is its header,
 #   not its body. Symbols and signatures change on UNCHANGED content.
-PARSER_GENERATION = 29
+# 30 (#1374): a Java or Kotlin import in a CRLF file is an edge; the import
+#   pattern stopped at the carriage return, so a Windows checkout recorded
+#   none. `files.imports` changes on UNCHANGED content (the generation-25
+#   shape). The resolver half of #1374 (JVM source roots, `.java`/`.kt`)
+#   needs no re-parse.
+PARSER_GENERATION = 30
 
 
 @dataclass(frozen=True)

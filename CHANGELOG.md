@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+### Fixed - a Java or Kotlin import is an edge to the file that declares the class (#1374)
+
+On a Java or Kotlin repository the import graph had no edges, so `find_importers`, `get_dependency_graph`, `get_architecture_metrics`, `get_repo_health` and `check_delete_safe` all read an empty graph, and the last two answered with confidence: a healthy repo with no unstable modules, and an imported class safe to delete. Reported by @randyhbh on a Gradle monorepo. The import was extracted (`import com.acme.app.util.Hosts`) and then never resolved, for two reasons: `.java` and `.kt` were not among the extensions the resolver tries, and the only source roots it tried were the repo root and the Python ones, which it finds by `__init__.py`. Maven and Gradle keep sources under `<module>/src/<sourceSet>/java` or `.../kotlin`, often several modules deep. So even the class at the repo root resolved to nothing, and a dotted JDK name fell through to the Python reading instead: `java.util.List` bound a `java/util/List.ts` when one existed.
+
+An import from a `.java`, `.kt` or `.kts` file now resolves to the `.java` or `.kt` file that declares the class, Java to Kotlin and the reverse. The source roots come from the indexed file set, once per file set: every `.../src/<sourceSet>/{java,kotlin}` directory, the repo-root one included, plus the repo root itself. When a class name is declared in more than one module, the importer's own module wins. `import static a.b.C.member` and a nested class `a.b.Outer.Inner` resolve to the outer class's file. A JDK or library name (`java.util.List`, `org.springframework...`) resolves to nothing, and a miss no longer falls through to another language's rules. The step is taken only for a JVM importer, so a Python, JavaScript or Ruby import resolves as before.
+
+Found while checking the fix through `index_folder`: in a file with CRLF line endings (a Windows checkout) no Java or Kotlin import was extracted at all, because the import pattern stopped at the carriage return. That pattern is fixed too, and `PARSER_GENERATION` moves to 30 so an existing index re-parses its files and gains the edges; the resolver half needs no re-parse. Wildcard imports (`import a.b.*`), Kotlin top-level functions and same-package references are separate issues and unchanged here. Tests: `tests/test_jvm_import_resolution.py`.
+
 ## [1.108.429] - 2026-11-09 - a hook answers in about a second
 
 ### Changed - a hook answers in about a second, and the Grep answer reads the sources it proved unchanged (#1369)
