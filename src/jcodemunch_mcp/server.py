@@ -1821,9 +1821,10 @@ def _apply_always_load(tools: list[Tool], surface: str) -> list[Tool]:
     Marks only tools already published: it never re-adds one a filter or
     `disabled_tools` removed. Returns copies.
 
-    ⚠ `full` marks nothing. Its six core schemas put about 3,459 tokens
-    (cl100k) in every request, and BM-2 pilot 6 measured the full arm at a
-    cost ratio of 1.144 against baseline with no jCodeMunch call made. The
+    ⚠ `full` marks nothing. Its six core schemas rode in every request of a
+    deferring client, and a benchmark measured the full arm costing more
+    than a session without jCodeMunch while no jCodeMunch call was made
+    (CHANGELOG, "the full tool surface no longer loads six schemas"). The
     full instructions carry the one-call ToolSearch line instead, so an agent
     that wants a core tool pays one lookup rather than every request paying
     for all six.

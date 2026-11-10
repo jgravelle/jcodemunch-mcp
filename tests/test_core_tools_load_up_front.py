@@ -12,11 +12,12 @@ On the default `counter` surface the tools marked are exactly the ones the
 cannot drift: the text tells the agent to start with a tool, and that tool is
 loaded.
 
-On `full` nothing is marked. Six always-loaded schemas put about 3,459 tokens
-(cl100k) in every request, and BM-2 pilot 6 measured the full arm at a cost
-ratio of 1.144 against baseline with no jCodeMunch call made. The full
-surface's instructions already say how to load the core tools in one
-ToolSearch call, so an agent that wants one pays that call instead.
+On `full` nothing is marked: six always-loaded schemas rode in every request,
+and a benchmark measured that arm costing more than a session without
+jCodeMunch while no jCodeMunch call was made (CHANGELOG, "the full tool
+surface no longer loads six schemas"). The full surface's instructions say
+how to load the core tools in one ToolSearch call, so an agent that wants
+one pays that call instead.
 """
 
 from __future__ import annotations
