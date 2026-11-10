@@ -42,6 +42,17 @@ def _fresh_cooldowns():
 
 
 @pytest.fixture
+def roomy_budget(monkeypatch):
+    """For a test that needs the real re-index to finish before the answer.
+
+    The 2 s budget is what a user's read waits; a CI runner can take longer to
+    re-index one file, and the answer then says `in_progress` (Windows 3.12 did,
+    twice). The tests of the budget itself set their own value.
+    """
+    monkeypatch.setattr(ror, "REFRESH_BUDGET_SECONDS", 60.0)
+
+
+@pytest.fixture
 def indexed(tmp_path):
     src = tmp_path / "proj"
     src.mkdir()
@@ -63,7 +74,7 @@ def _names(repo, store, query):
     }
 
 
-def test_a_renaming_commit_is_refreshed_before_the_answer(indexed):
+def test_a_renaming_commit_is_refreshed_before_the_answer(indexed, roomy_budget):
     src, repo, store = indexed
     (src / "app.py").write_text("def process_order(x):\n    return x + 2\n")
     _git(src, "add", ".")
@@ -74,7 +85,7 @@ def test_a_renaming_commit_is_refreshed_before_the_answer(indexed):
     assert "handle_order" not in _names(repo, store, "handle_order")
 
 
-def test_an_uncommitted_edit_and_a_new_file_are_refreshed(indexed):
+def test_an_uncommitted_edit_and_a_new_file_are_refreshed(indexed, roomy_budget):
     src, repo, store = indexed
     (src / "util.py").write_text("def issue_refund(x):\n    return x - 2\n")
     (src / "new.py").write_text("def brand_new():\n    return 0\n")
@@ -84,7 +95,7 @@ def test_an_uncommitted_edit_and_a_new_file_are_refreshed(indexed):
     assert "brand_new" in _names(repo, store, "brand_new")
 
 
-def test_a_deleted_file_leaves_the_index(indexed):
+def test_a_deleted_file_leaves_the_index(indexed, roomy_budget):
     src, repo, store = indexed
     (src / "util.py").unlink()
     assert ror.refresh_before_read(repo, storage_path=store) == {"refreshed": 1}
@@ -362,7 +373,7 @@ def test_the_switch_is_on_by_default():
 
 @pytest.mark.asyncio
 async def test_the_dispatcher_attaches_the_block_only_when_switched_on(
-    indexed, monkeypatch
+    indexed, monkeypatch, roomy_budget
 ):
     from jcodemunch_mcp import config as cfg
     from jcodemunch_mcp.server import call_tool
@@ -391,7 +402,9 @@ async def test_the_dispatcher_attaches_the_block_only_when_switched_on(
 
 
 @pytest.mark.asyncio
-async def test_a_cached_answer_does_not_survive_the_refresh(tmp_path, monkeypatch):
+async def test_a_cached_answer_does_not_survive_the_refresh(
+    tmp_path, monkeypatch, roomy_budget
+):
     """Before: `find_references` served its cached pre-refresh answer beside `refreshed: 1`."""
     from jcodemunch_mcp import config as cfg
     from jcodemunch_mcp.server import call_tool
@@ -503,7 +516,9 @@ def _refused_tree(src, n):
         (src / "node_modules" / f"m{i}.js").write_text("module.exports = 1\n")
 
 
-def test_past_the_refusal_cap_a_tracked_edit_is_still_repaired(indexed, monkeypatch):
+def test_past_the_refusal_cap_a_tracked_edit_is_still_repaired(
+    indexed, monkeypatch, roomy_budget
+):
     """Review round 2: past the cap the check returned nothing and dropped the edit."""
     src, repo, store = indexed
     monkeypatch.setattr(ror, "_MAX_REFUSALS_CHECKED", 20)
