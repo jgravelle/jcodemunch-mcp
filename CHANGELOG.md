@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+### Changed - avoid padded work in the bundled local encoder
+
+The bundled ONNX encoder groups texts by real token length and trims each
+inference run to its longest text, instead of running every text at 256
+positions. Vectors return in input order; truncation, masked pooling, model
+identity and dimensions are unchanged. Thread configuration and an early
+empty-input return are separate contributions.
+
+
 ## [1.108.431] - 2026-11-09 - a read re-indexes the files that changed since the index was built
 
 ### Added - a caller says on which lines it calls the target

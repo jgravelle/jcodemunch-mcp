@@ -325,11 +325,11 @@ class TestEncodeBatch:
         # Mock onnxruntime
         mock_ort = MagicMock()
         mock_session = MagicMock()
-        # Simulate output: token embeddings of shape (batch, seq_len, 384)
-        batch_size = 2
-        seq_len = 256
-        fake_output = np.random.randn(batch_size, seq_len, 384).astype(np.float32)
-        mock_session.run.return_value = [fake_output]
+        # Simulate output: token embeddings of shape (batch, seq_len, 384),
+        # seq_len taken from the feeds (encode_batch trims padding before run).
+        mock_session.run.side_effect = lambda _out, feeds: [
+            np.random.randn(*feeds["input_ids"].shape, 384).astype(np.float32)
+        ]
         mock_ort.InferenceSession.return_value = mock_session
         mock_ort.SessionOptions.return_value = MagicMock()
         mock_ort.GraphOptimizationLevel.ORT_ENABLE_ALL = 99
@@ -346,8 +346,104 @@ class TestEncodeBatch:
             norm = sum(x * x for x in vec) ** 0.5
             assert abs(norm - 1.0) < 1e-4, f"Expected unit norm, got {norm}"
 
+    def test_feeds_trimmed_to_longest_real_sequence(self, tmp_path):
+        """Inference sees real lengths, not MAX_SEQ_LENGTH, in runs of similar length."""
+        np = pytest.importorskip("numpy")
+        tokens = ["[PAD]", "[UNK]", "[CLS]", "[SEP]", "a", "b", "c"]
+        (tmp_path / "vocab.txt").write_text("\n".join(tokens), encoding="utf-8")
+        (tmp_path / "model.onnx").write_bytes(b"fake")
+
+        seen = []
+
+        def run(_out, feeds):
+            seen.append({k: v.copy() for k, v in feeds.items()})
+            # Mark each row with its real token count, so a pooled vector says
+            # which text it was computed from.
+            emb = np.zeros((*feeds["input_ids"].shape, 384), dtype=np.float32)
+            for row, real in enumerate(feeds["attention_mask"].sum(axis=1)):
+                emb[row, :, real] = 1.0
+            return [emb]
+
+        # 20 texts of 1..20 tokens in scrambled order: more than one run.
+        sizes = [(i * 7) % 20 + 1 for i in range(20)]
+
+        mock_ort = MagicMock()
+        mock_ort.InferenceSession.return_value.run.side_effect = run
+        with patch.dict(sys.modules, {"onnxruntime": mock_ort}), \
+             patch("jcodemunch_mcp.embeddings.local_encoder.model_dir", return_value=tmp_path):
+            from jcodemunch_mcp.embeddings.local_encoder import encode_batch
+            out = encode_batch(["a", "a b c a b"])
+            pair = list(seen)
+            seen.clear()
+            many = encode_batch([" ".join("a" * n) for n in sizes])
+
+        # [CLS] + 5 tokens + [SEP] = 7 for the longer text.
+        assert {k: v.shape for k, v in pair[0].items()} == {
+            "input_ids": (2, 7), "attention_mask": (2, 7), "token_type_ids": (2, 7)}
+        # The shorter row keeps its real tokens and its padding stays masked.
+        assert pair[0]["attention_mask"][0].tolist() == [1, 1, 1, 0, 0, 0, 0]
+        assert len(out) == 2 and len(out[0]) == 384
+
+        # Sorted by length and run 16 at a time: the 16 shortest (3..18 real
+        # tokens with [CLS]/[SEP]) never pay for the 4 longest (19..22).
+        assert [s["input_ids"].shape for s in seen] == [(16, 18), (4, 22)]
+        # Every vector comes back at its own text's position, not in run order.
+        assert [v.index(max(v)) for v in many] == [n + 2 for n in sizes]
+
 
 # ── CLI subcommand tests ──────────────────────────────────────────────────
+
+
+class TestTrimmedPaddingMatchesFullPadding:
+    """Real model, no mocks: trimmed inference must equal 256-token inference.
+
+    Skips when onnxruntime or the bundled model is absent (CI has neither by
+    default). The reference runs the SAME session on the untrimmed feeds with
+    the pre-change pooling, so the only difference under test is the trim and
+    the length-sorted runs.
+    """
+
+    TEXTS = [
+        "",
+        "x",
+        "make_password(password, salt=None, hasher='default')",
+        "Return a hashed password. Ünïcödé àccents and 中文 text.",
+        "QuerySet.select_related(*fields) -> QuerySet  Follow foreign keys.",
+        " ".join(f"word{i}" for i in range(400)),  # truncated at 256 tokens
+    ]
+
+    def test_vectors_unchanged(self):
+        np = pytest.importorskip("numpy")
+        pytest.importorskip("onnxruntime")
+        from jcodemunch_mcp.embeddings import local_encoder as le
+        if not le.is_model_available():
+            pytest.skip("bundled ONNX model not downloaded")
+        le.reset_session()
+        try:
+            session, tok = le._get_session()
+            ids, mask, types = tok.encode_batch(self.TEXTS)
+            full = session.run(None, {
+                "input_ids": np.array(ids, dtype=np.int64),
+                "attention_mask": np.array(mask, dtype=np.int64),
+                "token_type_ids": np.array(types, dtype=np.int64),
+            })[0]
+            m = np.array(mask, dtype=np.float32)[:, :, None]
+            ref = (full * m).sum(axis=1) / m.sum(axis=1)
+            ref /= np.linalg.norm(ref, axis=1, keepdims=True)
+
+            got = np.array(le.encode_batch(self.TEXTS), dtype=np.float32)
+            # One at a time too: each text then trims to its own length.
+            solo = np.array([le.encode_batch([t])[0] for t in self.TEXTS], dtype=np.float32)
+            # More texts than one run of 16, so length sorting and the
+            # write-back to input order meet the real model too.
+            many = np.array(le.encode_batch(self.TEXTS * 3), dtype=np.float32)
+        finally:
+            le.reset_session()
+
+        assert got.shape == ref.shape == (len(self.TEXTS), le.MODEL_DIM)
+        assert np.abs(got - ref).max() < 1e-5
+        assert np.abs(solo - ref).max() < 1e-5
+        assert np.abs(many - np.tile(ref, (3, 1))).max() < 1e-5
 
 
 class TestDownloadModelCLI:
