@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.431] - 2026-11-09 - a read re-indexes the files that changed since the index was built
+
 ### Added - a caller says on which lines it calls the target
 
 `get_call_hierarchy` gave each caller's definition line, so "where is `f`
