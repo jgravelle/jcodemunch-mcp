@@ -31,7 +31,6 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess
-import tempfile
 import time
 from pathlib import Path
 
@@ -196,28 +195,25 @@ def _git(root: Path, *args: str) -> None:
 
 
 @pytest.fixture
-def indexed_repo():
+def indexed_repo(tmp_path):
     """A committed, indexed one-file repo plus its own throwaway storage."""
     from jcodemunch_mcp.tools.index_folder import index_folder
 
-    root = Path(tempfile.mkdtemp(prefix="jcm-cachefresh-"))
-    storage = tempfile.mkdtemp(prefix="jcm-cachefresh-store-")
-    try:
-        (root / "alpha.py").write_text(
-            "def alpha_fn():\n    return 'ORIGINAL'\n", encoding="utf-8"
-        )
-        _git(root, "init", "--quiet")
-        _git(root, "config", "user.email", "test@example.com")
-        _git(root, "config", "user.name", "Test")
-        _git(root, "add", "-A")
-        _git(root, "commit", "--quiet", "-m", "initial")
-        result = index_folder(str(root), use_ai_summaries=False, storage_path=storage)
-        if isinstance(result, str):
-            result = json.loads(result)
-        yield root, storage, (result.get("repo") or result.get("repo_id"))
-    finally:
-        shutil.rmtree(root, ignore_errors=True)
-        shutil.rmtree(storage, ignore_errors=True)
+    root = tmp_path / "repo"
+    root.mkdir()
+    storage = str(tmp_path / "store")
+    (root / "alpha.py").write_text(
+        "def alpha_fn():\n    return 'ORIGINAL'\n", encoding="utf-8"
+    )
+    _git(root, "init", "--quiet")
+    _git(root, "config", "user.email", "test@example.com")
+    _git(root, "config", "user.name", "Test")
+    _git(root, "add", "-A")
+    _git(root, "commit", "--quiet", "-m", "initial")
+    result = index_folder(str(root), use_ai_summaries=False, storage_path=storage)
+    if isinstance(result, str):
+        result = json.loads(result)
+    yield root, storage, (result.get("repo") or result.get("repo_id"))
 
 
 def _search(repo, storage, query="alpha_fn"):

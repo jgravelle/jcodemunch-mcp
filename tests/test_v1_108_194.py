@@ -112,8 +112,9 @@ def test_config_attributes_an_env_override_to_env():
 # oversized file, and verified the predicate — against the full-walk config only.
 
 
-def _oversize_tree():
-    d = Path(tempfile.mkdtemp())
+def _oversize_tree(base: Path):
+    d = base / "tree"
+    d.mkdir()
     big = d / "huge.js"
     big.write_text(BIG_BODY, encoding="utf-8")
     (d / "package.json").write_text(
@@ -122,7 +123,7 @@ def _oversize_tree():
     return d, big
 
 
-def test_package_json_exemption_survives_an_incremental_reindex():
+def test_package_json_exemption_survives_an_incremental_reindex(tmp_path):
     """Drive the REAL fast path: full index, then an incremental touch.
 
     An earlier draft of this test compared two calls built from the same
@@ -132,8 +133,8 @@ def test_package_json_exemption_survives_an_incremental_reindex():
     """
     from jcodemunch_mcp.tools.index_folder import index_folder
 
-    d, big = _oversize_tree()
-    store_dir = tempfile.mkdtemp()
+    d, big = _oversize_tree(tmp_path)
+    store_dir = str(tmp_path / "store")
 
     full = index_folder(str(d), use_ai_summaries=False, storage_path=store_dir)
     assert full.get("success"), full
@@ -194,7 +195,7 @@ def test_package_json_exemption_survives_an_incremental_reindex():
         )
 
 
-def test_forced_path_scan_is_skipped_when_nothing_is_oversize():
+def test_forced_path_scan_is_skipped_when_nothing_is_oversize(tmp_path):
     """Correctness must not cost a tree walk per watcher event.
 
     Spies on the REAL module-level scanner while driving the REAL incremental
@@ -204,10 +205,10 @@ def test_forced_path_scan_is_skipped_when_nothing_is_oversize():
     """
     from jcodemunch_mcp.tools import index_folder as m
 
-    d, big = _oversize_tree()
+    d, big = _oversize_tree(tmp_path)
     small = d / "small.js"
     small.write_text("x = 1\n", encoding="utf-8")
-    store_dir = tempfile.mkdtemp()
+    store_dir = str(tmp_path / "store")
     m.index_folder(str(d), use_ai_summaries=False, storage_path=store_dir)
 
     calls: list = []
@@ -255,11 +256,11 @@ def test_forced_path_scan_is_skipped_when_nothing_is_oversize():
 # claimed to fix it.
 
 
-def test_raised_cap_reaches_the_primary_discovery_walk(monkeypatch):
+def test_raised_cap_reaches_the_primary_discovery_walk(monkeypatch, tmp_path):
     from jcodemunch_mcp import security
     from jcodemunch_mcp.tools.index_folder import discover_local_files
 
-    d, _big = _oversize_tree()
+    d, _big = _oversize_tree(tmp_path)
     (d / "package.json").unlink()  # isolate the cap from the #25 exemption
 
     real_get = security._config.get
@@ -277,11 +278,11 @@ def test_raised_cap_reaches_the_primary_discovery_walk(monkeypatch):
     )
 
 
-def test_default_cap_still_rejects(monkeypatch):
+def test_default_cap_still_rejects(monkeypatch, tmp_path):
     """Raising must be opt-in: the default is protection, not an accident."""
     from jcodemunch_mcp.tools.index_folder import discover_local_files
 
-    d, _big = _oversize_tree()
+    d, _big = _oversize_tree(tmp_path)
     (d / "package.json").unlink()
     files, _w, skips = discover_local_files(d)
     assert len(files) == 0 and skips.get("too_large") == 1, (
@@ -289,7 +290,7 @@ def test_default_cap_still_rejects(monkeypatch):
     )
 
 
-def test_size_cap_exemption_is_case_insensitive_where_the_os_is():
+def test_size_cap_exemption_is_case_insensitive_where_the_os_is(tmp_path):
     """The #25 exemption must survive a differently-cased path.
 
     ⚠ Found by CI on windows-latest, not locally. `_should_index_file` compared
@@ -307,7 +308,7 @@ def test_size_cap_exemption_is_case_insensitive_where_the_os_is():
         _should_index_file,
     )
 
-    d, big = _oversize_tree()
+    d, big = _oversize_tree(tmp_path)
     forced = _scan_package_json_forced_paths(d)
     assert forced, "fixture produced no forced paths"
 
@@ -329,7 +330,7 @@ def test_size_cap_exemption_is_case_insensitive_where_the_os_is():
     )
 
 
-def test_a_differently_spelled_watcher_path_is_not_silently_dropped():
+def test_a_differently_spelled_watcher_path_is_not_silently_dropped(tmp_path):
     r"""A change whose path spells the root differently must still resolve.
 
     ⚠ Found by CI on windows-latest after two wrong diagnoses. The fast path did
@@ -353,7 +354,9 @@ def test_a_differently_spelled_watcher_path_is_not_silently_dropped():
 
     from jcodemunch_mcp.tools.index_folder import _rel_to_root
 
-    root = _P(tempfile.mkdtemp()).resolve()
+    root = tmp_path / "root"
+    root.mkdir()
+    root = root.resolve()
     (root / "sub").mkdir()
     f = root / "sub" / "a.js"
     f.write_text("x\n", encoding="utf-8")
@@ -362,7 +365,8 @@ def test_a_differently_spelled_watcher_path_is_not_silently_dropped():
 
     # A genuinely unrelated path must still be refused — the fallback must not
     # turn "outside the root" into a false positive.
-    outside = _P(tempfile.mkdtemp()) / "z.js"
+    (tmp_path / "elsewhere").mkdir()
+    outside = tmp_path / "elsewhere" / "z.js"
     assert _rel_to_root(outside, root) is None, (
         "a path outside the root must not be accepted by the fallback"
     )

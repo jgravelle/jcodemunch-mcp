@@ -104,6 +104,82 @@ def _pin_code_index_path(tmp_path_factory):
             os.environ["CODE_INDEX_PATH"] = previous
 
 
+_TEMP_ENV = ("TMP", "TEMP", "TMPDIR")
+# A directory a test leaves behind under one of these prefixes fails the test.
+# `tmp` is what `tempfile.mkdtemp()` and `TemporaryDirectory()` name a directory
+# with no prefix; `jcm` is the prefix this project's own code and tests use.
+_LEAK_PREFIXES = ("tmp", "jcm")
+
+
+@pytest.fixture(autouse=True, scope="session")
+def _temp_inside_basetemp(tmp_path_factory):
+    """Every temp directory a test makes lands inside pytest's own temp tree.
+
+    Tests that called `tempfile.mkdtemp()` or `TemporaryDirectory()` wrote to
+    the system temp, where nothing ever removed them. A full tier left about
+    18 such folders and 60 `pip-*` folders from subprocesses there per run,
+    and 25,320 had built up on one box. Pointing `tempfile.tempdir` and the
+    `TMP`/`TEMP`/`TMPDIR` variables (which subprocesses read) at a folder
+    under the basetemp puts all of it where `tmp_path_retention_*` in
+    pyproject cleans it. Under xdist each worker has its own basetemp.
+
+    ⚠ The redirect target IS the basetemp, not a folder inside it: tests
+    such as `test_watch_all_scope.py` rely on a `tmp_path` counting as "under
+    the system temp dir", and a subfolder would break that. The basetemp is
+    resolved here, before the redirect, so pytest still keeps its own tree
+    in the real system temp and still prunes old runs there.
+    """
+    d = tmp_path_factory.getbasetemp()
+    import tempfile
+
+    # tiktoken keeps its BPE asset in `<system temp>/data-gym-cache` unless
+    # TIKTOKEN_CACHE_DIR is set; moving the temp dir would hide the copy
+    # `harness warm` fetched and send every token count to the network.
+    pinned_tiktoken = "TIKTOKEN_CACHE_DIR" not in os.environ
+    if pinned_tiktoken:
+        os.environ["TIKTOKEN_CACHE_DIR"] = os.path.join(tempfile.gettempdir(), "data-gym-cache")
+    previous_env = {k: os.environ.get(k) for k in _TEMP_ENV}
+    previous_tempdir = tempfile.tempdir
+    for k in _TEMP_ENV:
+        os.environ[k] = str(d)
+    tempfile.tempdir = str(d)
+    try:
+        yield d
+    finally:
+        tempfile.tempdir = previous_tempdir
+        if pinned_tiktoken:
+            os.environ.pop("TIKTOKEN_CACHE_DIR", None)
+        for k, v in previous_env.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+
+
+@pytest.fixture(autouse=True)
+def _no_leaked_temp_dirs(_temp_inside_basetemp):
+    """A test that leaves a `tmp*` or `jcm*` directory behind fails.
+
+    The redirect above makes a leak harmless during the run; this makes it
+    visible, so the test is fixed to use `tmp_path` (or to clean up) instead
+    of relying on the redirect. Only top-level entries of the redirected temp
+    folder are compared, before and after the test, so the check costs one
+    small `listdir` per test.
+    """
+    d = _temp_inside_basetemp
+    before = set(os.listdir(d))
+    yield
+    left = sorted(
+        n for n in set(os.listdir(d)) - before if n.lower().startswith(_LEAK_PREFIXES)
+    )
+    if left:
+        pytest.fail(
+            f"this test left {len(left)} temp director{'y' if len(left) == 1 else 'ies'} "
+            f"behind: {left[:5]}. Use the tmp_path fixture, or remove what you create.",
+            pytrace=False,
+        )
+
+
 @pytest.fixture(autouse=True)
 def _fresh_session(monkeypatch):
     """Every test starts from a fresh SESSION, as a fresh server process does (#801).
