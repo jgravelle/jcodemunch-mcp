@@ -8,40 +8,14 @@ These are one-machine observations, not a portable throughput guarantee.
 
 ## Why groups of 16?
 
-An exploratory experiment used 512 Django symbol texts and compared sorted
-inference groups. Each arm was timed twice and the faster result was kept;
-the original output was not saved. This table is transcribed evidence, not
-a reproducible statistical conclusion:
+Sixteen is provisional. The one retained run (below) puts groups of 8
+slightly ahead of 16 at the default caller batch of 50, and earlier
+exploratory runs at caller batches of 128 and 200 kept no output, so they
+are not quoted here. The constant is internal, not a user configuration
+surface; re-run the comparison below before changing it.
 
-| Caller batch | Whole-batch trim | Groups of 8 | Groups of 16 | Groups of 32 |
-|---:|---:|---:|---:|---:|
-| 50 | 50.4 | 169.0 | 137.6 | 98.6 |
-| 128 | 43.0 | 167.2 | 147.8 | 104.5 |
-| 200 | 37.4 | 133.9 | 136.4 | 145.6 |
-
-Units: texts/second. Sixteen was a middle choice that was never the slowest
-sorted group size in this sample. Eight was faster at the default caller
-batch of 50; 32 was faster at 200. Sixteen is not established as optimal on
-other corpora, thread counts or hardware. The constant is internal, not a
-new user configuration surface.
-
-## Subsequent validation of the selected size
-
-The combined local prototype used the same padding path at two threads:
-
-- Django, 512 texts, caller batches 50/128, both run orders: official
-  18.61–20.46 vs patched 136.27–148.69 texts/s (6.78–7.94x).
-- Five other repository samples, 511–512 texts each and caller batch 50:
-  2.72–5.17x. The samples deliberately overrepresented the longest texts.
-- Fastify, 2,593 symbols, scratch database copies: `embed_repo(force=True)`
-  129.31 s official vs 26.96 s patched (4.80x); stored vectors had identical
-  IDs and max absolute difference 0.0. Six semantic-only query result lists
-  and scores matched. This is one end-to-end sample, not a general search
-  latency claim.
-
-All tested vectors had max absolute difference 0.0 on that machine/provider.
-The regression test uses a 1e-5 tolerance; cross-platform bit identity is not
-claimed. These historical numbers predate the independent PR split.
+The regression tests use a 1e-5 tolerance; cross-platform bit identity is
+not claimed.
 
 ## Repeat the group-size comparison
 

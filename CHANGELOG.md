@@ -2,13 +2,20 @@
 
 ## [Unreleased]
 
-### Changed - avoid padded work in the bundled local encoder
+### Changed - the bundled local encoder no longer pays for padding (#1388)
 
-The bundled ONNX encoder groups texts by real token length and trims each
-inference run to its longest text, instead of running every text at 256
-positions. Vectors return in input order; truncation, masked pooling, model
-identity and dimensions are unchanged. Thread configuration and an early
-empty-input return are separate contributions.
+Every text sent to the bundled ONNX encoder ran at all 256 positions, so a
+batch of short symbol names cost as much as a batch of 256-token
+docstrings. The padded positions are masked out of attention and out of the
+mean-pool, so that work changed no vector. The encoder now sorts a batch by
+real token length, runs it in groups of 16, and trims each group to its
+longest real text; vectors come back in input order. On the retained run
+(512 Django symbol texts, caller batch 50, two threads,
+`benchmarks/encoder-padding-sample.json`) throughput went from 19.13 and
+18.35 texts/s to 127.75 and 128.82, with a max absolute vector difference of
+0.0. A long text can no longer set the width of the whole batch, and the
+run plan is tested without numpy, so CI covers it. Contributed by
+@tmhtech4.
 
 
 ## [1.108.431] - 2026-11-09 - a read re-indexes the files that changed since the index was built

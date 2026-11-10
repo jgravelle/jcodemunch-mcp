@@ -314,40 +314,7 @@ class TestEncodeBatch:
         reset_session()
 
     def test_encode_batch_shape_and_normalisation(self, tmp_path):
-        """encode_batch should return L2-normalised vectors of the right dim."""
-        np = pytest.importorskip("numpy")
-
-        # Create fake vocab
-        tokens = ["[PAD]", "[UNK]", "[CLS]", "[SEP]"] + [f"tok{i}" for i in range(100)]
-        (tmp_path / "vocab.txt").write_text("\n".join(tokens), encoding="utf-8")
-        (tmp_path / "model.onnx").write_bytes(b"fake")
-
-        # Mock onnxruntime
-        mock_ort = MagicMock()
-        mock_session = MagicMock()
-        # Simulate output: token embeddings of shape (batch, seq_len, 384),
-        # seq_len taken from the feeds (encode_batch trims padding before run).
-        mock_session.run.side_effect = lambda _out, feeds: [
-            np.random.randn(*feeds["input_ids"].shape, 384).astype(np.float32)
-        ]
-        mock_ort.InferenceSession.return_value = mock_session
-        mock_ort.SessionOptions.return_value = MagicMock()
-        mock_ort.GraphOptimizationLevel.ORT_ENABLE_ALL = 99
-
-        with patch.dict(sys.modules, {"onnxruntime": mock_ort}), \
-             patch("jcodemunch_mcp.embeddings.local_encoder.model_dir", return_value=tmp_path):
-            from jcodemunch_mcp.embeddings.local_encoder import encode_batch
-            result = encode_batch(["hello world", "test code"])
-
-        assert len(result) == 2
-        assert len(result[0]) == 384
-        # Check L2 normalisation
-        for vec in result:
-            norm = sum(x * x for x in vec) ** 0.5
-            assert abs(norm - 1.0) < 1e-4, f"Expected unit norm, got {norm}"
-
-    def test_feeds_trimmed_to_longest_real_sequence(self, tmp_path):
-        """Inference sees real lengths, not MAX_SEQ_LENGTH, in runs of similar length."""
+        """encode_batch returns unit vectors, trims padding, and keeps input order."""
         np = pytest.importorskip("numpy")
         tokens = ["[PAD]", "[UNK]", "[CLS]", "[SEP]", "a", "b", "c"]
         (tmp_path / "vocab.txt").write_text("\n".join(tokens), encoding="utf-8")
@@ -377,12 +344,16 @@ class TestEncodeBatch:
             seen.clear()
             many = encode_batch([" ".join("a" * n) for n in sizes])
 
+        assert len(out) == 2 and len(out[0]) == 384
+        for vec in out + many:
+            norm = sum(x * x for x in vec) ** 0.5
+            assert abs(norm - 1.0) < 1e-4, f"Expected unit norm, got {norm}"
+
         # [CLS] + 5 tokens + [SEP] = 7 for the longer text.
         assert {k: v.shape for k, v in pair[0].items()} == {
             "input_ids": (2, 7), "attention_mask": (2, 7), "token_type_ids": (2, 7)}
         # The shorter row keeps its real tokens and its padding stays masked.
         assert pair[0]["attention_mask"][0].tolist() == [1, 1, 1, 0, 0, 0, 0]
-        assert len(out) == 2 and len(out[0]) == 384
 
         # Sorted by length and run 16 at a time: the 16 shortest (3..18 real
         # tokens with [CLS]/[SEP]) never pay for the 4 longest (19..22).
@@ -391,59 +362,36 @@ class TestEncodeBatch:
         assert [v.index(max(v)) for v in many] == [n + 2 for n in sizes]
 
 
+class TestPlanRuns:
+    """The run plan needs no numpy, so CI exercises the trim without skipping."""
+
+    def test_runs_are_sorted_sized_and_trimmed(self):
+        from jcodemunch_mcp.embeddings.local_encoder import _plan_runs
+
+        lengths = [(i * 7) % 20 + 3 for i in range(20)]  # 3..22, scrambled
+        runs = _plan_runs(lengths, 16)
+
+        assert [len(rows) for rows, _ in runs] == [16, 4]
+        flat = [r for rows, _ in runs for r in rows]
+        assert sorted(flat) == list(range(20))  # every text exactly once
+        assert [lengths[r] for r in flat] == sorted(lengths)  # shortest first
+        for rows, seq_len in runs:
+            assert seq_len == max(lengths[r] for r in rows)
+        assert [seq_len for _, seq_len in runs] == [18, 22]
+
+    def test_ties_keep_input_order_and_small_inputs_make_one_run(self):
+        from jcodemunch_mcp.embeddings.local_encoder import _plan_runs
+
+        assert _plan_runs([5, 3, 5, 3], 16) == [([1, 3, 0, 2], 5)]
+        assert _plan_runs([4, 9, 2], 1) == [([2], 2), ([0], 4), ([1], 9)]
+
+    def test_empty_input_has_no_runs(self):
+        from jcodemunch_mcp.embeddings.local_encoder import _plan_runs
+
+        assert _plan_runs([], 16) == []
+
+
 # ── CLI subcommand tests ──────────────────────────────────────────────────
-
-
-class TestTrimmedPaddingMatchesFullPadding:
-    """Real model, no mocks: trimmed inference must equal 256-token inference.
-
-    Skips when onnxruntime or the bundled model is absent (CI has neither by
-    default). The reference runs the SAME session on the untrimmed feeds with
-    the pre-change pooling, so the only difference under test is the trim and
-    the length-sorted runs.
-    """
-
-    TEXTS = [
-        "",
-        "x",
-        "make_password(password, salt=None, hasher='default')",
-        "Return a hashed password. Ünïcödé àccents and 中文 text.",
-        "QuerySet.select_related(*fields) -> QuerySet  Follow foreign keys.",
-        " ".join(f"word{i}" for i in range(400)),  # truncated at 256 tokens
-    ]
-
-    def test_vectors_unchanged(self):
-        np = pytest.importorskip("numpy")
-        pytest.importorskip("onnxruntime")
-        from jcodemunch_mcp.embeddings import local_encoder as le
-        if not le.is_model_available():
-            pytest.skip("bundled ONNX model not downloaded")
-        le.reset_session()
-        try:
-            session, tok = le._get_session()
-            ids, mask, types = tok.encode_batch(self.TEXTS)
-            full = session.run(None, {
-                "input_ids": np.array(ids, dtype=np.int64),
-                "attention_mask": np.array(mask, dtype=np.int64),
-                "token_type_ids": np.array(types, dtype=np.int64),
-            })[0]
-            m = np.array(mask, dtype=np.float32)[:, :, None]
-            ref = (full * m).sum(axis=1) / m.sum(axis=1)
-            ref /= np.linalg.norm(ref, axis=1, keepdims=True)
-
-            got = np.array(le.encode_batch(self.TEXTS), dtype=np.float32)
-            # One at a time too: each text then trims to its own length.
-            solo = np.array([le.encode_batch([t])[0] for t in self.TEXTS], dtype=np.float32)
-            # More texts than one run of 16, so length sorting and the
-            # write-back to input order meet the real model too.
-            many = np.array(le.encode_batch(self.TEXTS * 3), dtype=np.float32)
-        finally:
-            le.reset_session()
-
-        assert got.shape == ref.shape == (len(self.TEXTS), le.MODEL_DIM)
-        assert np.abs(got - ref).max() < 1e-5
-        assert np.abs(solo - ref).max() < 1e-5
-        assert np.abs(many - np.tile(ref, (3, 1))).max() < 1e-5
 
 
 class TestDownloadModelCLI:

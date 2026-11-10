@@ -299,10 +299,26 @@ _tokenizer: Optional[WordPieceTokenizer] = None
 
 # Texts per inference run inside one encode_batch call. Runs hold texts of
 # similar length, so a smaller run wastes less padding and a larger one makes
-# fewer calls; 16 measured within reach of the best at caller batches of 50,
-# 128 and 200 (512 Django symbol texts, 2 threads).
+# fewer calls. Provisional: the retained run (benchmarks/encoder-padding-sample.json,
+# caller batch 50, 2 threads) puts 8 slightly ahead of 16; see
+# benchmarks/ENCODER_PADDING.md.
 _INFER_SUB_BATCH = 16
 
+
+def _plan_runs(lengths: list[int], size: int) -> list[tuple[list[int], int]]:
+    """Group text indexes into inference runs: ``[(rows, seq_len), ...]``.
+
+    Indexes are sorted by real token length, shortest first, and cut into runs
+    of ``size``. Each run's ``seq_len`` is the longest real length in it, so a
+    run is padded only to its own width. Every index appears in exactly one
+    run. An empty input gives no runs.
+    """
+    order = sorted(range(len(lengths)), key=lengths.__getitem__)
+    runs = []
+    for start in range(0, len(order), size):
+        rows = order[start : start + size]
+        runs.append((rows, lengths[rows[-1]]))
+    return runs
 
 
 def _get_session():
@@ -406,13 +422,11 @@ def encode_batch(texts: list[str]) -> list[list[float]]:
     # in runs of _INFER_SUB_BATCH, each trimmed to its own longest real
     # sequence, so one long symbol no longer sets the width for the whole call.
     lengths = [sum(m) for m in all_mask]  # each >= 2: [CLS] + [SEP]
-    order = sorted(range(len(texts)), key=lengths.__getitem__)
     results: list[list[float]] = [[] for _ in texts]
 
-    # Keep empty feeds subject to the existing native ONNX validation.
-    for start in range(0, max(1, len(order)), _INFER_SUB_BATCH):
-        rows = order[start : start + _INFER_SUB_BATCH]
-        seq_len = lengths[rows[-1]] if rows else MAX_SEQ_LENGTH
+    # An empty batch still reaches ONNX as one empty run, as before this change.
+    runs = _plan_runs(lengths, _INFER_SUB_BATCH) or [([], MAX_SEQ_LENGTH)]
+    for rows, seq_len in runs:
         feeds = {
             "input_ids": np.array([all_ids[r][:seq_len] for r in rows], dtype=np.int64),
             "attention_mask": np.array([all_mask[r][:seq_len] for r in rows], dtype=np.int64),
