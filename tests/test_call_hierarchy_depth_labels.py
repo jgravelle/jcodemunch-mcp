@@ -162,6 +162,7 @@ def test_the_old_compact_encoding_id_stays_readable():
 
     assert enc.ENCODING_ID != "ch1"
     assert "ch1" in enc.LEGACY_ENCODING_IDS
+    assert "ch2" in enc.LEGACY_ENCODING_IDS
     cols = ["id", "name", "kind", "file", "line", "depth", "resolution"]
     tables = [
         sd.TableSpec(
