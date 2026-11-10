@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+### Fixed - a Java or Kotlin wildcard import is an edge to each class the file uses (#1375)
+
+`import com.acme.app.util.*;` was not extracted at all: the import pattern reads a dotted name and stops at the `*`. So on a repository that writes wildcard imports, a class used only through one had no importers, and `find_importers`, `get_dependency_graph` and `check_delete_safe` read it as unused. Reported by @randyhbh in #1374 and split out as #1375.
+
+A wildcard names a package, and every tool that reads the import graph maps one import to one file. So `import a.b.*` now stands for one `a.b.Name` import per type name the file uses, each marked `wildcard: "a.b.*"`. A name that `a/b/` declares resolves to its file; the rest (`String`, `Override`) resolve to nothing, as a JDK import already did. Resolution happens against the current file set, so a class added to the package later is found without re-parsing the importer. A name the file imports explicitly or declares itself shadows the wildcard and is not an edge, and neither is a name that appears only in a comment or a string, a constant (`MAX_VALUE`), a member after a `.` or a fully qualified use. `import static a.b.C.*` is an import of `a.b.C`. `find_references`, `check_references` and `plan_refactoring` match imports by name without resolving them, so they skip a wildcard import whose class the package does not declare: none of them reports the file as importing `String`.
+
+Re-index a JVM repository to pick this up: `PARSER_GENERATION` is 31, so the next `index_folder` re-parses every file once.
+
 ## [1.108.431] - 2026-11-09 - a read re-indexes the files that changed since the index was built
 
 ### Added - a caller says on which lines it calls the target

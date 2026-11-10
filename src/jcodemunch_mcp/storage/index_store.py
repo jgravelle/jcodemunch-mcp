@@ -702,7 +702,11 @@ INDEX_VERSION = 17
 #   so a CRLF checkout lost every Java import. `files.imports` changes on
 #   UNCHANGED content (the generation-25 shape). The resolver half of #1374
 #   (JVM source roots, `.java`/`.kt`) needs no re-parse.
-PARSER_GENERATION = 30
+# 31 (#1375): a Java or Kotlin wildcard import is an edge: `import a.b.*`
+#   becomes one `a.b.Name` edge per type name the file uses, and
+#   `import static a.b.C.*` an edge to `a.b.C`. `files.imports` changes on
+#   UNCHANGED content (the generation-25 shape).
+PARSER_GENERATION = 31
 
 
 @dataclass(frozen=True)
