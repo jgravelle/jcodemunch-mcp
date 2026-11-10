@@ -3188,3 +3188,9 @@ The 1.108.426 entry, verbatim as it stood in `CLAUDE.md`:
 The 1.108.427 entry, verbatim as it stood in `CLAUDE.md`:
 
 - **Prior (1.108.427):** **the Grep answer replies right after a large index is built** (#1363, #1361): on a just-indexed Home Assistant copy the first Grep answer replies in 1.3 s at worst (1.108.426 ran out its 4 s budget): `search_text` reads candidates ahead on up to 32 daemon threads and the freshness stats run on 8, verdicts exact; the token benchmark counts the served response. Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-09, release 1.108.431)
+
+The 1.108.428 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.428):** **the published benchmark counts the answer an agent receives** (#1367, #1364): the token benchmark is re-measured on the served text of a default install (96.2% fewer tokens per lookup than grep-and-read over 15 lookups; express's fifth query is now `param bind`, so every lookup returns symbols); DoD row 8 counts a changed value on an existing rate key as a change, not a new key. Full text: `CHANGELOG.md`.

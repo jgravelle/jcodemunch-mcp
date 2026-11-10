@@ -1,6 +1,12 @@
 {
-  "current": "1.108.430",
+  "current": "1.108.431",
   "entries": [
+    {
+      "version": "1.108.431",
+      "date": "2026-11-09",
+      "title": "a read re-indexes the files that changed since the index was built",
+      "summary": "Before a read tool answers on a git repository, the server asks git which files changed since the index was built and re-indexes them, so a rebase, a branch switch or an outside edit no longer leaves a search serving old code. get_call_hierarchy now says on which lines each caller calls the target, so finding a call site takes no extra reads."
+    },
     {
       "version": "1.108.430",
       "date": "2026-11-09",
