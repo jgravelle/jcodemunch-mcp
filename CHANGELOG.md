@@ -2,7 +2,9 @@
 
 ## [Unreleased]
 
-### Changed - the full tool surface no longer loads six schemas into every request
+## [1.108.434] - 2026-11-10 - the full tool surface no longer loads six schemas into every request
+
+### Changed - the full tool surface no longer loads six schemas into every request (#1393)
 
 On `JCODEMUNCH_TOOL_SURFACE=full` (or `tool_surface: "full"`), the six core
 tools carried `_meta["anthropic/alwaysLoad"]`, so Claude Code sent their full

@@ -1,6 +1,12 @@
 {
-  "current": "1.108.433",
+  "current": "1.108.434",
   "entries": [
+    {
+      "version": "1.108.434",
+      "date": "2026-11-10",
+      "title": "the full tool surface no longer loads six schemas into every request",
+      "summary": "On the full tool surface, the six core tools no longer load up front in clients that defer MCP tools, so they stop riding in every request. This reverses the full-surface half of 1.108.389's up-front load: an agent there now makes one ToolSearch call before its first core-tool call. The default counter surface is unchanged."
+    },
     {
       "version": "1.108.433",
       "date": "2026-11-10",

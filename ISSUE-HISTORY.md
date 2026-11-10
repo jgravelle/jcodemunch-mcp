@@ -3206,3 +3206,9 @@ The 1.108.429 entry, verbatim as it stood in `CLAUDE.md`:
 The 1.108.430 entry, verbatim as it stood in `CLAUDE.md`:
 
 - **Prior (1.108.430):** **a Java or Kotlin import is an edge to the file that declares it** (#1374, #1380): a JVM import resolves to the `.java`/`.kt` file declaring the class (`PARSER_GENERATION` 30), so a JVM repo's import graph has edges; a no-change re-index reads no symbol rows. Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-10, release 1.108.434)
+
+The 1.108.431 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.431):** **a read re-indexes the files that changed since the index was built** (#1381, #1382): a read tool asks git what changed since the indexed commit and re-indexes it first (2 s ceiling, `refresh_on_read: false` turns it off); `get_call_hierarchy` rows carry `call_lines`. Full text: `CHANGELOG.md`.
