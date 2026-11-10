@@ -309,11 +309,16 @@ def _available_cpus() -> int:
     A CPU-time quota (``docker --cpus``) and a Windows affinity mask are not
     visible to any of the three. Unknown or failed probes fall back to the default thread count.
     """
+    # Read through getattr: both probes are missing on some Python versions or
+    # platforms, and a type checker targeting one of those rejects a direct
+    # attribute access that hasattr() does not narrow.
+    process_count = getattr(os, "process_cpu_count", None)
+    affinity = getattr(os, "sched_getaffinity", None)
     try:
-        if hasattr(os, "process_cpu_count"):
-            n = os.process_cpu_count()
-        elif hasattr(os, "sched_getaffinity"):
-            n = len(os.sched_getaffinity(0))
+        if process_count is not None:
+            n = process_count()
+        elif affinity is not None:
+            n = len(affinity(0))
         else:
             n = os.cpu_count()
     except OSError:
