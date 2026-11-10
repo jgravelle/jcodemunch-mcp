@@ -38,6 +38,7 @@ sys.path.insert(0, str(COMPETE))
 
 from adapter import Corpus, Pin, Task, corpus_digest, validate  # noqa: E402
 from adapters import null_grep, null_readall  # noqa: E402
+import corpora  # noqa: E402
 from score import band, compare, f1  # noqa: E402
 
 
@@ -209,3 +210,19 @@ def test_the_self_corpus_carries_no_bytecode(tmp_path):
     tracked = subprocess.run(["git", "ls-files"], cwd=dst.parent, check=True, capture_output=True, text=True).stdout.split()
     assert tracked == ["src/pkg/mod.py"], tracked
 
+
+def test_remove_tree_deletes_read_only_files(tmp_path):
+    """git writes its object files read-only; `rmtree(ignore_errors=True)`
+    cannot delete them on Windows and says nothing, so a checkout outlived its
+    removal. `corpora.remove_tree` must delete them on every platform."""
+    import os
+    import stat
+
+    tree = tmp_path / "repo"
+    obj = tree / ".git" / "objects" / "ab"
+    obj.mkdir(parents=True)
+    f = obj / "cdef"
+    f.write_bytes(b"x")
+    os.chmod(f, stat.S_IREAD)
+    corpora.remove_tree(tree)
+    assert not tree.exists()

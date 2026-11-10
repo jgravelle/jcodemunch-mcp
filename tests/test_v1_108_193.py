@@ -64,7 +64,7 @@ class TestMaxFileSizeIsMovable:
         assert DEFAULT_MAX_FILE_SIZE == 500 * 1024
         assert get_max_file_size() == DEFAULT_MAX_FILE_SIZE
 
-    def test_index_folder_resolves_rather_than_hardcoding(self, monkeypatch):
+    def test_index_folder_resolves_rather_than_hardcoding(self, monkeypatch, tmp_path):
         """The constant used to be passed straight through, which is why no
         route existed at all.
 
@@ -100,13 +100,11 @@ class TestMaxFileSizeIsMovable:
 
         monkeypatch.setattr(security._config, "get", fake_get)
 
-        import tempfile
-        from pathlib import Path
-
-        d = Path(tempfile.mkdtemp())
+        d = tmp_path / "src"
+        d.mkdir()
         (d / "a.py").write_text("x = 1\n", encoding="utf-8")
         mod.index_folder(
-            str(d), use_ai_summaries=False, storage_path=tempfile.mkdtemp()
+            str(d), use_ai_summaries=False, storage_path=str(tmp_path / "store")
         )
 
         assert seen, "index_folder never consulted the max_file_size resolver"

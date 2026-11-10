@@ -27,6 +27,16 @@ from jcodemunch_mcp.storage.sqlite_store import SQLiteIndexStore
 _DAY = 86_400
 
 
+@pytest.fixture(autouse=True)
+def _temp_dir_holds_tmp_path(tmp_path_factory, monkeypatch):
+    """conftest moves the temp dir to `<basetemp>/systemp`, where `tmp_path`
+    is not; these tests are about a repo under the system temp dir, so the
+    temp dir is the basetemp here, which holds every `tmp_path`."""
+    import tempfile
+
+    monkeypatch.setattr(tempfile, "tempdir", str(tmp_path_factory.getbasetemp()))
+
+
 def _index(tmp_path: Path, *, file_age_days: float, commit_age_days=None):
     """Index a one-file repo whose file (and optional commit) are that old."""
     repo = tmp_path / "repo"
