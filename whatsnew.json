@@ -1,6 +1,12 @@
 {
-  "current": "1.108.432",
+  "current": "1.108.433",
   "entries": [
+    {
+      "version": "1.108.433",
+      "date": "2026-11-10",
+      "title": "the bundled local encoder no longer pays for padding",
+      "summary": "The bundled local encoder trims each batch to its longest real text instead of running every text at 256 positions, several times faster on symbol-sized texts with identical vectors. An empty batch no longer loads the model, and JCODEMUNCH_LOCAL_EMBED_THREADS sets its CPU threads."
+    },
     {
       "version": "1.108.432",
       "date": "2026-11-10",

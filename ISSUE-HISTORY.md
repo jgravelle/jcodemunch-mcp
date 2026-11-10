@@ -3200,3 +3200,9 @@ The 1.108.428 entry, verbatim as it stood in `CLAUDE.md`:
 The 1.108.429 entry, verbatim as it stood in `CLAUDE.md`:
 
 - **Prior (1.108.429):** **a hook answers in about a second** (#1369): a bare `jcodemunch-mcp hook-<name>` runs its handler without importing the server (the console entry point is `jcodemunch_mcp.cli_entry:cli`), so an answered Grep takes 1.07 to 1.21 s for the whole hook process (5.1 s before); once freshness proves the scope unchanged the Grep answer reads the source tree, not the cached copy. Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-10, release 1.108.433)
+
+The 1.108.430 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.430):** **a Java or Kotlin import is an edge to the file that declares it** (#1374, #1380): a JVM import resolves to the `.java`/`.kt` file declaring the class (`PARSER_GENERATION` 30), so a JVM repo's import graph has edges; a no-change re-index reads no symbol rows. Full text: `CHANGELOG.md`.
