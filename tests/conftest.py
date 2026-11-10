@@ -118,17 +118,22 @@ def _temp_inside_basetemp(tmp_path_factory):
     Tests that called `tempfile.mkdtemp()` or `TemporaryDirectory()` wrote to
     the system temp, where nothing ever removed them, and subprocesses did
     the same. Pointing `tempfile.tempdir` and the `TMP`/`TEMP`/`TMPDIR`
-    variables (which subprocesses read) at the basetemp puts all of it
-    where `tmp_path_retention_count` in pyproject cleans it. Under xdist
+    variables (which subprocesses read) at `<basetemp>/systemp` puts all of
+    it where `tmp_path_retention_count` in pyproject cleans it. Under xdist
     each worker has its own basetemp.
 
-    ⚠ The redirect target IS the basetemp, not a folder inside it: tests
-    such as `test_watch_all_scope.py` rely on a `tmp_path` counting as "under
-    the system temp dir", and a subfolder would break that. The basetemp is
-    resolved here, before the redirect, so pytest still keeps its own tree
-    in the real system temp and still prunes old runs there.
+    ⚠ A folder of its own, NOT the basetemp itself: every `tmp_path` is an
+    entry of the basetemp (two, with pytest's `*current` link), so a
+    worker's basetemp grows to thousands of entries, and the per-test leak
+    check below lists the redirect target twice per test. Measured on
+    Windows: 1 ms per listing at 500 entries, 10 ms at 5000; the first
+    version of this fixture redirected to the basetemp and its Windows 3.12
+    CI leg went over the full-tier wall Floor. `systemp` holds only leaks.
+    ⚠ So `tmp_path` is NOT under `tempfile.gettempdir()` during a run;
+    `test_watch_all_scope.py`, which needs it to be, points `tempfile.tempdir`
+    at the basetemp for its own tests.
     """
-    d = tmp_path_factory.getbasetemp()
+    d = tmp_path_factory.mktemp("systemp", numbered=False)
     import tempfile
 
     # tiktoken keeps its BPE asset in `<system temp>/data-gym-cache` unless
