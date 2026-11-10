@@ -347,6 +347,86 @@ class TestEncodeBatch:
             assert abs(norm - 1.0) < 1e-4, f"Expected unit norm, got {norm}"
 
 
+    def test_session_uses_the_configured_thread_count(self, tmp_path):
+        """The env value reaches SessionOptions, not only the parser."""
+        (tmp_path / "vocab.txt").write_text("[PAD]\n[UNK]\n[CLS]\n[SEP]", encoding="utf-8")
+        (tmp_path / "model.onnx").write_bytes(b"fake")
+        from jcodemunch_mcp.embeddings import local_encoder as le
+
+        mock_ort = MagicMock()
+        with patch.dict(sys.modules, {"onnxruntime": mock_ort}), \
+             patch.dict(os.environ, {"JCODEMUNCH_LOCAL_EMBED_THREADS": "5"}), \
+             patch.object(le, "_available_cpus", return_value=16), \
+             patch.object(le, "model_dir", return_value=tmp_path):
+            le._get_session()
+
+        opts = mock_ort.SessionOptions.return_value
+        assert opts.intra_op_num_threads == 5
+        assert opts.inter_op_num_threads == 1
+        assert mock_ort.InferenceSession.call_args.kwargs["sess_options"] is opts
+
+    def test_empty_batch_returns_empty_without_inference(self):
+        from jcodemunch_mcp.embeddings import local_encoder as le
+
+        with patch.dict(sys.modules, {"numpy": None, "onnxruntime": None}), \
+             patch.object(le, "_get_session", side_effect=AssertionError("empty input initialized model")) as session:
+            assert le.encode_batch([]) == []
+            # Only an empty batch is empty: a missing one is still an error.
+            with pytest.raises(TypeError):
+                le.encode_batch(None)
+        session.assert_not_called()
+
+    @pytest.mark.parametrize("raw, cpus, expected", [
+        (None, 16, 2), ("", 16, 2), ("4", 16, 4), (" 8 ", 16, 8), ("0", 16, 2), ("-3", 16, 2),
+        ("many", 16, 2),
+        # Above the available cores is capped there; ONNX Runtime cannot even
+        # accept the last value.
+        ("64", 16, 16), ("8", 3, 3), ("999999999999", 16, 16),
+    ])
+    def test_intra_op_threads_env(self, raw, cpus, expected):
+        from jcodemunch_mcp.embeddings import local_encoder as le
+        env = {} if raw is None else {"JCODEMUNCH_LOCAL_EMBED_THREADS": raw}
+        with patch.dict(os.environ, env, clear=False), patch.object(le, "_available_cpus", return_value=cpus):
+            if raw is None:
+                os.environ.pop("JCODEMUNCH_LOCAL_EMBED_THREADS", None)
+            assert le._intra_op_threads() == expected
+
+    def test_available_cpus_is_what_the_process_may_use(self, monkeypatch):
+        """The cap is the cores this process may use, not the machine total."""
+        from jcodemunch_mcp.embeddings import local_encoder as le
+
+        monkeypatch.setattr(os, "cpu_count", lambda: 64)
+        # Python 3.13+: the process count wins over the machine's 64.
+        monkeypatch.setattr(os, "process_cpu_count", lambda: 6, raising=False)
+        assert le._available_cpus() == 6
+        monkeypatch.setattr(os, "process_cpu_count", lambda: None)
+        assert le._available_cpus() == 2  # unknown: the default thread count
+
+        # Before 3.13 on Linux: the affinity mask (taskset, container cpuset).
+        monkeypatch.delattr(os, "process_cpu_count")
+        monkeypatch.setattr(os, "sched_getaffinity", lambda _pid: {0, 1, 2}, raising=False)
+        assert le._available_cpus() == 3
+
+        # Neither exists (older Python on Windows or macOS): the machine total.
+        monkeypatch.delattr(os, "sched_getaffinity")
+        assert le._available_cpus() == 64
+
+
+    @pytest.mark.parametrize("probe", ["process_cpu_count", "sched_getaffinity", "cpu_count"])
+    def test_cpu_probe_failure_falls_back(self, monkeypatch, probe):
+        from jcodemunch_mcp.embeddings import local_encoder as le
+
+        def unavailable(*_args):
+            raise OSError("CPU probe unavailable")
+
+        monkeypatch.delattr(os, "process_cpu_count", raising=False)
+        monkeypatch.delattr(os, "sched_getaffinity", raising=False)
+        monkeypatch.setattr(os, probe, unavailable, raising=False)
+        monkeypatch.setenv("JCODEMUNCH_LOCAL_EMBED_THREADS", "4")
+        assert le._available_cpus() == 2
+        assert le._intra_op_threads() == 2
+
+
 # ── CLI subcommand tests ──────────────────────────────────────────────────
 
 

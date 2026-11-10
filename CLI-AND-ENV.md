@@ -102,6 +102,7 @@ split and is not resolved by it.
 | `OPENAI_WIRE_API` | — | Set `responses` to use OpenAI Responses API instead of chat/completions |
 | `OPENROUTER_API_KEY` | — | Enables OpenRouter summaries (default model: `meta-llama/llama-3.3-70b-instruct:free`) |
 | `JCODEMUNCH_LOCAL_EMBED_MODEL` | — | Override path to bundled ONNX model directory (default: `~/.code-index/models/all-MiniLM-L6-v2/`) |
+| `JCODEMUNCH_LOCAL_EMBED_THREADS` | 2 | ONNX intra-op threads for the bundled local encoder, read when the cached session is created. Invalid/non-positive values or failed CPU probes fall back to 2. Positive requests are capped at detected CPU availability; affinity support depends on Python/platform support. Windows can fall back to the machine total; CPU-time quotas are not detected. |
 | `GEMINI_EMBED_TASK_AWARE` | 1 | Set `0`/`false`/`no`/`off` to disable task-type hints (`RETRIEVAL_DOCUMENT` / `CODE_RETRIEVAL_QUERY`) when using Gemini embeddings |
 | `JCODEMUNCH_CROSS_REPO_DEFAULT` | 0 | Set 1 to enable cross-repo traversal by default in find_importers, get_blast_radius, get_dependency_graph |
 | `JCODEMUNCH_REPO_VISIBILITY` | workspace | Which indexes `list_repos` shows and an ambiguous bare repo name can pick: `workspace` (the server's working directory, inside it, or containing it; the answer says how many it hid) or `all`. Config key `repo_visibility`. |
