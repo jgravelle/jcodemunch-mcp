@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.432] - 2026-11-10 - a Java or Kotlin wildcard import is an edge to each class the file uses
+
 ### Fixed - a Java or Kotlin wildcard import is an edge to each class the file uses (#1375)
 
 `import com.acme.app.util.*;` was not extracted at all: the import pattern reads a dotted name and stops at the `*`. So on a repository that writes wildcard imports, a class used only through one had no importers, and `find_importers`, `get_dependency_graph` and `check_delete_safe` read it as unused. Reported by @randyhbh in #1374 and split out as #1375.

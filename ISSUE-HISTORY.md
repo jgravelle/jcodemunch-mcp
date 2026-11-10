@@ -3194,3 +3194,9 @@ The 1.108.427 entry, verbatim as it stood in `CLAUDE.md`:
 The 1.108.428 entry, verbatim as it stood in `CLAUDE.md`:
 
 - **Prior (1.108.428):** **the published benchmark counts the answer an agent receives** (#1367, #1364): the token benchmark is re-measured on the served text of a default install (96.2% fewer tokens per lookup than grep-and-read over 15 lookups; express's fifth query is now `param bind`, so every lookup returns symbols); DoD row 8 counts a changed value on an existing rate key as a change, not a new key. Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-10, release 1.108.432)
+
+The 1.108.429 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.429):** **a hook answers in about a second** (#1369): a bare `jcodemunch-mcp hook-<name>` runs its handler without importing the server (the console entry point is `jcodemunch_mcp.cli_entry:cli`), so an answered Grep takes 1.07 to 1.21 s for the whole hook process (5.1 s before); once freshness proves the scope unchanged the Grep answer reads the source tree, not the cached copy. Full text: `CHANGELOG.md`.
