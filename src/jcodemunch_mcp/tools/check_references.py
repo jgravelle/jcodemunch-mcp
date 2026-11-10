@@ -11,7 +11,7 @@ import unicodedata
 from ._enclosing import attach_enclosing_symbols
 from typing import Optional
 
-from ..parser.imports import is_unresolved_wildcard_edge
+from ..parser.imports import wildcard_edge_filter
 from ..storage import IndexStore
 from ._utils import index_status_to_tool_error, resolve_repo
 
@@ -104,11 +104,11 @@ def _check_single(
     # ── Import-level check ──────────────────────────────────────────────────
     import_references = []
     if index.imports is not None:
-        source_files = frozenset(index.source_files)
+        dead_wildcard = wildcard_edge_filter(index)
         for src_file, file_imports in index.imports.items():
             matches = []
             for imp in file_imports:
-                if is_unresolved_wildcard_edge(imp, src_file, source_files):
+                if dead_wildcard(imp, src_file):
                     continue
                 named_match = any(_fold(n) == ident_lower for n in imp.get("names", []))
                 spec = imp["specifier"]

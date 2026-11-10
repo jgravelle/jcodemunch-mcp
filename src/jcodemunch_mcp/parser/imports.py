@@ -1071,6 +1071,24 @@ def _jvm_wildcard_edges(content: str, explicit: list[dict]) -> list[dict]:
     return edges
 
 
+def wildcard_edge_filter(index):
+    """(#1375) A predicate ``(imp, importer_path) -> bool``: True for a dead wildcard edge.
+
+    The file set is frozen once, on the first wildcard edge, so a caller that
+    walks every import of a repository with no wildcard pays nothing for it.
+    """
+    frozen: list = []
+
+    def dead(imp: dict, importer_path: str) -> bool:
+        if not imp.get("wildcard"):
+            return False
+        if not frozen:
+            frozen.append(frozenset(getattr(index, "source_files", None) or ()))
+        return is_unresolved_wildcard_edge(imp, importer_path, frozen[0])
+
+    return dead
+
+
 def is_unresolved_wildcard_edge(imp: dict, importer_path: str, source_files) -> bool:
     """(#1375) True for a wildcard edge whose class the package does not declare.
 
