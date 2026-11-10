@@ -1,0 +1,68 @@
+{
+  "texts": 512,
+  "caller_batch": 50,
+  "threads": 2,
+  "baseline_sha256": "1d745e21b8c7fc610a3f890a4902d3cf22b4d538923dd5cd92910f63c64c884a",
+  "candidate_sha256": "b43ca4a497acd5c4794f0c2ab405e3a879cb6ff695265f853fa224f74db30eaf",
+  "numpy": "2.5.4",
+  "onnxruntime": "1.31.1",
+  "scope": "Encoder throughput; session creation/warm-up excluded; OS caches warm. All measurements retained.",
+  "results": [
+    {
+      "repeat": 0,
+      "run_size": null,
+      "seconds": 26.76470489986241,
+      "texts_per_second": 19.129671031890663,
+      "max_abs_difference": 0.0
+    },
+    {
+      "repeat": 0,
+      "run_size": 8,
+      "seconds": 3.8275644998066127,
+      "texts_per_second": 133.76652438538102,
+      "max_abs_difference": 0.0
+    },
+    {
+      "repeat": 0,
+      "run_size": 16,
+      "seconds": 4.007971900049597,
+      "texts_per_second": 127.74540659670399,
+      "max_abs_difference": 0.0
+    },
+    {
+      "repeat": 0,
+      "run_size": 32,
+      "seconds": 5.307762099895626,
+      "texts_per_second": 96.46249970586815,
+      "max_abs_difference": 0.0
+    },
+    {
+      "repeat": 1,
+      "run_size": 32,
+      "seconds": 6.893610100261867,
+      "texts_per_second": 74.2716795051334,
+      "max_abs_difference": 0.0
+    },
+    {
+      "repeat": 1,
+      "run_size": 16,
+      "seconds": 3.9745122003369033,
+      "texts_per_second": 128.82083994020695,
+      "max_abs_difference": 0.0
+    },
+    {
+      "repeat": 1,
+      "run_size": 8,
+      "seconds": 3.569024400319904,
+      "texts_per_second": 143.45657035970603,
+      "max_abs_difference": 0.0
+    },
+    {
+      "repeat": 1,
+      "run_size": null,
+      "seconds": 27.897721499670297,
+      "texts_per_second": 18.352753288688863,
+      "max_abs_difference": 0.0
+    }
+  ]
+}

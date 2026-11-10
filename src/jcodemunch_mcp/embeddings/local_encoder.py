@@ -347,6 +347,29 @@ def _intra_op_threads() -> int:
     return min(n, _available_cpus())
 
 
+# Texts per inference run inside one encode_batch call. Runs hold texts of
+# similar length, so a smaller run wastes less padding and a larger one makes
+# fewer calls. Provisional: the retained run (benchmarks/encoder-padding-sample.json,
+# caller batch 50, 2 threads) puts 8 slightly ahead of 16; see
+# benchmarks/ENCODER_PADDING.md.
+_INFER_SUB_BATCH = 16
+
+
+def _plan_runs(lengths: list[int], size: int) -> list[tuple[list[int], int]]:
+    """Group text indexes into inference runs: ``[(rows, seq_len), ...]``.
+
+    Indexes are sorted by real token length, shortest first, and cut into runs
+    of ``size``. Each run's ``seq_len`` is the longest real length in it, so a
+    run is padded only to its own width. Every index appears in exactly one
+    run. An empty input gives no runs.
+    """
+    order = sorted(range(len(lengths)), key=lengths.__getitem__)
+    runs = []
+    for start in range(0, len(order), size):
+        rows = order[start : start + size]
+        runs.append((rows, lengths[rows[-1]]))
+    return runs
+
 
 def _get_session():
     """Return the cached ONNX InferenceSession, creating it on first call."""
@@ -447,28 +470,31 @@ def encode_batch(texts: list[str]) -> list[list[float]]:
 
     all_ids, all_mask, all_types = tokenizer.encode_batch(texts)
 
-    feeds = {
-        "input_ids": np.array(all_ids, dtype=np.int64),
-        "attention_mask": np.array(all_mask, dtype=np.int64),
-        "token_type_ids": np.array(all_types, dtype=np.int64),
-    }
+    # The tokenizer pads every text to MAX_SEQ_LENGTH. Padded positions are
+    # masked out of attention and of the mean-pool below, so dropping them
+    # before inference leaves the vectors unchanged. Texts run shortest first
+    # in runs of _INFER_SUB_BATCH, each trimmed to its own longest real
+    # sequence, so one long symbol no longer sets the width for the whole call.
+    lengths = [sum(m) for m in all_mask]  # each >= 2: [CLS] + [SEP]
+    results: list[list[float]] = [[] for _ in texts]
 
-    # Run inference — output[0] is token embeddings (batch, seq, hidden)
-    outputs = session.run(None, feeds)
-    token_embs = outputs[0]  # shape: (batch, seq_len, 384)
+    for rows, seq_len in _plan_runs(lengths, _INFER_SUB_BATCH):
+        feeds = {
+            "input_ids": np.array([all_ids[r][:seq_len] for r in rows], dtype=np.int64),
+            "attention_mask": np.array([all_mask[r][:seq_len] for r in rows], dtype=np.int64),
+            "token_type_ids": np.array([all_types[r][:seq_len] for r in rows], dtype=np.int64),
+        }
 
-    # Mean-pool + L2-normalise
-    results: list[list[float]] = []
-    for i in range(len(texts)):
-        mask = all_mask[i]
-        emb = token_embs[i]  # (seq_len, 384)
+        # Run inference — output[0] is token embeddings (batch, seq, hidden)
+        token_embs = session.run(None, feeds)[0]  # shape: (len(rows), seq_len, 384)
 
-        # Use numpy for efficiency
-        mask_arr = np.array(mask, dtype=np.float32).reshape(-1, 1)
-        pooled = (emb * mask_arr).sum(axis=0) / mask_arr.sum()
-        norm = np.linalg.norm(pooled)
-        if norm > 0:
-            pooled = pooled / norm
-        results.append(pooled.tolist())
+        # Mean-pool + L2-normalise, written back at each text's input position
+        for i, r in enumerate(rows):
+            mask_arr = np.array(all_mask[r][:seq_len], dtype=np.float32).reshape(-1, 1)
+            pooled = (token_embs[i] * mask_arr).sum(axis=0) / mask_arr.sum()
+            norm = np.linalg.norm(pooled)
+            if norm > 0:
+                pooled = pooled / norm
+            results[r] = pooled.tolist()
 
     return results
