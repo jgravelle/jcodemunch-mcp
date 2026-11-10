@@ -403,6 +403,18 @@ Claude Code and GitHub Copilot (the Copilot app, Copilot CLI, VS Code and JetBra
 
 In Claude Code, add `"allowManagedMcpServersOnly": true` to make the managed list the only allowlist that applies ([docs](https://code.claude.com/docs/en/managed-mcp#restrict-the-allowlist-to-managed-settings-only)). Codex reads its own config and isn't covered by these settings.
 
+**Codex.** A Codex admin can limit MCP servers with requirements. One route is the system file: `%ProgramData%\OpenAI\Codex\requirements.toml` on Windows, `/etc/codex/requirements.toml` on Linux and macOS. OpenAI's docs list the other layers, such as the cloud bundle and macOS MDM ([docs](https://learn.chatgpt.com/docs/enterprise/managed-configuration)). Per those docs, a server stays enabled only when both its name and its identity match an entry:
+
+```toml
+[mcp_servers.jcodemunch]
+identity = { command = "jcodemunch-mcp" }
+```
+
+- By OpenAI's documented rule, this string form matches a user entry whose `command` is exactly `jcodemunch-mcp` and ignores args. An entry with an absolute path doesn't match and is disabled. We haven't run this enforcement ourselves.
+- On Windows, `jcodemunch-mcp init` writes the bare name when PATH finds the same install, and Codex starts it from PATH. Otherwise `init` writes the absolute path, which this entry doesn't match.
+- On Linux and macOS, `init` always writes the absolute path, because a client started outside a login shell can have a narrower PATH. To match this entry, a user sets `command = "jcodemunch-mcp"` in `~/.codex/config.toml`, which works only if that client's PATH finds it. The alternative is the docs' structured identity, `command = { executable = "<absolute path>", args = [] }`, which has to name each machine's path.
+- Our plugin's server is allowlisted under `plugins.<plugin>.mcp_servers.jcodemunch`, not the entry above. It starts with `uvx` and `jcodemunch-mcp==X.Y.Z`. A string identity of `uvx` would approve any package started with `uvx`. To pin ours, use the structured form with an exact `args` match on `jcodemunch-mcp==X.Y.Z`, which changes with each release.
+
 For GitHub's registry route, the server ID is `io.github.jgravelle/jcodemunch-mcp`. That route is in public preview, and GitHub calls the managed-settings allowlist the more secure, generally available method ([docs](https://docs.github.com/en/copilot/how-tos/administer-copilot/manage-mcp-usage/restrict-based-on-registry)).
 
 Keep the server name `jcodemunch` in every config, so jCodeMunch shows up under one name. Copilot's usage metrics API counts MCP connection and reconnection attempts per user, not tool calls ([docs](https://docs.github.com/en/copilot/reference/copilot-usage-metrics/copilot-usage-metrics#customization-fields-api-only)).
