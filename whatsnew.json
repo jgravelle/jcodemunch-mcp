@@ -1,6 +1,12 @@
 {
-  "current": "1.108.431",
+  "current": "1.108.432",
   "entries": [
+    {
+      "version": "1.108.432",
+      "date": "2026-11-10",
+      "title": "a Java or Kotlin wildcard import is an edge to each class the file uses",
+      "summary": "A Java or Kotlin file that writes import a.b.*; now counts as importing each class it uses from that package, so find_importers and check_delete_safe no longer read those classes as unused. Re-index a JVM repository once to pick it up."
+    },
     {
       "version": "1.108.431",
       "date": "2026-11-09",

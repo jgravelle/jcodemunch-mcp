@@ -297,6 +297,56 @@ class WordPieceTokenizer:
 _session = None
 _tokenizer: Optional[WordPieceTokenizer] = None
 
+_DEFAULT_INTRA_OP_THREADS = 2
+
+
+def _available_cpus() -> int:
+    """Logical cores this process may use, which can be fewer than the machine has.
+
+    ``os.process_cpu_count`` (Python 3.13+) and ``os.sched_getaffinity`` (Linux)
+    honour a CPU affinity mask such as ``taskset`` or a container cpuset;
+    ``os.cpu_count`` is the machine total and the fallback everywhere else.
+    A CPU-time quota (``docker --cpus``) and a Windows affinity mask are not
+    visible to any of the three. Unknown or failed probes fall back to the default thread count.
+    """
+    # Read through getattr: both probes are missing on some Python versions or
+    # platforms, and a type checker targeting one of those rejects a direct
+    # attribute access that hasattr() does not narrow.
+    process_count = getattr(os, "process_cpu_count", None)
+    affinity = getattr(os, "sched_getaffinity", None)
+    try:
+        if process_count is not None:
+            n = process_count()
+        elif affinity is not None:
+            n = len(affinity(0))
+        else:
+            n = os.cpu_count()
+    except OSError:
+        return _DEFAULT_INTRA_OP_THREADS
+    return n or _DEFAULT_INTRA_OP_THREADS
+
+
+def _intra_op_threads() -> int:
+    """ONNX intra-op threads from ``JCODEMUNCH_LOCAL_EMBED_THREADS``.
+
+    The default stays 2 so an MCP server does not take every core while the
+    user works; a one-off ``embed_repo`` build can raise it. Garbage or a
+    non-positive value falls back to the default rather than to ONNX's own
+    "all cores" meaning of 0. A value above the cores available to this
+    process is capped there: more threads than cores only add contention, and
+    a value too large for ONNX Runtime would stop the session from being
+    created at all.
+    """
+    raw = os.environ.get("JCODEMUNCH_LOCAL_EMBED_THREADS", "").strip()
+    try:
+        n = int(raw)
+    except ValueError:
+        return _DEFAULT_INTRA_OP_THREADS
+    if n <= 0:
+        return _DEFAULT_INTRA_OP_THREADS
+    return min(n, _available_cpus())
+
+
 # Texts per inference run inside one encode_batch call. Runs hold texts of
 # similar length, so a smaller run wastes less padding and a larger one makes
 # fewer calls. Provisional: the retained run (benchmarks/encoder-padding-sample.json,
@@ -360,7 +410,7 @@ def _get_session():
 
     opts = ort.SessionOptions()
     opts.inter_op_num_threads = 1
-    opts.intra_op_num_threads = 2
+    opts.intra_op_num_threads = _intra_op_threads()
     opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
 
     _session = ort.InferenceSession(str(onnx_path), sess_options=opts)
@@ -410,6 +460,10 @@ def encode_batch(texts: list[str]) -> list[list[float]]:
     Returns:
         List of float vectors, one per input text.
     """
+    # len() preserves errors for None and accepts NumPy string arrays.
+    if len(texts) == 0:
+        return []
+
     import numpy as np  # onnxruntime already depends on numpy
 
     session, tokenizer = _get_session()
@@ -424,9 +478,7 @@ def encode_batch(texts: list[str]) -> list[list[float]]:
     lengths = [sum(m) for m in all_mask]  # each >= 2: [CLS] + [SEP]
     results: list[list[float]] = [[] for _ in texts]
 
-    # An empty batch still reaches ONNX as one empty run, as before this change.
-    runs = _plan_runs(lengths, _INFER_SUB_BATCH) or [([], MAX_SEQ_LENGTH)]
-    for rows, seq_len in runs:
+    for rows, seq_len in _plan_runs(lengths, _INFER_SUB_BATCH):
         feeds = {
             "input_ids": np.array([all_ids[r][:seq_len] for r in rows], dtype=np.int64),
             "attention_mask": np.array([all_mask[r][:seq_len] for r in rows], dtype=np.int64),

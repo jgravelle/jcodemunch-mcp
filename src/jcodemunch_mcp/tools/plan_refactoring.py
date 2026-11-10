@@ -6,6 +6,7 @@ import re
 from pathlib import PurePosixPath
 from typing import Optional, Tuple
 
+from ..parser.imports import wildcard_edge_filter
 from ..retrieval.verdict import symbol_not_found
 from ..storage import IndexStore
 
@@ -1616,7 +1617,10 @@ def _extract_symbol_with_deps(store, owner, name, index, sym):
     # Find which imports from the file are used by the symbol
     file_imports = index.imports.get(sym["file"], [])
     needed_imports = []
+    dead_wildcard = wildcard_edge_filter(index)
     for imp in file_imports:
+        if dead_wildcard(imp, sym["file"]):
+            continue
         specifier = imp.get("specifier", "")
         imp_names = imp.get("names", [])
         # Fix B: Check if any imported name appears in the symbol body
