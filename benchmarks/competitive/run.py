@@ -35,7 +35,6 @@ import json
 import os
 import platform
 import shutil
-import stat
 import statistics
 import subprocess
 import sys
@@ -370,28 +369,6 @@ def render_md(result: dict, history: list[dict] | None = None) -> str:
     return "\n".join(lines)
 
 
-def _remove_tree(path: Path) -> None:
-    """Delete the scratch tree, including git's read-only object files.
-
-    On Windows `rmtree(ignore_errors=True)` cannot delete a read-only file and
-    says nothing, so every run left its `self` corpus clone behind in the
-    system temp folder. Clear the flag and retry; anything still refused stays,
-    as before.
-    """
-
-    def _retry_writable(func, target, _exc):
-        try:
-            os.chmod(target, stat.S_IWRITE)
-            func(target)
-        except OSError:
-            pass
-
-    if sys.version_info >= (3, 12):
-        shutil.rmtree(path, onexc=_retry_writable)
-    else:
-        shutil.rmtree(path, onerror=_retry_writable)
-
-
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--corpus", action="append", default=[], help="ID=PATH|DOMAIN; repeatable; added to the set")
@@ -519,7 +496,7 @@ def main(argv=None) -> int:
         return 0
     finally:
         if not a.keep_scratch:
-            _remove_tree(scratch)
+            corpora_mod.remove_tree(scratch)
 
 
 if __name__ == "__main__":

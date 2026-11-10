@@ -43,7 +43,7 @@ def _run_config(env_extra: dict[str, str] | None = None) -> str:
     # Isolate the config FILE too, not just the env var: without this the
     # subprocess reads the developer's real ~/.code-index/config.jsonc, and
     # both max_file_size assertions below fail on any box that sets the key.
-    # TemporaryDirectory rather than mkdtemp (used elsewhere in this file)
+    # TemporaryDirectory rather than mkdtemp
     # because the config reporter WRITES a config.jsonc into the directory it
     # is pointed at, so an uncleaned dir per call accumulates.
     # ⚠⚠ Isolate the PROJECT config as well, by running somewhere that has no

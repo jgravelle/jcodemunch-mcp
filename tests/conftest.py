@@ -116,12 +116,11 @@ def _temp_inside_basetemp(tmp_path_factory):
     """Every temp directory a test makes lands inside pytest's own temp tree.
 
     Tests that called `tempfile.mkdtemp()` or `TemporaryDirectory()` wrote to
-    the system temp, where nothing ever removed them. A full tier left about
-    18 such folders and 60 `pip-*` folders from subprocesses there per run,
-    and 25,320 had built up on one box. Pointing `tempfile.tempdir` and the
-    `TMP`/`TEMP`/`TMPDIR` variables (which subprocesses read) at a folder
-    under the basetemp puts all of it where `tmp_path_retention_*` in
-    pyproject cleans it. Under xdist each worker has its own basetemp.
+    the system temp, where nothing ever removed them, and subprocesses did
+    the same. Pointing `tempfile.tempdir` and the `TMP`/`TEMP`/`TMPDIR`
+    variables (which subprocesses read) at the basetemp puts all of it
+    where `tmp_path_retention_count` in pyproject cleans it. Under xdist
+    each worker has its own basetemp.
 
     ⚠ The redirect target IS the basetemp, not a folder inside it: tests
     such as `test_watch_all_scope.py` rely on a `tmp_path` counting as "under
@@ -158,13 +157,17 @@ def _temp_inside_basetemp(tmp_path_factory):
 
 @pytest.fixture(autouse=True)
 def _no_leaked_temp_dirs(_temp_inside_basetemp):
-    """A test that leaves a `tmp*` or `jcm*` directory behind fails.
+    """A test that leaves a `tmp*` or `jcm*` entry (folder or file) behind fails.
 
     The redirect above makes a leak harmless during the run; this makes it
     visible, so the test is fixed to use `tmp_path` (or to clean up) instead
     of relying on the redirect. Only top-level entries of the redirected temp
     folder are compared, before and after the test, so the check costs one
     small `listdir` per test.
+
+    ⚠ Function scope only: a module- or session-scoped fixture is set up
+    before `before` and torn down after the check, so its leak is not
+    reported. The redirect still keeps it inside the basetemp.
     """
     d = _temp_inside_basetemp
     before = set(os.listdir(d))
@@ -174,7 +177,7 @@ def _no_leaked_temp_dirs(_temp_inside_basetemp):
     )
     if left:
         pytest.fail(
-            f"this test left {len(left)} temp director{'y' if len(left) == 1 else 'ies'} "
+            f"this test left {len(left)} temp entr{'y' if len(left) == 1 else 'ies'} "
             f"behind: {left[:5]}. Use the tmp_path fixture, or remove what you create.",
             pytrace=False,
         )

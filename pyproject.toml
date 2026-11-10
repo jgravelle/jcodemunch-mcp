@@ -172,8 +172,8 @@ exclude = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-# Keep only the last run's temp tree: a full tier writes about 1.6 GB under
-# pytest-of-<user> and the default kept three runs. The policy stays "all":
+# Keep only the last run's temp tree (the default kept three, and one full
+# tier's tree runs to gigabytes on Windows). The policy stays "all":
 # "failed" deletes a passed test's tmp_path at once, the next parametrized test
 # is handed the same path, and an index cached for that path reads a deleted db.
 tmp_path_retention_count = 1
