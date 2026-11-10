@@ -2,6 +2,26 @@
 
 ## [Unreleased]
 
+### Fixed - an empty batch no longer loads the local encoder (#1389)
+
+`encode_batch([])` imported numpy, built the ONNX session (downloading the
+model when it was absent) and then failed inside ONNX on an empty feed, so a
+call with nothing to encode could cost a model download and still raise. It
+now returns `[]` before any import or session, so an empty batch needs
+neither numpy nor the model. `encode_batch(None)` still raises `TypeError`.
+Contributed by @tmhtech4.
+
+### Added - `JCODEMUNCH_LOCAL_EMBED_THREADS` sets the local encoder's threads (#1389)
+
+The bundled ONNX encoder always ran on two intra-op threads, which keeps an
+MCP server from taking every core while the user works but makes a one-off
+`embed_repo` build slower than the machine allows. The variable sets the
+thread count when the session is created. The default stays 2. A value that
+is not a positive integer falls back to 2 rather than to ONNX's own 0, which
+means all cores. A value above the cores this process may use is capped
+there, because extra threads only add contention and a large enough value
+stops ONNX Runtime creating the session at all. Contributed by @tmhtech4.
+
 ## [1.108.432] - 2026-11-10 - a Java or Kotlin wildcard import is an edge to each class the file uses
 
 ### Fixed - a Java or Kotlin wildcard import is an edge to each class the file uses (#1375)
