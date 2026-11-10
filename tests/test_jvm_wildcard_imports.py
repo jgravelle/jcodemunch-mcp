@@ -250,3 +250,15 @@ def test_a_moved_symbol_needs_no_import_of_a_class_that_does_not_exist(monkeypat
     sym = {"file": ORDER, "line": 7, "end_line": 13}
     _, needed = pr._extract_symbol_with_deps(None, "o", "n", index, sym)
     assert {e["specifier"] for e in needed if e.get("wildcard")} == {"com.acme.app.util.Hosts"}
+
+
+def test_an_index_with_no_file_set_keeps_every_wildcard_edge():
+    """Unknown is not dead: without a file set no edge can be shown to resolve
+    to nothing, so the name-matching tools keep it (they over-report, never drop)."""
+    from types import SimpleNamespace
+
+    from jcodemunch_mcp.parser.imports import wildcard_edge_filter
+
+    edge = {"specifier": "a.b.String", "names": ["String"], "wildcard": "a.b.*"}
+    assert wildcard_edge_filter(SimpleNamespace())(edge, ORDER) is False
+    assert wildcard_edge_filter(SimpleNamespace(source_files=sorted(FILES)))(edge, ORDER) is True

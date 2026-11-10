@@ -1076,6 +1076,7 @@ def wildcard_edge_filter(index):
 
     The file set is frozen once, on the first wildcard edge, so a caller that
     walks every import of a repository with no wildcard pays nothing for it.
+    An index with no file set cannot say an edge is dead, so it keeps every one.
     """
     frozen: list = []
 
@@ -1083,7 +1084,10 @@ def wildcard_edge_filter(index):
         if not imp.get("wildcard"):
             return False
         if not frozen:
-            frozen.append(frozenset(getattr(index, "source_files", None) or ()))
+            files = getattr(index, "source_files", None)
+            frozen.append(None if files is None else frozenset(files))
+        if frozen[0] is None:
+            return False
         return is_unresolved_wildcard_edge(imp, importer_path, frozen[0])
 
     return dead
