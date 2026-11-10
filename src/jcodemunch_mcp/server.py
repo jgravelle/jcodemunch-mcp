@@ -1811,15 +1811,26 @@ _ALWAYS_LOAD_META_KEY = "anthropic/alwaysLoad"
 
 
 def _apply_always_load(tools: list[Tool], surface: str) -> list[Tool]:
-    """Mark the tools the `instructions` name for `surface` as always-loaded.
+    """Mark the front door's tools as always-loaded on the `counter` surface.
 
     A deferring client sends the model only tool names and our `instructions`,
     so an agent that already has Grep rarely pays the ToolSearch call a
-    deferred tool needs. The set marked is `_instruction_tool_names(surface)`,
-    the same list the instructions tell the agent to start with, so the text
-    and the loaded tools cannot disagree. Marks only tools already published:
-    it never re-adds one a filter or `disabled_tools` removed. Returns copies.
+    deferred tool needs. On `counter` the set marked is
+    `_instruction_tool_names("counter")`, the same list the instructions tell
+    the agent to start with, so the text and the loaded tools cannot disagree.
+    Marks only tools already published: it never re-adds one a filter or
+    `disabled_tools` removed. Returns copies.
+
+    ⚠ `full` marks nothing. Its six core schemas rode in every request of a
+    deferring client, and a benchmark measured the full arm costing more
+    than a session without jCodeMunch while no jCodeMunch call was made
+    (CHANGELOG, "the full tool surface no longer loads six schemas"). The
+    full instructions carry the one-call ToolSearch line instead, so an agent
+    that wants a core tool pays one lookup rather than every request paying
+    for all six.
     """
+    if surface != "counter":
+        return list(tools)
     wanted = set(_instruction_tool_names(surface))
     out: list[Tool] = []
     for tool in tools:

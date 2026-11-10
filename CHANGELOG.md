@@ -2,6 +2,26 @@
 
 ## [Unreleased]
 
+### Changed - the full tool surface no longer loads six schemas into every request
+
+On `JCODEMUNCH_TOOL_SURFACE=full` (or `tool_surface: "full"`), the six core
+tools carried `_meta["anthropic/alwaysLoad"]`, so Claude Code sent their full
+schemas in every request even with tool search deferring the rest. Measured
+offline on this tree (tiktoken cl100k_base, which ranks the pieces; Claude's
+tokenizer counts differently), what a deferring client gets up front on
+`full` went from 4,751 tokens (3,459 of them the six schemas) to 1,362: 91
+tool names and the instructions. BM-2 pilot 6 (Opus 5.5, Claude Code
+2.1.319, jcm 1.108.429) had measured the full arm at a cost ratio of 1.144
+against a session without jCodeMunch, with no jCodeMunch call made in any
+session of either jCodeMunch arm, and traced the extra cost to the prompt
+prefix.
+
+What it costs: on `full`, an agent now pays one ToolSearch call before its
+first core-tool call. The full instructions already give that call
+(`ToolSearch "select:mcp__jcodemunch__resolve_repo,..."`), loading all six at
+once. The default `counter` surface is unchanged: its three front-door verbs
+still load up front, and its byte-pinned tool list does not move.
+
 ## [1.108.433] - 2026-11-10 - the bundled local encoder no longer pays for padding
 
 ### Changed - the bundled local encoder no longer pays for padding (#1388)
