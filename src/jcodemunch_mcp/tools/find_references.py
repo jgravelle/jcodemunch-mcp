@@ -4,6 +4,7 @@ import posixpath
 import time
 from typing import Optional
 
+from ..parser.imports import is_unresolved_wildcard_edge
 from ..storage import IndexStore, result_cache_get, result_cache_put
 from ..storage.generation import connect_readonly
 from ._utils import index_status_to_tool_error, resolve_repo
@@ -16,8 +17,11 @@ def _build_import_name_index(index) -> dict[str, list[tuple[str, dict]]]:
     Built once per CodeIndex, cached on index._import_name_index.
     """
     inv: dict[str, list[tuple[str, dict]]] = {}
+    source_files = frozenset(index.source_files)
     for src_file, file_imports in index.imports.items():
         for imp in file_imports:
+            if is_unresolved_wildcard_edge(imp, src_file, source_files):
+                continue
             for n in imp.get("names", []):
                 inv.setdefault(n.lower(), []).append((src_file, imp))
             spec_stem = posixpath.splitext(posixpath.basename(imp["specifier"]))[0].lower()

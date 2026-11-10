@@ -119,9 +119,16 @@ _JVM_NOISE = re.compile(
     r"""/\*.*?\*/|//[^\n]*|\"\"\".*?\"\"\"|"(?:\\.|[^"\\\n])*"|'(?:\\.|[^'\\\n])*'""",
     re.DOTALL,
 )
-_JVM_TYPE_NAME = re.compile(r"""\b([A-Z][A-Za-z0-9_]*)\b""")
+# A type name used bare: not after `.` (a member, `Hosts.MAX`, or a fully
+# qualified name, `com.other.Hosts`, neither of which the wildcard supplies).
+_JVM_TYPE_NAME = re.compile(r"""(?<![\w.$])([A-Z][A-Za-z0-9_]*)\b""")
+# A constant (`MAX_VALUE`) is no class name.
+_JVM_CONSTANT = re.compile(r"""^[A-Z][A-Z0-9]*_[A-Z0-9_]*$""")
+# A declaration keyword, not `Hosts::class` or `x.object`, then the name on
+# the same line: `\s+` let `Hosts::class` at a line end declare the first
+# name of the next line, which then shadowed the wildcard.
 _JVM_DECLARED_TYPE = re.compile(
-    r"""\b(?:class|interface|enum|record|object|typealias)\s+([A-Z][A-Za-z0-9_]*)"""
+    r"""(?<![\w.:$])(?:class|interface|enum|record|object|typealias)[ \t]+([A-Z][A-Za-z0-9_]*)"""
 )
 
 # Rust: use crate::foo::{Bar, Baz}
@@ -1055,13 +1062,28 @@ def _jvm_wildcard_edges(content: str, explicit: list[dict]) -> list[dict]:
         if line.lstrip().startswith(("import ", "package ")):
             continue
         for n in _JVM_TYPE_NAME.findall(line):
-            if n not in seen and n not in shadowed:
+            if n not in seen and n not in shadowed and not _JVM_CONSTANT.match(n):
                 seen.add(n)
                 names.append(n)
     for pkg in packages:
         for n in names:
             edges.append({"specifier": f"{pkg}.{n}", "names": [n], "wildcard": f"{pkg}.*"})
     return edges
+
+
+def is_unresolved_wildcard_edge(imp: dict, importer_path: str, source_files) -> bool:
+    """(#1375) True for a wildcard edge whose class the package does not declare.
+
+    `import a.b.*` is stored as one `a.b.Name` edge per type name the file
+    uses; `a.b.String` resolves to nothing and is no import of `String`. A
+    tool that matches edges by name without resolving them (find_references,
+    check_references, plan_refactoring) skips these, or it would list every
+    wildcard importer as importing `String`. `source_files` is the index's
+    frozenset, built once per call by the caller.
+    """
+    if not imp.get("wildcard"):
+        return False
+    return resolve_specifier(imp.get("specifier", ""), importer_path, source_files) is None
 
 
 def _extract_rust_imports(content: str) -> list[dict]:
