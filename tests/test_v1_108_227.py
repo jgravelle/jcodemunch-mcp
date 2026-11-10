@@ -218,28 +218,25 @@ class TestEndToEndThroughTheTool:
     """The user's entry point, not the layer that was edited."""
 
     @pytest.fixture
-    def indexed(self):
+    def indexed(self, tmp_path):
         from jcodemunch_mcp.tools.index_folder import index_folder
 
-        root = Path(tempfile.mkdtemp(prefix="jcm-402-"))
-        storage = tempfile.mkdtemp(prefix="jcm-402-store-")
-        try:
-            _git(root, "init", "--quiet")
-            _git(root, "config", "user.email", "t@e.com")
-            _git(root, "config", "user.name", "T")
-            _git(root, "config", "core.autocrlf", "false")
-            (root / "mod.py").write_bytes(ORIGINAL)
-            _git(root, "add", "-A")
-            _git(root, "commit", "--quiet", "-m", "initial")
-            # Dirty the tree, THEN index: the cache records uncommitted bytes.
-            (root / "mod.py").write_bytes(b"def hello():\n    return 'edited'\n")
-            res = index_folder(str(root), use_ai_summaries=False, storage_path=storage)
-            if isinstance(res, str):
-                res = json.loads(res)
-            yield root, storage, (res.get("repo") or res.get("repo_id"))
-        finally:
-            shutil.rmtree(root, ignore_errors=True)
-            shutil.rmtree(storage, ignore_errors=True)
+        root = tmp_path / "repo"
+        root.mkdir()
+        storage = str(tmp_path / "store")
+        _git(root, "init", "--quiet")
+        _git(root, "config", "user.email", "t@e.com")
+        _git(root, "config", "user.name", "T")
+        _git(root, "config", "core.autocrlf", "false")
+        (root / "mod.py").write_bytes(ORIGINAL)
+        _git(root, "add", "-A")
+        _git(root, "commit", "--quiet", "-m", "initial")
+        # Dirty the tree, THEN index: the cache records uncommitted bytes.
+        (root / "mod.py").write_bytes(b"def hello():\n    return 'edited'\n")
+        res = index_folder(str(root), use_ai_summaries=False, storage_path=storage)
+        if isinstance(res, str):
+            res = json.loads(res)
+        yield root, storage, (res.get("repo") or res.get("repo_id"))
 
     def test_a_dirty_index_is_not_reported_as_divergence(self, indexed):
         from jcodemunch_mcp.tools.get_symbol import get_symbol_source

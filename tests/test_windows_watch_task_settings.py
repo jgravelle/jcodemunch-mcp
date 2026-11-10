@@ -18,7 +18,6 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
-import tempfile
 import uuid
 import xml.etree.ElementTree as ET
 from pathlib import Path
@@ -241,7 +240,7 @@ if _may_register_a_real_task():
         [None, [r"C:\Program Files\Python 3\python.exe", "-m", "jcodemunch_mcp", "watch-all"]],
         ids=["runner-interpreter", "path-with-a-space"],
     )
-    def test_task_scheduler_accepts_the_definition_and_matches_the_switch_form(exec_cmd):
+    def test_task_scheduler_accepts_the_definition_and_matches_the_switch_form(exec_cmd, tmp_path):
         """Every other test here asserts on the XML we write. Only Task
         Scheduler can say it ACCEPTS it, and a malformed definition would make
         `watch-install` fail for every Windows user. Registers our definition
@@ -255,7 +254,7 @@ if _may_register_a_real_task():
         suffix = uuid.uuid4().hex[:8]
         xml_name = f"{si.SERVICE_NAME}-ci-xml-{suffix}"
         old_name = f"{si.SERVICE_NAME}-ci-old-{suffix}"
-        xml_path = Path(tempfile.mkdtemp()) / "task.xml"
+        xml_path = tmp_path / "task.xml"
         with patch.object(si, "_windows_exec_cmd", lambda: list(cmd)):
             xml_path.write_text(si._windows_task_xml(), encoding="utf-16")
         cmd_str = " ".join(si._cmd_quote(x) for x in cmd)

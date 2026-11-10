@@ -900,7 +900,8 @@ def _load_config_from_env():
 
     from jcodemunch_mcp import config as config_module
 
-    config_module.load_config(storage_path=tempfile.mkdtemp(), create_missing=False)
+    with tempfile.TemporaryDirectory() as storage:
+        config_module.load_config(storage_path=storage, create_missing=False)
 
 
 class TestRateLimitMiddleware:

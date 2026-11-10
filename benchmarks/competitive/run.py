@@ -496,7 +496,7 @@ def main(argv=None) -> int:
         return 0
     finally:
         if not a.keep_scratch:
-            shutil.rmtree(scratch, ignore_errors=True)
+            corpora_mod.remove_tree(scratch)
 
 
 if __name__ == "__main__":
