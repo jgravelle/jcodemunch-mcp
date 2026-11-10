@@ -1,5 +1,7 @@
 """get_call_hierarchy: callers and callees for any indexed symbol, N levels deep."""
 
+import logging
+import re
 import time
 from typing import Optional
 
@@ -14,6 +16,8 @@ from ..retrieval.verdict import (
     index_changed_since_load as _index_changed_since_load,
     symbol_not_found,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def _attach_scip_to_hierarchy(response: dict, store, owner: str, name: str) -> dict:
@@ -154,6 +158,11 @@ def get_call_hierarchy(
     Returns:
         Dict with symbol info, callers list, callees list, depth_reached, and _meta.
         Each caller/callee entry includes {id, name, kind, file, line, depth}.
+        A caller entry also carries ``call_lines``: the lines in its body that
+        call the target (capped at CALL_LINES_CAP). The response carries
+        ``call_sites``: ``file:line`` of each call by a direct caller (capped at
+        CALL_SITES_CAP). A row whose lines could not be read carries
+        ``call_lines: None`` and names why in ``call_lines_unknown``.
     """
     depth = max(1, min(depth, 5))
     if direction not in ("callers", "callees", "both"):
@@ -348,7 +357,105 @@ def get_call_hierarchy(
     # and must be allowed to reduce what we report as excluded.
     if direction in ("callers", "both"):
         _attach_caller_gate_disclosure(response, index, sym, reverse_adj)
+        _attach_call_lines(response, index, store, owner, name)
     return response
+
+
+# A caller row carried only its DEFINITION line, so "where is f called" still
+# sent the agent into each caller to find the call. These bound the lines added
+# per row and the flat file:line list (1.x list-field rule: bounded on arrival).
+CALL_LINES_CAP = 10
+CALL_SITES_CAP = 50
+CALL_LINES_BASIS = "name_in_caller_body"
+# Text before a match that makes it a definition, not a call.
+_DEF_PREFIX = re.compile(r"\b(?:def|function|func|fn|fun|sub|proc)\s+$")
+
+
+def _call_lines_in(lines: list[str], start: int, end: int, target: str) -> list[int]:
+    """1-based lines in [start, end] where ``target(`` is called, as a word.
+
+    ``obj.target(`` counts; ``def target(`` does not. Comments and strings are
+    not told apart (the response's ``call_lines_basis`` says so).
+    """
+    if not target or start <= 0:
+        return []
+    pat = re.compile(r"(?<![\w$])" + re.escape(target) + r"\s*\(")
+    found: list[int] = []
+    for n in range(start, min(max(end, start), len(lines)) + 1):
+        text = lines[n - 1]
+        for m in pat.finditer(text):
+            if not _DEF_PREFIX.search(text[: m.start()]):
+                found.append(n)
+                break
+    return found
+
+
+def _attach_call_lines(response: dict, index, store, owner: str, name: str) -> None:
+    """Add ``call_lines`` to each caller row and a flat ``call_sites`` list.
+
+    Every row carries the same four keys, cut or not, so the compact encoding
+    decodes an uncut row as it was sent. A row whose lines could not be read
+    (the file could not be read, or the index holds no ``end_line`` for the
+    caller, so its body span is unknown) carries ``call_lines: None`` and a
+    reason in ``call_lines_unknown``; ``[]`` means the body was read and holds
+    no textual call. ``call_sites_total`` counts only the direct callers whose
+    lines were read, and ``call_sites_unknown_callers`` says how many it left
+    out.
+    """
+    callers = response.get("callers") or []
+    symbol_index: dict = getattr(index, "_symbol_index", {}) or {}
+    target_name = str((response.get("symbol") or {}).get("name", "")).split(".")[-1]
+    file_lines: dict[str, Optional[list[str]]] = {}
+
+    def lines_of(path: str) -> Optional[list[str]]:
+        if path not in file_lines:
+            try:
+                content = store.get_file_content(owner, name, path)
+            except Exception:
+                logger.debug("call_lines: could not read %s", path, exc_info=True)
+                content = None
+            file_lines[path] = None if content is None else content.splitlines()
+        return file_lines[path]
+
+    sites: list[str] = []
+    unknown_rows = 0
+    unknown_direct = 0
+    for row in callers:
+        full = symbol_index.get(row.get("id", "")) or {}
+        path = row.get("file") or full.get("file") or ""
+        start = int(row.get("line") or full.get("line") or 0)
+        end = int(full.get("end_line") or 0)
+        via = symbol_index.get(row.get("via", "")) if row.get("via") else None
+        target = str(via.get("name", "")).split(".")[-1] if via else target_name
+        lines = lines_of(path) if path else None
+        if not path or lines is None:
+            reason: Optional[str] = "file_unreadable"
+        elif start <= 0 or end < start:
+            reason = "no_end_line"
+        else:
+            reason = None
+        if reason is not None or lines is None:
+            row["call_lines"] = None
+            row["call_lines_total"] = None
+            row["call_lines_truncated"] = None
+            row["call_lines_unknown"] = reason
+            unknown_rows += 1
+            if row.get("depth", 1) == 1:
+                unknown_direct += 1
+            continue
+        found = _call_lines_in(lines, start, end, target)
+        row["call_lines"] = found[:CALL_LINES_CAP]
+        row["call_lines_total"] = len(found)
+        row["call_lines_truncated"] = len(found) > CALL_LINES_CAP
+        row["call_lines_unknown"] = None
+        if row.get("depth", 1) == 1:
+            sites.extend(f"{path}:{n}" for n in found)
+    response["call_sites"] = sites[:CALL_SITES_CAP]
+    response["call_sites_total"] = len(sites)
+    response["call_sites_truncated"] = len(sites) > CALL_SITES_CAP
+    response["call_sites_unknown_callers"] = unknown_direct
+    response["call_lines_unknown_count"] = unknown_rows
+    response["call_lines_basis"] = CALL_LINES_BASIS
 
 
 def _attach_caller_gate_disclosure(

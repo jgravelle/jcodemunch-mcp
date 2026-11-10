@@ -2,6 +2,37 @@
 
 ## [Unreleased]
 
+### Added - a caller says on which lines it calls the target
+
+`get_call_hierarchy` gave each caller's definition line, so "where is `f`
+called" still sent an agent into every caller to find the call.
+
+Each caller row now carries `call_lines`: the lines in that caller's body
+that call the target, as a word followed by `(` (`obj.f(` counts, `def f(`
+does not; comments are not told apart, and `call_lines_basis` says so). The
+response carries `call_sites`, a flat `file:line` list for the direct
+callers. Both are capped (10 lines a row, 50 sites). Every row carries
+`call_lines_total` and `call_lines_truncated`, and every callers answer
+carries `call_sites_total` and `call_sites_truncated`, cut or not and empty
+or not, so the compact encoding decodes a row as it was sent.
+
+A row whose lines could not be read says so. If the file cannot be read, or
+the index holds no `end_line` for the caller, the row carries
+`call_lines: null` and a reason in `call_lines_unknown` (`file_unreadable`
+or `no_end_line`). `[]` means the body was read and holds no textual call.
+`call_lines_unknown_count` counts the unknown rows, and
+`call_sites_unknown_callers` counts the direct callers that
+`call_sites_total` leaves out for that reason. A bare name with several
+definitions still refuses as ambiguous. The compact encoding is `ch3`
+(`ch1` and `ch2` stay decodable).
+
+Measured on this repository's own index (callers, depth 1), against the same
+response with the call-site keys removed: `_find_symbol` (5 callers) grows
+from 2,052 to 2,918 bytes of JSON (+42.2%) and from 2,033 to 2,557 compact
+(+25.8%); `_utils.resolve_repo` (116 callers, 122 call sites, cut to 50)
+grows from 28,538 to 41,891 bytes of JSON (+46.8%), 2,187 of them the
+`call_sites` list, and from 19,492 to 22,620 compact (+16.0%).
+
 ### Added - a read re-indexes the files that changed since the index was built
 
 After a rebase, a branch switch or an edit made outside the agent, the index still held the old code, and a search served it with nothing in the answer to say so; only the agent's own edits reached the index without the watcher running. Public repositories write rules into their agent instructions telling the agent the index may be stale. Now, before a read tool answers on a git repository, the server asks git which files changed since the index was built: the indexed commit against the working tree, plus untracked files. It asks at most once per repository every 30 seconds in each server process. A changed path counts only if the indexer would take it, by the same rule `index_file` uses, so a binary or a log never reads as stale; past 200 such refusals (an un-ignored `node_modules/`) it stops asking and the answer says `undetermined`, or `unchecked` beside a repair, never that the index is current. When there are at most 50, it re-indexes exactly those files before answering. One budget of 2 seconds bounds the whole check on the caller's thread: each git call gets what is left of it as its timeout, the per-path rule stops at it, and the re-index is waited on for the rest; before, the budget bounded only the wait and the git calls ran ahead of it unbounded (review). When git does not answer inside the budget, the answer says `undetermined` with `unchecked: "budget"`. The one step the deadline cannot cut short is a pre-scan of the tree for `package.json` files, which the indexer's rule runs for a changed file over the size cap, and which the check now pays once instead of once per such file. A re-index that outlives the budget keeps running, and the answer says `in_progress` with how many files are stale (`stale_files`) but no `refreshed` count and no call, since its outcome is not known yet. While it runs, a read of the same repository gets `in_progress` with no count and starts no second re-index, so two never run at once. Otherwise it answers from the index as it is and adds an `index_refresh` block naming the reason (`too_many_files`, `locked` or `failed`) and the `index_folder` call that fixes it; `failed` carries `refreshed: null`, since `index_folder` may have written part of the set before it raised. It reads only the index's metadata, never its symbols. Re-indexed files get heuristic summaries until the next `summarize_repo`. Every index write now also clears that process's cached `find_references` and `get_blast_radius` answers for the repository; before, only the index tools did, so a write by anything else, refresh on read included, left them serving answers from before it. And a write that lands while a tool runs (the `in_progress` worker, the in-process watcher) clears them again when the call ends: the tool had read the index from before the write and cached its answer after the store's eviction, so the stale answer survived it (review). That check sits in the dispatcher, below every tool that caches, so the next one inherits it. The block is a body key every encoder carries, not `_meta`, which a default install strips. It never waits on another process writing the same index, and a folder that is not a git repository keeps today's per-row freshness flag. It's on by default; `refresh_on_read: false` in `config.jsonc` or `JCODEMUNCH_REFRESH_ON_READ=0` turns it off. It runs read-only git commands and writes only the local index, and README and SECURITY.md ("Background behavior, fully disclosed") say so. Tests: `tests/test_refresh_on_read.py`, and `tests/test_a_refused_absence_never_reads_as_proof.py` covers the default install whose repair did not run.
