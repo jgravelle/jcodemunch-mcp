@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.433] - 2026-11-10 - the bundled local encoder no longer pays for padding
+
 ### Changed - the bundled local encoder no longer pays for padding (#1388)
 
 Every text sent to the bundled ONNX encoder ran at all 256 positions, so a
