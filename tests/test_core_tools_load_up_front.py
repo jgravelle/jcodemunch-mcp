@@ -7,9 +7,16 @@ jcodemunch is effectively absent. A server can mark a tool
 `_meta["anthropic/alwaysLoad"]: true` in its tool list, and Claude Code then
 loads it up front (the user can still override per server).
 
-The tools marked are exactly the ones the `instructions` string names for the
-active surface (`server._instruction_tool_names`), so the two cannot drift: the
-text tells the agent to start with a tool, and that tool is loaded.
+On the default `counter` surface the tools marked are exactly the ones the
+`instructions` string names (`server._instruction_tool_names`), so the two
+cannot drift: the text tells the agent to start with a tool, and that tool is
+loaded.
+
+On `full` nothing is marked. Six always-loaded schemas put about 3,459 tokens
+(cl100k) in every request, and BM-2 pilot 6 measured the full arm at a cost
+ratio of 1.144 against baseline with no jCodeMunch call made. The full
+surface's instructions already say how to load the core tools in one
+ToolSearch call, so an agent that wants one pays that call instead.
 """
 
 from __future__ import annotations
@@ -35,13 +42,26 @@ def _marked(rows: list[dict]) -> set[str]:
     return {r["name"] for r in rows if (r.get("_meta") or {}).get(KEY) is True}
 
 
-@pytest.mark.parametrize("surface", ["counter", "full"])
-def test_the_tools_the_instructions_name_are_marked_always_load(surface):
-    rows = _wire(server._build_tools_list(surface_override=surface))
-    named = set(server._instruction_tool_names(surface))
+def test_the_tools_the_counter_instructions_name_are_marked_always_load():
+    rows = _wire(server._build_tools_list(surface_override="counter"))
+    named = set(server._instruction_tool_names("counter"))
     published = {r["name"] for r in rows}
     assert named <= published, named - published
     assert _marked(rows) == named
+
+
+def test_full_marks_no_tool_always_load():
+    """Every full-surface tool stays deferred, the six core tools included."""
+    rows = _wire(server._build_tools_list(surface_override="full"))
+    assert _marked(rows) == set()
+    named = set(server._instruction_tool_names("full"))
+    assert named <= {r["name"] for r in rows}  # still published, just deferred
+
+
+def test_the_full_instructions_say_how_to_load_the_core_tools():
+    """With nothing loaded up front, the instructions carry the one-call route."""
+    text = server._mcp_instructions("full")
+    assert server._tool_search_query("full") in text
 
 
 def test_counter_marks_the_three_front_door_verbs():
@@ -50,10 +70,10 @@ def test_counter_marks_the_three_front_door_verbs():
 
 
 def test_no_other_tool_is_marked():
-    rows = _wire(server._build_tools_list(surface_override="full"))
-    extra = _marked(rows) - set(server._instruction_tool_names("full"))
+    rows = _wire(server._build_tools_list(surface_override="counter"))
+    extra = _marked(rows) - set(server._instruction_tool_names("counter"))
     assert extra == set()
-    assert len(rows) > len(_marked(rows))  # the rest stay deferred
+    assert len(rows) > len(_marked(rows))  # the controls stay deferred
 
 
 def test_a_disabled_core_tool_is_not_marked_or_resurrected(monkeypatch):
@@ -69,4 +89,4 @@ def test_a_disabled_core_tool_is_not_marked_or_resurrected(monkeypatch):
     rows = _wire(server._build_tools_list(surface_override="full"))
     names = {r["name"] for r in rows}
     assert "get_symbol_source" not in names
-    assert _marked(rows) == set(server._instruction_tool_names("full")) - {"get_symbol_source"}
+    assert _marked(rows) == set()
