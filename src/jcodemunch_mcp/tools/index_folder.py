@@ -853,6 +853,7 @@ def git_tracked_paths(root: Path, timeout: float = 20.0) -> Optional[list]:
         proc = subprocess.run(
             ["git", "-C", str(root), "ls-files", "-z"],
             capture_output=True,
+            stdin=subprocess.DEVNULL,
             timeout=timeout,
         )
     except (OSError, subprocess.SubprocessError):
