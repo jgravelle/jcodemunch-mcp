@@ -171,6 +171,14 @@ def test_a_capped_record_says_so_and_unlisted_paths_are_not_proven_absent(tmp_pa
     ghost = get_file_outline(out["repo"], "ghost.js", storage_path=str(store))
     assert (ghost.get("withheld") or {}).get("reason") == "withheld_unnamed"
     assert "size" not in ghost["withheld"]
+    # A typo keeps its near-miss suggestion under the hedge.
+    typo = get_file_outline(out["repo"], "okk.js", storage_path=str(store))
+    assert "ok.js" in (_verdict(typo).get("did_you_mean") or []), typo
+    # No withheld file can be outside the root, so those paths stay absent.
+    for f in ("../outside.js", "/etc/passwd", "C:/Windows/win.ini", "sub/../../x.js"):
+        resp = get_file_outline(out["repo"], f, storage_path=str(store))
+        assert "withheld" not in resp, (f, resp)
+        assert _verdict(resp).get("state") == "absent", f
 
 
 def test_an_index_without_the_record_still_does_not_call_a_real_file_absent(repo):

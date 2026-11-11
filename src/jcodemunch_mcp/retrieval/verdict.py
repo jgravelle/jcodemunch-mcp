@@ -237,6 +237,17 @@ def _listed_file_on_disk(index, rel: str) -> Optional[bool]:
         return None
 
 
+def _leaves_root(rel: str) -> bool:
+    """Is ``rel`` absolute or does it climb above the root? Lexical only."""
+    import posixpath
+    import re
+
+    if rel.startswith("/") or re.match(r"^[A-Za-z]:", rel):
+        return True
+    norm = posixpath.normpath(rel)
+    return norm == ".." or norm.startswith("../")
+
+
 def withheld_file_info(index, requested_path: Optional[str]) -> Optional[dict]:
     """What the index knows about a path it does not hold, or None (#1396).
 
@@ -275,6 +286,9 @@ def withheld_file_info(index, requested_path: Optional[str]) -> Optional[dict]:
         if limit:
             info["limit"] = limit
         return info
+    if _leaves_root(rel):
+        # No withheld file can sit outside the root, so this stays absent.
+        return None
     total = cov.get("withheld_files_total")
     if total is None:
         total = (cov.get("withheld") or {}).get("too_large", 0)
@@ -912,14 +926,19 @@ def build_file_verdict(
     * otherwise — ``ok``.
     """
     if not present and withheld:
-        # #1396: the path is in the tree and the index chose not to hold it,
-        # so absence is not proven and the note must not say "not present".
+        # #1396: the index withheld this file, or withheld files it does not
+        # name, so absence is not proven and the note must not say "not
+        # present". An unnamed hedge keeps its near-miss suggestions: the
+        # path may as well be a typo.
         state = STATE_DEGRADED
         note = (
             f"Path is not in the index. {withheld.get('summary', '')} "
             f"Absence is NOT proven. {withheld.get('remedy', '')}"
         ).strip()
-        suggestions = []
+        suggestions = (
+            suggest_paths(requested_path, source_files)
+            if withheld.get("reason") == "withheld_unnamed" else []
+        )
     elif not present:
         state = STATE_ABSENT
         note = "Path is not in the index. " + _NOTES[STATE_ABSENT]
