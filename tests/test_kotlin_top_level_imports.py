@@ -243,6 +243,8 @@ def test_an_added_edge_never_resolves_to_a_file_that_does_not_declare_the_name()
     for e in imports[importer]:
         if JVM_DECLARED_EDGE_KEY in e:
             assert resolve_specifier(e["specifier"], importer, fs) == a_file, e
+    # No spelling reaches `a`'s file from module `b`, so the right answer is no edge.
+    assert not [e for e in imports[importer] if JVM_DECLARED_EDGE_KEY in e]
 
 
 def test_a_kotlin_facade_beside_a_java_file_of_the_same_class_path_is_not_bound_to_the_java_file():
@@ -261,6 +263,8 @@ def test_a_kotlin_facade_beside_a_java_file_of_the_same_class_path_is_not_bound_
     for e in imports[importer]:
         if JVM_DECLARED_EDGE_KEY in e:
             assert resolve_specifier(e["specifier"], importer, fs) == kt, e
+    # `p.Util` from a Java importer binds `Util.java`, so the right answer is no edge.
+    assert not [e for e in imports[importer] if JVM_DECLARED_EDGE_KEY in e]
 
 
 def _stored_import_rows(store):
