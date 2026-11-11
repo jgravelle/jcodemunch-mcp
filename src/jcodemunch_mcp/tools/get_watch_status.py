@@ -75,6 +75,81 @@ def _repo_freshness(folder: str, entry: dict, check: bool) -> str:
         return "unknown"
 
 
+#: Below this share of the tracked source files, an index reads `incomplete`
+#: (#1395). The indexer's per-file rule already takes out what it skips on
+#: purpose, so the gap left is files over the size cap and files added since
+#: the last index; the reporter measured deliberate exclusions at 4-5% of a
+#: large repo, which a 0.90 floor leaves room for.
+COMPLETENESS_FLOOR = 0.90
+
+
+def _repo_completeness(
+    folder: str, entry: dict, check: bool, storage_path: Optional[str]
+) -> dict:
+    """How much of the tree the index holds, measured (#1395).
+
+    `index_freshness` answers whether the index is at the current revision. It
+    cannot see an index built at HEAD that holds 14 of 9,400 files, which reads
+    `fresh`. This counts the tracked files the indexer would take
+    (`index_folder.indexable_paths`, the indexer's own per-file rule) and how
+    many of them the index holds, and reports both with their ratio.
+
+    A cheap pass counts tracked files by extension alone. That denominator can
+    only be larger than the exact one, so a ratio that clears the floor on it
+    clears it exactly too, and the per-file rule runs only when it does not.
+    `tracked_source_files_basis` says which count was reported.
+
+    ⚠ `unknown` when the count cannot be taken (not a git work tree, git
+    failed, the index's file list unreadable, or the check skipped), never
+    `complete`: an index nobody counted has not been shown complete.
+    """
+    out: dict = {"index_completeness": "unknown"}
+    if not check:
+        return out
+    try:
+        from ..storage import IndexStore
+        from .index_folder import (
+            git_tracked_paths,
+            has_indexable_extension,
+            indexable_paths,
+        )
+
+        tracked = git_tracked_paths(Path(folder))
+        if tracked is None:
+            return out
+        owner, _, name = (entry.get("repo") or "").partition("/")
+        if not owner or not name:
+            return out
+        view = IndexStore(base_path=storage_path).open_selective(owner, name)
+        held = set(getattr(view, "source_files", None) or ())
+        candidates = [p for p in tracked if has_indexable_extension(p)]
+        basis = "extension"
+        if (
+            not candidates
+            or len(held.intersection(candidates)) / len(candidates) < COMPLETENESS_FLOOR
+        ):
+            candidates = indexable_paths(Path(folder), candidates)
+            basis = "index_rules"
+        indexed = len(held.intersection(candidates))
+        total = len(candidates)
+        coverage = round(indexed / total, 4) if total else 1.0
+        out.update(
+            {
+                "index_completeness": "complete"
+                if coverage >= COMPLETENESS_FLOOR
+                else "incomplete",
+                "indexed_files": indexed,
+                "tracked_source_files": total,
+                "tracked_source_files_basis": basis,
+                "index_coverage": coverage,
+            }
+        )
+    except Exception:
+        logger.debug("completeness check failed for %s", folder, exc_info=True)
+        return {"index_completeness": "unknown"}
+    return out
+
+
 def get_watch_status(
     storage_path: Optional[str] = None,
     *,
@@ -121,6 +196,7 @@ def get_watch_status(
     repos_out = []
     any_stale = False
     any_freshness_unknown = False
+    any_incomplete = False
     any_in_progress = False
     any_failing = False
     any_watched_by_another_process = False
@@ -151,6 +227,11 @@ def get_watch_status(
             "watcher_flagged_stale": watcher_flagged,
             **status,
         }
+        entry.update(
+            _repo_completeness(
+                folder, entries.get(folder) or {}, check_freshness, storage_path
+            )
+        )
         if folder in skipped:
             entry["watch_all_skipped"] = skipped[folder]
         # Multi-process holder info: which process currently owns the watcher
@@ -168,6 +249,8 @@ def get_watch_status(
             any_stale = True
         elif entry["index_freshness"] == "unknown":
             any_freshness_unknown = True
+        if entry["index_completeness"] == "incomplete":
+            any_incomplete = True
         if status.get("reindex_in_progress"):
             any_in_progress = True
         if status.get("reindex_failures") or status.get("reindex_fatal"):
@@ -185,6 +268,7 @@ def get_watch_status(
         "repo_count": len(repos_out),
         "any_stale": any_stale,
         "any_freshness_unknown": any_freshness_unknown,
+        "any_incomplete": any_incomplete,
         "freshness_checked": check_freshness,
         "any_in_progress": any_in_progress,
         "any_failing": any_failing,

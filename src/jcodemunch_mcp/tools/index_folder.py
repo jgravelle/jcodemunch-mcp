@@ -796,6 +796,64 @@ def _walk_filter_config(
     )
 
 
+def git_tracked_paths(root: Path, timeout: float = 20.0) -> Optional[list]:
+    """Paths git tracks under ``root``, relative and posix, or None (#1395).
+
+    None means the count could not be taken: not a git work tree, git missing,
+    a timeout, or any other failure. A caller must read None as unknown, never
+    as an empty tree.
+    """
+    import subprocess
+
+    try:
+        proc = subprocess.run(
+            ["git", "-C", str(root), "ls-files", "-z"],
+            capture_output=True,
+            timeout=timeout,
+        )
+    except (OSError, subprocess.SubprocessError):
+        logger.debug("git ls-files failed under %s", root, exc_info=True)
+        return None
+    if proc.returncode != 0:
+        return None
+    raw = proc.stdout.decode("utf-8", "replace")
+    return [p for p in raw.split(chr(0)) if p]
+
+
+def has_indexable_extension(rel_path: str) -> bool:
+    """The extension half of `_should_index_file`'s step 11, with no IO."""
+    return (
+        Path(rel_path).suffix in LANGUAGE_EXTENSIONS
+        or get_language_for_path(rel_path) is not None
+    )
+
+
+def indexable_paths(root: Path, rel_paths) -> list:
+    """The ``rel_paths`` the indexer would take under ``root`` (#1395).
+
+    Runs `_should_index_file`, the one per-file rule, with the walk's own
+    config for ``root`` (skip directories, the project's ignore patterns,
+    secrets, extensions, the size cap). The binary sniff is off, so no file is
+    read: a tracked binary file has no indexable extension in practice, and a
+    caller counting thousands of files should not open each one. Gitignore is
+    not applied, because a tracked file is not ignored by definition.
+    """
+    from dataclasses import replace
+
+    root = Path(root).resolve()
+    cfg = replace(_walk_filter_config(root, per_file=True), check_binary=False)
+    kept = []
+    for rel in rel_paths:
+        try:
+            ok = _should_index_file(root / rel, cfg)[0]
+        except Exception:
+            logger.debug("eligibility check failed for %s", rel, exc_info=True)
+            ok = False
+        if ok:
+            kept.append(rel)
+    return kept
+
+
 def _directory_prune_reason(
     name: str,
     parent: str,

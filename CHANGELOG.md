@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+### Fixed - get_watch_status says when an index holds a small part of the tree (#1395)
+
+`index_freshness` compares the indexed revision with `HEAD`, so an index rebuilt at `HEAD` that held 14 of about 9,400 tracked source files read `fresh`, and `any_stale` stayed `false`. An agent that checked the status before trusting the index had no sign anything was missing, then searched for a function whose file was not indexed and found only an old copy elsewhere. Reported by @dkiaulakis.
+
+Recency and completeness are separate facts, and each repo entry now reports both. Beside `index_freshness`, it carries `index_completeness` (`complete`, `incomplete` or `unknown`), the measured `indexed_files` and `tracked_source_files`, and their ratio `index_coverage`, and the response gains `any_incomplete`. The denominator is the files `git ls-files` lists that the indexer would take, decided by the indexer's own per-file rule (skip directories, the project's ignore patterns, secrets, extensions, the size cap), so its deliberate exclusions do not count against it. The numerator counts only indexed files that are tracked, so untracked files cannot pad the ratio. Below 0.90 the index reads `incomplete`. When the count cannot be taken (not a git work tree, git failed, or `check_freshness=False`), it reads `unknown`, never `complete`. A first pass counts tracked files by extension alone; when that already clears the floor the per-file rule is skipped, and `tracked_source_files_basis` says which count was used. Measured on this machine over 26 indexed repos: the check adds about 1.8 s to a warm call (about 70 ms per repo) and 4.8 s to a cold one. `index_freshness` and `any_stale` keep their meaning. Tests: `tests/test_watch_status_reports_completeness.py`.
+
 ## [1.108.436] - 2026-11-11 - a call that names paths= never replaces the rest of the index
 
 ### Fixed - a call that names `paths=` never replaces the rest of the index (#1397)
