@@ -281,6 +281,13 @@
       "replacement": "tests/test_summarizer_body_chars.py::test_default_is_zero_and_a_project_config_can_only_lower_it",
       "commit": "fix/project-config-cost-keys",
       "date": "2026-11-07"
+    },
+    {
+      "path": "tests/test_refresh_campaign.py::test_an_unforced_subset_still_escalates",
+      "lesson": "It required a paths= call without force_reparse to escalate a due PARSER_GENERATION upgrade to a full re-parse. Under paths= that full re-parse covered the listed file only and saved it as the whole index, so the assertion passed exactly while seven of the fixture's eight files were dropped (#1397). The property it protected is that an unforced subset cannot quietly skip the upgrade.",
+      "replacement": "tests/test_refresh_campaign.py::test_an_unforced_subset_keeps_the_upgrade_due",
+      "commit": "fix/1397-paths-full-reindex",
+      "date": "2026-11-11"
     }
   ]
 }
