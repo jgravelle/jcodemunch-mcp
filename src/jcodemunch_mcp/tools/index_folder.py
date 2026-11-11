@@ -475,7 +475,7 @@ def _record_coverage(
 
 def _withheld_files_for(
     prior_coverage, found, folder_path: Path, walk_prefix: str, paths_given: bool
-) -> tuple:
+) -> dict:
     """``{path: (size, limit)}`` for the coverage record after a walk (#1396).
 
     ``found`` is discovery's ``oversize_out``. Stored paths are relative to the
