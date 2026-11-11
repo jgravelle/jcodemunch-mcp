@@ -2,6 +2,18 @@
 
 ## [Unreleased]
 
+### Fixed - a Bearer token in a quoted Authorization header is redacted
+
+The `bearer_token` pattern needed `Authorization` followed directly by `:` or
+`=` and then `Bearer`, so a quoted header such as JSON
+`"Authorization": "Bearer <token>"`, a Python dict literal, a shell assignment
+`AUTHORIZATION="Bearer <token>"` or a JSON string inside a string
+(`\"Authorization\": \"Bearer <token>\"`) passed through tool
+responses unredacted. A quote, an escaped quote or a backtick may now close the
+key and open the value, and the scheme name matches in any case (`bearer`,
+`BEARER`), as RFC 7235 allows. The 20-character floor, the `Authorization`
+anchor and the unquoted forms are unchanged.
+
 ## [1.108.434] - 2026-11-10 - the full tool surface no longer loads six schemas into every request
 
 ### Changed - the full tool surface no longer loads six schemas into every request (#1393)
