@@ -3180,17 +3180,25 @@ def index_folder(
                 owner, repo_name, rebuild_reason,
             )
             warnings.append(_rebuild_message)
-        elif _needs_parser_upgrade(existing_index) and paths is not None:
-            # #1397: a full re-parse is due, but under `paths=` a "full" run
-            # re-parses the listed files only and saves them as the whole
-            # index. Re-read the listed files with the current parser, keep the
-            # rest, and leave the generation where it is (an incremental save
-            # does not stamp it), so the next run without `paths=` does the
-            # full re-parse. A slice campaign (`force_reparse=True`, #395) is
-            # this case too and owns the stamp itself (tools/refresh.py).
+        elif paths is not None and (
+            _due := (
+                "parser_generation_upgrade" if _needs_parser_upgrade(existing_index)
+                else _racket_reparse_reason(existing_index)
+            )
+        ):
+            # #1397: a full re-parse is due (generation bump or Racket change),
+            # but under `paths=` a "full" run re-parses the listed files only
+            # and saves them as the whole index. Re-read the listed files with
+            # the current parser, keep the rest, and leave the generation where
+            # it is (an incremental save does not stamp it), so the next run
+            # without `paths=` does the full re-parse. A slice campaign
+            # (`force_reparse=True`, #395) is this case too and owns the stamp
+            # itself (tools/refresh.py). One branch for both reasons: each
+            # `elif` here is a nesting level to Python's parser
+            # (tests/test_nesting_depth_channels.py).
             force_reparse = True
             if not _caller_force_reparse:
-                warnings.append(_paths_kept_due_warning("parser_generation_upgrade"))
+                warnings.append(_paths_kept_due_warning(_due))
         elif _needs_parser_upgrade(existing_index):
             # One-off full re-parse after an extraction-semantics bump (#414).
             # Reported through the same fields a caller already reads for an
@@ -3218,11 +3226,6 @@ def index_folder(
                 getattr(existing_index, "parser_generation", 0), PARSER_GENERATION,
             )
             warnings.append(PARSER_UPGRADE_WARNING)
-        elif (_racket_reason := _racket_reparse_reason(existing_index)) and paths is not None:
-            # #1397: same rule as the generation bump above.
-            force_reparse = True
-            if not _caller_force_reparse:
-                warnings.append(_paths_kept_due_warning(_racket_reason))
         elif (_racket_reason := _racket_reparse_reason(existing_index)):
             # Two Racket-only escalations, same shape as the generation bump
             # above and the same exemption for a bounded slice campaign, each
