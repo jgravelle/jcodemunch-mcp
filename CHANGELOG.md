@@ -8,11 +8,25 @@
 
 Recency and completeness are separate facts, and each repo entry now reports both. Beside `index_freshness`, it carries `index_completeness` (`complete`, `incomplete` or `unknown`), the measured `indexed_files` and `tracked_source_files`, and their ratio `index_coverage`, and the response gains `any_incomplete`. The denominator is the files `git ls-files` lists that the indexer would take, decided by the indexer's own per-file rule (skip directories, the project's ignore patterns, secrets, extensions, the size cap), so its deliberate exclusions do not count against it. The numerator counts only indexed files that are tracked, so untracked files cannot pad the ratio. Below 0.90 the index reads `incomplete`. When the count cannot be taken, it reads `unknown`, never `complete` and never a number. That covers a folder that is not a git work tree, git failing, an index whose file list cannot be read, a tree with nothing tracked yet, and `check_freshness=False`. A first pass counts tracked files by extension alone; when that already clears the floor the per-file rule is skipped, and `tracked_source_files_basis` says which count was used. The rules are the project's configured ones, so files a past call excluded with its own `extra_ignore_patterns` or `max_size` count as missing, which errs toward `incomplete`. Cost, measured on one machine over 26 indexed repos: three paired runs added 2.3 s and 2.8 s to a warm call (89 and 109 ms per repo) and 3.9 s to the first. The check runs one `git ls-files` per repo. `index_freshness` and `any_stale` keep their meaning. Tests: `tests/test_watch_status_reports_completeness.py`.
 
+## [1.108.437] - 2026-11-11 - a file the index withheld is not answered as a missing file
+
 ### Fixed - a file the index withheld is no longer answered as a file that does not exist (#1396)
 
 A file over `max_file_size` is refused during discovery, and the index kept only how many such files there were (`coverage.withheld.too_large`). `get_file_outline` and `get_file_content` had nothing to tell a withheld path from one that never existed, so both got the same answer: no symbols, verdict `absent`, and the note "treat this as strong evidence the target is not present". An agent told to stop looking for a file that is real and current goes looking for an older copy instead. Reported by @dkiaulakis.
 
 The coverage record now names the files a walk withheld for size, each with its size and the limit it was over, capped at 200 entries with `withheld_files_total` and `withheld_files_truncated` beside it. A subdir walk replaces only the entries inside its folder, and a `paths=` run leaves the record as it was. For a withheld path, `get_file_outline` and `get_file_content` answer with a `withheld` object (`reason`, `size`, `limit`, `summary`, `remedy`) in the response body, because the default `meta_fields: []` strips `_meta`, and the verdict reads `degraded` (absence not proven) instead of `absent`; `get_file_content`'s error says the file is not indexed and why. A listed file is confirmed on disk under the index's root first, so a withheld file that has since been deleted reads `absent`. A path the record does not list is never looked up on disk, because that lookup would confirm that a `.env`, a gitignored file or a `node_modules` file exists and give its size. When the index withheld files it does not name (a capped record, or an index built before this release), an unlisted path reads `withheld_unnamed`: absence not proven, with the count, the remedy and the usual near-miss suggestions, and nothing about the path itself. A path that leaves the root still reads `absent`, since no withheld file can be there. An index built before this release keeps that hedge until a full `index_folder` writes the record. Not covered yet: `get_dependency_graph`, `get_coupling_metrics`, `get_extraction_candidates` and `plan_refactoring` still answer a withheld file with "File not found in index" (none of them emits an absence verdict), and an `index_repo` index records no withheld files, so a withheld file there still reads `absent`. Tests: `tests/test_withheld_file_is_not_absent.py`.
+
+### Fixed - a Bearer token in a quoted Authorization header is redacted
+
+The `bearer_token` pattern needed `Authorization` followed directly by `:` or
+`=` and then `Bearer`, so a quoted header such as JSON
+`"Authorization": "Bearer <token>"`, a Python dict literal, a shell assignment
+`AUTHORIZATION="Bearer <token>"` or a JSON string inside a string
+(`\"Authorization\": \"Bearer <token>\"`) passed through tool
+responses unredacted. A quote, an escaped quote or a backtick may now close the
+key and open the value, and the scheme name matches in any case (`bearer`,
+`BEARER`), as RFC 7235 allows. The 20-character floor, the `Authorization`
+anchor and the unquoted forms are unchanged.
 
 ## [1.108.436] - 2026-11-11 - a call that names paths= never replaces the rest of the index
 
