@@ -442,8 +442,13 @@ def _record_coverage(
     files_accepted: Optional[int] = None,
     post_discovery_drops: Optional[dict] = None,
     parse_failed=(),
+    withheld_files: Optional[dict] = None,
 ) -> None:
     """Persist the coverage contract after a save (best-effort, never raises).
+
+    ``withheld_files`` is `_withheld_files_for`'s ``{path: (size, limit)}``:
+    the files withheld for size, named so the file tools can answer for them
+    (#1396).
 
     ``parse_failed`` is every file in the index whose last parse failed; a walk
     that re-parsed only some files passes the carried set
@@ -457,11 +462,50 @@ def _record_coverage(
         )
         if parse_failed:
             report = _with_parse_failures(report, parse_failed)
+        if withheld_files:
+            from ..retrieval.verdict import withheld_files_record
+
+            report.update(withheld_files_record(withheld_files))
         store._sqlite.set_coverage(owner, repo_name, report)
     except Exception:
         logger.debug(
             "Failed to record coverage for %s/%s", owner, repo_name, exc_info=True
         )
+
+
+def _withheld_files_for(
+    prior_coverage, found, folder_path: Path, walk_prefix: str, paths_given: bool
+) -> dict:
+    """``{path: (size, limit)}`` for the coverage record after a walk (#1396).
+
+    ``found`` is discovery's ``oversize_out``. Stored paths are relative to the
+    git root (``folder_path``). A ``paths=`` run walked no tree, so the prior
+    record stands as it was; a subdir walk replaces the entries inside its
+    prefix and keeps the rest. A file a later walk indexes leaves the record
+    because that walk did not find it oversize.
+    """
+    from ..retrieval.verdict import WITHHELD_FILES_KEY
+
+    prior = (prior_coverage or {}).get(WITHHELD_FILES_KEY) or {}
+    if not isinstance(prior, dict):
+        prior = {}
+    prior_files = {
+        f: (int(e.get("size") or 0), int(e.get("limit") or 0))
+        for f, e in prior.items() if isinstance(e, dict)
+    }
+    if paths_given:
+        return prior_files
+    files = {
+        f: e for f, e in prior_files.items()
+        if walk_prefix and _file_outside_walk_prefix(f, walk_prefix)
+    }
+    for path, size, max_size in found or ():
+        try:
+            rel = Path(path).resolve().relative_to(folder_path.resolve()).as_posix()
+        except (OSError, ValueError):
+            continue
+        files[rel] = (int(size), int(max_size or 0))
+    return files
 
 
 def _build_skip_dirs_regex(repo: Optional[str] = None) -> re.Pattern:
@@ -1852,8 +1896,12 @@ def discover_local_files(
     extra_ignore_patterns: Optional[list[str]] = None,
     follow_symlinks: bool = False,
     cap_dropped: Optional[list] = None,
+    oversize_out: Optional[list] = None,
 ) -> tuple[list[Path], list[str], dict[str, int]]:
     """Discover source files in a local folder with security filtering.
+
+    ``oversize_out``, when given, receives ``(path, size, max_size)`` for each
+    file refused for size, so the coverage record can name them (#1396).
 
     Args:
         folder_path: Root folder to scan (must be resolved).
@@ -1985,6 +2033,11 @@ def discover_local_files(
                     # returns no warning here because the watcher fast path
                     # shares it and fires per event.
                     oversize.append(rel_path)
+                    if oversize_out is not None:
+                        try:
+                            oversize_out.append((file_path, file_path.stat().st_size, max_size))
+                        except OSError:
+                            logger.debug("oversize stat failed: %s", file_path, exc_info=True)
                 if warning is not None:
                     warnings.append(warning)
                 logger.debug(
@@ -2885,6 +2938,7 @@ def index_folder(
         # entries. Validation matches the walk path (outside-root, traversal,
         # symlink-escape, oversize, unsupported-extension all warn-and-skip).
         requested_rels: Optional[list[str]] = None
+        _oversize_found: list = []
         _cap_dropped_paths: list[Path] = []
         if paths is not None:
             source_files, discover_warnings, skip_counts, requested_rels = resolve_explicit_paths(
@@ -2904,6 +2958,7 @@ def index_folder(
                 extra_ignore_patterns=_merged_ignore or None,
                 follow_symlinks=follow_symlinks,
                 cap_dropped=_cap_dropped_paths,
+                oversize_out=_oversize_found,
             )
         warnings.extend(discover_warnings)
         logger.info("Discovery skip counts: %s", skip_counts)
@@ -3578,6 +3633,10 @@ def index_folder(
                             getattr(existing_index, "coverage", None), (), (),
                             present=set(updated_mtimes) | _nc_kept_files,
                         ),
+                        withheld_files=_withheld_files_for(
+                            getattr(existing_index, "coverage", None), _oversize_found,
+                            folder_path, walk_prefix, paths is not None,
+                        ),
                     )
                 # This ran a full discovery walk, so a still-truncated index
                 # stays loud even when nothing changed (#366).
@@ -3729,6 +3788,10 @@ def index_folder(
                         getattr(existing_index, "coverage", None),
                         files_to_parse, _incr_parse_failed,
                         present=set(updated_mtimes) | _cov_kept_files,
+                    ),
+                    withheld_files=_withheld_files_for(
+                        getattr(existing_index, "coverage", None), _oversize_found,
+                        folder_path, walk_prefix, paths is not None,
                     ),
                 )
             elif not _is_branch_delta:
@@ -4210,6 +4273,13 @@ def index_folder(
                         "coverage", None,
                     ),
                     source_file_list, _full_parse_failed, present=_pf_saved_files,
+                ),
+                withheld_files=_withheld_files_for(
+                    getattr(
+                        _merge_with_existing if _merge_with_existing is not None else existing_index,
+                        "coverage", None,
+                    ),
+                    _oversize_found, folder_path, walk_prefix, False,
                 ),
             )
         else:
