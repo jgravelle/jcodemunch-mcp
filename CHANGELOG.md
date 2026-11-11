@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.435] - 2026-11-11 - a Kotlin import of a top-level declaration reaches the file that declares it
+
 ### Fixed - a Kotlin import of a top-level declaration is an edge to the file that declares it (#1376)
 
 `import com.acme.app.mapper.buildSnapshot` imports a top-level function declared in `SnapshotMapper.kt`, and one Kotlin file can declare several classes. Java and Kotlin import resolution matched the dotted name against file paths only, so the import resolved to nothing, and `find_importers`, `get_dependency_graph` and the dead-code tools read the declaring file as unimported. The same held for a top-level `val`, `const val`, `object`, `typealias`, and a second class in a file named after another one. Reported by @randyhbh in #1374 and split out as #1376.
