@@ -48,6 +48,10 @@ COST_TABLE: dict[str, tuple[float, float]] = {
     "gpt-4.1": (2.00, 8.00),
     "gpt-4.1-mini": (0.40, 1.60),
     "gpt-4.1-nano": (0.10, 0.40),
+    # The default from 2026-11-09. Short-context rate (prompts up to 272K input
+    # tokens; a longer prompt is billed 2x input and 1.5x output for the whole
+    # request). platform.openai.com/docs/models/gpt-6-luna, read 2026-11-09.
+    "gpt-6-luna": (0.10, 0.50),
     # Anthropic
     # Sonnet 5 carries an introductory rate of (2.00, 10.00) through 2026-08-31;
     # the standard rate is listed so a benchmark run does not read cheap after it lapses.
@@ -62,6 +66,21 @@ COST_TABLE: dict[str, tuple[float, float]] = {
     "claude-haiku-4-5": (1.00, 5.00),
     "claude-haiku-4-5-20251001": (1.00, 5.00),
 }
+
+
+# The OpenAI default. `gpt-4o-mini`, the default until 2026-11-09, is shut down on
+# 2027-01-14, and OpenAI names `gpt-6-luna` as its replacement
+# (platform.openai.com/docs/deprecations, notice of 2026-10-14). Its rows stay in
+# the tables so committed runs still price.
+OPENAI_DEFAULT_MODEL = "gpt-6-luna"
+
+# OpenAI reasoning models run with reasoning OFF, to keep the answer comparable
+# with the committed non-reasoning runs. With effort `none` they accept
+# `temperature` (docs/guides/latest-model: remove it only "when reasoning effort is
+# not `none`"). They take `max_completion_tokens`; `max_tokens` is deprecated and
+# not accepted by reasoning models (api-reference/chat). Models outside this set
+# are sent exactly the request they were sent before.
+_OPENAI_REASONING_NONE: frozenset[str] = frozenset({"gpt-6-luna"})
 
 
 # Anthropic models that still accept `temperature`. Sampling parameters were
@@ -140,6 +159,9 @@ _OPENAI_CACHE_TABLE: dict[str, tuple[float, float]] = {
     "gpt-4.1": (0.50, 2.00),
     "gpt-4.1-mini": (0.10, 0.40),
     "gpt-4.1-nano": (0.025, 0.10),
+    # GPT-5.6 and later bill cache writes: 1.25x input for the 30-minute lifetime,
+    # the only one Chat Completions offers.
+    "gpt-6-luna": (0.01, 0.125),
 }
 _ANTHROPIC_CACHE_READ = 0.1
 _ANTHROPIC_CACHE_WRITE_5M = 1.25
@@ -245,7 +267,7 @@ def infer_groq(
 def infer_openai(
     context: str,
     question: str,
-    model: str = "gpt-4o-mini",
+    model: str = OPENAI_DEFAULT_MODEL,
     api_key: Optional[str] = None,
 ) -> InferenceResult:
     """Call OpenAI API for inference."""
@@ -262,7 +284,11 @@ def infer_openai(
             {"role": "user", "content": f"## Code Context\n\n{context}\n\n## Question\n\n{question}"},
         ],
         temperature=0.0,
-        max_tokens=2048,
+        **(
+            {"reasoning_effort": "none", "max_completion_tokens": _MAX_TOKENS}
+            if model in _OPENAI_REASONING_NONE
+            else {"max_tokens": _MAX_TOKENS}
+        ),
     )
     elapsed = time.perf_counter() - t0
 
@@ -363,7 +389,7 @@ def infer(
     """Dispatch inference to the appropriate provider."""
     defaults = {
         "groq": "llama-3.3-70b-versatile",
-        "openai": "gpt-4o-mini",
+        "openai": OPENAI_DEFAULT_MODEL,
         "anthropic": "claude-sonnet-5",
     }
     fn = PROVIDER_MAP.get(provider)
