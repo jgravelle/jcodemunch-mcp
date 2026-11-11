@@ -14,6 +14,8 @@ Each indexed file is now counted with OpenAI's `cl100k_base` encoding once, when
 
 **Nothing already recorded is rescaled.** The lifetime total in `_savings.json` keeps every count taken under bytes/4 and adds new calls in the new unit; `get_session_stats`' `total_tokens_saved_basis` reports `mixed_basis: true` for a ledger that spans the change (`SAVINGS_BASIS_GENERATION` 3) and names the tokenizer in use. The anonymous savings counter receives the new per-call figures from this release on.
 
+## [1.108.438] - 2026-11-11 - an index that holds a small part of the tree reads incomplete, not fresh
+
 ### Fixed - get_watch_status says when an index holds a small part of the tree (#1395)
 
 `index_freshness` compares the indexed revision with `HEAD`, so an index rebuilt at `HEAD` that held 14 of about 9,400 tracked source files read `fresh`, and `any_stale` stayed `false`. An agent that checked the status before trusting the index had no sign anything was missing, then searched for a function whose file was not indexed and found only an old copy elsewhere. Reported by @dkiaulakis.
