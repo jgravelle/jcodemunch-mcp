@@ -10,7 +10,7 @@ from typing import Optional
 
 from .corpus import Question
 from .retrieval import RetrievalResult
-from .inference import InferenceResult
+from .inference import OPENAI_DEFAULT_MODEL, InferenceResult
 
 
 @dataclass
@@ -243,7 +243,7 @@ Rate the candidate answer's accuracy on a scale of 0.0 to 1.0:
 
 Respond with ONLY a single number between 0.0 and 1.0, nothing else."""
 
-    defaults = {"groq": "llama-3.3-70b-versatile", "openai": "gpt-4o-mini", "anthropic": "claude-sonnet-5"}
+    defaults = {"groq": "llama-3.3-70b-versatile", "openai": OPENAI_DEFAULT_MODEL, "anthropic": "claude-sonnet-5"}
     model = judge_model or defaults.get(judge_provider, "claude-sonnet-5")
 
     # Deliberately NOT inside the try below: a judge that could not run (missing
