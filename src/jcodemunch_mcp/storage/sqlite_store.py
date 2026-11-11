@@ -17,6 +17,7 @@ from datetime import datetime
 from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, Callable, NamedTuple, Optional, cast
 
+from ..parser.imports import written_imports
 from ..parser.symbols import Symbol
 from ..path_map import parse_path_map, remap
 from .embedding_store import META_KEY_PREFIX as _EMBED_META_PREFIX
@@ -1589,7 +1590,7 @@ class SQLiteIndexStore:
                     (file_mtimes or {}).get(fp),
                     (file_languages or {}).get(fp, ""),
                     (file_summaries or {}).get(fp, ""),
-                    json.dumps((file_imports or {}).get(fp, [])),
+                    json.dumps(written_imports((file_imports or {}).get(fp, []))),
                     file_sizes.get(fp),
                 ))
             for fp in deleted_files:
@@ -2072,7 +2073,7 @@ class SQLiteIndexStore:
                         (file_languages or {}).get(fp, ""),
                         (file_summaries or {}).get(fp, ""),
                         (file_blob_shas or {}).get(fp, ""),
-                        json.dumps((imports or {}).get(fp, [])),
+                        json.dumps(written_imports((imports or {}).get(fp, []))),
                         file_sizes.get(fp),
                     )
                     for fp in normalized_source_files
@@ -2936,7 +2937,7 @@ class SQLiteIndexStore:
                         (file_languages or {}).get(fp, ""),
                         (file_summaries or {}).get(fp, ""),
                         (file_blob_shas or {}).get(fp, ""),
-                        json.dumps((imports or {}).get(fp, [])),
+                        json.dumps(written_imports((imports or {}).get(fp, []))),
                         incr_file_sizes.get(fp),
                     ),
                 )
@@ -4419,7 +4420,7 @@ class SQLiteIndexStore:
                         merged_fl.get(fp, ""),
                         file_summaries.get(fp, ""),
                         file_blob_shas.get(fp, ""),
-                        json.dumps(imports_map.get(fp, [])),
+                        json.dumps(written_imports(imports_map.get(fp, []))),
                     ),
                 )
 
