@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.438] - 2026-11-11 - an index that holds a small part of the tree reads incomplete, not fresh
+
 ### Fixed - get_watch_status says when an index holds a small part of the tree (#1395)
 
 `index_freshness` compares the indexed revision with `HEAD`, so an index rebuilt at `HEAD` that held 14 of about 9,400 tracked source files read `fresh`, and `any_stale` stayed `false`. An agent that checked the status before trusting the index had no sign anything was missing, then searched for a function whose file was not indexed and found only an old copy elsewhere. Reported by @dkiaulakis.
