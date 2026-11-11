@@ -47,6 +47,11 @@ RECHECK_SECONDS = 7 * 24 * 60 * 60   # re-confirm a still-valid key at most this
 GRACE_SECONDS = 14 * 24 * 60 * 60    # evaluation window for a never-licensed org
 REQUEST_TIMEOUT = 8.0
 
+# The error a redirect on the validation POST is reported as. httpx follows a
+# 301 or 302 on a POST as a GET without the body, so following one would send
+# no key and read the answer to that empty request as the key's verdict.
+ENDPOINT_MOVED_ERROR = "license validation endpoint moved (the server answered with a redirect)"
+
 # org-rollup is a multi-seat/team feature, so it requires a multi-seat tier.
 # Tiers (lowercased, as validate.php returns them): Builder=1 seat, Studio=5,
 # Platform=unlimited. Builder is single-seat and does NOT include org-rollup.
@@ -151,10 +156,15 @@ def _check_server(key: str) -> Optional[dict]:
             VALIDATE_URL,
             data={"product": PRODUCT, "license": key},  # form body — key stays out of the URL
             timeout=REQUEST_TIMEOUT,
-            follow_redirects=True,
+            # A redirect is never followed: see ENDPOINT_MOVED_ERROR.
+            follow_redirects=False,
         )
     except Exception:
         return None
+    if 300 <= getattr(resp, "status_code", 0) < 400:
+        logger.warning("license validation POST was redirected (HTTP %s); not following it",
+                       getattr(resp, "status_code", "?"))
+        return {"moved": True}
     return _parse(resp)
 
 
@@ -175,12 +185,14 @@ def _is_validated(key: str, storage_path: Optional[str] = None) -> dict:
         return {"valid": True, "tier": state.get("tier"), "error": None, "confirmed": True}
 
     answer = _check_server(key)
-    if answer is None:
-        # Unreachable. Sticky: keep a prior confirmed-valid; otherwise unconfirmed.
+    if answer is None or answer.get("moved"):
+        # Unreachable, or the endpoint answered with a redirect: no verdict
+        # either way. Sticky: keep a prior confirmed-valid; otherwise
+        # unconfirmed, and nothing is cached.
         if cached_same and state.get("valid") is True:
             return {"valid": True, "tier": state.get("tier"), "error": None, "confirmed": True}
-        return {"valid": False, "tier": None,
-                "error": "could not reach the license server", "confirmed": False}
+        error = ENDPOINT_MOVED_ERROR if answer else "could not reach the license server"
+        return {"valid": False, "tier": None, "error": error, "confirmed": False}
 
     # Definitive answer — cache it.
     new_state = dict(state)
@@ -224,7 +236,10 @@ def format_license_status(gate: dict, *, key_provided: bool = False) -> list[str
     if status == "valid":
         lines.append("License: licensed" + (f" ({tier})" if tier else ""))
     elif status == "unverified_offline":
-        lines.append("License: key present, not yet verified (license server unreachable)")
+        if ENDPOINT_MOVED_ERROR in (gate.get("reason") or ""):
+            lines.append("License: key present, not yet verified (" + ENDPOINT_MOVED_ERROR + ")")
+        else:
+            lines.append("License: key present, not yet verified (license server unreachable)")
     elif status == "rejected":
         lines.append("License: key not recognized by the license server")
         # A support pointer, not a sales one: a rejected key may be a paying
@@ -309,6 +324,8 @@ def _key_status(key: str, res: dict) -> str:
         return "absent"
     err = (res.get("error") or "").lower()
     if "reach" in err or "could not reach" in err or "timeout" in err:
+        return "unverified_offline"
+    if ENDPOINT_MOVED_ERROR in err:
         return "unverified_offline"
     return "rejected"
 
