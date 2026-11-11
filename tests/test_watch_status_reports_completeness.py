@@ -135,3 +135,30 @@ def test_untracked_indexed_files_do_not_hide_missing_tracked_ones(tmp_path, stor
     _index(root, store, max_folder_files=20)
     _, row = _entry(store, root)
     assert row["index_completeness"] == "incomplete", row
+
+
+def test_an_unreadable_index_reads_unknown_not_zero(tmp_path, store, monkeypatch):
+    from jcodemunch_mcp.storage import IndexStore
+
+    root = _repo(tmp_path)
+    _index(root, store)
+    monkeypatch.setattr(
+        IndexStore, "open_selective", lambda self, owner, name, **kw: None
+    )
+    out, row = _entry(store, root)
+    assert row["index_completeness"] == "unknown", row
+    assert "index_coverage" not in row
+    assert out["any_incomplete"] is False
+
+
+def test_a_tree_with_nothing_tracked_reads_unknown_not_complete(tmp_path, store):
+    root = tmp_path / "fresh"
+    root.mkdir()
+    for i in range(5):
+        (root / f"m{i}.py").write_text(f"def m{i}(): pass{NEWLINE}", encoding="utf-8")
+    _git(root, "init", "-q")  # no commit: git tracks nothing
+    _index(root, store)
+    out, row = _entry(store, root)
+    assert row["index_completeness"] == "unknown", row
+    assert "index_coverage" not in row
+    assert out["any_incomplete"] is False

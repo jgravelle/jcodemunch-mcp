@@ -94,10 +94,16 @@ def _repo_completeness(
     (`index_folder.indexable_paths`, the indexer's own per-file rule) and how
     many of them the index holds, and reports both with their ratio.
 
-    A cheap pass counts tracked files by extension alone. That denominator can
-    only be larger than the exact one, so a ratio that clears the floor on it
-    clears it exactly too, and the per-file rule runs only when it does not.
-    `tracked_source_files_basis` says which count was reported.
+    A cheap pass counts tracked files by extension alone, and the per-file
+    rule runs only when that ratio is below the floor. The cheap denominator
+    is never smaller than the exact one, so the shortcut can report
+    `complete` early only for an index holding files today's rules would no
+    longer take (an ignore pattern added or the size cap lowered since it was
+    built); those files were indexed, so the index is not missing them.
+    `tracked_source_files_basis` says which count was reported. The rules are
+    the project's configured ones; a past call's own `extra_ignore_patterns`
+    or `max_size` is not known here, so its exclusions count as missing, which
+    errs toward `incomplete`.
 
     ⚠ `unknown` when the count cannot be taken (not a git work tree, git
     failed, the index's file list unreadable, or the check skipped), never
@@ -121,6 +127,9 @@ def _repo_completeness(
         if not owner or not name:
             return out
         view = IndexStore(base_path=storage_path).open_selective(owner, name)
+        if view is None:
+            # The index's file list could not be read: never an absence claim.
+            return out
         held = set(getattr(view, "source_files", None) or ())
         candidates = [p for p in tracked if has_indexable_extension(p)]
         basis = "extension"
@@ -132,7 +141,11 @@ def _repo_completeness(
             basis = "index_rules"
         indexed = len(held.intersection(candidates))
         total = len(candidates)
-        coverage = round(indexed / total, 4) if total else 1.0
+        if not total:
+            # Nothing tracked to measure against (no commit yet, or a folder
+            # git does not track): coverage is not 1.0, it is not measured.
+            return out
+        coverage = round(indexed / total, 4)
         out.update(
             {
                 "index_completeness": "complete"
