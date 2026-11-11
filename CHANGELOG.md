@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+### Fixed - a call that names `paths=` never replaces the rest of the index (#1397)
+
+`index_folder(paths=[...], incremental=False)` saved the listed files as the whole index and dropped every other indexed file, and still returned `success: true` with nothing saying files were removed. #333 had settled what `paths=` means (refresh a subset, never replace the corpus), but only the incremental path honoured it: with `paths=`, discovery returns the listed files and nothing else, so any route to a full re-parse saved that list as the index. The caller's `incremental=False` was one route. The others were the one-off re-parse a `PARSER_GENERATION` bump or a Racket reader change forces, a pending `invalidate_cache` rebuild, a subdir walk with `paths=` (its merge carried only the files outside the walked folder), and the root-marker and v1.95 migrations, which rebuild the whole corpus from the walk. Reported by @dkiaulakis.
+
+The rule now sits at the full save itself: under `paths=`, every stored file the caller did not list is kept, whichever route led there, so a route added later inherits it. With `paths=`, `incremental=False` re-parses the listed files even when they are unchanged, keeps every other file, and says so in `warnings`; `performed_incremental` reads `true` beside `requested_incremental: false`. A listed file that is gone from disk is still removed. The root-marker migration waits for a run without `paths=`, and a v1.95 index refuses a `paths=` call before anything is deleted. A due parser-generation or Racket re-parse is not run under `paths=`: the listed files are re-read with the current parser, the generation is left where it was, the warning names the reason, and the next run without `paths=` performs it. A pending `invalidate_cache` rebuild likewise waits for a run without `paths=`. `tests/test_refresh_campaign.py::test_an_unforced_subset_still_escalates` required the old escalation, which passed only while seven of its eight files were dropped; it now checks that the upgrade stays due. Tests: `tests/test_paths_never_replaces_the_corpus.py`.
+
 ## [1.108.435] - 2026-11-11 - a Kotlin import of a top-level declaration reaches the file that declares it
 
 ### Fixed - a Kotlin import of a top-level declaration is an edge to the file that declares it (#1376)
