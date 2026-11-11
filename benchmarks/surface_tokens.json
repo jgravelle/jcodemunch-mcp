@@ -1,0 +1,38 @@
+{
+  "basis": {
+    "tokenizer": "tiktoken cl100k_base, a proxy: Claude's tokenizer counts differently",
+    "schema": "one tool = compact JSON of {name, description, inputSchema}, the serialization capture_schema_baseline.py uses; a tool's tokens are counted on its own row",
+    "deferred_names": "each deferred tool as mcp__jcodemunch__<name>, newline-joined, counted once; the prefix is what a deferring client shows the model",
+    "instructions": "server._mcp_instructions(surface) with no repository context, counted once; a live session names its indexed file count, which can move this by a few tokens",
+    "deferring_total": "schemas of always-loaded tools + deferred_names + instructions",
+    "non_deferring_total": "schemas of every published tool + instructions",
+    "config": "the default config (empty CODE_INDEX_PATH), tool_profile full, compact_schemas default",
+    "excludes": "the client's own tool-search wrapper and any per-request framing around a schema"
+  },
+  "counter": {
+    "published": 6,
+    "always_loaded": {
+      "order": 233,
+      "menu": 105,
+      "route": 185
+    },
+    "always_loaded_schema_tokens": 523,
+    "always_loaded_schema_bytes": 2473,
+    "deferred": 3,
+    "deferred_name_tokens": 37,
+    "instructions_tokens": 228,
+    "deferring_total": 788,
+    "non_deferring_total": 1175
+  },
+  "full": {
+    "published": 90,
+    "always_loaded": {},
+    "always_loaded_schema_tokens": 0,
+    "always_loaded_schema_bytes": 0,
+    "deferred": 90,
+    "deferred_name_tokens": 1095,
+    "instructions_tokens": 254,
+    "deferring_total": 1349,
+    "non_deferring_total": 24502
+  }
+}
