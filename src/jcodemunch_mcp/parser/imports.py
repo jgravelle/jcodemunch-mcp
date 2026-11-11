@@ -2632,6 +2632,148 @@ def _resolve_jvm_import(specifier: str, importer_path: str, source_files) -> Opt
     return None
 
 
+# (#1376) The key that marks an edge `augment_jvm_declaration_edges` added. Its
+# value is the specifier the import wrote, so the edge can be traced back.
+JVM_DECLARED_EDGE_KEY = "declared_by"
+
+
+def augment_jvm_declaration_edges(imports: dict, symbols, source_files) -> int:
+    """(#1376) Add an edge to the file that declares a top-level name a JVM import names.
+
+    `import com.acme.app.mapper.buildSnapshot` imports a top-level Kotlin
+    function from `SnapshotMapper.kt`, and one Kotlin file can declare several
+    classes, so the name is often not a file name and `_resolve_jvm_import`
+    finds nothing. When it finds nothing, the specifier minus its last segment
+    names a package directory below a source root, and the last segment names
+    a top-level declaration (no parent) in a `.kt` or `.java` file there. A
+    nested name (`pkg.Extra.Inner`) drops trailing segments as the resolver does.
+
+    The edge the import wrote is kept, and one is ADDED whose specifier is the
+    declaring file's class path, which `resolve_specifier` matches directly:
+    the Racket collection-path shape, so the resolver stays path-only and its
+    call sites keep their single-target contract. Added edges carry
+    `JVM_DECLARED_EDGE_KEY` and are removed and derived again on every call,
+    so a declaration that moved to another file moves its edge on the next
+    load. Runs at every `CodeIndex` construction. Returns the number added.
+    """
+    if not imports:
+        return 0
+    fs = source_files if isinstance(source_files, frozenset) else frozenset(source_files)
+    # (class-path dir, name) -> files that declare it. Each file's module,
+    # class path and language are worked out once here, not per import.
+    declared: dict[tuple[str, str], list[str]] = {}
+    file_info: dict[str, tuple[Optional[str], str, bool]] = {}
+
+    def _info(f: str) -> tuple[Optional[str], str, bool]:
+        got = file_info.get(f)
+        if got is None:
+            _, module, below = _jvm_split(f)
+            got = (module, below, f.endswith(".java"))
+            file_info[f] = got
+        return got
+
+    # Java reaches a Kotlin file's top-level declarations through the class the
+    # compiler generates for the file, `<Stem>Kt` (`import a.b.SnapshotMapperKt;`
+    # or `import static a.b.SnapshotMapperKt.buildSnapshot;`). A file renamed
+    # with `@file:JvmName` is not seen.
+    for f in fs:
+        if f.endswith(".kt"):
+            below = _info(f)[1]
+            stem = posixpath.basename(below)[: -len(".kt")]
+            declared.setdefault((posixpath.dirname(below), stem + "Kt"), []).append(f)
+    for s in symbols or ():
+        f = s.get("file") or ""
+        if s.get("parent") or not f.endswith(_JVM_TARGET_EXTENSIONS) or f not in fs:
+            continue
+        name = s.get("name") or ""
+        if not name:
+            continue
+        declared.setdefault((posixpath.dirname(_info(f)[1]), name), []).append(f)
+    classes = _jvm_classes(fs)
+    # (target, importer module, importer is Java) -> the file the resolver binds
+    # it to: the same few targets come back for many importers.
+    bound: dict[tuple[str, Optional[str], bool], Optional[str]] = {}
+    added = 0
+    for importer, edges in imports.items():
+        if not edges or not importer.endswith(_JVM_IMPORTER_EXTENSIONS):
+            continue
+        kept = written_imports(edges)
+        if len(kept) != len(edges):
+            edges[:] = kept
+        if not declared:
+            continue
+        present = {e.get("specifier") for e in edges}
+        _, own_module, _ = _jvm_split(importer)
+        if own_module is None:
+            own_module = posixpath.dirname(importer)
+        own_java = importer.endswith(".java")
+        new: dict[str, dict] = {}
+        for e in edges:
+            spec = e.get("specifier") or ""
+            if not spec or spec.startswith(".") or "/" in spec or "\\" in spec:
+                continue
+            segments = spec.split(".")
+            if len(segments) < 2 or not all(segments):
+                continue
+            # A name that matches a class path already resolves; the resolver's
+            # own test, without its tiebreak (only whether, not which).
+            if any("/".join(segments[:n]) in classes for n in range(len(segments), 1, -1)):
+                continue
+            for n in range(len(segments), 1, -1):
+                hits = declared.get(("/".join(segments[: n - 1]), segments[n - 1]))
+                if not hits:
+                    continue
+                ranked = sorted(
+                    set(hits),
+                    key=lambda h: (_info(h)[0] != own_module, _info(h)[2] != own_java, h),
+                )
+                for best in ranked:
+                    if best == importer:
+                        continue
+                    target = _info(best)[1].rsplit(".", 1)[0].replace("/", ".")
+                    # ⚠ The added specifier must resolve back to the file that
+                    # declares the name. The resolver picks among the files
+                    # sharing the class path, which can be another module's
+                    # file of the same name, or a `.java` file beside a Kotlin
+                    # facade's `.kt`. Such a target is skipped, not bound.
+                    key = (target, own_module, own_java)
+                    if key not in bound:
+                        bound[key] = _resolve_jvm_import(target, importer, fs)
+                    if bound[key] != best:
+                        continue
+                    if target in new:
+                        names = new[target]["names"]
+                        names.extend(x for x in (e.get("names") or []) if x not in names)
+                    elif target not in present:
+                        edge = {k: v for k, v in e.items() if k != "specifier"}
+                        edge["specifier"] = target
+                        edge["names"] = list(e.get("names") or [])
+                        edge[JVM_DECLARED_EDGE_KEY] = spec
+                        new[target] = edge
+                        added += 1
+                    break
+                break
+        if new:
+            edges.extend(new.values())
+    return added
+
+
+def written_imports(edges: list) -> list:
+    """(#1376) The import edges a file wrote, without the ones derived at the index.
+
+    A derived edge is computed from the whole index's symbols each time a
+    `CodeIndex` is built, so storing one would freeze it: an incremental save
+    rewrites only the changed files' rows, and a stored edge to a declaration
+    that has since moved would be served by any reader that skips the
+    re-derivation. Every write of `files.imports` goes through this.
+    """
+    if not edges:
+        return edges
+    if not any(JVM_DECLARED_EDGE_KEY in e for e in edges):
+        return edges
+    return [e for e in edges if JVM_DECLARED_EDGE_KEY not in e]
+
+
 def _python_package_parents(source_files) -> dict[str, tuple[str, ...]]:
     """Map every package basename to the parent dirs where it appears.
 
