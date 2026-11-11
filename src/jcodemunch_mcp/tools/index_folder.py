@@ -1621,6 +1621,15 @@ def _explicit_path_is_gitignored(walk_root: Path, file_path: Path, cache: Option
     return bool(specs) and _is_gitignored_fast(str(file_path), specs)
 
 
+def _paths_kept_due_warning(reason: str) -> str:
+    """The warning for a full re-parse that a `paths=` run cannot do (#1397)."""
+    return (
+        f"A full re-parse is due ({reason}), but this call named paths=, so only "
+        "the listed files were re-parsed and every other indexed file was kept. "
+        "Run index_folder without paths= to re-parse the rest."
+    )
+
+
 def resolve_explicit_paths(
     walk_root: Path,
     paths: list,
@@ -2110,6 +2119,23 @@ def index_folder(
     # performed, so a caller never has to grep `warnings[]` for a sentence to
     # learn that the operation it requested was substituted for another one.
     _requested_incremental = incremental
+    _caller_force_reparse = force_reparse
+    # #1397 (@dkiaulakis): with `paths=`, discovery returns the listed files
+    # and nothing else, so a FULL re-parse saved them as the whole index and
+    # dropped every unlisted file under `success: true`. #333 settled what a
+    # subset means (refresh a subset, never replace the corpus) and only the
+    # incremental path honoured it. `incremental=False` here asks for the
+    # listed files to be re-read from scratch, which is `force_reparse`; the
+    # run then goes down the incremental path that keeps the rest.
+    _paths_forced = paths is not None and not incremental
+    if _paths_forced:
+        incremental = True
+        force_reparse = True
+        warnings.append(
+            "incremental=False with paths= re-parsed the listed files only and "
+            "kept every other indexed file. To re-parse the whole repository, "
+            "call index_folder without paths=."
+        )
     rebuild_reason: Optional[str] = None
     # Set by the one rebuild that must stay a rebuild under the cap (see below).
     _rebuild_for_root_marker = False
@@ -2333,7 +2359,7 @@ def index_folder(
         # ── Fast path: watcher-driven incremental reindex ──
         # When the watcher provides the exact change set, skip full directory
         # discovery (~3s on Windows) and only process the affected files.
-        if changed_paths and incremental:
+        if changed_paths and incremental and not _paths_forced:
             # ── Per-phase timings (#557) ──
             # `duration_seconds` alone cannot say WHERE a slow event went, and
             # a maintainer who cannot reproduce it has nothing to work from but
@@ -3108,7 +3134,18 @@ def index_folder(
                 owner, repo_name, rebuild_reason,
             )
             warnings.append(_rebuild_message)
-        elif _needs_parser_upgrade(existing_index) and not (force_reparse and paths is not None):
+        elif _needs_parser_upgrade(existing_index) and paths is not None:
+            # #1397: a full re-parse is due, but under `paths=` a "full" run
+            # re-parses the listed files only and saves them as the whole
+            # index. Re-read the listed files with the current parser, keep the
+            # rest, and leave the generation where it is (an incremental save
+            # does not stamp it), so the next run without `paths=` does the
+            # full re-parse. A slice campaign (`force_reparse=True`, #395) is
+            # this case too and owns the stamp itself (tools/refresh.py).
+            force_reparse = True
+            if not _caller_force_reparse:
+                warnings.append(_paths_kept_due_warning("parser_generation_upgrade"))
+        elif _needs_parser_upgrade(existing_index):
             # One-off full re-parse after an extraction-semantics bump (#414).
             # Reported through the same fields a caller already reads for an
             # unreadable index, so a substituted rebuild always has a reason.
@@ -3133,7 +3170,12 @@ def index_folder(
                 getattr(existing_index, "parser_generation", 0), PARSER_GENERATION,
             )
             warnings.append(PARSER_UPGRADE_WARNING)
-        elif (_racket_reason := _racket_reparse_reason(existing_index)) and not (force_reparse and paths is not None):
+        elif (_racket_reason := _racket_reparse_reason(existing_index)) and paths is not None:
+            # #1397: same rule as the generation bump above.
+            force_reparse = True
+            if not _caller_force_reparse:
+                warnings.append(_paths_kept_due_warning(_racket_reason))
+        elif (_racket_reason := _racket_reparse_reason(existing_index)):
             # Two Racket-only escalations, same shape as the generation bump
             # above and the same exemption for a bounded slice campaign, each
             # with its own reason so a caller can tell them apart:
@@ -3284,7 +3326,9 @@ def index_folder(
         _repo_full = f"{owner}/{repo_name}"
         try:
             from .invalidate_cache import _force_full_reindex
-            if _repo_full in _force_full_reindex:
+            # #1397: under `paths=` a full rebuild covers the listed files
+            # only, so leave the request pending for a run without `paths=`.
+            if _repo_full in _force_full_reindex and paths is None:
                 _force_full_reindex.discard(_repo_full)
                 incremental = False
                 logger.info(

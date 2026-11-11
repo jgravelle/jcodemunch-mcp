@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+### Fixed - a call that names `paths=` never replaces the rest of the index (#1397)
+
+`index_folder(paths=[...], incremental=False)` saved the listed files as the whole index and dropped every other indexed file, and still returned `success: true` with nothing saying files were removed. #333 had settled what `paths=` means (refresh a subset, never replace the corpus), but only the incremental path honoured it: with `paths=`, discovery returns the listed files and nothing else, so any route to a full re-parse saved that list as the index. The caller's `incremental=False` was one route. The one-off re-parse a `PARSER_GENERATION` bump forces was a second, and a pending `invalidate_cache` rebuild was a third. Reported by @dkiaulakis.
+
+With `paths=`, `incremental=False` now re-parses the listed files even when they are unchanged, keeps every other file, and says so in `warnings`; `performed_incremental` reads `true` beside `requested_incremental: false`. A listed file that is gone from disk is still removed. A due parser-generation or Racket re-parse is not run under `paths=`: the listed files are re-read with the current parser, the generation is left where it was, the warning names the reason, and the next run without `paths=` performs it. A pending `invalidate_cache` rebuild likewise waits for a run without `paths=`. `tests/test_refresh_campaign.py::test_an_unforced_subset_still_escalates` required the old escalation, which passed only while seven of its eight files were dropped; it now checks that the upgrade stays due. Tests: `tests/test_paths_never_replaces_the_corpus.py`.
+
 ## [1.108.434] - 2026-11-10 - the full tool surface no longer loads six schemas into every request
 
 ### Changed - the full tool surface no longer loads six schemas into every request (#1393)
