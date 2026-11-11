@@ -3224,3 +3224,9 @@ The 1.108.432 entry, verbatim as it stood in `CLAUDE.md`:
 The 1.108.433 entry, verbatim as it stood in `CLAUDE.md`:
 
 - **Prior (1.108.433):** **the bundled local encoder no longer pays for padding** (#1388, #1389, @tmhtech4): `encode_batch` sorts by real length and trims each run of 16 to its longest text (`_plan_runs`); an empty batch returns `[]` before numpy or the session; `JCODEMUNCH_LOCAL_EMBED_THREADS` sets ONNX threads (default 2). Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-11, release 1.108.437)
+
+The 1.108.434 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.434):** **the full tool surface no longer loads six schemas into every request** (#1393): `_apply_always_load` marks `anthropic/alwaysLoad` on `counter` only, so on `full` all 91 tools are deferred and an agent pays one ToolSearch call before its first core-tool call. Full text: `CHANGELOG.md`.
