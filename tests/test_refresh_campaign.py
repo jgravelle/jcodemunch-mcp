@@ -162,14 +162,32 @@ class TestSliceDoesNotEscalateToFullReindex:
         )
         assert out.get("rebuild_reason") == "parser_generation_upgrade"
 
-    def test_an_unforced_subset_still_escalates(self, repo):
-        """`paths=` alone must not buy the exemption; only the pair does."""
+    def test_an_unforced_subset_keeps_the_upgrade_due(self, repo):
+        """`paths=` alone must not make the upgrade disappear.
+
+        This read `rebuild_reason == "parser_generation_upgrade"` until #1397,
+        i.e. it required the escalation to a full re-parse. Under `paths=` that
+        "full" re-parse covered the listed file only and saved it as the whole
+        index, so the old assertion passed exactly while seven of eight files
+        were dropped. The property it protected is that an unforced subset
+        cannot quietly skip the upgrade: the generation stays due, the warning
+        names it, and the next run without `paths=` performs it.
+        """
         _damage(repo["db"])
         out = index_folder(
             path=repo["root"], paths=["pkg/m5.py"], incremental=True,
             use_ai_summaries=False, storage_path=repo["store"],
         )
-        assert out.get("rebuild_reason") == "parser_generation_upgrade"
+        assert out.get("success"), out
+        assert "rebuild_reason" not in out
+        assert any("parser_generation_upgrade" in w for w in out.get("warnings") or [])
+        assert _sql(repo["db"], "SELECT COUNT(*) FROM files")[0][0] == 8
+        assert _generation(repo["db"]) < PARSER_GENERATION
+        full = index_folder(
+            path=repo["root"], use_ai_summaries=False, storage_path=repo["store"],
+        )
+        assert full.get("rebuild_reason") == "parser_generation_upgrade"
+        assert _generation(repo["db"]) == PARSER_GENERATION
 
 
 class TestBoundedAndResumable:
