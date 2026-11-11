@@ -3230,3 +3230,9 @@ The 1.108.433 entry, verbatim as it stood in `CLAUDE.md`:
 The 1.108.434 entry, verbatim as it stood in `CLAUDE.md`:
 
 - **Prior (1.108.434):** **the full tool surface no longer loads six schemas into every request** (#1393): `_apply_always_load` marks `anthropic/alwaysLoad` on `counter` only, so on `full` all 91 tools are deferred and an agent pays one ToolSearch call before its first core-tool call. Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-11, release 1.108.438)
+
+The 1.108.435 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.435):** **a Kotlin import of a top-level declaration reaches the file that declares it** (#1376, @randyhbh): an import naming no file resolves through its package directory to the `.kt`/`.java` file declaring the last segment, as a derived `declared_by` edge added at `CodeIndex` construction and never stored (`written_imports`); Java's `<Stem>Kt` facade reaches the `.kt` file. Full text: `CHANGELOG.md`.

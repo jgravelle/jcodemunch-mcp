@@ -1,6 +1,12 @@
 {
-  "current": "1.108.437",
+  "current": "1.108.438",
   "entries": [
+    {
+      "version": "1.108.438",
+      "date": "2026-11-11",
+      "title": "an index that holds a small part of the tree reads incomplete, not fresh",
+      "summary": "get_watch_status compared only the indexed revision with HEAD, so an index built at HEAD that held a sliver of the tree read fresh. Each repo now also reports index_completeness (complete, incomplete or unknown) with the indexed and tracked file counts, any_incomplete says when any repo is incomplete, and any_completeness_unknown says when a repo could not be counted, which is never reported as complete."
+    },
     {
       "version": "1.108.437",
       "date": "2026-11-11",
