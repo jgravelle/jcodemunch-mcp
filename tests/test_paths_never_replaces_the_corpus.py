@@ -269,3 +269,36 @@ def test_a_legacy_index_refuses_paths_and_changes_nothing(git_repo):
     assert out.get("success") is False, out
     assert "without paths=" in out.get("error", "")
     assert _gfiles(g, full["repo"]) == ["a.py", "sub/b.py", "sub/c.py"]
+
+
+@pytest.mark.parametrize("incremental", [True, False])
+def test_subdir_walk_removes_a_listed_file_gone_from_disk(git_repo, incremental):
+    """The deletion rescope maps listed entries to stored paths the same way as the keep set."""
+    g = git_repo
+    full = index_folder(path=str(g["root"]), use_ai_summaries=False, storage_path=g["store"])
+    assert full.get("success"), full
+    sub_walk = index_folder(path=str(g["root"] / "sub"), use_ai_summaries=False, storage_path=g["store"])
+    assert sub_walk.get("success"), sub_walk
+    (g["root"] / "sub" / "b.py").unlink()
+    out = index_folder(
+        path=str(g["root"] / "sub"), paths=["b.py"], incremental=incremental,
+        use_ai_summaries=False, storage_path=g["store"],
+    )
+    assert out.get("success") is not False, out
+    assert _gfiles(g, full["repo"]) == ["a.py", "sub/c.py"]
+
+
+def test_an_unchanged_listed_file_run_still_says_what_it_did(repo):
+    """Nothing changed on disk; the forced re-parse runs and the substitution is in `warnings`.
+
+    The no-change return also carries the warnings now, but a forced run re-parses the
+    listed file and does not reach it, so this asserts the reachable return.
+    """
+    out = index_folder(
+        path=str(repo["root"]), use_ai_summaries=False, storage_path=repo["store"],
+        paths=["small.js"], incremental=False,
+    )
+    assert out.get("success"), out
+    assert out.get("requested_incremental") is False
+    text = " ".join(out.get("warnings") or [])
+    assert "paths=" in text and "kept" in text, out

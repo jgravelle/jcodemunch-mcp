@@ -1621,6 +1621,30 @@ def _explicit_path_is_gitignored(walk_root: Path, file_path: Path, cache: Option
     return bool(specs) and _is_gitignored_fast(str(file_path), specs)
 
 
+def _listed_in_index_terms(requested_rels, walk_prefix: str) -> list:
+    """Listed `paths=` entries as stored (git-root-relative) paths (#1397).
+
+    ``requested_rels`` are relative to the walked folder and the index keys
+    files from the git root, so a subdir walk's entries need its prefix. The
+    walked root (``""`` or ``"."``) maps to the prefix itself, and at the git
+    root to ``""``, which covers every stored file.
+
+    THE one mapping: the #333 deletion rescope and the full save's keep set
+    both read it, because two copies disagreed and a deleted listed file
+    stayed in the index on a subdir walk.
+    """
+    out = []
+    for r in requested_rels or []:
+        r = "" if r in ("", ".") else r
+        out.append(f"{walk_prefix}/{r}" if (walk_prefix and r) else (walk_prefix or r))
+    return out
+
+
+def _covered_by_listed(fp: str, listed: list) -> bool:
+    """True when stored path ``fp`` is a listed file or under a listed directory."""
+    return any(req == "" or fp == req or fp.startswith(req + "/") for req in listed)
+
+
 def _paths_kept_warning(kept: int) -> str:
     """The warning for a `paths=` run that kept the unlisted files (#1397)."""
     return (
@@ -3470,13 +3494,8 @@ def index_folder(
                     set((existing_index.file_hashes or {}).keys())
                     if existing_index is not None else set()
                 )
-                if any(req in ("", ".") for req in requested_rels):
-                    covered = old_files
-                else:
-                    covered = {
-                        fp for fp in old_files
-                        if any(fp == req or fp.startswith(req + "/") for req in requested_rels)
-                    }
+                _listed_rels = _listed_in_index_terms(requested_rels, walk_prefix)
+                covered = {fp for fp in old_files if _covered_by_listed(fp, _listed_rels)}
                 # Files this call's cap cut are not deleted here either: the
                 # rescope recomputes `deleted`, so the cap exclusion above has
                 # to be applied again.
@@ -3526,6 +3545,10 @@ def index_folder(
                 if _cap_rebuild_warning:
                     # The re-parse that was due did not run: say so even here.
                     _no_change_result["warnings"] = [_cap_rebuild_warning]
+                elif _paths_forced or (paths is not None and warnings):
+                    # #1397: a substituted mode or a deferred re-parse is said
+                    # on a no-change run too.
+                    _no_change_result["warnings"] = list(warnings)
                 # Nothing changed, but this walk may still see files the index
                 # lacks: new files past the cap. Record what it saw, so the
                 # stored cap status and coverage stay true to the index.
@@ -3966,7 +3989,14 @@ def index_folder(
                 current_files_set = set(source_file_list)
 
                 delta_new = sorted(current_files_set - base_files)
-                delta_deleted = sorted(base_files - current_files_set)
+                # #1397: under `paths=` the walk holds the listed files only;
+                # an unlisted base file is not deleted (the save path is
+                # dormant, L-196, but must not wake up with this defect).
+                delta_deleted = sorted(
+                    f for f in base_files - current_files_set
+                    if paths is None
+                    or _covered_by_listed(f, _listed_in_index_terms(requested_rels, walk_prefix))
+                )
                 delta_changed = sorted(
                     f for f in (current_files_set & base_files)
                     if file_hashes.get(f, "") != base_index.file_hashes.get(f, "")
@@ -4049,16 +4079,11 @@ def index_folder(
             # full-walk meaning of that call.
             _paths_keep: set = set()
             if paths is not None and _cap_base is not None and not _v195_legacy_rebuild:
-                _listed = [
-                    (f"{walk_prefix}/{r}" if r not in ("", ".") else walk_prefix)
-                    if walk_prefix else ("" if r == "." else r)
-                    for r in (requested_rels or [])
-                ]
-                if "" not in _listed:
-                    _paths_keep = {
-                        fp for fp in (getattr(_cap_base, "source_files", None) or [])
-                        if not any(fp == req or fp.startswith(req + "/") for req in _listed)
-                    }
+                _listed = _listed_in_index_terms(requested_rels, walk_prefix)
+                _paths_keep = {
+                    fp for fp in (getattr(_cap_base, "source_files", None) or [])
+                    if not _covered_by_listed(fp, _listed)
+                }
             if _paths_keep:
                 _cap_keep = set(_cap_keep) | _paths_keep
 
