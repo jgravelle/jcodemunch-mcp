@@ -166,6 +166,90 @@ def _attach_coverage(verdict: dict, coverage: Optional[dict]) -> None:
         verdict["coverage"] = coverage
 
 
+#: Coverage key naming the files a walk withheld for size, as
+#: ``{stored_path: size_in_bytes}`` (#1396). Before it, coverage kept only the
+#: COUNT (``withheld.too_large``), so the file tools could not tell a withheld
+#: path from one that never existed and answered both "strong evidence the
+#: target is not present". Capped at ``WITHHELD_FILES_MAX`` entries, with the
+#: total and a ``truncated`` flag beside it from the first release that carries
+#: it (a list that ships unbounded on 1.x cannot be bounded later).
+WITHHELD_FILES_KEY = "withheld_files"
+WITHHELD_FILES_MAX = 200
+
+
+def withheld_files_record(files: dict, limit: Optional[int]) -> dict:
+    """The coverage keys for ``files`` withheld for size; ``{}`` when none.
+
+    Sorted by path so the stored record is deterministic, and cut at
+    ``WITHHELD_FILES_MAX``; an unlisted path still gets the disk check in
+    :func:`withheld_file_info`.
+    """
+    if not files:
+        return {}
+    names = sorted(files)
+    kept = names[:WITHHELD_FILES_MAX]
+    out = {
+        WITHHELD_FILES_KEY: {n: int(files[n]) for n in kept},
+        "withheld_files_total": len(names),
+        "withheld_files_truncated": len(names) > len(kept),
+    }
+    if limit:
+        out["max_file_size"] = int(limit)
+    return out
+
+
+_TOO_LARGE_REMEDY = (
+    "It is over max_file_size, so its symbols are not in the index. Raise "
+    "max_file_size (config, the project's .jcodemunch.jsonc, or "
+    "JCODEMUNCH_MAX_FILE_SIZE) and re-index, or read the file directly."
+)
+_NOT_INDEXED_REMEDY = (
+    "The file exists on disk but is not in the index: an ignore rule or a limit "
+    "excluded it, or it was added after the last index. Re-index, or read the "
+    "file directly."
+)
+
+
+def withheld_file_info(index, requested_path: Optional[str]) -> Optional[dict]:
+    """What the index knows about a path it does not hold, or None (#1396).
+
+    A path the coverage record lists was withheld for size. A path it does not
+    list (the record is capped, or the index predates it) is checked on disk
+    under the index's source root: a real file there is ``not_indexed``, or
+    ``too_large`` when its size is over the recorded limit. A path that leaves
+    the root, an index with no source root, or a file that is not there
+    returns None, and the caller keeps its ``absent`` answer.
+    """
+    if not requested_path:
+        return None
+    rel = str(requested_path).replace("\\", "/")
+    cov = getattr(index, "coverage", None) or {}
+    listed = cov.get(WITHHELD_FILES_KEY) or {}
+    limit = cov.get("max_file_size")
+    if isinstance(listed, dict) and rel in listed:
+        info = {"reason": "too_large", "size": int(listed[rel]), "remedy": _TOO_LARGE_REMEDY}
+        if limit:
+            info["limit"] = int(limit)
+        return info
+    root = getattr(index, "source_root", "") or ""
+    if not root or rel.startswith("/") or ":" in rel:
+        return None
+    try:
+        from pathlib import Path
+
+        base = Path(root).resolve()
+        target = (base / rel).resolve()
+        target.relative_to(base)
+        if not target.is_file():
+            return None
+        size = target.stat().st_size
+    except (OSError, ValueError):
+        return None
+    if limit and size > int(limit):
+        return {"reason": "too_large", "size": size, "limit": int(limit), "remedy": _TOO_LARGE_REMEDY}
+    return {"reason": "not_indexed", "size": size, "remedy": _NOT_INDEXED_REMEDY}
+
+
 # Emitted as verdict["state"].
 STATE_OK = "ok"
 STATE_LOW_CONFIDENCE = "low_confidence"
@@ -774,6 +858,7 @@ def build_file_verdict(
     empty_symbols: bool = False,
     index_changed: bool = False,
     freshness: Optional[str] = None,
+    withheld: Optional[dict] = None,
 ) -> dict:
     """`_meta.verdict` for the file-read tools.
 
@@ -784,7 +869,16 @@ def build_file_verdict(
       ``absent`` with no suggestions, so the agent does not retry the outline.
     * otherwise — ``ok``.
     """
-    if not present:
+    if not present and withheld:
+        # #1396: the path is in the tree and the index chose not to hold it,
+        # so absence is not proven and the note must not say "not present".
+        state = STATE_DEGRADED
+        note = (
+            f"Path is not in the index ({withheld.get('reason')}), but the file "
+            f"exists. Absence is NOT proven. {withheld.get('remedy', '')}"
+        ).strip()
+        suggestions = []
+    elif not present:
         state = STATE_ABSENT
         note = "Path is not in the index. " + _NOTES[STATE_ABSENT]
         suggestions = suggest_paths(requested_path, source_files)
@@ -822,6 +916,8 @@ def build_file_verdict(
     }
     if suggestions:
         verdict["did_you_mean"] = suggestions
+    if not present and withheld:
+        verdict["withheld"] = dict(withheld)
     return verdict
 
 
@@ -960,8 +1056,14 @@ def file_verdict_for_index(
     present: bool,
     requested_path: Optional[str] = None,
     empty_symbols: bool = False,
+    withheld: Optional[dict] = None,
 ) -> dict:
-    """Index-aware wrapper over :func:`build_file_verdict` for the file tools."""
+    """Index-aware wrapper over :func:`build_file_verdict` for the file tools.
+
+    ``withheld`` is :func:`withheld_file_info` for a path the index lacks; the
+    tools put the same dict in the response body, because the default
+    ``meta_fields: []`` strips ``_meta`` and the verdict with it.
+    """
     verdict = build_file_verdict(
         present=present,
         requested_path=requested_path,
@@ -970,6 +1072,7 @@ def file_verdict_for_index(
         empty_symbols=empty_symbols,
         index_changed=index_changed_since_load(index),
         freshness=_index_freshness(index),
+        withheld=withheld,
     )
     _attach_coverage(verdict, index_coverage_meta(index))
     return verdict

@@ -3,7 +3,7 @@
 import time
 from typing import Optional
 
-from ..retrieval.verdict import file_verdict_for_index
+from ..retrieval.verdict import file_verdict_for_index, withheld_file_info
 from ..storage import IndexStore, cost_avoided, estimate_savings, record_savings
 from ._utils import index_status_to_tool_error, resolve_repo
 
@@ -29,15 +29,24 @@ def get_file_content(
     if not index:
         return index_status_to_tool_error(store.inspect_index(owner, name))
     if not index.has_source_file(file_path):
-        return {
-            "error": f"File not found: {file_path}",
+        withheld = withheld_file_info(index, file_path)
+        out = {
+            "error": (
+                f"File not indexed: {file_path}. {withheld['remedy']}" if withheld
+                else f"File not found: {file_path}"
+            ),
             "file": file_path,
             "_meta": {
                 "verdict": file_verdict_for_index(
-                    index, present=False, requested_path=file_path
+                    index, present=False, requested_path=file_path, withheld=withheld
                 )
             },
         }
+        if withheld:
+            # #1396: in the body, because the default `meta_fields: []`
+            # strips `_meta` and the verdict with it.
+            out["withheld"] = withheld
+        return out
 
     content = store.get_file_content(owner, name, file_path, _index=index)
     if content is None:

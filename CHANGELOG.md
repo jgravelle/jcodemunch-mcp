@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+### Fixed - a file the index withheld is no longer answered as a file that does not exist (#1396)
+
+A file over `max_file_size` is refused during discovery, and the index kept only how many such files there were (`coverage.withheld.too_large`). `get_file_outline` and `get_file_content` had nothing to tell a withheld path from one that never existed, so both got the same answer: no symbols, verdict `absent`, and the note "treat this as strong evidence the target is not present". An agent told to stop looking for a file that is real and current goes looking for an older copy instead. Reported by @dkiaulakis.
+
+The coverage record now names the files a walk withheld for size, with each file's size and the limit, capped at 200 entries with `withheld_files_total` and `withheld_files_truncated` beside it. A subdir walk replaces only the entries inside its folder, and a `paths=` run leaves the record as it was. For a withheld path, both tools answer with a `withheld` object (`reason`, `size`, `limit`, `remedy`) in the response body, because the default `meta_fields: []` strips `_meta`, and the verdict reads `degraded` (absence not proven) instead of `absent`. `get_file_content`'s error says the file is not indexed and why. A path the record does not list is checked on disk under the index's source root, so a capped record or an index built before this release still does not call a real file absent: it reads `not_indexed`, or `too_large` when its size is over the recorded limit. A path that leaves the root is never looked up. A path that is not on disk is `absent` as before. Tests: `tests/test_withheld_file_is_not_absent.py`.
+
 ## [1.108.435] - 2026-11-11 - a Kotlin import of a top-level declaration reaches the file that declares it
 
 ### Fixed - a Kotlin import of a top-level declaration is an edge to the file that declares it (#1376)
