@@ -2,7 +2,9 @@
 
 ## [Unreleased]
 
-### Changed - the full tool surface no longer loads six schemas into every request
+## [1.108.434] - 2026-11-10 - the full tool surface no longer loads six schemas into every request
+
+### Changed - the full tool surface no longer loads six schemas into every request (#1393)
 
 On `JCODEMUNCH_TOOL_SURFACE=full` (or `tool_surface: "full"`), the six core
 tools carried `_meta["anthropic/alwaysLoad"]`, so Claude Code sent their full
@@ -10,7 +12,7 @@ schemas in every request even with tool search deferring the rest. Measured
 offline on this tree (tiktoken cl100k_base, which ranks the pieces; Claude's
 tokenizer counts differently), what a deferring client gets up front on
 `full` went from 4,751 tokens (3,459 of them the six schemas) to 1,362: 91
-tool names and the instructions. BM-2 pilot 6 (Opus 5.5, Claude Code
+tool names and the instructions. A benchmark run (Opus 5.5, Claude Code
 2.1.319, jcm 1.108.429) had measured the full arm at a cost ratio of 1.144
 against a session without jCodeMunch, with no jCodeMunch call made in any
 session of either jCodeMunch arm, and traced the extra cost to the prompt
