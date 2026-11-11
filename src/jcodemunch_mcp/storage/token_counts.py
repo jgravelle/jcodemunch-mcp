@@ -36,9 +36,9 @@ logger = logging.getLogger(__name__)
 SCHEMA = "CREATE TABLE IF NOT EXISTS token_counts (hash TEXT PRIMARY KEY, cl100k INTEGER NOT NULL)"
 
 #: Counts taken while the indexer wrote each file's copy (``note``), waiting
-#: for the save that records them. Reading the copy back at save time cost
-#: 14 ms a file on Windows (the file was seconds old, so it was scanned again);
-#: counting the text the writer already holds costs nothing extra to read.
+#: for the save that records them. Reading the copy back at save time was
+#: slow on Windows (a seconds-old file is scanned again on open); counting the
+#: text the writer already holds costs nothing extra to read.
 #: Bounded; ``record`` takes what it uses.
 _PENDING: "OrderedDict[str, int]" = OrderedDict()
 _PENDING_MAX = 200_000
@@ -157,9 +157,9 @@ def _read_copy(
         return None
 
 
-#: (db path) -> ((db mtime_ns), {hash: count}). One read per index generation:
-#: opening a read-only connection on every call measured about 1 ms of the
-#: per-call cost on Windows. Bounded to a few indexes, like the matrix cache.
+#: (db path) -> ((db mtime_ns), {hash: count}). One read per index generation,
+#: so a call does not open a read-only connection each time. Bounded to a few
+#: indexes, like the matrix cache.
 _CACHE: "OrderedDict[str, tuple[Optional[int], dict[str, int]]]" = OrderedDict()
 _CACHE_MAX = 8
 _CACHE_LOCK = threading.Lock()

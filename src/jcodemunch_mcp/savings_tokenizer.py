@@ -57,6 +57,7 @@ import logging
 import os
 import tempfile
 import threading
+import time
 from typing import Iterable, Optional
 
 logger = logging.getLogger(__name__)
@@ -251,11 +252,17 @@ _ENCODING = None
 _STATE = "not_loaded"
 _LOCK = threading.Lock()
 _FETCH_THREAD: Optional[threading.Thread] = None
+_FETCH_STARTED: Optional[float] = None
+
+#: tiktoken's request carries no timeout, so a hung fetch never ends; after
+#: this long ``state()`` says so instead of "being fetched".
+STALL_SECONDS = 120.0
 
 #: Why ``encoding()`` returned None, for ``tokens_saved_basis``.
 STATE_REASONS = {
     "download_off": "tokenizer_download is off and tiktoken has no cached cl100k_base",
     "downloading": "cl100k_base is being fetched in the background",
+    "download_stalled": "the cl100k_base fetch has not finished after two minutes (stalled?)",
     "download_failed": "the cl100k_base fetch failed (offline?)",
     "unavailable": "tiktoken could not load cl100k_base",
 }
@@ -335,7 +342,7 @@ def encoding(wait: Optional[float] = None):
     returns None (``state()`` says why). ``wait`` (seconds) lets a caller that
     can afford it, such as a benchmark, wait for that fetch.
     """
-    global _STATE, _FETCH_THREAD
+    global _STATE, _FETCH_THREAD, _FETCH_STARTED
     if _ENCODING is not None:
         return _ENCODING
     with _LOCK:
@@ -357,6 +364,7 @@ def encoding(wait: Optional[float] = None):
                 _STATE = "download_off"
                 return None
             _STATE = "downloading"
+            _FETCH_STARTED = time.monotonic()
             _FETCH_THREAD = threading.Thread(
                 target=_load, name="jcodemunch-cl100k-fetch", daemon=True
             )
@@ -369,16 +377,23 @@ def encoding(wait: Optional[float] = None):
 
 def state() -> str:
     """``ready``, ``not_loaded``, or a key of ``STATE_REASONS``."""
+    if (
+        _STATE == "downloading"
+        and _FETCH_STARTED is not None
+        and time.monotonic() - _FETCH_STARTED > STALL_SECONDS
+    ):
+        return "download_stalled"
     return _STATE
 
 
 def _reset_for_tests() -> None:
-    global _ENCODING, _STATE, _FETCH_THREAD, _BAD_COPY
+    global _ENCODING, _STATE, _FETCH_THREAD, _BAD_COPY, _FETCH_STARTED
     with _LOCK:
         _ENCODING = None
         _STATE = "not_loaded"
         _FETCH_THREAD = None
         _BAD_COPY = None
+        _FETCH_STARTED = None
 
 
 def count(text: str) -> Optional[int]:

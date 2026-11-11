@@ -254,6 +254,7 @@ def fresh_encoding(monkeypatch):
     monkeypatch.setattr(st, "_ENCODING", None)
     monkeypatch.setattr(st, "_STATE", "not_loaded")
     monkeypatch.setattr(st, "_FETCH_THREAD", None)
+    monkeypatch.setattr(st, "_FETCH_STARTED", None)
 
 
 @pytest.fixture
@@ -338,6 +339,31 @@ def test_offline_the_table_is_the_fallback_and_the_call_does_not_wait(fresh_enco
     assert st.STATE_REASONS["download_failed"] in why
     assert n == int(36_630 / st.bytes_per_token("go", "openai"))
     assert st.count("again") is None and callers == ["jcodemunch-cl100k-fetch"], "a failed fetch is not retried per call"
+
+
+def test_a_fetch_that_never_ends_reads_stalled_not_fetching(fresh_encoding, empty_cache, monkeypatch, tokenizer):
+    import threading
+
+    import tiktoken
+
+    release = threading.Event()
+
+    def hung(name):
+        release.wait(5)
+        raise OSError("gave up")
+
+    monkeypatch.setattr(tiktoken, "get_encoding", hung)
+    tokenizer("claude")
+    assert st.count("x") is None and st.state() == "downloading"
+    clock = [st.time.monotonic()]
+    monkeypatch.setattr(st.time, "monotonic", lambda: clock[0])
+    clock[0] += st.STALL_SECONDS + 1
+    assert st.state() == "download_stalled"
+    _, why = st.credit([("python", 1_000, None)], [])
+    assert st.STATE_REASONS["download_stalled"] in why
+    release.set()
+    st._FETCH_THREAD.join(5)
+    assert st.state() == "download_failed"
 
 
 def test_a_cached_copy_with_a_bad_hash_is_not_refetched_with_the_download_off(fresh_encoding, empty_cache, monkeypatch):
