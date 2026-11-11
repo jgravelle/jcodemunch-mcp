@@ -3218,3 +3218,9 @@ The 1.108.431 entry, verbatim as it stood in `CLAUDE.md`:
 The 1.108.432 entry, verbatim as it stood in `CLAUDE.md`:
 
 - **Prior (1.108.432):** **a Java or Kotlin wildcard import is an edge to each class the file uses** (#1375): `import a.b.*` becomes one `a.b.Name` edge per type name the file uses, marked `wildcard`, and only names the package declares resolve (`PARSER_GENERATION` 31). Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-11, release 1.108.436)
+
+The 1.108.433 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.433):** **the bundled local encoder no longer pays for padding** (#1388, #1389, @tmhtech4): `encode_batch` sorts by real length and trims each run of 16 to its longest text (`_plan_runs`); an empty batch returns `[]` before numpy or the session; `JCODEMUNCH_LOCAL_EMBED_THREADS` sets ONNX threads (default 2). Full text: `CHANGELOG.md`.
