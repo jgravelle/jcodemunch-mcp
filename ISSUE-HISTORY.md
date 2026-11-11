@@ -3212,3 +3212,9 @@ The 1.108.430 entry, verbatim as it stood in `CLAUDE.md`:
 The 1.108.431 entry, verbatim as it stood in `CLAUDE.md`:
 
 - **Prior (1.108.431):** **a read re-indexes the files that changed since the index was built** (#1381, #1382): a read tool asks git what changed since the indexed commit and re-indexes it first (2 s ceiling, `refresh_on_read: false` turns it off); `get_call_hierarchy` rows carry `call_lines`. Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-11, release 1.108.435)
+
+The 1.108.432 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.432):** **a Java or Kotlin wildcard import is an edge to each class the file uses** (#1375): `import a.b.*` becomes one `a.b.Name` edge per type name the file uses, marked `wildcard`, and only names the package declares resolve (`PARSER_GENERATION` 31). Full text: `CHANGELOG.md`.

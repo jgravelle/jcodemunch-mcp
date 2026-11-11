@@ -1,6 +1,12 @@
 {
-  "current": "1.108.434",
+  "current": "1.108.435",
   "entries": [
+    {
+      "version": "1.108.435",
+      "date": "2026-11-11",
+      "title": "a Kotlin import of a top-level declaration reaches the file that declares it",
+      "summary": "An import of a top-level Kotlin function, val, object or typealias, or of a second class in a file named after another one, now counts as an import of the file that declares it, so find_importers and the dead-code tools no longer read that file as unused. Java's route to a Kotlin file's top-level functions (the FileKt class) resolves the same way."
+    },
     {
       "version": "1.108.434",
       "date": "2026-11-10",
