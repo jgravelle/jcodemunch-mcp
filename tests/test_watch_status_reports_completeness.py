@@ -89,6 +89,7 @@ def test_a_full_index_reads_complete(tmp_path, store):
     assert row["indexed_files"] == 40
     assert row["index_coverage"] == 1.0
     assert out["any_incomplete"] is False
+    assert out["any_completeness_unknown"] is False
 
 
 def test_files_the_indexer_excludes_on_purpose_do_not_count_against_it(tmp_path, store):
@@ -115,6 +116,7 @@ def test_a_folder_that_is_not_a_git_repository_reads_unknown(tmp_path, store):
     assert row["index_completeness"] == "unknown", row
     assert "tracked_source_files" not in row
     assert out["any_incomplete"] is False
+    assert out["any_completeness_unknown"] is True
 
 
 def test_skipping_the_check_reports_unknown_not_complete(tmp_path, store):
@@ -123,6 +125,7 @@ def test_skipping_the_check_reports_unknown_not_complete(tmp_path, store):
     out, row = _entry(store, root, check_freshness=False)
     assert row["index_completeness"] == "unknown", row
     assert out["any_incomplete"] is False
+    assert out["any_completeness_unknown"] is True
 
 
 def test_untracked_indexed_files_do_not_hide_missing_tracked_ones(tmp_path, store):
@@ -149,6 +152,7 @@ def test_an_unreadable_index_reads_unknown_not_zero(tmp_path, store, monkeypatch
     assert row["index_completeness"] == "unknown", row
     assert "index_coverage" not in row
     assert out["any_incomplete"] is False
+    assert out["any_completeness_unknown"] is True
 
 
 def test_a_tree_with_nothing_tracked_reads_unknown_not_complete(tmp_path, store):
@@ -162,3 +166,51 @@ def test_a_tree_with_nothing_tracked_reads_unknown_not_complete(tmp_path, store)
     assert row["index_completeness"] == "unknown", row
     assert "index_coverage" not in row
     assert out["any_incomplete"] is False
+    assert out["any_completeness_unknown"] is True
+
+
+def test_a_caller_can_skip_only_the_completeness_count(tmp_path, store):
+    root = _repo(tmp_path)
+    _index(root, store, max_folder_files=4)
+    out, row = _entry(store, root, check_completeness=False)
+    assert row["index_freshness"] == "fresh", row  # freshness is still measured
+    assert row["index_completeness"] == "unknown", row
+    assert out["any_incomplete"] is False
+    assert out["any_completeness_unknown"] is True
+
+
+def test_list_repos_does_not_pay_for_completeness(tmp_path, store, monkeypatch):
+    """repos_report drops the completeness keys, so it must not run the count."""
+    from jcodemunch_mcp.tools import index_folder as ix
+    from jcodemunch_mcp.tools.list_repos import repos_report
+
+    root = _repo(tmp_path)
+    _index(root, store)
+
+    calls = []
+    real = ix.git_tracked_paths
+
+    def counting(*a, **k):
+        # Recorded, not raised: the completeness path catches every exception,
+        # so a raising mock would be swallowed and the test could not fail.
+        calls.append(a)
+        return real(*a, **k)
+
+    monkeypatch.setattr(ix, "git_tracked_paths", counting)
+    report = repos_report(str(store))
+    assert report, report
+    assert calls == [], "repos_report ran git ls-files for completeness"
+
+
+def test_a_file_whose_eligibility_check_fails_counts_as_missing(tmp_path, monkeypatch):
+    """An error must not shrink the denominator, which would raise the ratio."""
+    from jcodemunch_mcp.tools import index_folder as ix
+
+    root = _repo(tmp_path, n=3)
+
+    def broken(path, cfg):
+        raise OSError("stat failed")
+
+    monkeypatch.setattr(ix, "_should_index_file", broken)
+    kept = ix.indexable_paths(root, ["mod00.py", "mod01.py", "mod02.py"])
+    assert kept == ["mod00.py", "mod01.py", "mod02.py"]

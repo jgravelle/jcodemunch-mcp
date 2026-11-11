@@ -78,8 +78,7 @@ def _repo_freshness(folder: str, entry: dict, check: bool) -> str:
 #: Below this share of the tracked source files, an index reads `incomplete`
 #: (#1395). The indexer's per-file rule already takes out what it skips on
 #: purpose, so the gap left is files over the size cap and files added since
-#: the last index; the reporter measured deliberate exclusions at 4-5% of a
-#: large repo, which a 0.90 floor leaves room for.
+#: the last index, and a 0.90 floor leaves room for a gap of that kind.
 COMPLETENESS_FLOOR = 0.90
 
 
@@ -167,6 +166,7 @@ def get_watch_status(
     storage_path: Optional[str] = None,
     *,
     check_freshness: bool = True,
+    check_completeness: bool = True,
 ) -> dict:
     """Return a summary of watch-all coverage and health.
 
@@ -194,6 +194,14 @@ def get_watch_status(
     figure is the one a first call after boot pays. Both sit under the ~2.4 s
     this tool already spends on discovery and lock inspection, so the default
     is on and the opt-out is for a caller listing hundreds.
+
+    ⚠ The same flag also gates the completeness count (#1395), which costs one
+    `git ls-files` per repo plus, when the extension count is below the floor,
+    the indexer's per-file rule over the tracked list: measured over 26 repos
+    at 89 to 109 ms per repo warm. `check_completeness=False` skips only that
+    count, for a caller that discards it; each entry then reads `unknown`.
+    `any_completeness_unknown` says when any entry could not be counted, so
+    `any_incomplete` False is never read as "nothing missing" on its own.
     """
     entries = discover_local_repo_entries(storage_path)
     discovered = list(entries)
@@ -210,6 +218,7 @@ def get_watch_status(
     any_stale = False
     any_freshness_unknown = False
     any_incomplete = False
+    any_completeness_unknown = False
     any_in_progress = False
     any_failing = False
     any_watched_by_another_process = False
@@ -242,7 +251,10 @@ def get_watch_status(
         }
         entry.update(
             _repo_completeness(
-                folder, entries.get(folder) or {}, check_freshness, storage_path
+                folder,
+                entries.get(folder) or {},
+                check_freshness and check_completeness,
+                storage_path,
             )
         )
         if folder in skipped:
@@ -264,6 +276,8 @@ def get_watch_status(
             any_freshness_unknown = True
         if entry["index_completeness"] == "incomplete":
             any_incomplete = True
+        elif entry["index_completeness"] == "unknown":
+            any_completeness_unknown = True
         if status.get("reindex_in_progress"):
             any_in_progress = True
         if status.get("reindex_failures") or status.get("reindex_fatal"):
@@ -282,6 +296,7 @@ def get_watch_status(
         "any_stale": any_stale,
         "any_freshness_unknown": any_freshness_unknown,
         "any_incomplete": any_incomplete,
+        "any_completeness_unknown": any_completeness_unknown,
         "freshness_checked": check_freshness,
         "any_in_progress": any_in_progress,
         "any_failing": any_failing,

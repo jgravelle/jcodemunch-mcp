@@ -892,8 +892,10 @@ def indexable_paths(root: Path, rel_paths) -> list:
         try:
             ok = _should_index_file(root / rel, cfg)[0]
         except Exception:
+            # Counted as eligible: dropping it would shrink the denominator and
+            # raise the coverage ratio, the direction this count must not err.
             logger.debug("eligibility check failed for %s", rel, exc_info=True)
-            ok = False
+            ok = True
         if ok:
             kept.append(rel)
     return kept
