@@ -61,6 +61,14 @@ BASIS = {
     "non_deferring_total": "schemas of every published tool + instructions",
     "config": "the default config (empty CODE_INDEX_PATH), tool_profile full, compact_schemas default",
     "excludes": "the client's own tool-search wrapper and any per-request framing around a schema",
+    "schema_tokens_per_tool": (
+        "every published tool's own schema row, so one tool plus instructions can be read off "
+        "for any tool on either surface"
+    ),
+    "always_loaded_schema_bytes": (
+        "UTF-8 bytes of the always-loaded rows only; not the 4,184 B counter pin in "
+        "tests/test_counter_surface_stability.py, which covers all six published tools in another shape"
+    ),
 }
 
 
@@ -105,6 +113,7 @@ def measure() -> dict:
                 "instructions_tokens": instructions,
                 "deferring_total": sum(per_tool.values()) + names + instructions,
                 "non_deferring_total": all_schemas + instructions,
+                "schema_tokens_per_tool": {t.name: tok(_row(t)) for t in tools},
             }
     finally:
         for k, v in original.items():

@@ -71,6 +71,12 @@ def test_every_figure_has_its_basis_written_down():
             row["always_loaded"].values()
         ), surface
         assert row["published"] == len(row["always_loaded"]) + row["deferred"], surface
+        per_tool = row["schema_tokens_per_tool"]
+        assert len(per_tool) == row["published"], surface
+        assert (
+            sum(per_tool.values()) + row["instructions_tokens"]
+            == row["non_deferring_total"]
+        ), surface
 
 
 def test_the_deferring_view_is_the_cheaper_one():

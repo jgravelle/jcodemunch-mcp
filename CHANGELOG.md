@@ -29,9 +29,12 @@ tokenizer counts differently), what a deferring client gets up front on
 tool names and the instructions. (Correction, 2026-11-11: that pair was
 measured with `test_summarizer` enabled (91 tools; the shipped
 `disabled_tools` hides it), schemas as spaced JSON, and names with the
-`mcp__jcodemunch__` prefix. At shipped defaults, with schemas as compact
-JSON, the same change is 4,384 to 1,349 tokens over 90 tools. The
-reproducible record, with its basis written down, is
+`mcp__jcodemunch__` prefix, and the 3,459 is on that basis too. At
+shipped defaults, with schemas as compact JSON, the same change is
+4,384 tokens (3,105 of them the six schemas) to 1,349 over 90 tools:
+`benchmarks/harness/capture_surface_tokens.py` run on e0faaaa6~1 for
+the first figure and on e0faaaa6 for the second. The reproducible
+record for the current tree, with its basis written down, is
 `benchmarks/surface_tokens.json`.) A benchmark run (Opus 5.5, Claude Code
 2.1.319, jcm 1.108.429) had measured the full arm at a cost ratio of 1.144
 against a session without jCodeMunch, with no jCodeMunch call made in any
