@@ -201,10 +201,101 @@ def test_a_stale_added_edge_is_dropped_when_the_declaration_is_gone():
     assert len(imports[SERVICE]) == 2
 
 
-def test_find_references_counts_the_importer_once(tmp_path):
-    from jcodemunch_mcp.tools.find_references import find_references
+def test_imports_of_one_file_are_one_added_edge_with_every_name():
+    """`buildSnapshot`, `Extra` and `LIMIT` all live in SnapshotMapper.kt: one edge, three names."""
+    from jcodemunch_mcp.parser.imports import JVM_DECLARED_EDGE_KEY, augment_jvm_declaration_edges
 
-    _, store, repo = _index(tmp_path)
-    out = find_references(repo=repo, identifier="buildSnapshot", storage_path=str(store))
-    files = [r["file"] for r in out.get("references", [])]
-    assert files.count(SERVICE) == 1, out
+    fs = frozenset({MAPPER, SERVICE})
+    imports = {
+        SERVICE: [
+            {"specifier": "com.acme.app.mapper.buildSnapshot", "names": ["buildSnapshot"]},
+            {"specifier": "com.acme.app.mapper.Extra", "names": ["Extra"]},
+            {"specifier": "com.acme.app.mapper.LIMIT", "names": ["LIMIT"]},
+        ]
+    }
+    symbols = [{"file": MAPPER, "name": n, "parent": None} for n in ("buildSnapshot", "Extra", "LIMIT")]
+    assert augment_jvm_declaration_edges(imports, symbols, fs) == 1
+    derived = [e for e in imports[SERVICE] if JVM_DECLARED_EDGE_KEY in e]
+    assert len(derived) == 1
+    assert derived[0]["specifier"] == "com.acme.app.mapper.SnapshotMapper"
+    assert derived[0]["names"] == ["buildSnapshot", "Extra", "LIMIT"]
+
+
+def test_an_added_edge_never_resolves_to_a_file_that_does_not_declare_the_name():
+    """Two modules hold `p/SnapshotMapper.kt`; only module `a`'s declares the function.
+
+    The resolver prefers the importer's own module `b`, so an edge spelled
+    `p.SnapshotMapper` would land on `b`'s file. No edge is better than that one.
+    """
+    from jcodemunch_mcp.parser.imports import (
+        JVM_DECLARED_EDGE_KEY,
+        augment_jvm_declaration_edges,
+        resolve_specifier,
+    )
+
+    a_file = "a/src/main/kotlin/p/SnapshotMapper.kt"
+    b_file = "b/src/main/kotlin/p/SnapshotMapper.kt"
+    importer = "b/src/main/kotlin/q/Use.kt"
+    fs = frozenset({a_file, b_file, importer})
+    imports = {importer: [{"specifier": "p.buildSnapshot", "names": ["buildSnapshot"]}]}
+    symbols = [{"file": a_file, "name": "buildSnapshot", "parent": None}]
+    augment_jvm_declaration_edges(imports, symbols, fs)
+    for e in imports[importer]:
+        if JVM_DECLARED_EDGE_KEY in e:
+            assert resolve_specifier(e["specifier"], importer, fs) == a_file, e
+
+
+def test_a_kotlin_facade_beside_a_java_file_of_the_same_class_path_is_not_bound_to_the_java_file():
+    from jcodemunch_mcp.parser.imports import (
+        JVM_DECLARED_EDGE_KEY,
+        augment_jvm_declaration_edges,
+        resolve_specifier,
+    )
+
+    kt = "m/src/main/kotlin/p/Util.kt"
+    java = "m/src/main/java/p/Util.java"
+    importer = "m/src/main/java/q/Use.java"
+    fs = frozenset({kt, java, importer})
+    imports = {importer: [{"specifier": "p.UtilKt", "names": ["UtilKt"]}]}
+    augment_jvm_declaration_edges(imports, [], fs)
+    for e in imports[importer]:
+        if JVM_DECLARED_EDGE_KEY in e:
+            assert resolve_specifier(e["specifier"], importer, fs) == kt, e
+
+
+def _stored_import_rows(store):
+    import json
+    import sqlite3
+
+    rows = {}
+    for db in store.glob("**/*.db"):
+        con = sqlite3.connect(str(db))
+        try:
+            for path, raw in con.execute("SELECT path, imports FROM files"):
+                rows[path] = json.loads(raw) if raw else []
+        except sqlite3.OperationalError:
+            continue
+        finally:
+            con.close()
+    return rows
+
+
+def test_derived_edges_are_never_stored(tmp_path):
+    """Stored rows hold what the file wrote, on the first index and an incremental one."""
+    from jcodemunch_mcp.parser.imports import JVM_DECLARED_EDGE_KEY
+    from jcodemunch_mcp.tools.index_folder import index_folder
+
+    root, store, repo = _index(tmp_path)
+    rows = _stored_import_rows(store)
+    assert SERVICE in rows
+    assert not any(JVM_DECLARED_EDGE_KEY in e for edges in rows.values() for e in edges)
+
+    (root / SERVICE).write_bytes(
+        (ROOT_FILES[SERVICE] + "\n// touched\n").encode("utf-8")
+    )
+    r = index_folder(str(root), use_ai_summaries=False, storage_path=str(store))
+    assert r["success"] is True, r
+    rows = _stored_import_rows(store)
+    assert not any(JVM_DECLARED_EDGE_KEY in e for edges in rows.values() for e in edges)
+    # The edge is derived again on load, so the graph still has it.
+    assert SERVICE in _importers(repo, store, MAPPER)

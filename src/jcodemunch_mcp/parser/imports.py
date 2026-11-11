@@ -2659,14 +2659,26 @@ def augment_jvm_declaration_edges(imports: dict, symbols, source_files) -> int:
     if not imports:
         return 0
     fs = source_files if isinstance(source_files, frozenset) else frozenset(source_files)
+    # (class-path dir, name) -> files that declare it. Each file's module,
+    # class path and language are worked out once here, not per import.
     declared: dict[tuple[str, str], list[str]] = {}
+    file_info: dict[str, tuple[Optional[str], str, bool]] = {}
+
+    def _info(f: str) -> tuple[Optional[str], str, bool]:
+        got = file_info.get(f)
+        if got is None:
+            _, module, below = _jvm_split(f)
+            got = (module, below, f.endswith(".java"))
+            file_info[f] = got
+        return got
+
     # Java reaches a Kotlin file's top-level declarations through the class the
     # compiler generates for the file, `<Stem>Kt` (`import a.b.SnapshotMapperKt;`
     # or `import static a.b.SnapshotMapperKt.buildSnapshot;`). A file renamed
     # with `@file:JvmName` is not seen.
     for f in fs:
         if f.endswith(".kt"):
-            _, _, below = _jvm_split(f)
+            below = _info(f)[1]
             stem = posixpath.basename(below)[: -len(".kt")]
             declared.setdefault((posixpath.dirname(below), stem + "Kt"), []).append(f)
     for s in symbols or ():
@@ -2676,13 +2688,16 @@ def augment_jvm_declaration_edges(imports: dict, symbols, source_files) -> int:
         name = s.get("name") or ""
         if not name:
             continue
-        _, _, below = _jvm_split(f)
-        declared.setdefault((posixpath.dirname(below), name), []).append(f)
+        declared.setdefault((posixpath.dirname(_info(f)[1]), name), []).append(f)
+    classes = _jvm_classes(fs)
+    # (target, importer module, importer is Java) -> the file the resolver binds
+    # it to: the same few targets come back for many importers.
+    bound: dict[tuple[str, Optional[str], bool], Optional[str]] = {}
     added = 0
     for importer, edges in imports.items():
         if not edges or not importer.endswith(_JVM_IMPORTER_EXTENSIONS):
             continue
-        kept = [e for e in edges if JVM_DECLARED_EDGE_KEY not in e]
+        kept = written_imports(edges)
         if len(kept) != len(edges):
             edges[:] = kept
         if not declared:
@@ -2691,8 +2706,8 @@ def augment_jvm_declaration_edges(imports: dict, symbols, source_files) -> int:
         _, own_module, _ = _jvm_split(importer)
         if own_module is None:
             own_module = posixpath.dirname(importer)
-        own_ext = ".java" if importer.endswith(".java") else ".kt"
-        new: list[dict] = []
+        own_java = importer.endswith(".java")
+        new: dict[str, dict] = {}
         for e in edges:
             spec = e.get("specifier") or ""
             if not spec or spec.startswith(".") or "/" in spec or "\\" in spec:
@@ -2700,32 +2715,63 @@ def augment_jvm_declaration_edges(imports: dict, symbols, source_files) -> int:
             segments = spec.split(".")
             if len(segments) < 2 or not all(segments):
                 continue
-            if _resolve_jvm_import(spec, importer, fs) is not None:
+            # A name that matches a class path already resolves; the resolver's
+            # own test, without its tiebreak (only whether, not which).
+            if any("/".join(segments[:n]) in classes for n in range(len(segments), 1, -1)):
                 continue
             for n in range(len(segments), 1, -1):
                 hits = declared.get(("/".join(segments[: n - 1]), segments[n - 1]))
                 if not hits:
                     continue
-                best = min(
-                    hits,
-                    key=lambda h: (_jvm_split(h)[1] != own_module, not h.endswith(own_ext), h),
+                ranked = sorted(
+                    set(hits),
+                    key=lambda h: (_info(h)[0] != own_module, _info(h)[2] != own_java, h),
                 )
-                if best == importer:
+                for best in ranked:
+                    if best == importer:
+                        continue
+                    target = _info(best)[1].rsplit(".", 1)[0].replace("/", ".")
+                    # ⚠ The added specifier must resolve back to the file that
+                    # declares the name. The resolver picks among the files
+                    # sharing the class path, which can be another module's
+                    # file of the same name, or a `.java` file beside a Kotlin
+                    # facade's `.kt`. Such a target is skipped, not bound.
+                    key = (target, own_module, own_java)
+                    if key not in bound:
+                        bound[key] = _resolve_jvm_import(target, importer, fs)
+                    if bound[key] != best:
+                        continue
+                    if target in new:
+                        names = new[target]["names"]
+                        names.extend(x for x in (e.get("names") or []) if x not in names)
+                    elif target not in present:
+                        edge = {k: v for k, v in e.items() if k != "specifier"}
+                        edge["specifier"] = target
+                        edge["names"] = list(e.get("names") or [])
+                        edge[JVM_DECLARED_EDGE_KEY] = spec
+                        new[target] = edge
+                        added += 1
                     break
-                _, _, below = _jvm_split(best)
-                target = below.rsplit(".", 1)[0].replace("/", ".")
-                if target not in present:
-                    edge = {k: v for k, v in e.items() if k != "specifier"}
-                    edge["specifier"] = target
-                    edge["names"] = list(e.get("names") or [])
-                    edge[JVM_DECLARED_EDGE_KEY] = spec
-                    new.append(edge)
-                    present.add(target)
-                    added += 1
                 break
         if new:
-            edges.extend(new)
+            edges.extend(new.values())
     return added
+
+
+def written_imports(edges: list) -> list:
+    """(#1376) The import edges a file wrote, without the ones derived at the index.
+
+    A derived edge is computed from the whole index's symbols each time a
+    `CodeIndex` is built, so storing one would freeze it: an incremental save
+    rewrites only the changed files' rows, and a stored edge to a declaration
+    that has since moved would be served by any reader that skips the
+    re-derivation. Every write of `files.imports` goes through this.
+    """
+    if not edges:
+        return edges
+    if not any(JVM_DECLARED_EDGE_KEY in e for e in edges):
+        return edges
+    return [e for e in edges if JVM_DECLARED_EDGE_KEY not in e]
 
 
 def _python_package_parents(source_files) -> dict[str, tuple[str, ...]]:
