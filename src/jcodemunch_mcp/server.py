@@ -6004,6 +6004,35 @@ def _label_lifetime_total(result: dict) -> None:
         logger.debug("lifetime total not labeled", exc_info=True)
 
 
+def _label_savings_basis(result: dict) -> None:
+    """Attach `_meta.tokens_saved_basis` beside every surviving `_meta.tokens_saved`.
+
+    The per-call figure is bytes divided by a measured tokenizer table
+    (`savings_tokenizer.py`, chosen by `savings_tokenizer`), so the number
+    means nothing to a reader who cannot see which table. Runs after the
+    `meta_fields` filter, like `_label_lifetime_total`, so a display
+    preference cannot keep the figure and drop the word naming its unit;
+    `tokens_saved_basis` is in `UNIVERSAL_META_JSON` for the same reason.
+    """
+    try:
+        carriers = [result]
+        nested = result.get("results")
+        if isinstance(nested, list):
+            carriers.extend(item for item in nested if isinstance(item, dict))
+        metas = [c["_meta"] for c in carriers if isinstance(c.get("_meta"), dict) and "tokens_saved" in c["_meta"]]
+        if not metas:
+            return
+        from .savings_tokenizer import basis
+
+        # A tool that counted (savings_tokenizer.credit) set its own basis;
+        # the rest divided bytes by the table, which is what this names.
+        text = basis()
+        for meta in metas:
+            meta.setdefault("tokens_saved_basis", text)
+    except Exception:
+        logger.debug("tokens_saved basis not labeled", exc_info=True)
+
+
 def _count_tool_call(
     name: str, result: "list[TextContent] | CallToolResult | None", *, relayed: bool = False
 ) -> None:
@@ -7893,6 +7922,11 @@ async def _call_tool_impl(name: str, arguments: dict) -> list[TextContent] | Cal
                 for field in meta_fields:
                     if field in existing_meta:
                         _meta[field] = existing_meta[field]
+                # The figure keeps its unit: a tool that counted named its own
+                # basis, and `_label_savings_basis` below would otherwise put
+                # the table's name on a counted figure.
+                if "tokens_saved" in _meta and "tokens_saved_basis" in existing_meta:
+                    _meta["tokens_saved_basis"] = existing_meta["tokens_saved_basis"]
                 if _meta:
                     result["_meta"] = _meta
                 # Also filter nested _meta from batch tools (e.g. get_file_outline batch)
@@ -7900,6 +7934,8 @@ async def _call_tool_impl(name: str, arguments: dict) -> list[TextContent] | Cal
                     if isinstance(_item, dict):
                         _item_meta = _item.pop("_meta", {})
                         _item_filtered: dict[str, Any] = {f: _item_meta[f] for f in meta_fields if f in _item_meta}
+                        if "tokens_saved" in _item_filtered and "tokens_saved_basis" in _item_meta:
+                            _item_filtered["tokens_saved_basis"] = _item_meta["tokens_saved_basis"]
                         if "powered_by" in meta_fields:
                             _item_filtered["powered_by"] = "jcodemunch-mcp by jgravelle · https://github.com/jgravelle/jcodemunch-mcp"
                         if _item_filtered:
@@ -7926,6 +7962,7 @@ async def _call_tool_impl(name: str, arguments: dict) -> list[TextContent] | Cal
             # filter above, so `meta_fields` cannot keep the number and drop
             # the word saying it stopped being measured.
             _label_lifetime_total(result)
+            _label_savings_basis(result)
 
         # Per-call pulse for downstream consumers (dashboards, monitors)
         _saved = result.get("_meta", {}).get("tokens_saved", 0) if isinstance(result, dict) else 0

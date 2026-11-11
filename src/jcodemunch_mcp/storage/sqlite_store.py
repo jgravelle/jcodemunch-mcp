@@ -239,6 +239,11 @@ CREATE TABLE IF NOT EXISTS scip_meta (
     key   TEXT PRIMARY KEY,
     value TEXT
 );
+
+CREATE TABLE IF NOT EXISTS token_counts (
+    hash   TEXT PRIMARY KEY,
+    cl100k INTEGER NOT NULL
+);
 """
 
 # Pragmas set on every connection open
@@ -2084,6 +2089,11 @@ class SQLiteIndexStore:
 
             bm25_stats.write_in_txn(conn, bm25_blob)
 
+            # Per-file token counts for tokens_saved (storage/token_counts.py).
+            from . import token_counts
+
+            token_counts.record(conn, self._content_dir_or_none(owner, name), raw_files)
+
             conn.commit()
         finally:
             conn.close()
@@ -3001,6 +3011,11 @@ class SQLiteIndexStore:
                 if mtime_only:
                     conn.executemany("UPDATE files SET mtime_ns = ? WHERE path = ?", mtime_only)
 
+            # Per-file token counts for tokens_saved (storage/token_counts.py).
+            from . import token_counts
+
+            token_counts.record(conn, self._content_dir_or_none(owner, name), raw_files)
+
             # Always read meta (small). Only read all rows when no cached index to patch.
             meta = self._read_meta(conn)
             if old_index is None:
@@ -3736,6 +3751,12 @@ class SQLiteIndexStore:
         serialises concurrent writers to a repo, so the pid-suffixed temp name
         cannot collide.
         """
+        # The text is in hand here, so this is where its token count is
+        # taken (storage/token_counts.py); `metadata_only` keeps no copy to
+        # count from later.
+        from . import token_counts
+
+        token_counts.note(content)
         try:
             from .. import config as _cfg
             if _cfg.get("cache_mode", "full") == "metadata_only":

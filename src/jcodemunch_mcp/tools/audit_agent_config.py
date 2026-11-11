@@ -23,14 +23,18 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 def _estimate_tokens(text: str) -> int:
-    """Estimate token count.  Uses tiktoken if available, else word heuristic."""
-    try:
-        import tiktoken
-        enc = tiktoken.get_encoding("cl100k_base")
-        return len(enc.encode(text))
-    except Exception:
+    """Estimate token count: cl100k_base when loaded, else a word heuristic.
+
+    Through ``savings_tokenizer.count``, which never fetches the encoding in a
+    call (calling ``tiktoken.get_encoding`` here would, synchronously).
+    """
+    from ..savings_tokenizer import count
+
+    n = count(text)
+    if n is None:
         # Rough heuristic: ~0.75 tokens per word for English prose/code mix
         return max(1, int(len(text.split()) * 1.3))
+    return n
 
 
 # ---------------------------------------------------------------------------
