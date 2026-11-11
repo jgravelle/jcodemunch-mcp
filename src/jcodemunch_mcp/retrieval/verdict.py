@@ -167,87 +167,129 @@ def _attach_coverage(verdict: dict, coverage: Optional[dict]) -> None:
 
 
 #: Coverage key naming the files a walk withheld for size, as
-#: ``{stored_path: size_in_bytes}`` (#1396). Before it, coverage kept only the
-#: COUNT (``withheld.too_large``), so the file tools could not tell a withheld
-#: path from one that never existed and answered both "strong evidence the
-#: target is not present". Capped at ``WITHHELD_FILES_MAX`` entries, with the
-#: total and a ``truncated`` flag beside it from the first release that carries
-#: it (a list that ships unbounded on 1.x cannot be bounded later).
+#: ``{stored_path: {"size": bytes, "limit": max_file_size}}`` (#1396). Before
+#: it, coverage kept only the COUNT (``withheld.too_large``), so the file tools
+#: could not tell a withheld path from one that never existed and answered both
+#: "strong evidence the target is not present". Capped at
+#: ``WITHHELD_FILES_MAX`` entries, with the total and a ``truncated`` flag beside
+#: it from the first release that carries it (a list that ships unbounded on
+#: 1.x cannot be bounded later).
+#:
+#: A file reaches the size check only after the skip-directory, gitignore,
+#: secret and extension checks (``_should_index_file``), so the record never
+#: names a file the index excludes on purpose.
 WITHHELD_FILES_KEY = "withheld_files"
 WITHHELD_FILES_MAX = 200
 
 
-def withheld_files_record(files: dict, limit: Optional[int]) -> dict:
-    """The coverage keys for ``files`` withheld for size; ``{}`` when none.
+def withheld_files_record(files: dict) -> dict:
+    """The coverage keys for ``files`` (``{path: (size, limit)}``); ``{}`` when none.
 
     Sorted by path so the stored record is deterministic, and cut at
-    ``WITHHELD_FILES_MAX``; an unlisted path still gets the disk check in
-    :func:`withheld_file_info`.
+    ``WITHHELD_FILES_MAX``. Each entry keeps the limit of the walk that
+    withheld it, because a later subdir walk may run under another one.
     """
     if not files:
         return {}
     names = sorted(files)
     kept = names[:WITHHELD_FILES_MAX]
-    out = {
-        WITHHELD_FILES_KEY: {n: int(files[n]) for n in kept},
+    return {
+        WITHHELD_FILES_KEY: {
+            n: {"size": int(files[n][0]), "limit": int(files[n][1] or 0)} for n in kept
+        },
         "withheld_files_total": len(names),
         "withheld_files_truncated": len(names) > len(kept),
     }
-    if limit:
-        out["max_file_size"] = int(limit)
-    return out
 
 
 _TOO_LARGE_REMEDY = (
-    "It is over max_file_size, so its symbols are not in the index. Raise "
-    "max_file_size (config, the project's .jcodemunch.jsonc, or "
+    "Raise max_file_size (config, the project's .jcodemunch.jsonc, or "
     "JCODEMUNCH_MAX_FILE_SIZE) and re-index, or read the file directly."
 )
-_NOT_INDEXED_REMEDY = (
-    "The file exists on disk but is not in the index: an ignore rule or a limit "
-    "excluded it, or it was added after the last index. Re-index, or read the "
-    "file directly."
+_UNNAMED_REMEDY = (
+    "Run a full index_folder (without paths=) to record which files were "
+    "withheld, or raise max_file_size and re-index."
 )
 
 
-def withheld_file_info(index, requested_path: Optional[str]) -> Optional[dict]:
-    """What the index knows about a path it does not hold, or None (#1396).
+def _listed_file_on_disk(index, rel: str) -> Optional[bool]:
+    """Is a path the record lists still a file under the index's root?
 
-    A path the coverage record lists was withheld for size. A path it does not
-    list (the record is capped, or the index predates it) is checked on disk
-    under the index's source root: a real file there is ``not_indexed``, or
-    ``too_large`` when its size is over the recorded limit. A path that leaves
-    the root, an index with no source root, or a file that is not there
-    returns None, and the caller keeps its ``absent`` answer.
+    Tri-state: None when the root is unknown or cannot be read, so a moved
+    tree is not read as a deleted file. Only paths the record names reach
+    this, and the resolved path must stay under the root.
     """
-    if not requested_path:
-        return None
-    rel = str(requested_path).replace("\\", "/")
-    cov = getattr(index, "coverage", None) or {}
-    listed = cov.get(WITHHELD_FILES_KEY) or {}
-    limit = cov.get("max_file_size")
-    if isinstance(listed, dict) and rel in listed:
-        info = {"reason": "too_large", "size": int(listed[rel]), "remedy": _TOO_LARGE_REMEDY}
-        if limit:
-            info["limit"] = int(limit)
-        return info
     root = getattr(index, "source_root", "") or ""
-    if not root or rel.startswith("/") or ":" in rel:
+    if not root:
         return None
     try:
         from pathlib import Path
 
         base = Path(root).resolve()
+        if not base.is_dir():
+            return None
         target = (base / rel).resolve()
         target.relative_to(base)
-        if not target.is_file():
-            return None
-        size = target.stat().st_size
-    except (OSError, ValueError):
+        return target.is_file()
+    except ValueError:
+        return False
+    except OSError:
         return None
-    if limit and size > int(limit):
-        return {"reason": "too_large", "size": size, "limit": int(limit), "remedy": _TOO_LARGE_REMEDY}
-    return {"reason": "not_indexed", "size": size, "remedy": _NOT_INDEXED_REMEDY}
+
+
+def withheld_file_info(index, requested_path: Optional[str]) -> Optional[dict]:
+    """What the index knows about a path it does not hold, or None (#1396).
+
+    * A path the coverage record lists, still a file under the root: withheld
+      for size, with its size and the limit it was over. A listed file gone
+      from disk returns None, so it reads ``absent`` like any missing path.
+    * A path the record does not list, in an index that withheld files it does
+      not name (the record is capped, or the index was built before it):
+      ``withheld_unnamed``. Absence is not proven, and nothing about the path
+      itself is looked up, so this never confirms that any file exists.
+    * Otherwise None, and the caller keeps its ``absent`` answer.
+    """
+    if not requested_path:
+        return None
+    rel = str(requested_path).replace("\\", "/")
+    cov = getattr(index, "coverage", None) or {}
+    listed = cov.get(WITHHELD_FILES_KEY)
+    if not isinstance(listed, dict):
+        listed = {}
+    entry = listed.get(rel)
+    if isinstance(entry, dict):
+        if _listed_file_on_disk(index, rel) is False:
+            return None
+        size, limit = int(entry.get("size") or 0), int(entry.get("limit") or 0)
+        info = {
+            "reason": "too_large",
+            "size": size,
+            "summary": (
+                f"The file is in the tree but over max_file_size ({size} > {limit} bytes), "
+                "so its symbols are not in the index."
+                if limit else
+                "The file is in the tree but over max_file_size, so its symbols are not in the index."
+            ),
+            "remedy": _TOO_LARGE_REMEDY,
+        }
+        if limit:
+            info["limit"] = limit
+        return info
+    total = cov.get("withheld_files_total")
+    if total is None:
+        total = (cov.get("withheld") or {}).get("too_large", 0)
+    unnamed = int(total or 0) - len(listed)
+    if unnamed > 0:
+        return {
+            "reason": "withheld_unnamed",
+            "withheld_unnamed": unnamed,
+            "summary": (
+                f"This index withheld {unnamed} file(s) over max_file_size that it does "
+                "not name, so it cannot tell whether this path is one of them."
+            ),
+            "remedy": _UNNAMED_REMEDY,
+        }
+    return None
 
 
 # Emitted as verdict["state"].
@@ -874,8 +916,8 @@ def build_file_verdict(
         # so absence is not proven and the note must not say "not present".
         state = STATE_DEGRADED
         note = (
-            f"Path is not in the index ({withheld.get('reason')}), but the file "
-            f"exists. Absence is NOT proven. {withheld.get('remedy', '')}"
+            f"Path is not in the index. {withheld.get('summary', '')} "
+            f"Absence is NOT proven. {withheld.get('remedy', '')}"
         ).strip()
         suggestions = []
     elif not present:

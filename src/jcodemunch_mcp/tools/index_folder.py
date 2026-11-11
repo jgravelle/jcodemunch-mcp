@@ -442,12 +442,12 @@ def _record_coverage(
     files_accepted: Optional[int] = None,
     post_discovery_drops: Optional[dict] = None,
     parse_failed=(),
-    withheld_files: Optional[tuple] = None,
+    withheld_files: Optional[dict] = None,
 ) -> None:
     """Persist the coverage contract after a save (best-effort, never raises).
 
-    ``withheld_files`` is ``(files, limit)`` from `_withheld_files_for`: the
-    files withheld for size, named so the file tools can answer for them
+    ``withheld_files`` is `_withheld_files_for`'s ``{path: (size, limit)}``:
+    the files withheld for size, named so the file tools can answer for them
     (#1396).
 
     ``parse_failed`` is every file in the index whose last parse failed; a walk
@@ -462,10 +462,10 @@ def _record_coverage(
         )
         if parse_failed:
             report = _with_parse_failures(report, parse_failed)
-        if withheld_files and withheld_files[0]:
+        if withheld_files:
             from ..retrieval.verdict import withheld_files_record
 
-            report.update(withheld_files_record(*withheld_files))
+            report.update(withheld_files_record(withheld_files))
         store._sqlite.set_coverage(owner, repo_name, report)
     except Exception:
         logger.debug(
@@ -476,7 +476,7 @@ def _record_coverage(
 def _withheld_files_for(
     prior_coverage, found, folder_path: Path, walk_prefix: str, paths_given: bool
 ) -> tuple:
-    """``(files, limit)`` for the coverage record after a walk (#1396).
+    """``{path: (size, limit)}`` for the coverage record after a walk (#1396).
 
     ``found`` is discovery's ``oversize_out``. Stored paths are relative to the
     git root (``folder_path``). A ``paths=`` run walked no tree, so the prior
@@ -486,15 +486,17 @@ def _withheld_files_for(
     """
     from ..retrieval.verdict import WITHHELD_FILES_KEY
 
-    prior_cov = prior_coverage or {}
-    prior = prior_cov.get(WITHHELD_FILES_KEY) or {}
+    prior = (prior_coverage or {}).get(WITHHELD_FILES_KEY) or {}
     if not isinstance(prior, dict):
         prior = {}
-    limit = prior_cov.get("max_file_size")
+    prior_files = {
+        f: (int(e.get("size") or 0), int(e.get("limit") or 0))
+        for f, e in prior.items() if isinstance(e, dict)
+    }
     if paths_given:
-        return dict(prior), limit
+        return prior_files
     files = {
-        f: s for f, s in prior.items()
+        f: e for f, e in prior_files.items()
         if walk_prefix and _file_outside_walk_prefix(f, walk_prefix)
     }
     for path, size, max_size in found or ():
@@ -502,9 +504,8 @@ def _withheld_files_for(
             rel = Path(path).resolve().relative_to(folder_path.resolve()).as_posix()
         except (OSError, ValueError):
             continue
-        files[rel] = int(size)
-        limit = max_size
-    return files, limit
+        files[rel] = (int(size), int(max_size or 0))
+    return files
 
 
 def _build_skip_dirs_regex(repo: Optional[str] = None) -> re.Pattern:

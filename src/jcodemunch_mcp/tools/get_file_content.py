@@ -32,7 +32,7 @@ def get_file_content(
         withheld = withheld_file_info(index, file_path)
         out = {
             "error": (
-                f"File not indexed: {file_path}. {withheld['remedy']}" if withheld
+                f"File not indexed: {file_path}. {withheld['summary']} {withheld['remedy']}" if withheld
                 else f"File not found: {file_path}"
             ),
             "file": file_path,
