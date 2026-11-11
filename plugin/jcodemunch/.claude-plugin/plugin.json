@@ -2,7 +2,7 @@
   "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
   "name": "jcodemunch",
   "displayName": "jCodeMunch",
-  "version": "1.108.435",
+  "version": "1.108.436",
   "description": "Local code index for Claude and its sub-agents: the one function asked for, its callers and what a change would break. Free for non-commercial use; commercial use needs a one-time license.",
   "author": {
     "name": "jMunch, LLC",
@@ -28,7 +28,7 @@
     "jcodemunch": {
       "command": "uvx",
       "args": [
-        "jcodemunch-mcp==1.108.435"
+        "jcodemunch-mcp==1.108.436"
       ],
       "env": {
         "JCODEMUNCH_SHARE_SAVINGS": "0"

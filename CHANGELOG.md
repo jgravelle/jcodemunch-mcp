@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.436] - 2026-11-11 - a call that names paths= never replaces the rest of the index
+
 ### Fixed - a call that names `paths=` never replaces the rest of the index (#1397)
 
 `index_folder(paths=[...], incremental=False)` saved the listed files as the whole index and dropped every other indexed file, and still returned `success: true` with nothing saying files were removed. #333 had settled what `paths=` means (refresh a subset, never replace the corpus), but only the incremental path honoured it: with `paths=`, discovery returns the listed files and nothing else, so any route to a full re-parse saved that list as the index. The caller's `incremental=False` was one route. The others were the one-off re-parse a `PARSER_GENERATION` bump or a Racket reader change forces, a pending `invalidate_cache` rebuild, a subdir walk with `paths=` (its merge carried only the files outside the walked folder), and the root-marker and v1.95 migrations, which rebuild the whole corpus from the walk. Reported by @dkiaulakis.

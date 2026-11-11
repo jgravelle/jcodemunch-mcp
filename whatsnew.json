@@ -1,6 +1,12 @@
 {
-  "current": "1.108.435",
+  "current": "1.108.436",
   "entries": [
+    {
+      "version": "1.108.436",
+      "date": "2026-11-11",
+      "title": "a call that names paths= never replaces the rest of the index",
+      "summary": "index_folder with paths= and incremental=False used to save the listed files as the whole index and drop every other file while reporting success. A call that names paths= now keeps every stored file it did not list, on every route, and says how many it kept."
+    },
     {
       "version": "1.108.435",
       "date": "2026-11-11",
