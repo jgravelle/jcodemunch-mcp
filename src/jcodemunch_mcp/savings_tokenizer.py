@@ -491,7 +491,8 @@ def credit_files(
     hashes = getattr(index, "file_hashes", None) or {}
     langs = getattr(index, "file_languages", None) or {}
     sizes = getattr(index, "file_sizes", None) or {}
-    counts = lookup(getattr(index, "_db_path", None), (hashes.get(f) for f in files))
+    wanted = [h for h in (hashes.get(f) for f in files) if isinstance(h, str) and h]
+    counts = lookup(getattr(index, "_db_path", None), wanted)
     raw = [
         (langs.get(f), sizes.get(f, 0) or 0, counts.get(hashes.get(f) or ""))
         for f in files
