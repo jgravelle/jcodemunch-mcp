@@ -7,7 +7,15 @@ discovery step returns the listed files and nothing else:
 
 - the caller's own `incremental=False` (the reported spelling);
 - the one-off re-parse a `PARSER_GENERATION` bump forces;
-- the forced rebuild `invalidate_cache` asks for.
+- the forced rebuild `invalidate_cache` asks for;
+- a subdir walk with `paths=`, whose merge carried only the files OUTSIDE the
+  walked folder;
+- the root-marker migration and the v1.95 legacy rebuild, which rebuild the
+  whole corpus from the walk.
+
+The rule now lives at the full save itself (every stored file the caller did
+not list is kept), so a route added later inherits it. The git-root cases below
+exist because a plain directory cannot express the subdir and marker shapes.
 
 Each returned `success: true` with every unlisted file gone. The run now
 re-parses the listed files and keeps the rest, says so, and leaves a due full
@@ -15,6 +23,7 @@ re-parse due.
 """
 
 import sqlite3
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -159,3 +168,104 @@ def test_a_listed_file_deleted_from_disk_is_still_removed(repo):
     )
     assert out.get("success") is not False, out
     assert _files(repo) == ["big.js", "util.py"]
+
+
+def test_racket_reparse_under_paths_keeps_the_corpus(repo, monkeypatch):
+    from jcodemunch_mcp.tools import index_folder as mod
+
+    monkeypatch.setattr(mod, "_racket_reparse_reason", lambda index: "racket_config_changed")
+    out = _refresh_small(repo)
+    assert out.get("success"), out
+    assert _files(repo) == ["big.js", "small.js", "util.py"]
+    assert "rebuild_reason" not in out
+    assert any("racket_config_changed" in w for w in out.get("warnings") or [])
+
+
+# ── git-root shapes ──────────────────────────────────────────────────────────
+
+
+@pytest.fixture
+def git_repo(tmp_path):
+    root = tmp_path / "g"
+    (root / "sub").mkdir(parents=True)
+    (root / "a.py").write_text("def a_fn():" + NEWLINE + "    return 1" + NEWLINE, encoding="utf-8")
+    (root / "sub" / "b.py").write_text("def b_fn():" + NEWLINE + "    return 2" + NEWLINE, encoding="utf-8")
+    (root / "sub" / "c.py").write_text("def c_fn():" + NEWLINE + "    return 3" + NEWLINE, encoding="utf-8")
+    git = ["git", "-c", "user.email=t@t", "-c", "user.name=t"]
+    subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+    subprocess.run(git + ["add", "."], cwd=root, check=True)
+    subprocess.run(git + ["commit", "-qm", "init"], cwd=root, check=True)
+    store = tmp_path / "gstore"
+    store.mkdir()
+    return {"root": root, "store": str(store)}
+
+
+def _gfiles(g, repo_id):
+    owner, name = repo_id.split("/", 1)
+    idx = IndexStore(base_path=g["store"]).load_index(owner, name)
+    return sorted(idx.source_files) if idx else None
+
+
+@pytest.mark.parametrize("incremental", [True, False])
+def test_subdir_walk_with_paths_keeps_the_walked_folders_other_files(git_repo, incremental):
+    g = git_repo
+    full = index_folder(path=str(g["root"]), use_ai_summaries=False, storage_path=g["store"])
+    assert full.get("success"), full
+    assert _gfiles(g, full["repo"]) == ["a.py", "sub/b.py", "sub/c.py"]
+    out = index_folder(
+        path=str(g["root"] / "sub"), paths=["b.py"], incremental=incremental,
+        use_ai_summaries=False, storage_path=g["store"],
+    )
+    assert out.get("success"), out
+    assert _gfiles(g, full["repo"]) == ["a.py", "sub/b.py", "sub/c.py"]
+
+
+def test_paths_over_a_partial_marker_keeps_the_corpus(git_repo):
+    g = git_repo
+    first = index_folder(path=str(g["root"] / "sub"), use_ai_summaries=False, storage_path=g["store"])
+    assert first.get("success"), first
+    assert _gfiles(g, first["repo"]) == ["sub/b.py", "sub/c.py"]
+    out = index_folder(
+        path=str(g["root"]), paths=["sub/b.py"],
+        use_ai_summaries=False, storage_path=g["store"],
+    )
+    assert out.get("success"), out
+    assert _gfiles(g, first["repo"]) == ["sub/b.py", "sub/c.py"]
+
+
+def test_first_index_with_paths_claims_nothing_was_kept(git_repo):
+    g = git_repo
+    out = index_folder(
+        path=str(g["root"]), paths=["a.py"], incremental=False,
+        use_ai_summaries=False, storage_path=g["store"],
+    )
+    assert out.get("success"), out
+    assert _gfiles(g, out["repo"]) == ["a.py"]
+    assert not any("kept" in w for w in out.get("warnings") or []), out.get("warnings")
+
+
+def test_a_failed_paths_call_claims_nothing_was_kept(git_repo):
+    g = git_repo
+    out = index_folder(
+        path=str(g["root"]), paths=["zzz.py"], incremental=False,
+        use_ai_summaries=False, storage_path=g["store"],
+    )
+    assert out.get("success") is False
+    assert not any("kept" in w for w in out.get("warnings") or []), out.get("warnings")
+
+
+def test_a_legacy_index_refuses_paths_and_changes_nothing(git_repo):
+    """A v1.95 index (subdir-relative source_root) is rebuilt by deleting it first."""
+    g = git_repo
+    full = index_folder(path=str(g["root"]), use_ai_summaries=False, storage_path=g["store"])
+    assert full.get("success"), full
+    dbs = list(Path(g["store"]).glob("*.db"))
+    assert len(dbs) == 1, dbs
+    _set_meta(dbs[0], "source_root", str(g["root"] / "sub"))
+    out = index_folder(
+        path=str(g["root"]), paths=["a.py"], incremental=False,
+        use_ai_summaries=False, storage_path=g["store"],
+    )
+    assert out.get("success") is False, out
+    assert "without paths=" in out.get("error", "")
+    assert _gfiles(g, full["repo"]) == ["a.py", "sub/b.py", "sub/c.py"]

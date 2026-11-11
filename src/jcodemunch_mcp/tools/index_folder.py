@@ -1621,6 +1621,15 @@ def _explicit_path_is_gitignored(walk_root: Path, file_path: Path, cache: Option
     return bool(specs) and _is_gitignored_fast(str(file_path), specs)
 
 
+def _paths_kept_warning(kept: int) -> str:
+    """The warning for a `paths=` run that kept the unlisted files (#1397)."""
+    return (
+        f"This call named paths=, so only the listed files were re-parsed; the "
+        f"other {kept} indexed file(s) were kept as stored. Run index_folder "
+        "without paths= to re-parse the whole repository."
+    )
+
+
 def _paths_kept_due_warning(reason: str) -> str:
     """The warning for a full re-parse that a `paths=` run cannot do (#1397)."""
     return (
@@ -2131,11 +2140,6 @@ def index_folder(
     if _paths_forced:
         incremental = True
         force_reparse = True
-        warnings.append(
-            "incremental=False with paths= re-parsed the listed files only and "
-            "kept every other indexed file. To re-parse the whole repository, "
-            "call index_folder without paths=."
-        )
     rebuild_reason: Optional[str] = None
     # Set by the one rebuild that must stay a rebuild under the cap (see below).
     _rebuild_for_root_marker = False
@@ -3038,7 +3042,7 @@ def index_folder(
             # path a scheduled freshness check takes.
             if _existing_source_root == _git_root and walk_prefix:
                 _merge_with_existing = _existing_for_collision
-            elif _existing_source_root == _git_root and set(
+            elif paths is None and _existing_source_root == _git_root and set(
                 getattr(_existing_for_collision, "source_roots", []) or []
             ) != {""}:
                 # A full-root walk over an index whose `source_roots` is still a
@@ -3063,7 +3067,25 @@ def index_folder(
             elif _existing_source_root == _git_root:
                 # Full-root re-walk of an index already marked full-root: leave
                 # `_merge_with_existing` unset so the incremental diff runs.
+                # #1397: also a `paths=` run over a PARTIAL marker. The
+                # migration above is a full rebuild and a `paths=` run holds
+                # the listed files only; the incremental save keeps the stored
+                # marker, which claims less coverage than the index has, never
+                # more.
                 pass
+            elif _existing_source_root and paths is not None:
+                # #1397: this rebuild deletes the stored index and saves the
+                # walk, and a `paths=` walk holds the listed files only.
+                result = {
+                    "success": False,
+                    "error": (
+                        "This index was built by v1.95 with subdir-relative paths and must "
+                        "be rebuilt once by a run without paths=; nothing was changed."
+                    ),
+                }
+                if warnings:
+                    result["warnings"] = warnings
+                return result
             elif _existing_source_root:
                 _v195_legacy_rebuild = True
                 # Drop the legacy index so the full-save path below
@@ -3159,8 +3181,10 @@ def index_folder(
             # fleet this was written for is worse than doing nothing.
             #
             # The campaign owns coverage and the generation stamp instead; see
-            # tools/refresh.py. Nothing else may skip this escalation, because
-            # any other caller has no mechanism to finish the job.
+            # tools/refresh.py. Since #1397 every `paths=` run skips it (the
+            # branch above), because under `paths=` the escalation saved the
+            # listed files as the whole index; a run without `paths=` still
+            # escalates, so the upgrade is never skipped, only deferred.
             incremental = False
             rebuild_reason = "parser_generation_upgrade"
             logger.warning(
@@ -3384,6 +3408,13 @@ def index_folder(
         if incremental and existing_index is not None and (
             _merge_with_existing is None or _subdir_incremental
         ):
+            if _paths_forced:
+                # #1397: said here, where an index exists to keep.
+                warnings.append(
+                    "incremental=False with paths= re-parsed the listed files only and "
+                    "kept every other indexed file. To re-parse the whole repository, "
+                    "call index_folder without paths="
+                )
             changed, new, deleted, computed_hashes, updated_mtimes = (
                 store.detect_changes_with_mtimes(
                     owner, repo_name, file_mtimes, _hash_file
@@ -4008,6 +4039,29 @@ def index_folder(
                 else set()
             )
 
+            # #1397: under `paths=` this walk holds the listed files only, so
+            # whichever route led to a full save (a subdir merge, a forced
+            # rebuild, a caller's `incremental=False` with no prior index to
+            # diff), every stored file the caller did not list is kept. Listed
+            # entries are relative to the walked folder and stored files to the
+            # git root, hence `walk_prefix`. A listed file gone from disk is
+            # not kept. Listing the walked root keeps nothing, which is the
+            # full-walk meaning of that call.
+            _paths_keep: set = set()
+            if paths is not None and _cap_base is not None and not _v195_legacy_rebuild:
+                _listed = [
+                    (f"{walk_prefix}/{r}" if r not in ("", ".") else walk_prefix)
+                    if walk_prefix else ("" if r == "." else r)
+                    for r in (requested_rels or [])
+                ]
+                if "" not in _listed:
+                    _paths_keep = {
+                        fp for fp in (getattr(_cap_base, "source_files", None) or [])
+                        if not any(fp == req or fp.startswith(req + "/") for req in _listed)
+                    }
+            if _paths_keep:
+                _cap_keep = set(_cap_keep) | _paths_keep
+
             if _merge_with_existing is not None or _cap_keep:
                 merged = _merge_subdir_into_existing(
                     existing=_cap_base,
@@ -4043,7 +4097,15 @@ def index_folder(
                     _save_context_metadata = merged["context_metadata"]
                     _save_pkg_names = merged["package_names"]
                     _save_source_roots = merged["source_roots"]
-                if _cap_keep:
+                if _paths_keep and not (_cap_keep - _paths_keep):
+                    # #1397: same rule as the cap keep below, without its cap
+                    # status and warning, which describe a cap that did not cut.
+                    _save_parser_generation = min(
+                        int(getattr(_cap_base, "parser_generation", 0) or 0),
+                        PARSER_GENERATION,
+                    )
+                    warnings.append(_paths_kept_warning(len(_paths_keep)))
+                elif _cap_keep:
                     # The kept files were parsed by an older run: record the
                     # older generation, so an upgrade still due stays due.
                     _save_parser_generation = min(
