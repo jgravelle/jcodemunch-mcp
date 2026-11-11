@@ -200,7 +200,7 @@ That's the highlight reel. The complete tour of the full tool set (90+ tools beh
 
 It helps most on targeted edits (one function, one method, one class), which is the majority of real editing work. Edits that genuinely require the entire file (restructuring file-level state, reordering logic spanning hundreds of lines) see no advantage. Best fits: large repositories, unfamiliar codebases, agent-driven exploration, refactoring and impact analysis, and teams cutting AI token costs without making agents dumber.
 
-**Languages:** 70+ via tree-sitter, including Python, JavaScript/TypeScript, Go, Rust, Java, C/C++, C#, PHP, Ruby, Swift, and Kotlin. Full matrix: [LANGUAGE_SUPPORT.md](LANGUAGE_SUPPORT.md). **Monorepos:** yes; incremental indexing, workspace-member detection, subpath scoping.
+**Languages:** 79+ via tree-sitter, including Python, JavaScript/TypeScript, Go, Rust, Java, C/C++, C#, PHP, Ruby, Swift, and Kotlin. Full matrix: [LANGUAGE_SUPPORT.md](LANGUAGE_SUPPORT.md). **Monorepos:** yes; incremental indexing, workspace-member detection, subpath scoping.
 
 ---
 
