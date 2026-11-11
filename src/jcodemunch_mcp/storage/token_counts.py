@@ -76,7 +76,7 @@ def record(
     saved and its calls on the bytes/token fallback.
     """
     try:
-        from ..savings_tokenizer import count_many
+        from ..savings_tokenizer import count_many, encoding
 
         conn.execute(SCHEMA)
         rows = conn.execute(
@@ -103,6 +103,10 @@ def record(
                     found.append((h, n))
                     del todo[h]
         hashes, texts = [], []
+        if todo and encoding() is None:
+            # Download off, offline or still fetching: reading every uncounted
+            # copy only to discard it would put a corpus-wide read on every save.
+            todo = {}
         base = _resolved(content_dir)
         for h, path in todo.items():
             text = (raw_files or {}).get(path)

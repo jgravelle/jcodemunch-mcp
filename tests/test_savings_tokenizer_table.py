@@ -461,6 +461,38 @@ def test_an_index_saved_before_counts_existed_gets_them_on_its_next_save(tmp_pat
     )
 
 
+def test_a_save_without_the_encoding_reads_no_indexed_copies(tmp_path, monkeypatch):
+    """Offline or with the download off, a save must not read every uncounted file."""
+    import sqlite3
+
+    from jcodemunch_mcp.storage import token_counts
+    from jcodemunch_mcp.tools.index_folder import index_folder
+
+    root = tmp_path / "src_repo"
+    root.mkdir()
+    (root / "a.py").write_text("def a():\n    return 1\n", encoding="utf-8")
+    (root / "b.py").write_text("def b():\n    return 2\n", encoding="utf-8")
+    store = tmp_path / "store"
+    assert index_folder(str(root), use_ai_summaries=False, storage_path=str(store)).get("success")
+    db = next(Path(store).rglob("*.db"))
+    conn = sqlite3.connect(db)
+    conn.execute("DELETE FROM token_counts")
+    conn.commit()
+    conn.close()
+    reads = []
+    real = token_counts._read_copy
+    monkeypatch.setattr(token_counts, "_read_copy", lambda *a, **k: reads.append(a) or real(*a, **k))
+    monkeypatch.setattr(st, "encoding", lambda wait=None: None)
+    monkeypatch.setattr(token_counts, "_PENDING", type(token_counts._PENDING)())
+    (root / "b.py").write_text("def b():\n    return 22\n", encoding="utf-8")
+    assert index_folder(
+        str(root), use_ai_summaries=False, storage_path=str(store), incremental=True
+    ).get("success")
+    assert reads == [], "no copy is read when nothing can count it"
+    _, counts = _counts(str(store))
+    assert counts == {}
+
+
 def test_search_symbols_without_counts_says_it_used_the_table(indexed, tokenizer):
     import sqlite3
 
