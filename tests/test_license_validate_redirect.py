@@ -93,6 +93,8 @@ def test_the_license_line_says_the_endpoint_moved(monkeypatch):
     text = "\n".join(lic.format_license_status(gate))
     assert "not recognized" not in text
     assert "moved" in text
+    # A redirect does not clear itself, so the line must not promise it will.
+    assert "verify automatically" not in text
 
 
 def test_a_direct_answer_is_still_read(monkeypatch):

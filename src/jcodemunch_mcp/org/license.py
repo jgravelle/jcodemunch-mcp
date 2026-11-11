@@ -278,7 +278,11 @@ def format_license_status(gate: dict, *, key_provided: bool = False) -> list[str
 
     lines.append("  Core indexing and search are free and need no license.")
     if status == "unverified_offline":
-        lines.append("  (your key will verify automatically once the license server is reachable)")
+        if ENDPOINT_MOVED_ERROR in (gate.get("reason") or ""):
+            # A redirect does not clear itself the way a network blip does.
+            lines.append("  (the key can be verified once the endpoint answers again or jcodemunch-mcp is updated)")
+        else:
+            lines.append("  (your key will verify automatically once the license server is reachable)")
     if key_provided:
         lines.append("  (set JCODEMUNCH_LICENSE_KEY or config `license_key` to persist this key)")
     return lines
@@ -325,7 +329,7 @@ def _key_status(key: str, res: dict) -> str:
     err = (res.get("error") or "").lower()
     if "reach" in err or "could not reach" in err or "timeout" in err:
         return "unverified_offline"
-    if ENDPOINT_MOVED_ERROR in err:
+    if res.get("error") == ENDPOINT_MOVED_ERROR:
         return "unverified_offline"
     return "rejected"
 

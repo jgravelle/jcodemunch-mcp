@@ -4,9 +4,9 @@
 
 ### Fixed - a redirect on the license check is reported, never followed
 
-`license`, `org-rollup` and `install-pack --license` confirm a key by POSTing it to the validation endpoint, and the request followed redirects. httpx follows a 301 or 302 on a POST by sending a GET with no body, so if the endpoint were ever redirected, the key would never reach the validator. The answer to that keyless request would have been cached as the key's verdict, and a paying customer's key would read as not recognized with nothing to say why.
+`license` and `org-rollup` confirm a key by POSTing it to the validation endpoint, and the request followed redirects. httpx follows a 301 or 302 on a POST by sending a GET with no body, so if the endpoint were ever redirected, the key would never reach the validator. The answer to that keyless request would have been cached as the key's verdict, and a paying customer's key would read as not recognized with nothing to say why.
 
-The POST no longer follows a redirect. A 3xx answer is reported as "license validation endpoint moved" and treated like an unreachable server: a key the server confirmed earlier stays valid, an unconfirmed key reads as present but not yet verified (never rejected), and nothing is cached. The `license` line names the move. Today's endpoint answers directly, so nothing changes for a working install. Tests: `tests/test_license_validate_redirect.py`.
+The POST no longer follows a redirect. A 3xx answer is reported as "license validation endpoint moved" and treated like an unreachable server: a key the server confirmed earlier stays valid, an unconfirmed key reads as present but not yet verified (never rejected), and nothing is cached. The `license` line names the move and does not promise that the key will verify on its own. Tests: `tests/test_license_validate_redirect.py`.
 
 ## [1.108.434] - 2026-11-10 - the full tool surface no longer loads six schemas into every request
 
