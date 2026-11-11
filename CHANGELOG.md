@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.437] - 2026-11-11 - a file the index withheld is not answered as a missing file
+
 ### Fixed - a file the index withheld is no longer answered as a file that does not exist (#1396)
 
 A file over `max_file_size` is refused during discovery, and the index kept only how many such files there were (`coverage.withheld.too_large`). `get_file_outline` and `get_file_content` had nothing to tell a withheld path from one that never existed, so both got the same answer: no symbols, verdict `absent`, and the note "treat this as strong evidence the target is not present". An agent told to stop looking for a file that is real and current goes looking for an older copy instead. Reported by @dkiaulakis.
