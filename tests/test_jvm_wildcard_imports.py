@@ -125,7 +125,11 @@ def test_a_file_with_no_wildcard_extracts_exactly_as_before():
 
 
 def _specs(src, lang="java"):
-    return [e["specifier"] for e in _extract_java_imports(src, lang)]
+    # The written imports only: since #1377 a file with a `package` line also
+    # carries one same-package marker edge, which `tests/test_jvm_same_package_use.py` covers.
+    from jcodemunch_mcp.parser.imports import JVM_SAME_PACKAGE_KEY
+
+    return [e["specifier"] for e in _extract_java_imports(src, lang) if JVM_SAME_PACKAGE_KEY not in e]
 
 
 def test_a_class_literal_at_a_line_end_does_not_hide_the_next_name():

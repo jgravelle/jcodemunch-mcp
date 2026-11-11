@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+### Fixed - same-package use in Java and Kotlin is an import edge (#1377)
+
+Classes in one Java or Kotlin package use each other with no `import` line, so the import graph held no edge for that use. `check_references` and `check_delete_safe` already saw it through the name in the text, but `find_importers` listed nothing and `find_dead_code` reported a class used only by its own package as dead at confidence 1.0, with the reason that nothing imports it. Reported by @randyhbh in #1374 and split out as #1377.
+
+A file's own package is now read as an implicit `import pkg.*`. One marker edge stores the type names the file uses, and the index derives an edge to each one the package declares, the same derived-edge step as #1376, so the stored row stays one edge however many names a file uses. An explicit import of the same name shadows the package's class, and a class of the same name in another package is not reached. A top-level Kotlin function used without an import (a lowercase name) is not covered. `PARSER_GENERATION` moves to 32, so an existing index re-parses its files once and gains the edges. Tests: `tests/test_jvm_same_package_use.py`.
+
 ### Fixed - a Kotlin import of a top-level declaration is an edge to the file that declares it (#1376)
 
 `import com.acme.app.mapper.buildSnapshot` imports a top-level function declared in `SnapshotMapper.kt`, and one Kotlin file can declare several classes. Java and Kotlin import resolution matched the dotted name against file paths only, so the import resolved to nothing, and `find_importers`, `get_dependency_graph` and the dead-code tools read the declaring file as unimported. The same held for a top-level `val`, `const val`, `object`, `typealias`, and a second class in a file named after another one. Reported by @randyhbh in #1374 and split out as #1376.

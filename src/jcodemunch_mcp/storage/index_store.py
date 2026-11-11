@@ -706,7 +706,11 @@ INDEX_VERSION = 17
 #   becomes one `a.b.Name` edge per type name the file uses, and
 #   `import static a.b.C.*` an edge to `a.b.C`. `files.imports` changes on
 #   UNCHANGED content (the generation-25 shape).
-PARSER_GENERATION = 31
+# 32 (#1377): a Java or Kotlin file's own package is an implicit import:
+#   one `pkg.*` marker edge holds the type names the file uses, and the
+#   index derives an edge to each one the package declares. `files.imports`
+#   changes on UNCHANGED content (the generation-25 shape).
+PARSER_GENERATION = 32
 
 
 @dataclass(frozen=True)

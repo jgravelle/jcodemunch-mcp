@@ -112,6 +112,11 @@ _JAVA_IMPORT = re.compile(r"""^import\s+(?:static\s+)?([\w.]+)(?:\s+as\s+\w+)?\s
 
 # (#1375) `import a.b.*` names a package, `import static a.b.C.*` a class's
 # members. `_JAVA_IMPORT` cannot match either: `[\w.]+` stops at the `*`.
+# (#1377) The file's own package, which Java and Kotlin import implicitly.
+_JVM_PACKAGE = re.compile(r"""^[ \t]*package[ \t]+([\w.]+)[ \t]*;?[ \t\r]*$""", re.MULTILINE)
+# The key of the marker edge that holds the type names a file uses from its
+# own package (#1377). Not `names`: those would read as imports of each name.
+JVM_SAME_PACKAGE_KEY = "same_package"
 _JAVA_WILDCARD_IMPORT = re.compile(r"""^import\s+(static\s+)?([\w.]+)\.\*\s*;?[ \t\r]*$""", re.MULTILINE)
 # What the type names of a JVM file are read from: comments and string
 # literals removed first, so a name in a doc comment or a string is no use.
@@ -1042,16 +1047,18 @@ def _jvm_wildcard_edges(content: str, explicit: list[dict]) -> list[dict]:
     edge: both shadow the wildcard in Java and Kotlin.
     """
     found = list(_JAVA_WILDCARD_IMPORT.finditer(content))
-    if not found:
+    own = _JVM_PACKAGE.search(content)
+    own_pkg = own.group(1) if own else None
+    if not found and not own_pkg:
         return []
     edges: list[dict] = []
     packages: list[str] = []
     for m in found:
         if m.group(1):
             edges.append({"specifier": m.group(2), "names": []})
-        elif m.group(2) not in packages:
+        elif m.group(2) not in packages and m.group(2) != own_pkg:
             packages.append(m.group(2))
-    if not packages:
+    if not packages and not own_pkg:
         return edges
     body = _JVM_NOISE.sub(" ", content)
     shadowed = {n for e in explicit for n in e["names"]}
@@ -1068,6 +1075,13 @@ def _jvm_wildcard_edges(content: str, explicit: list[dict]) -> list[dict]:
     for pkg in packages:
         for n in names:
             edges.append({"specifier": f"{pkg}.{n}", "names": [n], "wildcard": f"{pkg}.*"})
+    # (#1377) A class uses the classes of its own package with no import line.
+    # One marker edge holds the names; it resolves to nothing, and
+    # `augment_jvm_declaration_edges` derives an edge to each name the package
+    # declares when the index is built or loaded, so the stored row stays one
+    # edge however many names the file uses.
+    if own_pkg and names:
+        edges.append({"specifier": f"{own_pkg}.*", "names": [], JVM_SAME_PACKAGE_KEY: names})
     return edges
 
 
@@ -2611,7 +2625,7 @@ def _resolve_jvm_import(specifier: str, importer_path: str, source_files) -> Opt
     Among several matches the importer's own module wins, then its own
     language, then the path. A JDK or library name matches nothing, so None.
     """
-    if not specifier or "/" in specifier or "\\" in specifier:
+    if not specifier or "/" in specifier or "\\" in specifier or "*" in specifier:
         return None
     segments = specifier.split(".")
     if not all(segments):
@@ -2708,7 +2722,26 @@ def augment_jvm_declaration_edges(imports: dict, symbols, source_files) -> int:
             own_module = posixpath.dirname(importer)
         own_java = importer.endswith(".java")
         new: dict[str, dict] = {}
+        # (#1377) Same-package use: each name the marker holds is `pkg.Name`.
+        # A name that is a class path binds that file directly; the rest go
+        # through the declared-name lookup below like any written import.
+        pending: list[dict] = []
         for e in edges:
+            pkg_names = e.get(JVM_SAME_PACKAGE_KEY)
+            if not pkg_names:
+                continue
+            pkg = (e.get("specifier") or "")[: -len(".*")]
+            for n in pkg_names:
+                cand = f"{pkg}.{n}"
+                if cand in present:
+                    continue
+                target = _resolve_jvm_import(cand, importer, fs)
+                if target is None:
+                    pending.append({"specifier": cand, "names": [n]})
+                elif target != importer and cand not in new:
+                    new[cand] = {"specifier": cand, "names": [n], JVM_DECLARED_EDGE_KEY: e["specifier"]}
+                    added += 1
+        for e in [*edges, *pending]:
             spec = e.get("specifier") or ""
             if not spec or spec.startswith(".") or "/" in spec or "\\" in spec:
                 continue
