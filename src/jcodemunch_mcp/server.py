@@ -6025,8 +6025,9 @@ def _label_savings_basis(result: dict) -> None:
         from .savings_tokenizer import basis
 
         # A tool that counted (savings_tokenizer.credit) set its own basis;
-        # the rest divided bytes by the table, which is what this names.
-        text = basis()
+        # the rest call estimate_savings without a language, so they divide
+        # by the table's OVERALL figure, which is what this names.
+        text = basis(path="overall")
         for meta in metas:
             meta.setdefault("tokens_saved_basis", text)
     except Exception:

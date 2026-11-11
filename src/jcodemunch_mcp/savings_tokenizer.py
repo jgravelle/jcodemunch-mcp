@@ -4,8 +4,8 @@
 64-repo corpus in ``benchmarks/savings_tokenizer/`` (``corpus.json`` names
 every repo and SHA), Claude's tokenizer reads 2.445 bytes per token overall,
 so bytes/4 undercounted on Claude, and a single bytes/token figure per
-language still missed individual repos by 7% to 24% (a docstring-heavy Python
-repo reads far fewer tokens per byte than the language's average).
+language still misses individual repos (a docstring-heavy Python repo reads
+far fewer tokens per byte than the language's average).
 
 So the count is a real one. Each indexed file's ``cl100k_base`` token count
 is taken once, when the index is saved (``storage/sqlite_store``'s
@@ -16,9 +16,11 @@ counted when it is served. ``savings_tokenizer`` (config, default
 - ``"openai"``: the cl100k_base count itself.
 - ``"claude"``: the cl100k_base count times the measured Claude/cl100k ratio
   for the file's language (``RATIOS``), or the overall ratio for a language
-  not measured. Over the corpus this lands within 0.95-1.07 of Claude's own
-  count for 80% of (repo, language) samples, against 0.90-1.10 for the
-  bytes/token table (``benchmarks/savings_tokenizer/ratios.py``).
+  not measured. Over the corpus's 247 (repo, language) samples, this lands
+  within 0.95-1.07 of Claude's own count for 70% of them, against 57% for the
+  bytes/token table (computed from ``claude_counts.json`` and
+  ``cl100k_counts.json``; the samples are scored against ratios measured on
+  the same corpus, so this is an in-sample figure).
 
 Where a count is unavailable (an index saved before counts existed, or the
 encoding cannot load), the bytes/token table for the same unit is the
@@ -187,6 +189,14 @@ BASIS = {
         "openai",
         "table",
     ): "openai cl100k_base: measured bytes/token per language (no token count available)",
+    (
+        "claude",
+        "overall",
+    ): "claude tokens: measured bytes/token over the whole corpus (this tool does not count tokens)",
+    (
+        "openai",
+        "overall",
+    ): "openai cl100k_base: measured bytes/token over the whole corpus (this tool does not count tokens)",
 }
 
 
@@ -270,17 +280,33 @@ def _cache_dir() -> Optional[str]:
     return os.path.join(tempfile.gettempdir(), "data-gym-cache")
 
 
+_BAD_COPY: Optional[tuple] = None
+
+
 def _cached_copy() -> bool:
-    """True when tiktoken's cache holds a cl100k_base file with the pinned hash."""
+    """True when tiktoken's cache holds a cl100k_base file with the pinned hash.
+
+    A copy that fails the hash is remembered by (path, size, mtime), so with
+    the download off it is hashed once, not on every count: nothing removes it
+    but tiktoken's re-fetch, which is the thing the download setting refuses.
+    """
+    global _BAD_COPY
     d = _cache_dir()
     if not d:
         return False
     path = os.path.join(d, hashlib.sha1(ENCODING_URL.encode()).hexdigest())
     try:
+        st = os.stat(path)
+        key = (path, st.st_size, st.st_mtime_ns)
+        if key == _BAD_COPY:
+            return False
         with open(path, "rb") as f:
-            return hashlib.sha256(f.read()).hexdigest() == ENCODING_SHA256
+            ok = hashlib.sha256(f.read()).hexdigest() == ENCODING_SHA256
     except OSError:
         return False
+    if not ok:
+        _BAD_COPY = key
+    return ok
 
 
 def _load() -> None:
@@ -347,11 +373,12 @@ def state() -> str:
 
 
 def _reset_for_tests() -> None:
-    global _ENCODING, _STATE, _FETCH_THREAD
+    global _ENCODING, _STATE, _FETCH_THREAD, _BAD_COPY
     with _LOCK:
         _ENCODING = None
         _STATE = "not_loaded"
         _FETCH_THREAD = None
+        _BAD_COPY = None
 
 
 def count(text: str) -> Optional[int]:

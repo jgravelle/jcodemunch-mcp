@@ -114,8 +114,8 @@ def test_the_basis_is_attached_beside_every_tokens_saved(tokenizer):
         "results": [{"_meta": {"tokens_saved": 2}}, {"_meta": {"timing_ms": 1}}],
     }
     server._label_savings_basis(result)
-    assert result["_meta"]["tokens_saved_basis"] == st.basis()
-    assert result["results"][0]["_meta"]["tokens_saved_basis"] == st.basis()
+    assert result["_meta"]["tokens_saved_basis"] == st.basis(path="overall")
+    assert result["results"][0]["_meta"]["tokens_saved_basis"] == st.basis(path="overall")
     assert "tokens_saved_basis" not in result["results"][1]["_meta"]
     assert "tokens_saved_basis" in UNIVERSAL_META_JSON, (
         "a compact encoder must not keep the figure and drop its basis"
@@ -292,11 +292,19 @@ def test_nothing_is_fetched_when_the_download_is_off(fresh_encoding, empty_cache
     assert not empty_cache.exists()
 
 
-def test_the_env_var_turns_the_download_off(monkeypatch):
-    monkeypatch.setenv("JCODEMUNCH_TOKENIZER_DOWNLOAD", "0")
+def test_the_env_var_turns_the_download_off(fresh_encoding, empty_cache, monkeypatch, tmp_path):
+    import tiktoken
+
     assert config_module.ENV_VAR_MAPPING["JCODEMUNCH_TOKENIZER_DOWNLOAD"] == "tokenizer_download"
     assert config_module.DEFAULTS["tokenizer_download"] is True
     assert '"tokenizer_download"' in config_module.generate_template()
+    monkeypatch.setattr(tiktoken, "get_encoding", lambda name: (_ for _ in ()).throw(AssertionError("fetch")))
+    monkeypatch.setenv("JCODEMUNCH_TOKENIZER_DOWNLOAD", "0")
+    monkeypatch.setattr(config_module, "_GLOBAL_CONFIG", {})
+    monkeypatch.setattr(config_module, "_CONFIG_LOADED", False)
+    config_module.load_config(storage_path=str(tmp_path / "cfg"))
+    assert st.download_allowed() is False
+    assert st.encoding() is None and st.state() == "download_off" and st._FETCH_THREAD is None
 
 
 def test_offline_the_table_is_the_fallback_and_the_call_does_not_wait(fresh_encoding, empty_cache, monkeypatch, tokenizer):
@@ -342,6 +350,21 @@ def test_a_cached_copy_with_a_bad_hash_is_not_refetched_with_the_download_off(fr
     monkeypatch.setattr(tiktoken, "get_encoding", lambda name: (_ for _ in ()).throw(AssertionError("refetch")))
     monkeypatch.setitem(config_module._GLOBAL_CONFIG, "tokenizer_download", False)
     assert st.encoding() is None and st.state() == "download_off"
+
+
+def test_a_bad_cached_copy_is_hashed_once_with_the_download_off(fresh_encoding, empty_cache, monkeypatch):
+    import hashlib
+
+    empty_cache.mkdir()
+    (empty_cache / hashlib.sha1(st.ENCODING_URL.encode()).hexdigest()).write_bytes(b"not the file")
+    monkeypatch.setattr(st, "_BAD_COPY", None)
+    monkeypatch.setitem(config_module._GLOBAL_CONFIG, "tokenizer_download", False)
+    hashed = []
+    real = hashlib.sha256
+    monkeypatch.setattr(st.hashlib, "sha256", lambda b=b"": hashed.append(1) or real(b))
+    for _ in range(5):
+        assert st.count("hello") is None
+    assert len(hashed) == 1
 
 
 def test_without_tiktoken_the_table_is_the_fallback(fresh_encoding, monkeypatch, tokenizer):
@@ -412,7 +435,9 @@ def test_a_full_index_stores_a_count_for_every_file(tmp_path):
     for name in ("a.py", "b.py"):
         # The bytes on disk: write_text writes CRLF on Windows, and the count
         # is of what the index holds.
-        assert by_path[name] == st.count(_on_disk(root / name)), name
+        expected = st.count(_on_disk(root / name))
+        assert expected is not None, "no encoding loaded: run `harness warm`"
+        assert by_path[name] == expected, name
 
 
 def test_a_reindex_counts_the_changed_file_and_drops_the_old_count(tmp_path):
@@ -430,6 +455,7 @@ def test_a_reindex_counts_the_changed_file_and_drops_the_old_count(tmp_path):
     res = index_folder(str(root), use_ai_summaries=False, storage_path=str(store), incremental=True)
     assert res.get("success"), res
     by_path, after = _counts(str(store))
+    assert st.count(_on_disk(root / "a.py")) is not None
     assert by_path["a.py"] == st.count(_on_disk(root / "a.py"))
     assert len(after) == 2, "the old a.py count is pruned with its hash"
     assert set(after) != set(before)
@@ -456,6 +482,7 @@ def test_an_index_saved_before_counts_existed_gets_them_on_its_next_save(tmp_pat
         str(root), use_ai_summaries=False, storage_path=str(store), incremental=True
     ).get("success")
     by_path, _ = _counts(str(store))
+    assert st.count(_on_disk(root / "a.py")) is not None
     assert by_path["a.py"] == st.count(_on_disk(root / "a.py")), (
         "an unchanged file is counted from the indexed copy, without a re-parse"
     )
