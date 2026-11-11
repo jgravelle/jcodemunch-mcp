@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+### Fixed - a Kotlin import of a top-level declaration is an edge to the file that declares it (#1376)
+
+`import com.acme.app.mapper.buildSnapshot` imports a top-level function declared in `SnapshotMapper.kt`, and one Kotlin file can declare several classes. Java and Kotlin import resolution matched the dotted name against file paths only, so the import resolved to nothing, and `find_importers`, `get_dependency_graph` and the dead-code tools read the declaring file as unimported. The same held for a top-level `val`, `const val`, `object`, `typealias`, and a second class in a file named after another one. Reported by @randyhbh in #1374 and split out as #1376.
+
+When an import names no file, the package (the name minus its last segment) now names a directory below a source root, and the last segment names a top-level declaration in a `.kt` or `.java` file there. The edge the import wrote is kept and one is added to the declaring file, the shape Racket collection paths already use, so the resolver stays path-only and none of its call sites changed. Java's route to a Kotlin file's top-level functions resolves the same way: `import a.b.SnapshotMapperKt;` and `import static a.b.SnapshotMapperKt.buildSnapshot;` reach `SnapshotMapper.kt`. A method of the same name inside a class is not a match, and a name the package does not declare still resolves to nothing. The added edges are derived from the indexed symbols each time an index is built or loaded, so a declaration moved to another file moves its edge, and no re-parse is needed. A file renamed with `@file:JvmName` is not seen. Tests: `tests/test_kotlin_top_level_imports.py`.
+
 ## [1.108.434] - 2026-11-10 - the full tool surface no longer loads six schemas into every request
 
 ### Changed - the full tool surface no longer loads six schemas into every request (#1393)
