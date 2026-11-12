@@ -144,8 +144,8 @@ Why it matters: table stakes past the top ten languages; ~12 of 140 issues were
 parser coverage. Fidelity (criterion 1) matters more than the count.
 Metric: `len(LANGUAGE_REGISTRY)` and `len(LANGUAGE_EXTENSIONS)`.
 Method: `PYTHONPATH=src python -c "from jcodemunch_mcp.parser.languages import LANGUAGE_REGISTRY, LANGUAGE_EXTENSIONS; print(len(LANGUAGE_REGISTRY), len(LANGUAGE_EXTENSIONS))"`.
-Current: 79 languages, 164 extensions (2026-09-03, `63a621d`).
-Floor: neither count decreases [`languages.registry_min`, `languages.extensions_min`] without a CHANGELOG entry naming the removal and a tightened-history threshold entry.
+Current: 81 languages, 181 extensions (2026-11-12, `f7e9140`).
+Floor: neither count decreases [`languages.registry_min`, `languages.extensions_min`] without a CHANGELOG entry naming the removal and a tightened-history threshold entry. Since 2026-11-12 each Floor EQUALS its shipped count: a PR that adds a language or an extension raises the Floor in the same PR (old setting to `history`), and a language addition also updates `JCM_LANGUAGES` in the jcodemunch.com `_facts.php`, which cannot read the registry.
 Target: fidelity oracles (criterion 1) for the ten languages most represented in indexed repos.
 Status: MEASURED (count, `tests/test_standard_invariants.py`); fidelity UNMEASURED beyond Rust and Racket.
 Gap: the oracles are criterion 1's gap.
