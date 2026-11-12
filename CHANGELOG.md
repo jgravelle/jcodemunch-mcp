@@ -2,11 +2,17 @@
 
 ## [Unreleased]
 
-### Fixed - a framework profile's ignore patterns hold on the watcher's fast path, in `refresh` and for a `paths=` directory
+## [1.108.441] - 2026-11-12 - a framework profile's ignore patterns hold on every route that walks into an index
+
+### Fixed - a framework profile's ignore patterns hold on the watcher's fast path, in `refresh` and for a `paths=` directory (#1421)
 
 1.108.440 (#1398, @dkiaulakis) settled how a framework profile's ignore patterns rank against a project's own. Two routes that add files to an index never read the profile at all. The watcher's fast path (`index_folder` with `changed_paths=`) merged only the config and per-call patterns, so an edit inside an express project's `coverage/` report put that file into an index the full walk had kept it out of. `refresh` discovered its corpus without the profile and re-parsed what it found through `paths=`, so the same report directory went in, and the corpus whose coverage `refresh` proved was not the one the full walk indexes. A directory named in `index_folder(paths=[...])` was walked from that directory with no profile either, so `paths=["."]` indexed the report too.
 
 The fast path, `refresh` and `index_file` now ask one helper, `profile_ignore_patterns_for(root)`, which detects the profile at the index root as the full walk does. A `paths=` directory uses the profile the full walk detected (at the git root, after the retarget that indexes a subdirectory under its repository) and matches it, with the config's and the call's own patterns ranked above it, against the index root, because the patterns are written relative to it (spring-boot's `src/test/`). A FILE named in `paths=` is still the caller's choice, as the skip-directory rules already were. A file an earlier watcher event or `refresh` put in the index stays until the next full walk prunes it. Its patterns rank below the project's and the call's own, so a `!pattern` negation in either still wins. The watcher's own directory walk still leaves the profile out on purpose. It only decides what to watch, and watching more than discovery indexes is the safe direction; an event inside an excluded directory is now refused by the fast path.
+
+### CI - a failing nightly test opens an issue (#1420)
+
+`scripts/open_regression_issue.py` filed an issue only for a failing Floor. A failing test reaches the harness summary as the check row `check.pytest_exit`, so a red nightly test opened no issue. It now files one issue per failing Floor and per failing check, and a failed test run's issue names the failing tests. Nothing in the installed package changed.
 
 ## [1.108.440] - 2026-11-11 - a project's own ignore negation wins over a framework profile's default
 
