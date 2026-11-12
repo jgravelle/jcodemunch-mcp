@@ -1,6 +1,12 @@
 {
-  "current": "1.108.439",
+  "current": "1.108.440",
   "entries": [
+    {
+      "version": "1.108.440",
+      "date": "2026-11-11",
+      "title": "a project's own ignore negation wins over a framework profile's default",
+      "summary": "A framework profile ignore pattern (the express coverage/ default, for one) used to come after the project .jcodemunch.jsonc list, and ignore matching is last-match-wins, so a project negation such as !tools/coverage/** lost and the directory dropped out of the index. Profile patterns now have the lowest precedence, below the global and project config and any per-call list. index_file follows the same order, and its refusal names the negation as the way to override a profile pattern. Reported by @dkiaulakis (#1398)."
+    },
     {
       "version": "1.108.439",
       "date": "2026-11-11",

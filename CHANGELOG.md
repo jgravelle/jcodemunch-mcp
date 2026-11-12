@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.440] - 2026-11-11 - a project's own ignore negation wins over a framework profile's default
+
 ### Fixed - a project's own ignore negation wins over a framework profile's default (#1398)
 
 With `express` in `package.json`, a `.jcodemunch.jsonc` that re-included `!tools/coverage/**` still lost `tools/coverage/` from the index, because the express profile's `coverage/` default was appended after the project's patterns and ignore matching is last-match-wins. `index_file` merged the same way, then refused the file and said a framework profile's pattern had no setting, so the user had no remedy to try. The refusal now names the `!<pattern>` negation, which works. Reported by [@dkiaulakis](https://github.com/dkiaulakis).
