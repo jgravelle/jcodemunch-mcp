@@ -90,6 +90,17 @@ def test_index_file_keeps_a_project_reinclude_over_the_profile(tmp_path, monkeyp
     assert "tools/coverage/more.js" in _indexed({"success": True}, store)
 
 
+def test_index_file_still_refuses_a_profile_default_where_the_project_says_nothing(tmp_path, monkeypatch):
+    root = _repo(tmp_path / "repo", framework=True)
+    store = tmp_path / "store"
+    monkeypatch.setenv("CODE_INDEX_PATH", str(store))
+    assert index_folder(str(root), use_ai_summaries=False, storage_path=str(store)).get("success")
+    new = root / "coverage" / "more.js"
+    new.write_text("function more() { return 5; }\n", encoding="utf-8")
+    result = index_file(path=str(new), use_ai_summaries=False, storage_path=str(store))
+    assert result.get("success") is False and result.get("skipped") == "extra_ignore", result
+
+
 def test_get_extra_ignore_patterns_puts_the_profile_first(tmp_path):
     from jcodemunch_mcp.security import get_extra_ignore_patterns
 

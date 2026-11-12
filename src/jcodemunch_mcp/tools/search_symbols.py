@@ -10,7 +10,7 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
-from ..storage import IndexStore, record_savings, estimate_savings, cost_avoided
+from ..storage import IndexStore, record_savings, cost_avoided
 from ..storage import result_cache_record_lookup
 from ..parser.imports import resolve_specifier
 from ..retrieval.query_shape import (
@@ -726,6 +726,29 @@ def _declaration_rank(entry: dict, index, needles: Optional[tuple[str, str]]) ->
     return 2
 
 
+def _credit_served_rows(index, rows: list) -> tuple[int, str]:
+    """Tokens saved by serving ``rows`` instead of the files they came from.
+
+    Raw side: each distinct file a row came from, at its stored token count
+    (``storage/token_counts.py``). Response side: the rows as served,
+    serialized and counted. Both in the unit ``savings_tokenizer`` names, and
+    the second value says how they were counted. The response side used to be
+    ``byte_length``, the symbol's SOURCE size, which a compact or standard row
+    does not send and a full row sends plus its fields, so the credit did not
+    depend on what was served.
+    ⚠ The one rule for all three exits (lexical, semantic, fusion); a fourth
+    exit calls this rather than carrying a copy.
+    """
+    from ..savings_tokenizer import credit_files, served_text
+
+    langs = getattr(index, "file_languages", None) or {}
+    return credit_files(
+        index,
+        [entry.get("file") for entry in rows],
+        [(langs.get(entry.get("file")), served_text(entry)) for entry in rows],
+    )
+
+
 def search_symbols(
     repo: str,
     query: str,
@@ -1300,16 +1323,8 @@ def search_symbols(
             scored_results.append(entry)
 
     # Token savings: files containing matches vs symbol byte_lengths of results
-    raw_bytes = 0
-    seen_files: set = set()
-    response_bytes = 0
-    for entry in scored_results:
-        f = entry["file"]
-        if f not in seen_files:
-            seen_files.add(f)
-            raw_bytes += index.file_sizes.get(f, 0)
-        response_bytes += entry["byte_length"]
-    tokens_saved = estimate_savings(raw_bytes, response_bytes)
+    seen_files: set = {entry["file"] for entry in scored_results}
+    tokens_saved, savings_basis = _credit_served_rows(index, scored_results)
     total_saved = record_savings(tokens_saved, tool_name="search_symbols")
 
     elapsed = (time.perf_counter() - start) * 1000
@@ -1329,6 +1344,7 @@ def search_symbols(
         "total_symbols": len(index.symbols),
         "truncated": candidates_scored > heap_count or budget_truncated,
         "tokens_saved": tokens_saved,
+        "tokens_saved_basis": savings_basis,
         "total_tokens_saved": total_saved,
         **cost_avoided(tokens_saved, total_saved),
     }
@@ -1841,16 +1857,8 @@ def _search_symbols_semantic(
         scored_results = packed
 
     # ── Meta ───────────────────────────────────────────────────────────────
-    raw_bytes = 0
-    seen_files: set = set()
-    response_bytes = 0
-    for entry in scored_results:
-        f = entry["file"]
-        if f not in seen_files:
-            seen_files.add(f)
-            raw_bytes += index.file_sizes.get(f, 0)
-        response_bytes += entry["byte_length"]
-    tokens_saved = estimate_savings(raw_bytes, response_bytes)
+    seen_files: set = {entry["file"] for entry in scored_results}
+    tokens_saved, savings_basis = _credit_served_rows(index, scored_results)
     total_saved = record_savings(tokens_saved, tool_name="search_symbols")
     elapsed = (time.perf_counter() - start) * 1000
 
@@ -1859,6 +1867,7 @@ def _search_symbols_semantic(
         "total_symbols": len(index.symbols),
         "truncated": len(scored) > len(scored_results),
         "tokens_saved": tokens_saved,
+        "tokens_saved_basis": savings_basis,
         "total_tokens_saved": total_saved,
         "search_mode": "semantic_only" if semantic_only else "hybrid",
         **cost_avoided(tokens_saved, total_saved),
@@ -2301,16 +2310,8 @@ def _search_symbols_fusion(
         scored_results = packed
 
     # Token savings
-    raw_bytes = 0
-    seen_files: set = set()
-    response_bytes = 0
-    for entry in scored_results:
-        f = entry["file"]
-        if f not in seen_files:
-            seen_files.add(f)
-            raw_bytes += index.file_sizes.get(f, 0)
-        response_bytes += entry["byte_length"]
-    tokens_saved = estimate_savings(raw_bytes, response_bytes)
+    seen_files: set = {entry["file"] for entry in scored_results}
+    tokens_saved, savings_basis = _credit_served_rows(index, scored_results)
     total_saved = record_savings(tokens_saved, tool_name="search_symbols")
 
     elapsed = (time.perf_counter() - start) * 1000
@@ -2320,6 +2321,7 @@ def _search_symbols_fusion(
         "total_symbols": len(index.symbols),
         "truncated": len(fused) > len(scored_results) or budget_truncated,
         "tokens_saved": tokens_saved,
+        "tokens_saved_basis": savings_basis,
         "total_tokens_saved": total_saved,
         **cost_avoided(tokens_saved, total_saved),
         "fusion": True,

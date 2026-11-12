@@ -88,7 +88,10 @@ _TMP_NAME = re.compile(r"_savings\.json\.\d+\.tmp")
 # selected from it; both over-counted, so pre-2 counts read HIGH. Nothing is
 # rewritten — a recomputed history would be a guess wearing a measurement's
 # clothes — the mixed basis is disclosed instead.
-SAVINGS_BASIS_GENERATION = 2
+# Generation 3 (2026-11-11) divides by the measured tokenizer table
+# (``savings_tokenizer.py``) instead of 4. On Claude's tokenizer bytes/4
+# undercounted, so generation-2 counts read LOW; nothing recorded is rescaled.
+SAVINGS_BASIS_GENERATION = 3
 
 # Days of per-day savings history kept in _savings.json's "daily" map. Two years
 # covers every window a dashboard offers ("this year", year-over-year) while
@@ -97,7 +100,17 @@ _DAILY_MAX_DAYS = 750
 _SESSION_STATS_FILE = "session_stats.json"
 _PULSE_FILE = "_pulse.json"
 _PERF_DB_FILE = "telemetry.db"
-_BYTES_PER_TOKEN = 4  # ~4 bytes per token (rough but consistent)
+_BYTES_PER_TOKEN = 4  # session budget only; tokens_saved reads savings_tokenizer.py
+
+
+def _savings_tokenizer_name() -> str:
+    try:
+        from ..savings_tokenizer import active
+
+        return active()
+    except Exception:
+        logger.debug("savings tokenizer name unavailable", exc_info=True)
+        return "unknown"
 _TELEMETRY_URL = "https://j.gravelle.us/APIs/savings/post.php"
 _FLUSH_INTERVAL = 3  # flush to disk every N calls
 _RESULT_CACHE_MAXSIZE = 256  # max tool-result cache entries per session
@@ -837,6 +850,8 @@ class _State:
                 "generation": SAVINGS_BASIS_GENERATION,
                 "first_generation": self._basis_first,
                 "mixed_basis": self._basis_first != SAVINGS_BASIS_GENERATION,
+                # Which table new calls divide by; earlier calls are as recorded.
+                "tokenizer": _savings_tokenizer_name(),
             },
             # Lifetime per-tool attribution, and the honest complement: what the
             # meter earned before it could attribute anything. A caller that sees
@@ -2509,9 +2524,16 @@ def note_call_signature(tool_name: str, args_hash: str) -> None:
     _state.note_call_signature(tool_name, args_hash)
 
 
-def estimate_savings(raw_bytes: int, response_bytes: int) -> int:
-    """Estimate tokens saved: (raw - response) / bytes_per_token."""
-    return max(0, (raw_bytes - response_bytes) // _BYTES_PER_TOKEN)
+def estimate_savings(raw_bytes: int, response_bytes: int, language: Optional[str] = None) -> int:
+    """Tokens saved: (raw - response) / the measured bytes-per-token figure.
+
+    The divisor comes from ``savings_tokenizer`` (the configured tokenizer's
+    table): ``language``'s row where it was measured, else the table's overall
+    figure. It was a flat 4, which undercounted on Claude's tokenizer.
+    """
+    from ..savings_tokenizer import bytes_per_token
+
+    return max(0, int((raw_bytes - response_bytes) / bytes_per_token(language)))
 
 
 def cost_avoided(tokens_saved: int, total_tokens_saved: int) -> dict:

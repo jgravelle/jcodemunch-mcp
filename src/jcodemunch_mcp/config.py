@@ -47,6 +47,7 @@ ENV_VAR_MAPPING = {
     "JCODEMUNCH_TRUSTED_FOLDERS_WHITELIST_MODE": "trusted_folders_whitelist_mode",
     "JCODEMUNCH_MAX_FILE_SIZE": "max_file_size",
     "JCODEMUNCH_RESPECT_CACHEDIR_TAG": "respect_cachedir_tag",
+    "JCODEMUNCH_TOKENIZER_DOWNLOAD": "tokenizer_download",
     "JCODEMUNCH_SKIP_MSBUILD_OUTPUT": "skip_msbuild_output",
     "JCODEMUNCH_SKIP_NUGET_PACKAGES": "skip_nuget_packages",
     "JCODEMUNCH_SKIP_VIRTUALENVS": "skip_virtualenvs",
@@ -364,6 +365,8 @@ DEFAULTS = {
     "skip_nuget_packages": True,
     "skip_virtualenvs": True,
     "response_max_bytes": 1048576,
+    "savings_tokenizer": "claude",
+    "tokenizer_download": True,
     "max_folder_files": 2000,
     "cli_max_folder_files": 30000,
     "max_index_files": 10000,
@@ -570,6 +573,8 @@ CONFIG_TYPES = {
     "skip_nuget_packages": bool,
     "skip_virtualenvs": bool,
     "response_max_bytes": int,
+    "savings_tokenizer": str,
+    "tokenizer_download": bool,
     "max_folder_files": int,
     "cli_max_folder_files": int,
     "max_index_files": int,
@@ -2527,6 +2532,24 @@ def generate_template() -> str:
   //   file merely named `pyvenv.cfg` with no `home` key prunes nothing.
   //   Pruned directories are counted as `virtualenv` in
   //   `discovery_skip_counts`. Only an explicit false disables it.
+
+  // "savings_tokenizer": "claude",
+  //   Which tokenizer `tokens_saved` is counted in: "claude" (default) or
+  //   "openai" (cl100k_base). Files are counted with tiktoken's cl100k_base
+  //   encoding when the index is saved; "claude" scales that count by a ratio
+  //   measured per language over a 64-repo corpus
+  //   (benchmarks/savings_tokenizer/). Pick the one your client is billed on.
+  //   Responses name the path in `_meta.tokens_saved_basis`. Any other value
+  //   reads "claude". Totals already recorded are not rescaled.
+
+  // "tokenizer_download": true,
+  //   tiktoken fetches the cl100k_base file (about 1.7 MB) once, from
+  //   openaipublic.blob.core.windows.net, the first time a count is needed,
+  //   and caches it in its own cache directory. The fetch runs in the
+  //   background and never blocks or fails a call; until it finishes, and
+  //   whenever it is off or fails, counts use the per-language bytes/token
+  //   table and `_meta.tokens_saved_basis` says why. false: never fetch (a
+  //   copy already in tiktoken's cache is still used).
 
   // "response_max_bytes": 1048576,
   //   Ceiling on a SINGLE MCP tool response, in bytes, enforced at the

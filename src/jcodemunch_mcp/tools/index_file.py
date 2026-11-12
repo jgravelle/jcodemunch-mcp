@@ -218,8 +218,8 @@ def _walk_refusal(
     gitignored path answered `success: True` and the next full walk deleted it.
     Every input now comes from the walk's own assembly in `index_folder`:
     `_walk_filter_config` (size cap, ignore patterns, skip switches, skip-dir
-    regex), `_framework_ignore_patterns` (merged into the walk's ignore
-    patterns), `_gitignore_specs_on_path`, and the predicate `_should_index_file`.
+    regex), `_framework_ignore_patterns` (passed as the walk's lowest-precedence
+    profile patterns, #1398), `_gitignore_specs_on_path`, and the predicate `_should_index_file`.
     Never copy a rule or an input into this function.
 
     ⚠ ``file_path`` is already resolved, so the symlink rule never fires (the
