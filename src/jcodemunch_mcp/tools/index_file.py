@@ -158,8 +158,9 @@ _OVERRIDE = {
     "nuget_packages": "`skip_nuget_packages: false`",
     "virtualenv": "`skip_virtualenvs: false`",
     "extra_ignore": (
-        "`extra_ignore_patterns` without the matching entry (a framework "
-        "profile's pattern has no setting)"
+        "`extra_ignore_patterns` without the matching entry, or with a "
+        "`!<pattern>` negation that matches the file (a framework profile's "
+        "pattern is overridden that way, #1398)"
     ),
     "too_large": "a larger `max_file_size`",
     "secret": "`exclude_secret_patterns` with a glob that matches the file",
@@ -218,8 +219,8 @@ def _walk_refusal(
     gitignored path answered `success: True` and the next full walk deleted it.
     Every input now comes from the walk's own assembly in `index_folder`:
     `_walk_filter_config` (size cap, ignore patterns, skip switches, skip-dir
-    regex), `_framework_ignore_patterns` (merged into the walk's ignore
-    patterns), `_gitignore_specs_on_path`, and the predicate `_should_index_file`.
+    regex), `_framework_ignore_patterns` (passed as the walk's lowest-precedence
+    profile patterns, #1398), `_gitignore_specs_on_path`, and the predicate `_should_index_file`.
     Never copy a rule or an input into this function.
 
     ⚠ ``file_path`` is already resolved, so the symlink rule never fires (the
@@ -229,7 +230,7 @@ def _walk_refusal(
     """
     cfg = _walk_filter_config(
         walk_root,
-        extra_ignore_patterns=(
+        profile_patterns=(
             _framework_ignore_patterns(detect_framework(source_root)) or None
         ),
         per_file=True,

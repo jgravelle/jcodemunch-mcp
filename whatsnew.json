@@ -1,6 +1,36 @@
 {
-  "current": "1.108.435",
+  "current": "1.108.440",
   "entries": [
+    {
+      "version": "1.108.440",
+      "date": "2026-11-11",
+      "title": "a project's own ignore negation wins over a framework profile's default",
+      "summary": "A framework profile ignore pattern (the express coverage/ default, for one) used to come after the project .jcodemunch.jsonc list, and ignore matching is last-match-wins, so a project negation such as !tools/coverage/** lost and the directory dropped out of the index. Profile patterns now have the lowest precedence, below the global and project config and any per-call list. index_file follows the same order, and its refusal names the negation as the way to override a profile pattern. Reported by @dkiaulakis (#1398)."
+    },
+    {
+      "version": "1.108.439",
+      "date": "2026-11-11",
+      "title": "tokens_saved is a token count, not bytes divided by 4",
+      "summary": "tokens_saved used to divide saved bytes by 4, which undercounted on Claude. Each indexed file is now counted once with tiktoken cl100k_base when its index is saved, scaled to Claude by a ratio measured per language (savings_tokenizer: openai uses the raw count). tiktoken fetches its encoding file once, on first use, in the background; tokenizer_download: false turns that off, and the per-language table is the fallback. _meta.tokens_saved_basis names the path. Totals already recorded are not rescaled."
+    },
+    {
+      "version": "1.108.438",
+      "date": "2026-11-11",
+      "title": "an index that holds a small part of the tree reads incomplete, not fresh",
+      "summary": "get_watch_status compared only the indexed revision with HEAD, so an index built at HEAD that held a sliver of the tree read fresh. Each repo now also reports index_completeness (complete, incomplete or unknown) with the indexed and tracked file counts, any_incomplete says when any repo is incomplete, and any_completeness_unknown says when a repo could not be counted, which is never reported as complete."
+    },
+    {
+      "version": "1.108.437",
+      "date": "2026-11-11",
+      "title": "a file the index withheld is not answered as a missing file",
+      "summary": "A file over max_file_size used to get the same answer as a path that does not exist, so an agent told the file was absent went looking for an older copy. get_file_outline and get_file_content now say the file is withheld, give its size and the limit, and how to index it, and the verdict says absence is not proven. A Bearer token inside a quoted Authorization header is now redacted too."
+    },
+    {
+      "version": "1.108.436",
+      "date": "2026-11-11",
+      "title": "a call that names paths= never replaces the rest of the index",
+      "summary": "index_folder with paths= and incremental=False used to save the listed files as the whole index and drop every other file while reporting success. A call that names paths= now keeps every stored file it did not list, on every route, and says how many it kept."
+    },
     {
       "version": "1.108.435",
       "date": "2026-11-11",

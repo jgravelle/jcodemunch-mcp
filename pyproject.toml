@@ -1,6 +1,6 @@
 [project]
 name = "jcodemunch-mcp"
-version = "1.108.435"
+version = "1.108.440"
 description = "MCP server that gives AI coding agents the exact function or class they asked for, not the whole file. Runs on your machine, 70+ languages. Free for non-commercial use; commercial use needs a one-time license."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -73,6 +73,11 @@ dependencies = [
     "tree-sitter>=0.25,<0.26",
     "pathspec>=0.12.0",
     "pyyaml>=6.0",
+    # Counts the tokens a response saved (savings_tokenizer.py). tiktoken
+    # fetches the cl100k_base file once, on first use, on a background thread;
+    # `tokenizer_download: false` stops it. Until the file is there, or
+    # without tiktoken, the savings figure uses a bytes/token table.
+    "tiktoken>=0.7.0,<1.0.0",
 ]
 
 [project.urls]

@@ -164,6 +164,8 @@ Controls the `_meta` envelope included in tool responses. Reducing meta fields s
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | `meta_fields` | list or null | `[]` | `[]` (default, token-lean) = strip `_meta` entirely. `null` = include all fields. List = include only named fields. |
+| `savings_tokenizer` | string | `"claude"` | Which tokenizer `tokens_saved` is counted in: `"claude"` or `"openai"` (cl100k_base). Each indexed file's cl100k_base token count is taken when the index is saved, and a response is counted when it is served. `"openai"` uses that count; `"claude"` multiplies it by the measured Claude/cl100k ratio for the file's language (`benchmarks/savings_tokenizer/`). `tiktoken` fetches the encoding file once, on first use (see `tokenizer_download`). Where no count exists yet (an index saved before this release, until its next save), the measured bytes per token for the language is used instead. `_meta.tokens_saved_basis` names the path. Any other value reads `"claude"`. Totals already recorded are not rescaled. |
+| `tokenizer_download` | bool | `true` | Let `tiktoken` fetch `cl100k_base.tiktoken` (1,681,126 bytes) once from `openaipublic.blob.core.windows.net` the first time a token count is needed, on a background thread that never blocks or fails a call. `false` (or `JCODEMUNCH_TOKENIZER_DOWNLOAD=0`) never fetches; a copy already in tiktoken's cache is still used. Without the file, counts use the bytes-per-token table and `_meta.tokens_saved_basis` says why. |
 
 **Example — keep only timing and savings:**
 
@@ -181,7 +183,7 @@ Controls the `_meta` envelope included in tool responses. Reducing meta fields s
 }
 ```
 
-Available meta fields: `timing_ms`, `tokens_saved`, `total_tokens_saved`, `files_searched`, `truncated`, `candidates_scored`.
+Available meta fields: `timing_ms`, `tokens_saved`, `tokens_saved_basis` (kept whenever `tokens_saved` is), `total_tokens_saved`, `files_searched`, `truncated`, `candidates_scored`.
 
 The legacy `suppress_meta` per-call parameter still works for backward compatibility.
 

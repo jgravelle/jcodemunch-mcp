@@ -3218,3 +3218,33 @@ The 1.108.431 entry, verbatim as it stood in `CLAUDE.md`:
 The 1.108.432 entry, verbatim as it stood in `CLAUDE.md`:
 
 - **Prior (1.108.432):** **a Java or Kotlin wildcard import is an edge to each class the file uses** (#1375): `import a.b.*` becomes one `a.b.Name` edge per type name the file uses, marked `wildcard`, and only names the package declares resolve (`PARSER_GENERATION` 31). Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-11, release 1.108.436)
+
+The 1.108.433 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.433):** **the bundled local encoder no longer pays for padding** (#1388, #1389, @tmhtech4): `encode_batch` sorts by real length and trims each run of 16 to its longest text (`_plan_runs`); an empty batch returns `[]` before numpy or the session; `JCODEMUNCH_LOCAL_EMBED_THREADS` sets ONNX threads (default 2). Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-11, release 1.108.437)
+
+The 1.108.434 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.434):** **the full tool surface no longer loads six schemas into every request** (#1393): `_apply_always_load` marks `anthropic/alwaysLoad` on `counter` only, so on `full` all 91 tools are deferred and an agent pays one ToolSearch call before its first core-tool call. Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-11, release 1.108.438)
+
+The 1.108.435 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.435):** **a Kotlin import of a top-level declaration reaches the file that declares it** (#1376, @randyhbh): an import naming no file resolves through its package directory to the `.kt`/`.java` file declaring the last segment, as a derived `declared_by` edge added at `CodeIndex` construction and never stored (`written_imports`); Java's `<Stem>Kt` facade reaches the `.kt` file. Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-11, release 1.108.439)
+
+The 1.108.436 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.436):** **a call that names `paths=` never replaces the rest of the index** (#1397, @dkiaulakis): `_paths_forced` turns `incremental=False` into an incremental, force-reparse run, and the full save keeps every stored file no listed entry covers (`_paths_keep`, one mapping `_listed_in_index_terms`/`_covered_by_listed` shared with the #333 deletion rescope and the branch delta). Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-11, release 1.108.440)
+
+The 1.108.437 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.437):** **a file the index withheld is not answered as a missing file** (#1396, @dkiaulakis): coverage names the files withheld for size (`withheld_files`, capped, with total and truncated), so a listed path answers `too_large`, not missing; a Bearer token in a quoted `Authorization` header is redacted (#1402). Full text: `CHANGELOG.md`.

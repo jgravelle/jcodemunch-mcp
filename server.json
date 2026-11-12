@@ -13,13 +13,13 @@
       ]
     }
   ],
-  "version": "1.108.435",
+  "version": "1.108.440",
   "packages": [
     {
       "registryType": "pypi",
       "identifier": "jcodemunch-mcp",
       "runtimeHint": "uvx",
-      "version": "1.108.435",
+      "version": "1.108.440",
       "transport": {
         "type": "stdio"
       }

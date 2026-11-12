@@ -2,14 +2,13 @@
 
 import hashlib
 import logging
-import os
 import subprocess
 import time
 from pathlib import Path
 from typing import Optional
 
 from ..retrieval.verdict import suggest_symbol_ids, symbol_not_found, symbol_verdict_for_index
-from ..storage import IndexStore, record_savings, estimate_savings, cost_avoided as _cost_avoided
+from ..storage import IndexStore, record_savings, cost_avoided as _cost_avoided
 from ._utils import index_status_to_tool_error, resolve_repo, resolve_fqn
 
 logger = logging.getLogger(__name__)
@@ -566,8 +565,6 @@ def get_symbol_source(
     errors_out = []
     unavailable_source_ids: list = []
     seen_files: set = set()
-    raw_bytes = 0
-    response_bytes = 0
     total_source_used = 0  # running byte total for the batch max_total_source_bytes cap
 
     for sid in ids:
@@ -734,16 +731,21 @@ def get_symbol_source(
         f = symbol["file"]
         if f not in seen_files:
             seen_files.add(f)
-            try:
-                raw_bytes += os.path.getsize(file_full_path)
-            except OSError:
-                pass
-        response_bytes += symbol.get("byte_length", 0)
 
-    tokens_saved = estimate_savings(raw_bytes, response_bytes)
+    # The files these symbols came from, at their stored token counts, against
+    # the entries as served (savings_tokenizer.credit_files).
+    from ..savings_tokenizer import credit_files, served_text
+
+    _langs = getattr(index, "file_languages", None) or {}
+    tokens_saved, savings_basis = credit_files(
+        index,
+        sorted(seen_files),
+        [(_langs.get(e.get("file")), served_text(e)) for e in symbols_out],
+    )
     total_saved = record_savings(tokens_saved, tool_name="get_symbol_source")
     elapsed = (time.perf_counter() - start) * 1000
-    meta = _make_meta(elapsed, tokens_saved=tokens_saved, total_tokens_saved=total_saved,
+    meta = _make_meta(elapsed, tokens_saved=tokens_saved, tokens_saved_basis=savings_basis,
+                      total_tokens_saved=total_saved,
                       **_cost_avoided(tokens_saved, total_saved))
 
     from ..retrieval.freshness import FreshnessProbe as _FreshnessProbe

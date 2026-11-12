@@ -12,7 +12,7 @@ The index is built with tree-sitter, and the same index answers which repos depe
 - **Release risk:** one risk score for a branch or PR (`get_pr_risk_profile`).
 - **Code across many repos:** dependencies and shared APIs between the repos you index (`get_cross_repo_map`, `get_group_contracts`).
 - **Safe renames and cleanups:** collision checks, refactor plans and dead code, all read-only (`check_rename_safe`, `plan_refactoring`, `find_dead_code`).
-- **Sweeps:** one structural pattern across 70+ languages (`search_ast`).
+- **Sweeps:** one structural pattern across 79+ languages (`search_ast`).
 
 The token figures, and how they were measured, are in the repository's [benchmarks](https://github.com/jgravelle/jcodemunch-mcp/tree/main/benchmarks).
 
