@@ -3242,3 +3242,9 @@ The 1.108.435 entry, verbatim as it stood in `CLAUDE.md`:
 The 1.108.436 entry, verbatim as it stood in `CLAUDE.md`:
 
 - **Prior (1.108.436):** **a call that names `paths=` never replaces the rest of the index** (#1397, @dkiaulakis): `_paths_forced` turns `incremental=False` into an incremental, force-reparse run, and the full save keeps every stored file no listed entry covers (`_paths_keep`, one mapping `_listed_in_index_terms`/`_covered_by_listed` shared with the #333 deletion rescope and the branch delta). Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-11, release 1.108.440)
+
+The 1.108.437 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.437):** **a file the index withheld is not answered as a missing file** (#1396, @dkiaulakis): coverage names the files withheld for size (`withheld_files`, capped, with total and truncated), so a listed path answers `too_large`, not missing; a Bearer token in a quoted `Authorization` header is redacted (#1402). Full text: `CHANGELOG.md`.
