@@ -786,12 +786,12 @@
       "criterion": "N1",
       "metric": "full-tier pytest wall seconds on the GitHub-hosted ubuntu runner where coverage runs its C tracer (GITHUB_ACTIONS set, sys.platform linux, coverage core ctrace: Python 3.10 and 3.11, where sys.monitoring is not usable)",
       "comparator": "<=",
-      "floor": 450,
+      "floor": 560,
       "unit": "seconds",
       "set_at": {
-        "commit": "601ae435",
-        "date": "2026-10-21",
-        "reason": "L-232. The last 30 distinct completed runs of `full: test (ubuntu-latest, 3.10)` (2026-10-21 05:25Z to 22:03Z; a re-run's real second attempt counted, a job carried over unchanged into a re-run's attempt counted once; samples per run and job id in the PR) measured min 216.2, median 345.4, p95 367.7, max 370.3 s; 5 of 30 exceeded the shared 360 s Floor with every test passing, each passing on re-run. Floor = max x 1.2, rounded up to 10 s = 450: it clears the slowest observed run by 80 s and still fails a leg about 31% slower than today's median. Approved by the maintainer, 2026-10-21."
+        "commit": "de95b4ec",
+        "date": "2026-11-12",
+        "reason": "L-232 method (max x 1.2, rounded up to 10 s), as approved for this Floor on 2026-10-21 and for `suite.full_seconds_ci_windows` on 2026-11-11. Unit: the harness's own `observed` value for this row, the figure the Floor is judged on. Sample: every C-tracer leg (ubuntu 3.10 and 3.11) of the last 30 green pr-gate runs, 2026-11-10 04:35Z to 2026-11-12 03:19Z, at 20,637 to 20,793 passing tests on each leg: 60 measurements, min 274.98, median 374.275, p95 442.13 (nearest rank), max 444.02 s, none over 450 (per run, leg and job id in the PR). Plus two legs that failed this row alone with every test passing: nightly run 43152986559's 3.10 leg at 459.54 s (#1417; its 3.11 leg 383.33 s) and PR #1418's 3.10 leg at 450.86 s. Floor = 459.54 x 1.2 = 551.4, rounded up to 560: it clears the slowest observed leg by 100 s and still fails a leg about 50% slower than the sample median. Cross-check (L-146): each C-tracer leg divided by the same run's ubuntu 3.13 leg (sysmon) ranges 0.97 to 2.34, median 1.56, with no step at any commit across the window, so the spread is the runner, not a code change. The 450 setting of 2026-10-21 rested on a 345.4 s median."
       },
       "measured": null,
       "history": [
@@ -800,6 +800,12 @@
           "commit": "457a758",
           "date": "2026-09-03",
           "reason": "Inherited from `suite.full_seconds` until this scoped Floor existed. That Floor stays at 360 for every other ubuntu leg and every non-CI run. This Floor deliberately departs from the tolerance rule in docs/harness/DESIGN.md (ceil(2 x median) = 691 here): twice this leg's median would let a near-2x slowdown pass, so it is set from the observed maximum instead."
+        },
+        {
+          "floor": 450,
+          "commit": "601ae435",
+          "date": "2026-10-21",
+          "reason": "L-232. The last 30 distinct completed runs of `full: test (ubuntu-latest, 3.10)` (2026-10-21 05:25Z to 22:03Z; a re-run's real second attempt counted, a job carried over unchanged into a re-run's attempt counted once; samples per run and job id in the PR) measured min 216.2, median 345.4, p95 367.7, max 370.3 s; 5 of 30 exceeded the shared 360 s Floor with every test passing, each passing on re-run. Floor = max x 1.2, rounded up to 10 s = 450: it clears the slowest observed run by 80 s and still fails a leg about 31% slower than today's median. Approved by the maintainer, 2026-10-21."
         }
       ],
       "enforced_by": [
@@ -807,8 +813,8 @@
         ".github/workflows/pr-gate.yml"
       ],
       "loosened": {
-        "by": "jjg, 2026-10-21; widened to every C-tracer leg by jjg, 2026-10-29",
-        "reason": "360 -> 450 for the ubuntu Python 3.10 CI leg, from 30 real runs: the leg's median (345.4 s) sat 15 s under the shared Floor and tripped it on three PRs in one day with no code cause. Widened 2026-10-29 (L-232, approved by the maintainer) from the 3.10 leg to every ubuntu leg where coverage runs its C tracer, which adds 3.11, and renamed from suite.full_seconds_ci_ubuntu_py310. The scope is now chosen by asking coverage which core it will run, not by the Python version. Evidence: every completed pr-gate run of the ubuntu legs from 2026-10-22 00:51Z to 2026-10-29 19:50Z (per job in the PR), counted as in set_at above: a re-run's real second attempt counted, a job carried over unchanged into a re-run's attempt counted once; p95 is nearest-rank. 3.11, 80 measurements over 72 runs: min 230.65, median 337.71, p95 365.68, max 377.33 s, 9 over 360 and every one a FAIL with all tests passing. 3.10, 72 measurements over 72 runs: median 347.11, max 393.0 s. Both C-tracer legs under 450 in all 152. The value stays 450. Sysmon legs (3.12 max 264.64, 3.13 max 262.31) and every local run keep 360."
+        "by": "jjg, 2026-11-12, after nightly drift #1417 and PR #1418 each failed this row with every test passing; method per L-232. Earlier: jjg, 2026-10-21; widened to every C-tracer leg by jjg, 2026-10-29",
+        "reason": "450 -> 560. 450 was set at a 345.4 s median; the 60-leg sample median is now 374.275 s, and two legs reached 450.86 and 459.54 s green. Earlier: 360 -> 450 for the ubuntu Python 3.10 CI leg, from 30 real runs: the leg's median (345.4 s) sat 15 s under the shared Floor and tripped it on three PRs in one day with no code cause. Widened 2026-10-29 (L-232, approved by the maintainer) from the 3.10 leg to every ubuntu leg where coverage runs its C tracer, which adds 3.11, and renamed from suite.full_seconds_ci_ubuntu_py310. The scope is now chosen by asking coverage which core it will run, not by the Python version. Evidence: every completed pr-gate run of the ubuntu legs from 2026-10-22 00:51Z to 2026-10-29 19:50Z (per job in the PR), counted as in set_at above: a re-run's real second attempt counted, a job carried over unchanged into a re-run's attempt counted once; p95 is nearest-rank. 3.11, 80 measurements over 72 runs: min 230.65, median 337.71, p95 365.68, max 377.33 s, 9 over 360 and every one a FAIL with all tests passing. 3.10, 72 measurements over 72 runs: median 347.11, max 393.0 s. Both C-tracer legs under 450 in all 152. The value stays 450. Sysmon legs (3.12 max 264.64, 3.13 max 262.31) and every local run keep 360."
       }
     },
     {
