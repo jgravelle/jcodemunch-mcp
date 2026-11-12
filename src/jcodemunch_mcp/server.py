@@ -9502,7 +9502,8 @@ def _run_config(check: bool = False, init: bool = False, upgrade: bool = False) 
         if _sm_effective:
             row("  OPENAI_MODEL", _sm_effective, _detect_source("summarizer_model", ""))
         else:
-            model_default = "gpt-4o-mini" if provider == "openai" and not openai_base else "qwen3-coder"
+            from .summarizer.batch_summarize import OPENAI_DEFAULT_MODEL
+            model_default = OPENAI_DEFAULT_MODEL if provider == "openai" and not openai_base else "qwen3-coder"
             model, d = env("OPENAI_MODEL", model_default)
             row("  OPENAI_MODEL", model, "env" if not d else "default")
         v, d = env("OPENAI_TIMEOUT", "60.0")

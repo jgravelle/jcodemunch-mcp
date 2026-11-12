@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+### Changed - the OpenAI defaults move off models OpenAI retires on 2027-01-14
+
+OpenAI's deprecations notice of 2026-10-14 removes gpt-4o, gpt-4o-mini, gpt-4.1 and gpt-4.1-mini from the API on 2027-01-14 and names `gpt-6-luna` as the replacement for all four. Two of our defaults pointed at them, so an install that never named a model would start failing that day:
+
+- The OpenAI summarizer's default model: `gpt-4o-mini` -> `gpt-6-luna`. It is one constant now (`OPENAI_DEFAULT_MODEL`), read by both the summarizer and `config --check`'s OpenAI-hosted row, which used to type it separately.
+- The agent selector's OpenAI order: low `gpt-4o-mini` -> `gpt-6-luna`, medium `gpt-4o` -> `gpt-6-sol`, high `o3` unchanged. OpenAI names one successor for both of the first two, so medium takes `gpt-6-sol`, which OpenAI names as the replacement for gpt-5.1, and the three tiers stay distinct.
+
+A model you set yourself (`OPENAI_MODEL`, `summarizer_model`, or your own batting order) is not touched. `model_tier_map`'s `gpt-4o` entry stays: it matches the client's model name to pick a tool tier and calls nothing. A test now fails if a quoted literal in `src/` names a retired OpenAI model, bare, dated (`gpt-4.1-mini-2025-04-14`) or provider-prefixed (`openai/gpt-4o-mini`).
+
 ## [1.108.442] - 2026-11-12 - a Java or Kotlin class used only by its own package is not reported dead
 
 ### Fixed - a Java or Kotlin class used only by its own package is not reported dead (#1377)
