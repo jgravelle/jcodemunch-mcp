@@ -68,7 +68,7 @@ def test_a_name_only_in_a_comment_or_a_string_is_not_an_edge():
 
 
 def test_every_wildcard_edge_names_the_line_it_came_from():
-    edges = [e for e in _extract_java_imports(JAVA, "java") if e.get("wildcard")]
+    edges = [e for e in _extract_java_imports(JAVA, "java") if e.get("wildcard") and not e.get("same_package")]
     assert edges
     assert {e["wildcard"] for e in edges} == {"com.acme.app.util.*"}
     for e in edges:
@@ -125,7 +125,9 @@ def test_a_file_with_no_wildcard_extracts_exactly_as_before():
 
 
 def _specs(src, lang="java"):
-    return [e["specifier"] for e in _extract_java_imports(src, lang)]
+    # (#1377) A file's own package is an implicit wildcard too; these tests
+    # are about the import lines a file writes, so its edges are left out.
+    return [e["specifier"] for e in _extract_java_imports(src, lang) if not e.get("same_package")]
 
 
 def test_a_class_literal_at_a_line_end_does_not_hide_the_next_name():
