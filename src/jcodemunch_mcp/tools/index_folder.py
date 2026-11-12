@@ -1023,6 +1023,21 @@ def _framework_ignore_patterns(profile) -> list[str]:
     return list(profile.ignore_patterns)
 
 
+def profile_ignore_patterns_for(root: Path) -> list[str]:
+    """The ignore patterns of the framework profile detected at ``root``.
+
+    The watcher's fast path, `refresh`'s discovery and `index_file` read this;
+    the full walk detects the same profile itself, because it also stores it.
+    A directory entry of `paths=` is handed the full walk's patterns rather
+    than calling this at its own walk root, which after a git-root retarget is
+    a subdirectory where no profile is found. A route that skipped the profile
+    put files back into an index the full walk had kept them out of. A FILE
+    named in `paths=` is the caller's own choice and, like the skip-directory
+    rules, the profile does not refuse it.
+    """
+    return _framework_ignore_patterns(detect_framework(Path(root)))
+
+
 def _gitignore_specs_on_path(root: Path, file_path: Path) -> list[tuple[str, "pathspec.PathSpec"]]:
     """The ``.gitignore`` specs the walk from ``root`` holds when it reaches ``file_path``.
 
@@ -1772,6 +1787,38 @@ def _paths_kept_due_warning(reason: str) -> str:
     )
 
 
+def _root_profile_spec(
+    walk_root: Path,
+    profile_patterns: Optional[list[str]],
+    extra_ignore_patterns: Optional[list[str]],
+) -> "Optional[pathspec.PathSpec]":
+    """The profile's ignore patterns merged below the config's and the call's
+    (#1398's order), as one spec matched against paths relative to
+    ``walk_root``; None when there is no profile."""
+    if not profile_patterns:
+        return None
+    try:
+        return pathspec.PathSpec.from_lines(
+            "gitignore",
+            get_extra_ignore_patterns(
+                extra_ignore_patterns,
+                repo=str(walk_root),
+                profile_patterns=profile_patterns,
+            ),
+        )
+    except Exception:
+        logger.debug("unusable profile ignore spec for %s", walk_root, exc_info=True)
+        return None
+
+
+def _profile_excludes(spec: "pathspec.PathSpec", walk_root: Path, file_path: Path) -> bool:
+    try:
+        rel = file_path.relative_to(walk_root.resolve()).as_posix()
+    except ValueError:
+        return False
+    return spec.match_file(rel)
+
+
 def resolve_explicit_paths(
     walk_root: Path,
     paths: list,
@@ -1780,6 +1827,8 @@ def resolve_explicit_paths(
     follow_symlinks: bool = False,
     honor_gitignore: bool = True,
     cap_dropped: Optional[list] = None,
+    profile_patterns: Optional[list[str]] = None,
+    extra_ignore_patterns: Optional[list[str]] = None,
 ) -> tuple[list[Path], list[str], dict[str, int], list[str]]:
     """Materialise a caller-supplied list of paths into the (files, warnings,
     skip_counts, requested_rels) shape that the standard indexing pipeline
@@ -1793,8 +1842,13 @@ def resolve_explicit_paths(
 
     Each entry can be absolute or relative to ``walk_root``. Files are added
     when they live under ``walk_root`` and have a known language. Directories
-    are recursed via ``discover_local_files`` against that subtree (so the
-    same .gitignore / framework filter applies). Entries outside the root,
+    are recursed via ``discover_local_files`` against that subtree; then
+    ``profile_patterns`` (the profile the caller detected, at the same root
+    the full walk detects it, which after a git-root retarget is not
+    ``walk_root``), merged below the config and ``extra_ignore_patterns``, are
+    matched against ``walk_root``, as the full walk matches them. With no
+    profile that second match is skipped and the subtree walk's own
+    config matching, relative to the listed directory, is all there is. Entries outside the root,
     non-existent paths, symlink escapes, oversize files, secret/credential
     files, and binary files are rejected with per-entry warnings. The
     security-relevant filters (symlink, secret, binary, size) mirror the full
@@ -1826,6 +1880,11 @@ def resolve_explicit_paths(
     skip_counts: dict[str, int] = {}
     requested_rels: list[str] = []
     seen: set = set()
+    profile_spec = (
+        _root_profile_spec(walk_root, profile_patterns, extra_ignore_patterns)
+        if honor_gitignore
+        else None
+    )
 
     cap = max_files if max_files is not None else 10_000_000
     gitignore_cache: dict = {}
@@ -1885,10 +1944,16 @@ def resolve_explicit_paths(
             # The subtree walk reads the .gitignore files inside ``p``; the
             # ones above it, up to ``walk_root``, are applied here.
             above = _gitignore_specs_on_path(walk_root, p) if honor_gitignore and p != walk_root else []
+            # The profile's patterns are root-relative (spring-boot's
+            # `src/test/`), so they are matched here against ``walk_root``,
+            # not passed to the subtree walk rooted at ``p``.
             for f in list(sub_files) + sub_dropped:
                 fr = f.resolve()
                 if above and _is_gitignored_fast(str(fr), above):
                     skip_counts["gitignore"] = skip_counts.get("gitignore", 0) + 1
+                    continue
+                if profile_spec is not None and _profile_excludes(profile_spec, walk_root, fr):
+                    skip_counts["extra_ignore"] = skip_counts.get("extra_ignore", 0) + 1
                     continue
                 if fr not in seen:
                     seen.add(fr)
@@ -2548,8 +2613,13 @@ def index_folder(
             #   - is_binary_file disabled — the fast path reads file bytes
             #     immediately after; a second open for binary sniffing is
             #     wasteful. Extension check already rejects most binaries.
+            # The profile's defaults hold here as on the full walk, below the
+            # project's own patterns: without them a watcher event re-indexed a
+            # file the walk had kept out (an express `coverage/` report).
             _fast_effective_extra = get_extra_ignore_patterns(
-                extra_ignore_patterns, repo=str(folder_path)
+                extra_ignore_patterns,
+                repo=str(folder_path),
+                profile_patterns=profile_ignore_patterns_for(folder_path) or None,
             )
             _fast_extra_spec = None
             if _fast_effective_extra:
@@ -3020,6 +3090,8 @@ def index_folder(
                 follow_symlinks=follow_symlinks,
                 honor_gitignore=paths_honor_gitignore,
                 cap_dropped=_cap_dropped_paths,
+                profile_patterns=_profile_ignore or None,
+                extra_ignore_patterns=extra_ignore_patterns or None,
             )
         else:
             source_files, discover_warnings, skip_counts = discover_local_files(

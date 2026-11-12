@@ -10,17 +10,16 @@ from typing import Callable, Optional
 from .. import config as _config
 from ..parser import get_language_for_path
 from ..parser.context import discover_providers, collect_metadata
-from ..parser.context.framework_profiles import detect_framework
 from ..security import validate_path
 from ..storage import IndexStore
 from ..storage.index_store import _file_hash, _get_git_head, _get_git_branch
 from ._indexing_pipeline import parse_and_prepare_incremental
 from .index_folder import (
-    _framework_ignore_patterns,
     _gitignore_specs_on_path,
     _scan_package_json_forced_paths,
     _should_index_file,
     _walk_filter_config,
+    profile_ignore_patterns_for,
 )
 from .resolve_repo import _independent_repo_between
 
@@ -219,7 +218,7 @@ def _walk_refusal(
     gitignored path answered `success: True` and the next full walk deleted it.
     Every input now comes from the walk's own assembly in `index_folder`:
     `_walk_filter_config` (size cap, ignore patterns, skip switches, skip-dir
-    regex), `_framework_ignore_patterns` (passed as the walk's lowest-precedence
+    regex), `profile_ignore_patterns_for` (passed as the walk's lowest-precedence
     profile patterns, #1398), `_gitignore_specs_on_path`, and the predicate `_should_index_file`.
     Never copy a rule or an input into this function.
 
@@ -230,9 +229,7 @@ def _walk_refusal(
     """
     cfg = _walk_filter_config(
         walk_root,
-        profile_patterns=(
-            _framework_ignore_patterns(detect_framework(source_root)) or None
-        ),
+        profile_patterns=profile_ignore_patterns_for(source_root) or None,
         per_file=True,
     )
     # The walk exempts package.json entry points from the size cap (#25). Scan
