@@ -158,8 +158,9 @@ _OVERRIDE = {
     "nuget_packages": "`skip_nuget_packages: false`",
     "virtualenv": "`skip_virtualenvs: false`",
     "extra_ignore": (
-        "`extra_ignore_patterns` without the matching entry (a framework "
-        "profile's pattern has no setting)"
+        "`extra_ignore_patterns` without the matching entry, or with a "
+        "`!<pattern>` negation that matches the file (a framework profile's "
+        "pattern is overridden that way, #1398)"
     ),
     "too_large": "a larger `max_file_size`",
     "secret": "`exclude_secret_patterns` with a glob that matches the file",

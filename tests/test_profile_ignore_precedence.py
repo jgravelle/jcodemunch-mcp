@@ -99,6 +99,11 @@ def test_index_file_still_refuses_a_profile_default_where_the_project_says_nothi
     new.write_text("function more() { return 5; }\n", encoding="utf-8")
     result = index_file(path=str(new), use_ai_summaries=False, storage_path=str(store))
     assert result.get("success") is False and result.get("skipped") == "extra_ignore", result
+    # The refusal names the setting that works: a negation now beats a profile
+    # default, so the message must not say the profile pattern has no setting.
+    text = json.dumps(result)
+    assert "!<pattern>" in text, result
+    assert "has no setting" not in text, result
 
 
 def test_get_extra_ignore_patterns_puts_the_profile_first(tmp_path):
