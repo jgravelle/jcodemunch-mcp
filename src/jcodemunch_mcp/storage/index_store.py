@@ -1221,6 +1221,11 @@ class IndexStore:
 
     def _write_cached_text(self, path: Path, content: str) -> None:
         """Write cached text without newline translation."""
+        # The text is in hand here, so its token count is taken now for the
+        # save to record (storage/token_counts.py).
+        from . import token_counts
+
+        token_counts.note(content)
         with open(path, "w", encoding="utf-8", newline="") as f:
             f.write(content)
 

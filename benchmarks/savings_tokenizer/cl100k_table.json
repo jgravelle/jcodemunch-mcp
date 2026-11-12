@@ -1,0 +1,591 @@
+{
+ "meta": {
+  "tokenizer": "cl100k",
+  "model": "cl100k_base",
+  "overhead_tokens": 0,
+  "requests": 469,
+  "chunk_bytes": 300000,
+  "primary_bytes": 1200000,
+  "secondary_langs": 3,
+  "max_file": 512000,
+  "min_repos_for_row": 2
+ },
+ "overall": {
+  "bytes": 83819932,
+  "tokens": 20593788,
+  "bytes_per_token": 4.07
+ },
+ "languages": {
+  "astro": {
+   "bytes": 91500,
+   "tokens": 23126,
+   "bytes_per_token": 3.957,
+   "repos": 1,
+   "per_repo": {
+    "felangel/bloc": 3.957
+   },
+   "published": false
+  },
+  "bash": {
+   "bytes": 223934,
+   "tokens": 60808,
+   "bytes_per_token": 3.683,
+   "repos": 9,
+   "per_repo": {
+    "BurntSushi/ripgrep": 2.748,
+    "apple/swift-nio": 3.734,
+    "google/googletest": 3.506,
+    "google/guava": 3.633,
+    "laravel/framework": 4.023,
+    "phoenixframework/phoenix": 3.338,
+    "realm/SwiftLint": 3.652,
+    "scalameta/scalafmt": 3.081,
+    "symfony/console": 3.683
+   },
+   "published": true
+  },
+  "c": {
+   "bytes": 4375665,
+   "tokens": 1226796,
+   "bytes_per_token": 3.567,
+   "repos": 6,
+   "per_repo": {
+    "apple/swift-nio": 3.93,
+    "curl/curl": 3.851,
+    "google/leveldb": 3.449,
+    "jqlang/jq": 3.118,
+    "libuv/libuv": 3.654,
+    "redis/redis": 3.514
+   },
+   "published": true
+  },
+  "cpp": {
+   "bytes": 5330076,
+   "tokens": 1401940,
+   "bytes_per_token": 3.802,
+   "repos": 11,
+   "per_repo": {
+    "cfug/dio": 4.396,
+    "curl/curl": 4.295,
+    "dart-lang/http": 4.376,
+    "fmtlib/fmt": 3.468,
+    "google/googletest": 3.844,
+    "google/leveldb": 3.724,
+    "jqlang/jq": 2.982,
+    "libuv/libuv": 4.762,
+    "nlohmann/json": 3.838,
+    "onevcat/Kingfisher": 4.279,
+    "redis/redis": 4.12
+   },
+   "published": true
+  },
+  "csharp": {
+   "bytes": 4711237,
+   "tokens": 924716,
+   "bytes_per_token": 5.095,
+   "repos": 4,
+   "per_repo": {
+    "App-vNext/Polly": 4.822,
+    "AutoMapper/AutoMapper": 4.92,
+    "DapperLib/Dapper": 5.05,
+    "JamesNK/Newtonsoft.Json": 5.658
+   },
+   "published": true
+  },
+  "css": {
+   "bytes": 977676,
+   "tokens": 299180,
+   "bytes_per_token": 3.268,
+   "repos": 8,
+   "per_repo": {
+    "django/django": 3.564,
+    "expressjs/express": 2.975,
+    "fmtlib/fmt": 3.488,
+    "mrdoob/three.js": 3.391,
+    "psf/requests": 3.458,
+    "square/retrofit": 3.489,
+    "vitejs/vite": 2.481,
+    "webpack/webpack": 3.249
+   },
+   "published": true
+  },
+  "dart": {
+   "bytes": 4295310,
+   "tokens": 1006027,
+   "bytes_per_token": 4.27,
+   "repos": 4,
+   "per_repo": {
+    "cfug/dio": 4.533,
+    "dart-lang/http": 4.239,
+    "felangel/bloc": 4.143,
+    "rrousselGit/riverpod": 4.284
+   },
+   "published": true
+  },
+  "ejs": {
+   "bytes": 5277,
+   "tokens": 1637,
+   "bytes_per_token": 3.224,
+   "repos": 1,
+   "per_repo": {
+    "expressjs/express": 3.224
+   },
+   "published": false
+  },
+  "elisp": {
+   "bytes": 480,
+   "tokens": 129,
+   "bytes_per_token": 3.721,
+   "repos": 1,
+   "per_repo": {
+    "rubocop/rubocop": 3.721
+   },
+   "published": false
+  },
+  "elixir": {
+   "bytes": 4223170,
+   "tokens": 1151813,
+   "bytes_per_token": 3.667,
+   "repos": 4,
+   "per_repo": {
+    "elixir-ecto/ecto": 3.684,
+    "elixir-lang/elixir": 3.615,
+    "elixir-plug/plug": 3.312,
+    "phoenixframework/phoenix": 3.934
+   },
+   "published": true
+  },
+  "erb": {
+   "bytes": 94083,
+   "tokens": 30575,
+   "bytes_per_token": 3.077,
+   "repos": 3,
+   "per_repo": {
+    "rails/rails": 3.064,
+    "rubocop/rubocop": 3.301,
+    "sinatra/sinatra": 2.918
+   },
+   "published": true
+  },
+  "erlang": {
+   "bytes": 268335,
+   "tokens": 80478,
+   "bytes_per_token": 3.334,
+   "repos": 2,
+   "per_repo": {
+    "elixir-lang/elixir": 3.333,
+    "elixir-plug/plug": 3.359
+   },
+   "published": true
+  },
+  "go": {
+   "bytes": 3556487,
+   "tokens": 970846,
+   "bytes_per_token": 3.663,
+   "repos": 4,
+   "per_repo": {
+    "gin-gonic/gin": 3.604,
+    "gohugoio/hugo": 3.554,
+    "prometheus/prometheus": 3.802,
+    "spf13/cobra": 3.707
+   },
+   "published": true
+  },
+  "html": {
+   "bytes": 1570323,
+   "tokens": 440812,
+   "bytes_per_token": 3.562,
+   "repos": 11,
+   "per_repo": {
+    "Alamofire/Alamofire": 4.434,
+    "FasterXML/jackson-databind": 3.329,
+    "django/django": 3.7,
+    "gohugoio/hugo": 2.946,
+    "google/leveldb": 3.168,
+    "jekyll/jekyll": 3.733,
+    "lodash/lodash": 4.685,
+    "mrdoob/three.js": 3.404,
+    "pallets/flask": 3.678,
+    "square/retrofit": 3.575,
+    "webpack/webpack": 3.27
+   },
+   "published": true
+  },
+  "java": {
+   "bytes": 5232381,
+   "tokens": 1145805,
+   "bytes_per_token": 4.567,
+   "repos": 9,
+   "per_repo": {
+    "FasterXML/jackson-databind": 4.845,
+    "Kotlin/kotlinx.coroutines": 5.618,
+    "akka/akka": 4.49,
+    "detekt/detekt": 4.976,
+    "google/guava": 4.405,
+    "junit-team/junit5": 4.287,
+    "scalameta/scalafmt": 4.877,
+    "square/okio": 4.003,
+    "square/retrofit": 4.82
+   },
+   "published": true
+  },
+  "javascript": {
+   "bytes": 4860751,
+   "tokens": 1233521,
+   "bytes_per_token": 3.941,
+   "repos": 14,
+   "per_repo": {
+    "Alamofire/Alamofire": 3.345,
+    "django/django": 4.7,
+    "expressjs/express": 4.014,
+    "gohugoio/hugo": 3.84,
+    "lodash/lodash": 4.076,
+    "mrdoob/three.js": 3.915,
+    "nestjs/nest": 4.101,
+    "phoenixframework/phoenix": 4.34,
+    "prisma/prisma": 3.906,
+    "rails/rails": 3.678,
+    "square/retrofit": 3.646,
+    "typelevel/cats": 4.272,
+    "vitejs/vite": 3.885,
+    "webpack/webpack": 4.006
+   },
+   "published": true
+  },
+  "json": {
+   "bytes": 2678928,
+   "tokens": 720137,
+   "bytes_per_token": 3.72,
+   "repos": 27,
+   "per_repo": {
+    "Alamofire/Alamofire": 2.568,
+    "App-vNext/Polly": 3.566,
+    "DapperLib/Dapper": 3.151,
+    "FasterXML/jackson-databind": 3.299,
+    "JamesNK/Newtonsoft.Json": 4.835,
+    "akka/akka": 3.184,
+    "circe/circe": 14.997,
+    "colinhacks/zod": 3.057,
+    "composer/composer": 4.828,
+    "detekt/detekt": 3.951,
+    "guzzle/guzzle": 3.635,
+    "ktorio/ktor": 6.35,
+    "laravel/framework": 3.546,
+    "lodash/lodash": 2.706,
+    "mrdoob/three.js": 2.424,
+    "nestjs/nest": 2.985,
+    "nlohmann/json": 2.643,
+    "onevcat/Kingfisher": 2.621,
+    "prisma/prisma": 3.875,
+    "psf/black": 4.347,
+    "realm/SwiftLint": 3.178,
+    "redis/redis": 5.286,
+    "rrousselGit/riverpod": 4.08,
+    "symfony/console": 5.704,
+    "tokio-rs/tokio": 2.754,
+    "vitejs/vite": 2.987,
+    "webpack/webpack": 3.21
+   },
+   "published": true
+  },
+  "kotlin": {
+   "bytes": 5086619,
+   "tokens": 1130259,
+   "bytes_per_token": 4.5,
+   "repos": 6,
+   "per_repo": {
+    "Kotlin/kotlinx.coroutines": 4.636,
+    "detekt/detekt": 4.92,
+    "elixir-lang/elixir": 4.12,
+    "junit-team/junit5": 4.546,
+    "ktorio/ktor": 4.65,
+    "square/okio": 3.918
+   },
+   "published": true
+  },
+  "nix": {
+   "bytes": 1501,
+   "tokens": 435,
+   "bytes_per_token": 3.451,
+   "repos": 2,
+   "per_repo": {
+    "circe/circe": 3.819,
+    "typelevel/cats": 3.17
+   },
+   "published": true
+  },
+  "objc": {
+   "bytes": 34614,
+   "tokens": 7875,
+   "bytes_per_token": 4.395,
+   "repos": 1,
+   "per_repo": {
+    "onevcat/Kingfisher": 4.395
+   },
+   "published": false
+  },
+  "perl": {
+   "bytes": 299653,
+   "tokens": 82150,
+   "bytes_per_token": 3.648,
+   "repos": 1,
+   "per_repo": {
+    "curl/curl": 3.648
+   },
+   "published": false
+  },
+  "php": {
+   "bytes": 4769805,
+   "tokens": 1073467,
+   "bytes_per_token": 4.443,
+   "repos": 4,
+   "per_repo": {
+    "composer/composer": 4.508,
+    "guzzle/guzzle": 4.426,
+    "laravel/framework": 4.406,
+    "symfony/console": 4.434
+   },
+   "published": true
+  },
+  "powershell": {
+   "bytes": 50845,
+   "tokens": 12555,
+   "bytes_per_token": 4.05,
+   "repos": 2,
+   "per_repo": {
+    "AutoMapper/AutoMapper": 3.645,
+    "JamesNK/Newtonsoft.Json": 4.082
+   },
+   "published": true
+  },
+  "python": {
+   "bytes": 4218412,
+   "tokens": 1049123,
+   "bytes_per_token": 4.021,
+   "repos": 11,
+   "per_repo": {
+    "clap-rs/clap": 4.379,
+    "curl/curl": 3.984,
+    "django/django": 4.474,
+    "fmtlib/fmt": 4.129,
+    "google/googletest": 4.235,
+    "jqlang/jq": 4.117,
+    "libuv/libuv": 3.862,
+    "nlohmann/json": 3.413,
+    "pallets/flask": 4.383,
+    "psf/black": 3.532,
+    "psf/requests": 4.311
+   },
+   "published": true
+  },
+  "ruby": {
+   "bytes": 3796782,
+   "tokens": 909226,
+   "bytes_per_token": 4.176,
+   "repos": 4,
+   "per_repo": {
+    "jekyll/jekyll": 4.23,
+    "rails/rails": 4.261,
+    "rubocop/rubocop": 4.318,
+    "sinatra/sinatra": 3.773
+   },
+   "published": true
+  },
+  "rust": {
+   "bytes": 4670290,
+   "tokens": 1140043,
+   "bytes_per_token": 4.097,
+   "repos": 4,
+   "per_repo": {
+    "BurntSushi/ripgrep": 4.084,
+    "clap-rs/clap": 4.14,
+    "serde-rs/serde": 4.168,
+    "tokio-rs/tokio": 3.997
+   },
+   "published": true
+  },
+  "sass": {
+   "bytes": 74,
+   "tokens": 27,
+   "bytes_per_token": 2.741,
+   "repos": 1,
+   "per_repo": {
+    "sinatra/sinatra": 2.741
+   },
+   "published": false
+  },
+  "scala": {
+   "bytes": 4505378,
+   "tokens": 1147346,
+   "bytes_per_token": 3.927,
+   "repos": 4,
+   "per_repo": {
+    "akka/akka": 4.342,
+    "circe/circe": 3.993,
+    "scalameta/scalafmt": 4.039,
+    "typelevel/cats": 3.462
+   },
+   "published": true
+  },
+  "scss": {
+   "bytes": 77241,
+   "tokens": 28421,
+   "bytes_per_token": 2.718,
+   "repos": 1,
+   "per_repo": {
+    "jekyll/jekyll": 2.718
+   },
+   "published": false
+  },
+  "swift": {
+   "bytes": 4718259,
+   "tokens": 993787,
+   "bytes_per_token": 4.748,
+   "repos": 4,
+   "per_repo": {
+    "Alamofire/Alamofire": 5.016,
+    "apple/swift-nio": 4.355,
+    "onevcat/Kingfisher": 4.766,
+    "realm/SwiftLint": 4.917
+   },
+   "published": true
+  },
+  "tcl": {
+   "bytes": 228289,
+   "tokens": 58151,
+   "bytes_per_token": 3.926,
+   "repos": 1,
+   "per_repo": {
+    "redis/redis": 3.926
+   },
+   "published": false
+  },
+  "toml": {
+   "bytes": 107809,
+   "tokens": 30887,
+   "bytes_per_token": 3.49,
+   "repos": 7,
+   "per_repo": {
+    "BurntSushi/ripgrep": 3.293,
+    "clap-rs/clap": 3.684,
+    "pallets/flask": 3.45,
+    "psf/black": 3.392,
+    "psf/requests": 3.506,
+    "serde-rs/serde": 3.733,
+    "tokio-rs/tokio": 3.232
+   },
+   "published": true
+  },
+  "tsx": {
+   "bytes": 489146,
+   "tokens": 114009,
+   "bytes_per_token": 4.29,
+   "repos": 4,
+   "per_repo": {
+    "colinhacks/zod": 3.817,
+    "prisma/prisma": 4.216,
+    "prometheus/prometheus": 4.554,
+    "rrousselGit/riverpod": 3.939
+   },
+   "published": true
+  },
+  "typescript": {
+   "bytes": 5104058,
+   "tokens": 1274724,
+   "bytes_per_token": 4.004,
+   "repos": 6,
+   "per_repo": {
+    "colinhacks/zod": 3.555,
+    "felangel/bloc": 4.108,
+    "nestjs/nest": 4.286,
+    "prisma/prisma": 4.226,
+    "prometheus/prometheus": 3.879,
+    "vitejs/vite": 4.068
+   },
+   "published": true
+  },
+  "xml": {
+   "bytes": 611507,
+   "tokens": 149982,
+   "bytes_per_token": 4.077,
+   "repos": 14,
+   "per_repo": {
+    "App-vNext/Polly": 3.943,
+    "AutoMapper/AutoMapper": 3.676,
+    "DapperLib/Dapper": 3.944,
+    "JamesNK/Newtonsoft.Json": 4.006,
+    "Kotlin/kotlinx.coroutines": 3.725,
+    "akka/akka": 3.829,
+    "cfug/dio": 4.646,
+    "composer/composer": 4.08,
+    "dart-lang/http": 4.772,
+    "google/guava": 4.337,
+    "junit-team/junit5": 4.298,
+    "ktorio/ktor": 3.632,
+    "square/okio": 4.266,
+    "symfony/console": 3.916
+   },
+   "published": true
+  },
+  "yaml": {
+   "bytes": 2554037,
+   "tokens": 672975,
+   "bytes_per_token": 3.795,
+   "repos": 51,
+   "per_repo": {
+    "App-vNext/Polly": 3.978,
+    "AutoMapper/AutoMapper": 3.885,
+    "BurntSushi/ripgrep": 3.801,
+    "DapperLib/Dapper": 3.936,
+    "FasterXML/jackson-databind": 3.655,
+    "Kotlin/kotlinx.coroutines": 4.698,
+    "apple/swift-nio": 4.066,
+    "cfug/dio": 3.77,
+    "circe/circe": 3.64,
+    "clap-rs/clap": 3.468,
+    "colinhacks/zod": 3.167,
+    "composer/composer": 3.759,
+    "dart-lang/http": 3.546,
+    "detekt/detekt": 3.734,
+    "elixir-ecto/ecto": 3.547,
+    "elixir-lang/elixir": 3.557,
+    "elixir-plug/plug": 3.61,
+    "expressjs/express": 3.656,
+    "felangel/bloc": 3.7,
+    "fmtlib/fmt": 3.4,
+    "gin-gonic/gin": 3.877,
+    "gohugoio/hugo": 3.856,
+    "google/googletest": 3.951,
+    "google/guava": 4.31,
+    "google/leveldb": 3.791,
+    "guzzle/guzzle": 3.723,
+    "jekyll/jekyll": 3.857,
+    "jqlang/jq": 3.929,
+    "junit-team/junit5": 4.111,
+    "ktorio/ktor": 4.126,
+    "laravel/framework": 3.842,
+    "libuv/libuv": 3.4,
+    "lodash/lodash": 3.636,
+    "nestjs/nest": 3.978,
+    "nlohmann/json": 3.651,
+    "pallets/flask": 3.163,
+    "phoenixframework/phoenix": 3.402,
+    "prometheus/prometheus": 3.841,
+    "psf/black": 3.67,
+    "psf/requests": 3.35,
+    "rails/rails": 3.835,
+    "realm/SwiftLint": 3.661,
+    "rrousselGit/riverpod": 3.807,
+    "rubocop/rubocop": 3.839,
+    "scalameta/scalafmt": 3.681,
+    "serde-rs/serde": 3.361,
+    "sinatra/sinatra": 3.645,
+    "spf13/cobra": 3.563,
+    "square/okio": 3.212,
+    "tokio-rs/tokio": 3.714,
+    "typelevel/cats": 3.632
+   },
+   "published": true
+  }
+ }
+}

@@ -1,0 +1,587 @@
+{
+ "meta": {
+  "from": [
+   "claude_counts.json",
+   "cl100k_counts.json"
+  ],
+  "min_repos_for_row": 2
+ },
+ "overall": {
+  "claude_tokens": 34283553,
+  "cl100k_tokens": 20593788,
+  "ratio": 1.665
+ },
+ "languages": {
+  "astro": {
+   "claude_tokens": 39100,
+   "cl100k_tokens": 23126,
+   "ratio": 1.691,
+   "repos": 1,
+   "per_repo": {
+    "felangel/bloc": 1.691
+   },
+   "published": false
+  },
+  "bash": {
+   "claude_tokens": 104512,
+   "cl100k_tokens": 60808,
+   "ratio": 1.719,
+   "repos": 9,
+   "per_repo": {
+    "BurntSushi/ripgrep": 1.418,
+    "apple/swift-nio": 1.732,
+    "google/googletest": 1.925,
+    "google/guava": 1.644,
+    "laravel/framework": 1.735,
+    "phoenixframework/phoenix": 1.759,
+    "realm/SwiftLint": 1.745,
+    "scalameta/scalafmt": 1.671,
+    "symfony/console": 1.587
+   },
+   "published": true
+  },
+  "c": {
+   "claude_tokens": 2049710,
+   "cl100k_tokens": 1226796,
+   "ratio": 1.671,
+   "repos": 6,
+   "per_repo": {
+    "apple/swift-nio": 1.805,
+    "curl/curl": 1.787,
+    "google/leveldb": 1.603,
+    "jqlang/jq": 1.55,
+    "libuv/libuv": 1.767,
+    "redis/redis": 1.55
+   },
+   "published": true
+  },
+  "cpp": {
+   "claude_tokens": 2402092,
+   "cl100k_tokens": 1401940,
+   "ratio": 1.713,
+   "repos": 11,
+   "per_repo": {
+    "cfug/dio": 1.896,
+    "curl/curl": 2.009,
+    "dart-lang/http": 1.897,
+    "fmtlib/fmt": 1.663,
+    "google/googletest": 1.81,
+    "google/leveldb": 1.67,
+    "jqlang/jq": 1.69,
+    "libuv/libuv": 1.99,
+    "nlohmann/json": 1.571,
+    "onevcat/Kingfisher": 2.133,
+    "redis/redis": 1.686
+   },
+   "published": true
+  },
+  "csharp": {
+   "claude_tokens": 1715878,
+   "cl100k_tokens": 924716,
+   "ratio": 1.856,
+   "repos": 4,
+   "per_repo": {
+    "App-vNext/Polly": 1.822,
+    "AutoMapper/AutoMapper": 1.896,
+    "DapperLib/Dapper": 1.793,
+    "JamesNK/Newtonsoft.Json": 1.917
+   },
+   "published": true
+  },
+  "css": {
+   "claude_tokens": 461877,
+   "cl100k_tokens": 299180,
+   "ratio": 1.544,
+   "repos": 8,
+   "per_repo": {
+    "django/django": 1.551,
+    "expressjs/express": 1.596,
+    "fmtlib/fmt": 1.689,
+    "mrdoob/three.js": 1.586,
+    "psf/requests": 1.518,
+    "square/retrofit": 1.633,
+    "vitejs/vite": 1.376,
+    "webpack/webpack": 1.508
+   },
+   "published": true
+  },
+  "dart": {
+   "claude_tokens": 1728039,
+   "cl100k_tokens": 1006027,
+   "ratio": 1.718,
+   "repos": 4,
+   "per_repo": {
+    "cfug/dio": 1.752,
+    "dart-lang/http": 1.724,
+    "felangel/bloc": 1.724,
+    "rrousselGit/riverpod": 1.686
+   },
+   "published": true
+  },
+  "ejs": {
+   "claude_tokens": 2418,
+   "cl100k_tokens": 1637,
+   "ratio": 1.477,
+   "repos": 1,
+   "per_repo": {
+    "expressjs/express": 1.477
+   },
+   "published": false
+  },
+  "elisp": {
+   "claude_tokens": 236,
+   "cl100k_tokens": 129,
+   "ratio": 1.829,
+   "repos": 1,
+   "per_repo": {
+    "rubocop/rubocop": 1.829
+   },
+   "published": false
+  },
+  "elixir": {
+   "claude_tokens": 1751336,
+   "cl100k_tokens": 1151813,
+   "ratio": 1.521,
+   "repos": 4,
+   "per_repo": {
+    "elixir-ecto/ecto": 1.486,
+    "elixir-lang/elixir": 1.463,
+    "elixir-plug/plug": 1.528,
+    "phoenixframework/phoenix": 1.614
+   },
+   "published": true
+  },
+  "erb": {
+   "claude_tokens": 44815,
+   "cl100k_tokens": 30575,
+   "ratio": 1.466,
+   "repos": 3,
+   "per_repo": {
+    "rails/rails": 1.467,
+    "rubocop/rubocop": 1.449,
+    "sinatra/sinatra": 1.462
+   },
+   "published": true
+  },
+  "erlang": {
+   "claude_tokens": 134285,
+   "cl100k_tokens": 80478,
+   "ratio": 1.669,
+   "repos": 2,
+   "per_repo": {
+    "elixir-lang/elixir": 1.667,
+    "elixir-plug/plug": 1.687
+   },
+   "published": true
+  },
+  "go": {
+   "claude_tokens": 1668203,
+   "cl100k_tokens": 970846,
+   "ratio": 1.718,
+   "repos": 4,
+   "per_repo": {
+    "gin-gonic/gin": 1.752,
+    "gohugoio/hugo": 1.686,
+    "prometheus/prometheus": 1.752,
+    "spf13/cobra": 1.677
+   },
+   "published": true
+  },
+  "html": {
+   "claude_tokens": 677181,
+   "cl100k_tokens": 440812,
+   "ratio": 1.536,
+   "repos": 11,
+   "per_repo": {
+    "Alamofire/Alamofire": 1.551,
+    "FasterXML/jackson-databind": 1.656,
+    "django/django": 1.587,
+    "gohugoio/hugo": 1.439,
+    "google/leveldb": 1.457,
+    "jekyll/jekyll": 1.529,
+    "lodash/lodash": 1.615,
+    "mrdoob/three.js": 1.429,
+    "pallets/flask": 1.522,
+    "square/retrofit": 1.655,
+    "webpack/webpack": 1.566
+   },
+   "published": true
+  },
+  "java": {
+   "claude_tokens": 2035766,
+   "cl100k_tokens": 1145805,
+   "ratio": 1.777,
+   "repos": 9,
+   "per_repo": {
+    "FasterXML/jackson-databind": 1.695,
+    "Kotlin/kotlinx.coroutines": 1.949,
+    "akka/akka": 1.797,
+    "detekt/detekt": 1.733,
+    "google/guava": 1.669,
+    "junit-team/junit5": 1.824,
+    "scalameta/scalafmt": 1.64,
+    "square/okio": 1.738,
+    "square/retrofit": 1.917
+   },
+   "published": true
+  },
+  "javascript": {
+   "claude_tokens": 2023541,
+   "cl100k_tokens": 1233521,
+   "ratio": 1.64,
+   "repos": 14,
+   "per_repo": {
+    "Alamofire/Alamofire": 1.694,
+    "django/django": 1.67,
+    "expressjs/express": 1.488,
+    "gohugoio/hugo": 1.616,
+    "lodash/lodash": 1.622,
+    "mrdoob/three.js": 1.695,
+    "nestjs/nest": 1.735,
+    "phoenixframework/phoenix": 1.718,
+    "prisma/prisma": 1.648,
+    "rails/rails": 1.587,
+    "square/retrofit": 1.682,
+    "typelevel/cats": 1.647,
+    "vitejs/vite": 1.598,
+    "webpack/webpack": 1.645
+   },
+   "published": true
+  },
+  "json": {
+   "claude_tokens": 1052271,
+   "cl100k_tokens": 720137,
+   "ratio": 1.461,
+   "repos": 27,
+   "per_repo": {
+    "Alamofire/Alamofire": 1.266,
+    "App-vNext/Polly": 1.562,
+    "DapperLib/Dapper": 1.639,
+    "FasterXML/jackson-databind": 1.672,
+    "JamesNK/Newtonsoft.Json": 1.35,
+    "akka/akka": 1.699,
+    "circe/circe": 1.803,
+    "colinhacks/zod": 1.504,
+    "composer/composer": 1.478,
+    "detekt/detekt": 1.466,
+    "guzzle/guzzle": 1.468,
+    "ktorio/ktor": 1.53,
+    "laravel/framework": 1.477,
+    "lodash/lodash": 1.38,
+    "mrdoob/three.js": 1.343,
+    "nestjs/nest": 1.476,
+    "nlohmann/json": 1.383,
+    "onevcat/Kingfisher": 1.307,
+    "prisma/prisma": 1.54,
+    "psf/black": 1.469,
+    "realm/SwiftLint": 1.433,
+    "redis/redis": 1.504,
+    "rrousselGit/riverpod": 1.466,
+    "symfony/console": 1.541,
+    "tokio-rs/tokio": 1.422,
+    "vitejs/vite": 1.461,
+    "webpack/webpack": 1.516
+   },
+   "published": true
+  },
+  "kotlin": {
+   "claude_tokens": 2033941,
+   "cl100k_tokens": 1130259,
+   "ratio": 1.8,
+   "repos": 6,
+   "per_repo": {
+    "Kotlin/kotlinx.coroutines": 1.744,
+    "detekt/detekt": 1.853,
+    "elixir-lang/elixir": 1.794,
+    "junit-team/junit5": 1.886,
+    "ktorio/ktor": 1.848,
+    "square/okio": 1.745
+   },
+   "published": true
+  },
+  "nix": {
+   "claude_tokens": 685,
+   "cl100k_tokens": 435,
+   "ratio": 1.575,
+   "repos": 2,
+   "per_repo": {
+    "circe/circe": 1.654,
+    "typelevel/cats": 1.514
+   },
+   "published": true
+  },
+  "objc": {
+   "claude_tokens": 15653,
+   "cl100k_tokens": 7875,
+   "ratio": 1.988,
+   "repos": 1,
+   "per_repo": {
+    "onevcat/Kingfisher": 1.988
+   },
+   "published": false
+  },
+  "perl": {
+   "claude_tokens": 128357,
+   "cl100k_tokens": 82150,
+   "ratio": 1.562,
+   "repos": 1,
+   "per_repo": {
+    "curl/curl": 1.562
+   },
+   "published": false
+  },
+  "php": {
+   "claude_tokens": 1734654,
+   "cl100k_tokens": 1073467,
+   "ratio": 1.616,
+   "repos": 4,
+   "per_repo": {
+    "composer/composer": 1.633,
+    "guzzle/guzzle": 1.644,
+    "laravel/framework": 1.553,
+    "symfony/console": 1.635
+   },
+   "published": true
+  },
+  "powershell": {
+   "claude_tokens": 21316,
+   "cl100k_tokens": 12555,
+   "ratio": 1.698,
+   "repos": 2,
+   "per_repo": {
+    "AutoMapper/AutoMapper": 1.726,
+    "JamesNK/Newtonsoft.Json": 1.696
+   },
+   "published": true
+  },
+  "python": {
+   "claude_tokens": 1620285,
+   "cl100k_tokens": 1049123,
+   "ratio": 1.544,
+   "repos": 11,
+   "per_repo": {
+    "clap-rs/clap": 1.689,
+    "curl/curl": 1.584,
+    "django/django": 1.651,
+    "fmtlib/fmt": 1.538,
+    "google/googletest": 1.908,
+    "jqlang/jq": 1.589,
+    "libuv/libuv": 1.532,
+    "nlohmann/json": 1.479,
+    "pallets/flask": 1.594,
+    "psf/black": 1.353,
+    "psf/requests": 1.619
+   },
+   "published": true
+  },
+  "ruby": {
+   "claude_tokens": 1423271,
+   "cl100k_tokens": 909226,
+   "ratio": 1.565,
+   "repos": 4,
+   "per_repo": {
+    "jekyll/jekyll": 1.547,
+    "rails/rails": 1.596,
+    "rubocop/rubocop": 1.581,
+    "sinatra/sinatra": 1.511
+   },
+   "published": true
+  },
+  "rust": {
+   "claude_tokens": 1891538,
+   "cl100k_tokens": 1140043,
+   "ratio": 1.659,
+   "repos": 4,
+   "per_repo": {
+    "BurntSushi/ripgrep": 1.646,
+    "clap-rs/clap": 1.654,
+    "serde-rs/serde": 1.687,
+    "tokio-rs/tokio": 1.65
+   },
+   "published": true
+  },
+  "sass": {
+   "claude_tokens": 30,
+   "cl100k_tokens": 27,
+   "ratio": 1.111,
+   "repos": 1,
+   "per_repo": {
+    "sinatra/sinatra": 1.111
+   },
+   "published": false
+  },
+  "scala": {
+   "claude_tokens": 1980800,
+   "cl100k_tokens": 1147346,
+   "ratio": 1.726,
+   "repos": 4,
+   "per_repo": {
+    "akka/akka": 1.739,
+    "circe/circe": 1.768,
+    "scalameta/scalafmt": 1.718,
+    "typelevel/cats": 1.695
+   },
+   "published": true
+  },
+  "scss": {
+   "claude_tokens": 40036,
+   "cl100k_tokens": 28421,
+   "ratio": 1.409,
+   "repos": 1,
+   "per_repo": {
+    "jekyll/jekyll": 1.409
+   },
+   "published": false
+  },
+  "swift": {
+   "claude_tokens": 1749246,
+   "cl100k_tokens": 993787,
+   "ratio": 1.76,
+   "repos": 4,
+   "per_repo": {
+    "Alamofire/Alamofire": 1.829,
+    "apple/swift-nio": 1.69,
+    "onevcat/Kingfisher": 1.777,
+    "realm/SwiftLint": 1.756
+   },
+   "published": true
+  },
+  "tcl": {
+   "claude_tokens": 88341,
+   "cl100k_tokens": 58151,
+   "ratio": 1.519,
+   "repos": 1,
+   "per_repo": {
+    "redis/redis": 1.519
+   },
+   "published": false
+  },
+  "toml": {
+   "claude_tokens": 48043,
+   "cl100k_tokens": 30887,
+   "ratio": 1.555,
+   "repos": 7,
+   "per_repo": {
+    "BurntSushi/ripgrep": 1.511,
+    "clap-rs/clap": 1.553,
+    "pallets/flask": 1.621,
+    "psf/black": 1.554,
+    "psf/requests": 1.631,
+    "serde-rs/serde": 1.588,
+    "tokio-rs/tokio": 1.539
+   },
+   "published": true
+  },
+  "tsx": {
+   "claude_tokens": 189627,
+   "cl100k_tokens": 114009,
+   "ratio": 1.663,
+   "repos": 4,
+   "per_repo": {
+    "colinhacks/zod": 1.546,
+    "prisma/prisma": 1.633,
+    "prometheus/prometheus": 1.717,
+    "rrousselGit/riverpod": 1.654
+   },
+   "published": true
+  },
+  "typescript": {
+   "claude_tokens": 2101878,
+   "cl100k_tokens": 1274724,
+   "ratio": 1.649,
+   "repos": 6,
+   "per_repo": {
+    "colinhacks/zod": 1.573,
+    "felangel/bloc": 1.763,
+    "nestjs/nest": 1.695,
+    "prisma/prisma": 1.693,
+    "prometheus/prometheus": 1.549,
+    "vitejs/vite": 1.671
+   },
+   "published": true
+  },
+  "xml": {
+   "claude_tokens": 258620,
+   "cl100k_tokens": 149982,
+   "ratio": 1.724,
+   "repos": 14,
+   "per_repo": {
+    "App-vNext/Polly": 1.983,
+    "AutoMapper/AutoMapper": 1.947,
+    "DapperLib/Dapper": 1.912,
+    "JamesNK/Newtonsoft.Json": 2.354,
+    "Kotlin/kotlinx.coroutines": 1.721,
+    "akka/akka": 1.563,
+    "cfug/dio": 1.745,
+    "composer/composer": 1.732,
+    "dart-lang/http": 1.69,
+    "google/guava": 1.599,
+    "junit-team/junit5": 1.812,
+    "ktorio/ktor": 1.558,
+    "square/okio": 1.734,
+    "symfony/console": 1.491
+   },
+   "published": true
+  },
+  "yaml": {
+   "claude_tokens": 1065972,
+   "cl100k_tokens": 672975,
+   "ratio": 1.584,
+   "repos": 51,
+   "per_repo": {
+    "App-vNext/Polly": 1.624,
+    "AutoMapper/AutoMapper": 1.591,
+    "BurntSushi/ripgrep": 1.589,
+    "DapperLib/Dapper": 1.578,
+    "FasterXML/jackson-databind": 1.593,
+    "Kotlin/kotlinx.coroutines": 1.508,
+    "apple/swift-nio": 1.769,
+    "cfug/dio": 1.55,
+    "circe/circe": 1.544,
+    "clap-rs/clap": 1.479,
+    "colinhacks/zod": 1.167,
+    "composer/composer": 1.582,
+    "dart-lang/http": 1.567,
+    "detekt/detekt": 1.692,
+    "elixir-ecto/ecto": 1.444,
+    "elixir-lang/elixir": 1.652,
+    "elixir-plug/plug": 1.578,
+    "expressjs/express": 1.467,
+    "felangel/bloc": 1.618,
+    "fmtlib/fmt": 1.553,
+    "gin-gonic/gin": 1.5,
+    "gohugoio/hugo": 1.51,
+    "google/googletest": 1.785,
+    "google/guava": 1.451,
+    "google/leveldb": 1.793,
+    "guzzle/guzzle": 1.524,
+    "jekyll/jekyll": 1.545,
+    "jqlang/jq": 1.385,
+    "junit-team/junit5": 1.842,
+    "ktorio/ktor": 1.681,
+    "laravel/framework": 1.602,
+    "libuv/libuv": 1.57,
+    "lodash/lodash": 1.423,
+    "nestjs/nest": 1.531,
+    "nlohmann/json": 1.578,
+    "pallets/flask": 1.434,
+    "phoenixframework/phoenix": 1.517,
+    "prometheus/prometheus": 1.566,
+    "psf/black": 1.538,
+    "psf/requests": 1.439,
+    "rails/rails": 1.558,
+    "realm/SwiftLint": 1.59,
+    "rrousselGit/riverpod": 1.635,
+    "rubocop/rubocop": 1.68,
+    "scalameta/scalafmt": 1.595,
+    "serde-rs/serde": 1.506,
+    "sinatra/sinatra": 1.628,
+    "spf13/cobra": 1.491,
+    "square/okio": 1.532,
+    "tokio-rs/tokio": 1.581,
+    "typelevel/cats": 1.535
+   },
+   "published": true
+  }
+ }
+}

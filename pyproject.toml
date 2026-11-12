@@ -73,6 +73,11 @@ dependencies = [
     "tree-sitter>=0.25,<0.26",
     "pathspec>=0.12.0",
     "pyyaml>=6.0",
+    # Counts the tokens a response saved (savings_tokenizer.py). tiktoken
+    # fetches the cl100k_base file once, on first use, on a background thread;
+    # `tokenizer_download: false` stops it. Until the file is there, or
+    # without tiktoken, the savings figure uses a bytes/token table.
+    "tiktoken>=0.7.0,<1.0.0",
 ]
 
 [project.urls]
