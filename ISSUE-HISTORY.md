@@ -3254,3 +3254,9 @@ The 1.108.437 entry, verbatim as it stood in `CLAUDE.md`:
 The 1.108.438 entry, verbatim as it stood in `CLAUDE.md`:
 
 - **Prior (1.108.438):** **an index that holds a small part of the tree reads incomplete, not fresh** (#1395): `get_watch_status` reports `index_completeness` with indexed and tracked counts; an uncountable repo reads `unknown`, never complete (`any_completeness_unknown`). Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-12, release 1.108.442)
+
+The 1.108.439 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.439):** **tokens_saved is a token count, not bytes divided by 4**: each indexed file is counted with tiktoken cl100k_base at save (`token_counts`), scaled per language to Claude; the encoding is fetched once on first use (`tokenizer_download`), the table is the fallback, `_meta.tokens_saved_basis` names the path. Full text: `CHANGELOG.md`.
