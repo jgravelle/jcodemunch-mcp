@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.439] - 2026-11-11 - tokens_saved is a token count, not bytes divided by 4
+
 ### Changed - `tokens_saved` is a token count, not bytes divided by 4
 
 The per-call `tokens_saved` divided the bytes a response saved by 4. On Claude's tokenizer that undercounted: over a pinned 64-repo corpus (`benchmarks/savings_tokenizer/`, every repo and SHA in `corpus.json`, 83,819,932 bytes in 469 chunks, counted with the free `count_tokens` endpoint), Claude reads 2.445 bytes per token. On the README's 15 benchmark lookups the old figure was 0.736 of Claude's own count (express 0.625, fastapi 0.783, gin 0.596). **So the per-call figure goes up, because bytes/4 undercounted on Claude's tokenizer.** A single bytes-per-token figure per language still misses individual repos, because a docstring-heavy file reads far fewer tokens per byte than its language's average: over the corpus's 247 (repo, language) samples it lands within 0.95-1.07 of Claude's count for 57% of them, against 70% for the count scaled by the per-language ratio (both computed from the committed `claude_counts.json` and `cl100k_counts.json`, scored in-sample).

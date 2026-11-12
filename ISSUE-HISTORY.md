@@ -3236,3 +3236,9 @@ The 1.108.434 entry, verbatim as it stood in `CLAUDE.md`:
 The 1.108.435 entry, verbatim as it stood in `CLAUDE.md`:
 
 - **Prior (1.108.435):** **a Kotlin import of a top-level declaration reaches the file that declares it** (#1376, @randyhbh): an import naming no file resolves through its package directory to the `.kt`/`.java` file declaring the last segment, as a derived `declared_by` edge added at `CodeIndex` construction and never stored (`written_imports`); Java's `<Stem>Kt` facade reaches the `.kt` file. Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-11, release 1.108.439)
+
+The 1.108.436 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.436):** **a call that names `paths=` never replaces the rest of the index** (#1397, @dkiaulakis): `_paths_forced` turns `incremental=False` into an incremental, force-reparse run, and the full save keeps every stored file no listed entry covers (`_paths_keep`, one mapping `_listed_in_index_terms`/`_covered_by_listed` shared with the #333 deletion rescope and the branch delta). Full text: `CHANGELOG.md`.
