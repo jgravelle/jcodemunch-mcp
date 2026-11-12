@@ -551,7 +551,10 @@ class BatchSummarizer(BaseSummarizer):
 class GeminiBatchSummarizer(BaseSummarizer):
     """AI-based batch summarization using Google Gemini Flash (Tier 2)."""
 
-    model: str = "gemini-2.5-flash-lite"
+    # gemini-2.5-flash-lite is not deprecated, but Google limits 2.5 API access
+    # to users who have used it before, so a new install could not call it.
+    # Google recommends gemini-3.5-flash-lite for new projects (2026-11-12).
+    model: str = "gemini-3.5-flash-lite"
 
     def __post_init__(self):
         self.client = None

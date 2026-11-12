@@ -2,6 +2,18 @@
 
 ## [Unreleased]
 
+### Fixed - the agent selector and the Gemini summarizer no longer default to models a new install cannot call
+
+The agent selector's built-in Anthropic order named two models a request cannot use today. Its medium tier was `claude-sonnet-4-20250514`, which Anthropic's deprecations page lists as retired on 2026-06-15. Its high tier was `claude-opus-4-20250115`, which is not a model id Anthropic has ever listed. The Google order named `gemini-2.0-flash`, which Google shut down on 2026-06-01, for its low tier. Its medium and high tiers named `gemini-2.5-pro`, which still answers but shuts down on 2026-12-01. So a user who set `agent_selector` to route without naming models could be routed to a model that returns an error, and from 2026-12-01 every Google tier would have. The low Anthropic tier, `claude-haiku-4-5-20251001`, is still active; it moves to `claude-haiku-5-5` so the three tiers name one model generation. The Gemini summarizer's default, `gemini-2.5-flash-lite`, is not deprecated, but Google limits 2.5 API access to accounts that have used it before, so the default failed on a new account.
+
+Each replacement was read on its provider's own models or deprecations page on 2026-11-12:
+
+- Anthropic: low `claude-haiku-5-5`, medium `claude-sonnet-5-5`, high `claude-opus-5-5`.
+- Google: low `gemini-3.6-flash`, Google's named replacement for `gemini-2.0-flash`. Medium and high `gemini-3.8-flash`, Google's named replacement for `gemini-2.5-pro` and its newest stable model. Google lists no stable Pro model, so the top two tiers share one id.
+- The Gemini summarizer: `gemini-3.5-flash-lite`, which Google recommends for new projects.
+
+A model you set in config is used as before; only the defaults moved. The Anthropic summarizer's default, `claude-haiku-4-5-20251001`, is still an active model and is unchanged. `tests/test_no_default_names_a_retired_provider_model.py` pins the new defaults and scans `src/` for any of the six uncallable ids, so a default cannot quietly return to one of them.
+
 ## [1.108.442] - 2026-11-12 - a Java or Kotlin class used only by its own package is not reported dead
 
 ### Fixed - a Java or Kotlin class used only by its own package is not reported dead (#1377)

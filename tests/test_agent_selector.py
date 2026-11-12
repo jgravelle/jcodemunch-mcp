@@ -207,8 +207,8 @@ class TestModelRouter:
     def test_mode_off(self):
         """Mode=off should return action='off' with no prompts."""
         config = _default_config(mode="off")
-        assessment = self._make_assessment(80, "high", "claude-opus-4-20250115")
-        decision = route(assessment, config, current_model="claude-sonnet-4-20250514")
+        assessment = self._make_assessment(80, "high", "claude-opus-5-5")
+        decision = route(assessment, config, current_model="claude-sonnet-5-5")
         assert decision.action == "off"
         assert decision.prompt_text is None
         assert decision.metadata_text is None
@@ -216,20 +216,20 @@ class TestModelRouter:
     def test_mode_auto_routes(self):
         """Mode=auto should auto-switch and provide metadata."""
         config = _default_config(mode="auto")
-        assessment = self._make_assessment(80, "high", "claude-opus-4-20250115")
-        decision = route(assessment, config, current_model="claude-sonnet-4-20250514")
+        assessment = self._make_assessment(80, "high", "claude-opus-5-5")
+        decision = route(assessment, config, current_model="claude-sonnet-5-5")
         assert decision.action == "auto-switch"
-        assert decision.selectedModel == "claude-opus-4-20250115"
+        assert decision.selectedModel == "claude-opus-5-5"
         assert decision.metadata_text is not None
-        assert "claude-opus-4-20250115" in decision.metadata_text
+        assert "claude-opus-5-5" in decision.metadata_text
         assert "80/100" in decision.metadata_text
 
     def test_manual_step_up_prompt(self):
         """Manual mode should prompt on step-up."""
         config = _default_config(mode="manual")
-        assessment = self._make_assessment(80, "high", "claude-opus-4-20250115")
+        assessment = self._make_assessment(80, "high", "claude-opus-5-5")
         assessment.signals = {"symbolCount": 87, "crossFileReferences": 23, "crossProjectReferences": True}
-        decision = route(assessment, config, current_model="claude-sonnet-4-20250514")
+        decision = route(assessment, config, current_model="claude-sonnet-5-5")
         assert decision.action == "prompt"
         assert decision.prompt_text is not None
         assert "complex" in decision.prompt_text
@@ -238,17 +238,17 @@ class TestModelRouter:
     def test_manual_step_down_suppressed_by_default(self):
         """Manual mode with verbosePrompts=false should suppress step-down."""
         config = _default_config(mode="manual", verbosePrompts=False)
-        assessment = self._make_assessment(15, "low", "claude-haiku-4-5-20251001")
-        decision = route(assessment, config, current_model="claude-opus-4-20250115")
+        assessment = self._make_assessment(15, "low", "claude-haiku-5-5")
+        decision = route(assessment, config, current_model="claude-opus-5-5")
         assert decision.action == "proceed"
         assert decision.prompt_text is None
 
     def test_manual_step_down_verbose(self):
         """Manual mode with verbosePrompts=true should prompt on step-down."""
         config = _default_config(mode="manual", verbosePrompts=True)
-        assessment = self._make_assessment(15, "low", "claude-haiku-4-5-20251001")
+        assessment = self._make_assessment(15, "low", "claude-haiku-5-5")
         assessment.signals = {"retrievalSetSize": 1, "symbolCount": 5}
-        decision = route(assessment, config, current_model="claude-opus-4-20250115")
+        decision = route(assessment, config, current_model="claude-opus-5-5")
         assert decision.action == "prompt"
         assert decision.prompt_text is not None
         assert "straightforward" in decision.prompt_text
@@ -256,15 +256,15 @@ class TestModelRouter:
     def test_manual_same_tier_silent(self):
         """Manual mode should proceed silently when tiers match."""
         config = _default_config(mode="manual")
-        assessment = self._make_assessment(50, "medium", "claude-sonnet-4-20250514")
-        decision = route(assessment, config, current_model="claude-sonnet-4-20250514")
+        assessment = self._make_assessment(50, "medium", "claude-sonnet-5-5")
+        decision = route(assessment, config, current_model="claude-sonnet-5-5")
         assert decision.action == "proceed"
         assert decision.prompt_text is None
 
     def test_manual_no_current_model(self):
         """Manual mode without a current model should proceed without prompt."""
         config = _default_config(mode="manual")
-        assessment = self._make_assessment(80, "high", "claude-opus-4-20250115")
+        assessment = self._make_assessment(80, "high", "claude-opus-5-5")
         decision = route(assessment, config, current_model=None)
         assert decision.action == "proceed"
 
@@ -272,10 +272,10 @@ class TestModelRouter:
         """Single-model provider should proceed silently (no routing possible)."""
         config = _default_config(
             mode="manual",
-            providers={"anthropic": {"low": "claude-sonnet-4-20250514", "medium": "claude-sonnet-4-20250514", "high": "claude-sonnet-4-20250514"}},
+            providers={"anthropic": {"low": "claude-sonnet-5-5", "medium": "claude-sonnet-5-5", "high": "claude-sonnet-5-5"}},
         )
-        assessment = self._make_assessment(80, "high", "claude-sonnet-4-20250514")
-        decision = route(assessment, config, current_model="claude-sonnet-4-20250514")
+        assessment = self._make_assessment(80, "high", "claude-sonnet-5-5")
+        decision = route(assessment, config, current_model="claude-sonnet-5-5")
         assert decision.action == "proceed"
 
     def test_missing_provider_falls_back_to_off(self):
@@ -358,7 +358,7 @@ class TestAgentSelectorConfig:
         config = AgentSelectorConfig.from_config({"activeProvider": "google"})
         models = config.resolve_provider_models()
         assert models is not None
-        assert models["low"] == "gemini-2.0-flash"
+        assert models["low"] == "gemini-3.6-flash"
 
     def test_resolve_unknown_provider_returns_none(self):
         config = AgentSelectorConfig.from_config({"activeProvider": "nonexistent"})
@@ -418,9 +418,9 @@ class TestDefaultProviders:
                 assert tier in models, f"{provider} missing {tier} tier"
 
     def test_anthropic_defaults(self):
-        assert DEFAULT_PROVIDERS["anthropic"]["low"] == "claude-haiku-4-5-20251001"
-        assert DEFAULT_PROVIDERS["anthropic"]["medium"] == "claude-sonnet-4-20250514"
-        assert DEFAULT_PROVIDERS["anthropic"]["high"] == "claude-opus-4-20250115"
+        assert DEFAULT_PROVIDERS["anthropic"]["low"] == "claude-haiku-5-5"
+        assert DEFAULT_PROVIDERS["anthropic"]["medium"] == "claude-sonnet-5-5"
+        assert DEFAULT_PROVIDERS["anthropic"]["high"] == "claude-opus-5-5"
 
     def test_openai_defaults(self):
         assert DEFAULT_PROVIDERS["openai"]["low"] == "gpt-4o-mini"
