@@ -283,17 +283,25 @@
       "criterion": "10",
       "metric": "len(LANGUAGE_REGISTRY)",
       "comparator": ">=",
-      "floor": 79,
+      "floor": 81,
       "unit": "languages",
       "set_at": {
-        "commit": "457a758",
-        "date": "2026-09-03",
-        "reason": "STANDARD s10 Floor: never decreases without a CHANGELOG entry; measured 79 on 63a621d"
+        "commit": "f7e9140",
+        "date": "2026-11-12",
+        "reason": "Tightened to the shipped count: `len(LANGUAGE_REGISTRY)` measured 81 on f7e9140. The 2026-09-03 setting stood 2 below it after ASP.NET Web Forms (#1012) and ERB (#1307), so removing either language would have passed. The Floor now EQUALS the shipped count (enforced_by the equality test): a language addition raises it in the same PR, and the jcodemunch.com JCM_LANGUAGES figure is set from it."
       },
       "measured": null,
-      "history": [],
+      "history": [
+        {
+          "floor": 79,
+          "commit": "457a758",
+          "date": "2026-09-03",
+          "reason": "STANDARD s10 Floor: never decreases without a CHANGELOG entry; measured 79 on 63a621d"
+        }
+      ],
       "enforced_by": [
-        "tests/test_standard_invariants.py::test_language_counts_do_not_shrink"
+        "tests/test_standard_invariants.py::test_language_counts_do_not_shrink",
+        "tests/test_language_floors_match_the_shipped_counts.py::test_the_registry_floor_is_the_shipped_language_count"
       ]
     },
     {
@@ -301,17 +309,25 @@
       "criterion": "10",
       "metric": "len(LANGUAGE_EXTENSIONS)",
       "comparator": ">=",
-      "floor": 164,
+      "floor": 181,
       "unit": "extensions",
       "set_at": {
-        "commit": "457a758",
-        "date": "2026-09-03",
-        "reason": "STANDARD s10 Floor; measured 164 on 63a621d"
+        "commit": "f7e9140",
+        "date": "2026-11-12",
+        "reason": "Tightened to the shipped count: `len(LANGUAGE_EXTENSIONS)` measured 181 on f7e9140, 17 over the 2026-09-03 setting: 6 ASP.NET Web Forms extensions (#1012: .aspx .ascx .master .asax .ashx .asmx), .erb (#1307) and 10 XML-family mappings (.xaml .csproj .vbproj .fsproj .props .targets .resx .nuspec .xsd .wsdl). The Floor now EQUALS the shipped count (enforced_by the equality test): an extension addition raises it in the same PR."
       },
       "measured": null,
-      "history": [],
+      "history": [
+        {
+          "floor": 164,
+          "commit": "457a758",
+          "date": "2026-09-03",
+          "reason": "STANDARD s10 Floor; measured 164 on 63a621d"
+        }
+      ],
       "enforced_by": [
-        "tests/test_standard_invariants.py::test_language_counts_do_not_shrink"
+        "tests/test_standard_invariants.py::test_language_counts_do_not_shrink",
+        "tests/test_language_floors_match_the_shipped_counts.py::test_the_extensions_floor_is_the_shipped_extension_count"
       ]
     },
     {
