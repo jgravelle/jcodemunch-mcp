@@ -1,6 +1,12 @@
 {
-  "current": "1.108.438",
+  "current": "1.108.439",
   "entries": [
+    {
+      "version": "1.108.439",
+      "date": "2026-11-11",
+      "title": "tokens_saved is a token count, not bytes divided by 4",
+      "summary": "tokens_saved used to divide saved bytes by 4, which undercounted on Claude. Each indexed file is now counted once with tiktoken cl100k_base when its index is saved, scaled to Claude by a ratio measured per language (savings_tokenizer: openai uses the raw count). tiktoken fetches its encoding file once, on first use, in the background; tokenizer_download: false turns that off, and the per-language table is the fallback. _meta.tokens_saved_basis names the path. Totals already recorded are not rescaled."
+    },
     {
       "version": "1.108.438",
       "date": "2026-11-11",
