@@ -1,6 +1,12 @@
 {
-  "current": "1.108.440",
+  "current": "1.108.441",
   "entries": [
+    {
+      "version": "1.108.441",
+      "date": "2026-11-12",
+      "title": "a framework profile's ignore patterns hold on every route that walks into an index",
+      "summary": "1.108.440 ranked a framework profile's ignore patterns below a project's own on the full walk and in index_file. Three other routes never read the profile: the watcher's fast path, refresh's discovery, and a directory named in index_folder(paths=[...]). Each could put an express project's coverage/ report back into an index the full walk had kept it out of. All of them now use the profile the full walk uses, ranked below the project's and the call's own patterns, so a !pattern negation still wins. A file named in paths= is still indexed on request."
+    },
     {
       "version": "1.108.440",
       "date": "2026-11-11",

@@ -3248,3 +3248,9 @@ The 1.108.436 entry, verbatim as it stood in `CLAUDE.md`:
 The 1.108.437 entry, verbatim as it stood in `CLAUDE.md`:
 
 - **Prior (1.108.437):** **a file the index withheld is not answered as a missing file** (#1396, @dkiaulakis): coverage names the files withheld for size (`withheld_files`, capped, with total and truncated), so a listed path answers `too_large`, not missing; a Bearer token in a quoted `Authorization` header is redacted (#1402). Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-12, release 1.108.441)
+
+The 1.108.438 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.438):** **an index that holds a small part of the tree reads incomplete, not fresh** (#1395): `get_watch_status` reports `index_completeness` with indexed and tracked counts; an uncountable repo reads `unknown`, never complete (`any_completeness_unknown`). Full text: `CHANGELOG.md`.
