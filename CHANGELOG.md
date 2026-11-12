@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.442] - 2026-11-12 - a Java or Kotlin class used only by its own package is not reported dead
+
 ### Fixed - a Java or Kotlin class used only by its own package is not reported dead (#1377)
 
 @randyhbh asked whether the reference tools see same-package use, which in Java and Kotlin writes no `import` line. `check_references` and `check_delete_safe` did: their content scan found the use, and the delete preflight blocked. `find_dead_code` did not. It reads only the import graph, so a class used only by code in its own package had zero importers and was reported dead at confidence 1.0, reason `zero_importers`.

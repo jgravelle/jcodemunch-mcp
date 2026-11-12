@@ -1,6 +1,12 @@
 {
-  "current": "1.108.441",
+  "current": "1.108.442",
   "entries": [
+    {
+      "version": "1.108.442",
+      "date": "2026-11-12",
+      "title": "a Java or Kotlin class used only by its own package is not reported dead",
+      "summary": "Classes in one Java or Kotlin package use each other with no import line, and find_dead_code reads only the import graph, so a class used only by its own package was reported dead at confidence 1.0. A file's own package is now an implicit wildcard import: one edge per class name the file uses, kept only where the package declares the name. Same-package use now shows in find_references, and in dependency cycles and coupling. The first index after upgrading re-parses every file."
+    },
     {
       "version": "1.108.441",
       "date": "2026-11-12",
