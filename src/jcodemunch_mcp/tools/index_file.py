@@ -229,7 +229,7 @@ def _walk_refusal(
     """
     cfg = _walk_filter_config(
         walk_root,
-        extra_ignore_patterns=(
+        profile_patterns=(
             _framework_ignore_patterns(detect_framework(source_root)) or None
         ),
         per_file=True,

@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+### Fixed - a project's own ignore negation wins over a framework profile's default (#1398)
+
+With `express` in `package.json`, a `.jcodemunch.jsonc` that re-included `!tools/coverage/**` still lost `tools/coverage/` from the index, because the express profile's `coverage/` default was appended after the project's patterns and ignore matching is last-match-wins. `index_file` merged the same way, then refused the file and told the user to add the very negation that had just lost. Reported by [@dkiaulakis](https://github.com/dkiaulakis).
+
+The order is decided in one place now: `get_extra_ignore_patterns` takes the profile's patterns as their own argument and puts them first, below the global and project config and below a per-call list. `index_folder` and `index_file` pass them that way instead of concatenating. A profile default still applies wherever the project says nothing, so a plain `coverage/` report directory stays out.
+
 ## [1.108.438] - 2026-11-11 - an index that holds a small part of the tree reads incomplete, not fresh
 
 ### Fixed - get_watch_status says when an index holds a small part of the tree (#1395)

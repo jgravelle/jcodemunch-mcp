@@ -808,6 +808,7 @@ def _walk_filter_config(
     extra_ignore_patterns: Optional[list[str]] = None,
     follow_symlinks: bool = False,
     per_file: bool = False,
+    profile_patterns: Optional[list[str]] = None,
 ) -> _IndexFilters:
     """The filter config the full walk applies under ``root``.
 
@@ -821,7 +822,10 @@ def _walk_filter_config(
     """
     root = root.resolve()
     repo = str(root)
-    effective_extra = get_extra_ignore_patterns(extra_ignore_patterns, repo=repo)
+    # A framework profile's defaults rank BELOW the user's own patterns (#1398).
+    effective_extra = get_extra_ignore_patterns(
+        extra_ignore_patterns, repo=repo, profile_patterns=profile_patterns
+    )
     extra_spec = None
     if effective_extra:
         try:
@@ -1958,8 +1962,12 @@ def discover_local_files(
     follow_symlinks: bool = False,
     cap_dropped: Optional[list] = None,
     oversize_out: Optional[list] = None,
+    profile_ignore_patterns: Optional[list[str]] = None,
 ) -> tuple[list[Path], list[str], dict[str, int]]:
     """Discover source files in a local folder with security filtering.
+
+    ``profile_ignore_patterns`` are a detected framework profile's defaults;
+    they rank below every pattern the user wrote (#1398).
 
     ``oversize_out``, when given, receives ``(path, size, max_size)`` for each
     file refused for size, so the coverage record can name them (#1396).
@@ -2040,6 +2048,7 @@ def discover_local_files(
         max_size=max_size,
         extra_ignore_patterns=extra_ignore_patterns,
         follow_symlinks=follow_symlinks,
+        profile_patterns=profile_ignore_patterns,
     )
     # Pre-scan package.json files; their `main`/`module`/`exports`/`bin`
     # targets get the size-cap exemption. Built once before the walk.
@@ -2986,7 +2995,8 @@ def index_folder(
         _framework_profile = detect_framework(folder_path)
         _profile_ignore = _framework_ignore_patterns(_framework_profile)
 
-        _merged_ignore = list(extra_ignore_patterns or []) + _profile_ignore
+        # Kept SEPARATE from extra_ignore_patterns: appended after them, a
+        # profile default beat the project's own negation (#1398).
 
         # Discover source files (with security filtering).  When v1.96 has
         # retargeted folder_path to the git root and walk_root is a strict
@@ -3016,10 +3026,11 @@ def index_folder(
                 walk_root,
                 max_files=max_files,
                 max_size=max_size,
-                extra_ignore_patterns=_merged_ignore or None,
+                extra_ignore_patterns=extra_ignore_patterns or None,
                 follow_symlinks=follow_symlinks,
                 cap_dropped=_cap_dropped_paths,
                 oversize_out=_oversize_found,
+                profile_ignore_patterns=_profile_ignore or None,
             )
         warnings.extend(discover_warnings)
         logger.info("Discovery skip counts: %s", skip_counts)

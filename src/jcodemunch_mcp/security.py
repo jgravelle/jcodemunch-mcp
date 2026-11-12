@@ -902,8 +902,16 @@ EXTRA_IGNORE_PATTERNS_ENV_VAR = "JCODEMUNCH_EXTRA_IGNORE_PATTERNS"
 def get_extra_ignore_patterns(
     call_patterns: Optional[list] = None,
     repo: Optional[str] = None,
+    profile_patterns: Optional[list] = None,
 ) -> list:
-    """Return merged extra ignore patterns from config and per-call list.
+    """Return merged extra ignore patterns: profile, then config, then per-call.
+
+    Matching is last-match-wins, so ORDER is precedence. A detected framework
+    profile's defaults (``profile_patterns``) go FIRST, below everything the
+    user wrote: a project's ``!tools/coverage/**`` in ``.jcodemunch.jsonc``
+    must beat the express profile's ``coverage/`` (#1398, reported by
+    @dkiaulakis). They were appended after the config list, so a built-in
+    default overrode an explicit re-include and nothing could turn it off.
 
     Args:
         call_patterns: Patterns supplied by the caller (per-call override).
@@ -917,10 +925,9 @@ def get_extra_ignore_patterns(
         Combined list of gitignore-style pattern strings. Empty list if none.
     """
     config_patterns = _config.get("extra_ignore_patterns", [], repo=repo)
+    combined = list(profile_patterns or [])
     if isinstance(config_patterns, list):
-        combined = config_patterns[:]
-    else:
-        combined = []
+        combined.extend(config_patterns)
     if call_patterns:
         combined.extend(call_patterns)
     return combined
