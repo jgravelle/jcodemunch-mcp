@@ -245,7 +245,8 @@ def test_install_pack_without_a_key_sends_none(pack_api, capsys):
 
 def test_a_key_in_project_config_is_not_read(server, capsys, monkeypatch, tmp_path, caplog):
     """Only the env var and the GLOBAL config.jsonc supply a key. Since
-    PRIVATE-LEDGER 2026-11-09 the project loader refuses a `license_key` and
+    the CHANGELOG entry "a license key in a project `.jcodemunch.jsonc` warns
+    instead of vanishing", the project loader refuses a `license_key` and
     warns, naming both places (it used to accept it into the overlay silently,
     so a customer who put the key there read as unlicensed with no clue why).
     CONFIGURATION.md says so. If project config should become a source, change

@@ -1190,8 +1190,8 @@ def racket_config_digest(repo: str | None) -> str:
 # it may turn a setting off, never on.
 #
 # Never read from a project file, each with the reason the loader's warning
-# gives: which folders this install trusts, and (PRIVATE-LEDGER 2026-11-09)
-# the license key. The license check reads `license_key` with no repo, so a
+# gives: which folders this install trusts, and (found by the #1378
+# license-paths test) the license key. The license check reads `license_key` with no repo, so a
 # key in a project file never applied and nothing said so; and a project file
 # can be committed to a repository, so a key is never read from one.
 _TRUST_REASON = "which folders are trusted is set only in your own config"

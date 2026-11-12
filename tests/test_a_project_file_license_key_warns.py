@@ -1,4 +1,4 @@
-"""A license key in a project `.jcodemunch.jsonc` warns and is not read (PRIVATE-LEDGER 2026-11-09).
+"""A license key in a project `.jcodemunch.jsonc` warns and is not read (found by #1378).
 
 The license check reads `license_key` with no repo, so a key a customer put in
 a project file never applied, and nothing said so: a paying customer read as
