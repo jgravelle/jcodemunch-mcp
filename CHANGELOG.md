@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+### Fixed - a license key in a project `.jcodemunch.jsonc` warns instead of vanishing
+
+The license check reads `license_key` from `JCODEMUNCH_LICENSE_KEY` or the user's own `config.jsonc`. A key a customer put in a project `.jcodemunch.jsonc` was accepted into the project overlay, never reached that check, and nothing said so: the install read as unlicensed, `config` reported the key as the project's, and a paying customer had no clue why. Found while building the license-paths test (#1378).
+
+The project loader now refuses `license_key` the way it already refuses the trusted-folders keys, and logs a warning that names both supported places. It never prints the key. A key is never read from a project file at all, because a project file can be committed to a repository. The refused-keys list now carries a reason per key, so a license key is not explained with the trust keys' reason. A key in either supported place is unchanged.
+
 ## [1.108.442] - 2026-11-12 - a Java or Kotlin class used only by its own package is not reported dead
 
 ### Fixed - a Java or Kotlin class used only by its own package is not reported dead (#1377)
