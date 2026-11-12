@@ -2,6 +2,18 @@
 
 ## [Unreleased]
 
+### Fixed - a Java or Kotlin class used only by its own package is not reported dead (#1377)
+
+@randyhbh asked whether the reference tools see same-package use, which in Java and Kotlin writes no `import` line. `check_references` and `check_delete_safe` did: their content scan found the use, and the delete preflight blocked. `find_dead_code` did not. It reads only the import graph, so a class used only by code in its own package had zero importers and was reported dead at confidence 1.0, reason `zero_importers`.
+
+A file's own package is an implicit `import <package>.*`, so the extractor now emits it through the same path as an explicit wildcard (#1375): one `<package>.Name` edge per type name the file uses, marked `wildcard` and `same_package`. A name the package does not declare (`String`, `Override`) resolves to nothing and is dropped by every consumer that already drops a dead wildcard edge, so no tool needed its own rule. A same-named class in another package gains nothing. `find_references` now lists same-package users too. The package line is read with comments and strings removed, so a trailing comment no longer hides it, and a backticked Kotlin segment is read.
+
+Resolving those edges exposed a resolver defect that #1375's explicit wildcards already had. When a JVM name matches no file, trailing segments are dropped (that is how `import static a.b.C.member` reaches `C`), so `com.acme.util.String` reached a file `com/acme/util.kt` sitting beside the `util/` package, and every file in the package read as importing it. A shorter name that is also a package is now skipped: a name below a package lives in the package.
+
+The new edges move structural numbers on JVM repos, because same-package use is a real file-level dependency. Two classes in one package that use each other are now a dependency cycle, and a class's afferent coupling counts its same-package users. `get_dependency_cycles`, `get_coupling_metrics`, `get_dependency_graph`, `get_blast_radius` and the cycle and coupling axes of `get_repo_health` read these edges.
+
+Not covered: a Kotlin top-level function used from its own package (only capitalised type names are read); Java's default package; and a source tree whose directories do not mirror the package below a `src/<set>/java` or `src/<set>/kotlin` root (or the repo root), where the edges are stored but resolve to nothing, as explicit imports already do there. The parser generation moves to 32, so the first index after upgrading re-parses every file and existing indexes gain the edges.
+
 ## [1.108.441] - 2026-11-12 - a framework profile's ignore patterns hold on every route that walks into an index
 
 ### Fixed - a framework profile's ignore patterns hold on the watcher's fast path, in `refresh` and for a `paths=` directory (#1421)

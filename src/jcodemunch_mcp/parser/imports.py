@@ -113,6 +113,11 @@ _JAVA_IMPORT = re.compile(r"""^import\s+(?:static\s+)?([\w.]+)(?:\s+as\s+\w+)?\s
 # (#1375) `import a.b.*` names a package, `import static a.b.C.*` a class's
 # members. `_JAVA_IMPORT` cannot match either: `[\w.]+` stops at the `*`.
 _JAVA_WILDCARD_IMPORT = re.compile(r"""^import\s+(static\s+)?([\w.]+)\.\*\s*;?[ \t\r]*$""", re.MULTILINE)
+# (#1377) The file's own package: Java ends the line with `;`, Kotlin need not,
+# and a Kotlin segment may be backticked. Read from the body with comments and
+# strings removed, so a trailing comment does not hide it and a `package` line
+# inside a comment or a raw string is not taken for it.
+_JVM_PACKAGE = re.compile(r"""^[ \t]*package\s+([\w.`]+)\s*;?[ \t\r]*$""", re.MULTILINE)
 # What the type names of a JVM file are read from: comments and string
 # literals removed first, so a name in a doc comment or a string is no use.
 _JVM_NOISE = re.compile(
@@ -1023,11 +1028,13 @@ def _extract_java_imports(content: str, language: str) -> list[dict]:
         parts = qualified.rsplit(".", 1)
         names = [parts[-1]] if len(parts) > 1 else []
         edges.append({"specifier": qualified, "names": names})
-    edges.extend(_jvm_wildcard_edges(content, edges))
+    own = _JVM_PACKAGE.search(_JVM_NOISE.sub(" ", content))
+    own_package = own.group(1).replace("`", "") if own else None
+    edges.extend(_jvm_wildcard_edges(content, edges, own_package))
     return edges
 
 
-def _jvm_wildcard_edges(content: str, explicit: list[dict]) -> list[dict]:
+def _jvm_wildcard_edges(content: str, explicit: list[dict], own_package: Optional[str] = None) -> list[dict]:
     """(#1375) The edges a wildcard import stands for.
 
     ``import static a.b.C.*`` is an edge to ``a.b.C``, the class whose members
@@ -1040,9 +1047,17 @@ def _jvm_wildcard_edges(content: str, explicit: list[dict]) -> list[dict]:
 
     A name the file imports explicitly, or declares itself, is not a wildcard
     edge: both shadow the wildcard in Java and Kotlin.
+
+    (#1377) The file's own package is an implicit `import <package>.*`:
+    same-package classes use each other with no import line, so without
+    these edges `find_dead_code` read a class used only by its package as
+    dead. They are marked `same_package` as well as `wildcard`, so every
+    consumer that drops a dead wildcard edge drops these the same way. Only
+    capitalised type names are read; a Kotlin top-level function used from
+    the same package is not an edge.
     """
     found = list(_JAVA_WILDCARD_IMPORT.finditer(content))
-    if not found:
+    if not found and not own_package:
         return []
     edges: list[dict] = []
     packages: list[str] = []
@@ -1051,6 +1066,8 @@ def _jvm_wildcard_edges(content: str, explicit: list[dict]) -> list[dict]:
             edges.append({"specifier": m.group(2), "names": []})
         elif m.group(2) not in packages:
             packages.append(m.group(2))
+    if own_package and own_package not in packages:
+        packages.append(own_package)
     if not packages:
         return edges
     body = _JVM_NOISE.sub(" ", content)
@@ -1067,7 +1084,10 @@ def _jvm_wildcard_edges(content: str, explicit: list[dict]) -> list[dict]:
                 names.append(n)
     for pkg in packages:
         for n in names:
-            edges.append({"specifier": f"{pkg}.{n}", "names": [n], "wildcard": f"{pkg}.*"})
+            edge = {"specifier": f"{pkg}.{n}", "names": [n], "wildcard": f"{pkg}.*"}
+            if pkg == own_package:
+                edge["same_package"] = True
+            edges.append(edge)
     return edges
 
 
@@ -2556,6 +2576,9 @@ _JVM_SOURCE_DIRS = ("java", "kotlin")
 # under _TAIL_MEMO_LOCK as the memos are: graph tools run on worker threads,
 # and an unlocked evict beside a clear raises inside the tool.
 _jvm_layout_cache: dict[frozenset, dict] = {}
+# (#1377) frozenset(source_files) -> the class-path directories that hold a
+# JVM file, i.e. the packages. Same keying, bound and lock as the class map.
+_jvm_package_cache: dict[frozenset, frozenset] = {}
 
 
 def _jvm_split(path: str) -> tuple[Optional[str], Optional[str], str]:
@@ -2601,6 +2624,21 @@ def _jvm_classes(source_files) -> dict:
     return result
 
 
+def _jvm_packages(source_files) -> frozenset:
+    """(#1377) The class-path directories that hold a JVM file, once per file set."""
+    cache_key = source_files if isinstance(source_files, frozenset) else frozenset(source_files)
+    with _TAIL_MEMO_LOCK:
+        cached = _jvm_package_cache.get(cache_key)
+    if cached is not None:
+        return cached
+    result = frozenset(posixpath.dirname(k) for k in _jvm_classes(cache_key))
+    with _TAIL_MEMO_LOCK:
+        if cache_key not in _jvm_package_cache and len(_jvm_package_cache) >= _TAIL_MEMO_MAX:
+            _jvm_package_cache.pop(next(iter(_jvm_package_cache)), None)
+        _jvm_package_cache[cache_key] = result
+    return result
+
+
 def _resolve_jvm_import(specifier: str, importer_path: str, source_files) -> Optional[str]:
     """Resolve a Java or Kotlin import to the file that declares the class.
 
@@ -2610,6 +2648,11 @@ def _resolve_jvm_import(specifier: str, importer_path: str, source_files) -> Opt
     class ``a.b.Outer.Inner``, both of which live in the outer class's file.
     Among several matches the importer's own module wins, then its own
     language, then the path. A JDK or library name matches nothing, so None.
+
+    (#1377) A shorter name reached by dropping segments is skipped when it is
+    also a package: ``a.b.util.String`` names something IN the ``a/b/util/``
+    package, never in a sibling file ``a/b/util.kt``. Without this a wildcard
+    or same-package edge to a JDK name resolved to that file.
     """
     if not specifier or "/" in specifier or "\\" in specifier:
         return None
@@ -2621,8 +2664,15 @@ def _resolve_jvm_import(specifier: str, importer_path: str, source_files) -> Opt
     if own_module is None:
         own_module = posixpath.dirname(importer_path)
     own_ext = ".java" if importer_path.endswith(".java") else ".kt"
+    packages: Optional[frozenset] = None
     for n in range(len(segments), 1, -1):
-        hits = classes.get("/".join(segments[:n]))
+        path = "/".join(segments[:n])
+        hits = classes.get(path)
+        if hits and n < len(segments):
+            if packages is None:
+                packages = _jvm_packages(source_files)
+            if path in packages:
+                continue
         if hits:
             best = min(
                 hits,
@@ -2689,7 +2739,6 @@ def augment_jvm_declaration_edges(imports: dict, symbols, source_files) -> int:
         if not name:
             continue
         declared.setdefault((posixpath.dirname(_info(f)[1]), name), []).append(f)
-    classes = _jvm_classes(fs)
     # (target, importer module, importer is Java) -> the file the resolver binds
     # it to: the same few targets come back for many importers.
     bound: dict[tuple[str, Optional[str], bool], Optional[str]] = {}
@@ -2715,9 +2764,10 @@ def augment_jvm_declaration_edges(imports: dict, symbols, source_files) -> int:
             segments = spec.split(".")
             if len(segments) < 2 or not all(segments):
                 continue
-            # A name that matches a class path already resolves; the resolver's
-            # own test, without its tiebreak (only whether, not which).
-            if any("/".join(segments[:n]) in classes for n in range(len(segments), 1, -1)):
+            # A name the resolver already binds needs no derived edge. Ask the
+            # resolver itself: a copy of its rule drifted from it once (#1377,
+            # a dropped-segment name that is also a package resolves to nothing).
+            if _resolve_jvm_import(spec, importer, fs) is not None:
                 continue
             for n in range(len(segments), 1, -1):
                 hits = declared.get(("/".join(segments[: n - 1]), segments[n - 1]))
@@ -3507,6 +3557,7 @@ def clear_resolution_caches() -> None:
         _tail_memos.clear()
         _answer_memos.clear()
         _jvm_layout_cache.clear()
+        _jvm_package_cache.clear()
     _is_c_family_importer.cache_clear()
     global _last_answer_memo
     _last_answer_memo = None
