@@ -12,11 +12,17 @@ logger = logging.getLogger(__name__)
 
 # ── Default batting orders ───────────────────────────────────────────────────
 
+# Each id was read on its provider's own models page (2026-11-12). The old
+# Anthropic medium/high were retired (claude-sonnet-4-20250514, 2026-06-15) or
+# never a listed id (claude-opus-4-20250115). Google's gemini-2.0-flash shut
+# down 2026-06-01 (named replacement gemini-3.6-flash) and gemini-2.5-pro
+# shuts down 2026-12-01 (named replacement gemini-3.8-flash); no stable
+# Pro model is listed, so the top two Google tiers share it.
 DEFAULT_PROVIDERS: dict[str, dict[str, str]] = {
     "anthropic": {
-        "low": "claude-haiku-4-5-20251001",
-        "medium": "claude-sonnet-4-20250514",
-        "high": "claude-opus-4-20250115",
+        "low": "claude-haiku-5-5",
+        "medium": "claude-sonnet-5-5",
+        "high": "claude-opus-5-5",
     },
     # gpt-4o-mini and gpt-4o retire 2027-01-14 (OpenAI deprecations, notice of
     # 2026-10-14), both replaced by gpt-6-luna. medium is gpt-6-sol, which OpenAI
@@ -27,9 +33,9 @@ DEFAULT_PROVIDERS: dict[str, dict[str, str]] = {
         "high": "o3",
     },
     "google": {
-        "low": "gemini-2.0-flash",
-        "medium": "gemini-2.5-pro",
-        "high": "gemini-2.5-pro",
+        "low": "gemini-3.6-flash",
+        "medium": "gemini-3.8-flash",
+        "high": "gemini-3.8-flash",
     },
 }
 

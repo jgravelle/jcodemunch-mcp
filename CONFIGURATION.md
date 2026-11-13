@@ -316,7 +316,7 @@ Opt-in complexity-based model routing. Off by default — zero behavioral change
 }
 ```
 
-Built-in default batting orders: Anthropic (`haiku` / `sonnet` / `opus`), OpenAI (`gpt-6-luna` / `gpt-6-sol` / `o3`), Google (`flash` / `pro` / `pro`).
+Built-in default batting orders: Anthropic (`claude-haiku-5-5` / `claude-sonnet-5-5` / `claude-opus-5-5`), OpenAI (`gpt-6-luna` / `gpt-6-sol` / `o3`), Google (`gemini-3.6-flash` / `gemini-3.8-flash` / `gemini-3.8-flash`).
 
 ### Freshness
 
