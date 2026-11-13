@@ -3266,3 +3266,9 @@ The 1.108.439 entry, verbatim as it stood in `CLAUDE.md`:
 The 1.108.440 entry, verbatim as it stood in `CLAUDE.md`:
 
 - **Prior (1.108.440):** **a project's own ignore negation wins over a framework profile's default** (#1398, @dkiaulakis): `get_extra_ignore_patterns` builds profile + config + call, so a profile pattern has the lowest precedence on the walk and in `index_file`, whose refusal names the `!<pattern>` negation. Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-13, release 1.108.444)
+
+The 1.108.441 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.441):** **a framework profile's ignore patterns hold on every route that walks into an index** (#1421, the #1398 follow-up): the watcher fast path, `refresh` discovery and `index_file` ask `profile_ignore_patterns_for(root)`; a `paths=` directory is handed the full walk's own profile and the call's patterns, matched against the index root. Full text: `CHANGELOG.md`.
