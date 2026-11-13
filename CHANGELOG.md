@@ -2,6 +2,27 @@
 
 ## [Unreleased]
 
+### Changed - a write that changes no symbol no longer makes every other process reload the index
+
+Every process holding an index in memory keys it by the modification time of the `.db` and its `-wal`. Many writers move that time without touching a symbol or a file row: the embedding store, every runtime ingest (OpenTelemetry, SQL log, stack log, diagnostics), the SCIP import and the BM25 statistics write-back. Each one made every other process holding the index re-read and rebuild all of it. With eight agents on one index and one runtime write a second, readers spent most of their time reloading.
+
+Every transaction that writes the `symbols` or `files` table now also writes a fresh random `content_generation` token into `meta`, and a load remembers the meta rows it read. A process whose stamp moved reads the meta table once and keeps its copy only when every row, the token included, is exactly as it loaded them. A different token, any changed meta row, or a token missing on either side reloads, as before. A branch view always reloads, because its delta rows carry no token. The three reads of a load now share one read transaction, so the remembered meta can never be newer than the rows it is kept with. A test fails on any function in `src/` that writes `symbols` or `files` without writing the token; schema migrations are exempt because they rewrite `index_version`.
+
+Measured with eight reader processes on one 34,225-symbol index for 20 seconds, one write a second, the copy carrying a token (`.claude/state/evidence/row3_measure.md`):
+
+| tree | writer | searches in 20 s | p99 ms |
+|---|---|---|---|
+| main | none | 18108 | 110.4 |
+| main | runtime-table row | 4561 | 1284.9 |
+| this release | none | 19072 | 101.3 |
+| this release | runtime-table row | 12078 | 138.8 |
+
+A write to a `meta` row still reloads every reader, as designed (1335.0 ms p99 in the same run). In the runtime-write run the writer's own p95 rose from 19 ms to 1147 ms once the readers stopped reloading; that writer-side stall is a separate open item and is not addressed here.
+
+What changes for you: an index gets its first token from the first save by this release that changes a symbol or a file (a re-index with changes, or a watcher event). Until then every write reloads, as before.
+
+The one writer this cannot see: `update_symbol_summaries` in 1.108.383 and 1.108.384 writes summaries and no meta row. If one of those two releases writes summaries into an index this release holds, the old summary text stays in this process until the next content write. Every other writer, of any release, changes a meta row (`indexed_at`, `index_version` or `summaries_generation`) and is seen.
+
 ## [1.108.444] - 2026-11-13 - a local OpenAI-compatible endpoint is sent a model it serves
 
 ### Fixed - a local OpenAI-compatible endpoint is sent a local default model, and `config --check` shows the one it is sent

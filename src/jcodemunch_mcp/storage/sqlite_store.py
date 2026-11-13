@@ -12,6 +12,7 @@ import shutil
 import sqlite3
 import threading
 import time
+import uuid
 from collections import OrderedDict
 from datetime import datetime
 from pathlib import Path, PurePosixPath
@@ -468,6 +469,10 @@ class _CacheEntry(NamedTuple):
     mtime_ns: int
     code_index: "CodeIndex"
     last_used: float
+    # The meta rows read in the load that built `code_index`, or None when the
+    # entry came from anywhere else (a save, a patch). Only an entry carrying
+    # them can follow a write that changed no symbol (`_revalidate_cached`).
+    meta: Optional[dict] = None
 
 
 _index_cache: OrderedDict[tuple[str, str, str], _CacheEntry] = OrderedDict()
@@ -534,16 +539,87 @@ def _cache_get(owner: str, name: str, mtime_ns: int, branch: str = "") -> Option
     return None
 
 
-def _cache_put(owner: str, name: str, mtime_ns: int, code_index: "CodeIndex", branch: str = "") -> None:
+def _cache_put(
+    owner: str, name: str, mtime_ns: int, code_index: "CodeIndex", branch: str = "",
+    meta: Optional[dict] = None,
+) -> None:
     """Store a CodeIndex in the cache, evicting LRU if full."""
     key = (owner, name, branch)
     now = time.monotonic()
     with _cache_lock:
         _evict_idle_locked(_cache_ttl_seconds(), now)
-        _index_cache[key] = _CacheEntry(mtime_ns, code_index, now)
+        _index_cache[key] = _CacheEntry(mtime_ns, code_index, now, meta)
         _index_cache.move_to_end(key)
         while len(_index_cache) > _CACHE_MAX_SIZE:
             _index_cache.popitem(last=False)
+
+
+# ── Content generation (BACKLOG row 3, fix 1) ──────────────────────
+# The cache stamp is the mtime of the .db and its -wal, and many writers move
+# it without touching a symbol: the embedding store, every runtime ingest, the
+# SCIP import, the BM25 statistics write-back. Each one used to cost every
+# other process holding the index a full reload. Every transaction that writes
+# the `symbols` or `files` table also writes a fresh token under this meta key
+# (`tests/test_content_generation.py` fails on a writer that does not; a
+# schema migration is exempt, because it rewrites `index_version`). A
+# reader whose stamp moved reads the meta table, and keeps its copy only when
+# every meta row is exactly what its load read, the token included. Anything
+# else reloads: a different token, a changed meta row, a token absent on
+# either side (an index written before this key, or by an older release).
+_CONTENT_GENERATION_KEY = "content_generation"
+
+
+def _bump_content_generation(conn: sqlite3.Connection) -> None:
+    """Write a new content generation inside the caller's open transaction.
+
+    A random token, not a counter: two writers never need to read the old
+    value, and no later write can bring back a value a reader holds.
+    """
+    conn.execute(
+        "INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)",
+        (_CONTENT_GENERATION_KEY, uuid.uuid4().hex),
+    )
+
+
+def _revalidate_cached(owner: str, name: str, branch: str, db_path: Path):
+    """The cached index if a write since its load changed nothing it holds.
+
+    Returns ``(index, mtime_ns)`` with the entry moved to the .db's current
+    stamp, or None (reload). Only a base view (``branch == ""``) qualifies: a
+    branch view also depends on its delta rows, which carry no generation.
+    The stamp is sampled before and after the meta read and must not move
+    between them, so a write that lands during the read is never hidden.
+    """
+    if branch:
+        return None
+    key = (owner, name, branch)
+    with _cache_lock:
+        entry = _index_cache.get(key)
+    if entry is None or not entry.meta or _CONTENT_GENERATION_KEY not in entry.meta:
+        return None
+    from .generation import connect_readonly
+
+    try:
+        before = _db_mtime_ns(db_path)
+        ro = connect_readonly(db_path)
+        try:
+            meta = {k: v for k, v in ro.execute("SELECT key, value FROM meta").fetchall()}
+        finally:
+            ro.close()
+        if _db_mtime_ns(db_path) != before:
+            return None
+    except Exception:
+        logger.debug("Content-generation check failed; reloading", exc_info=True)
+        return None
+    if meta != entry.meta:
+        return None
+    with _cache_lock:
+        current = _index_cache.get(key)
+        if current is None or current.code_index is not entry.code_index:
+            return None
+        _index_cache[key] = current._replace(mtime_ns=before, last_used=time.monotonic())
+        _index_cache.move_to_end(key)
+    return entry.code_index, before
 
 
 # Single-flight guards for cold index hydration (#370): concurrent cold
@@ -2055,6 +2131,7 @@ class SQLiteIndexStore:
             )
 
             self._write_meta(conn, index)
+            _bump_content_generation(conn)
 
             # Insert symbols
             conn.executemany(
@@ -2155,6 +2232,9 @@ class SQLiteIndexStore:
             cached = _cache_get(owner, safe_name, mtime_ns, branch)
             if cached is not None:
                 return _stamp_load_provenance(cached, db_path, mtime_ns)
+            kept = _revalidate_cached(owner, safe_name, branch, db_path)
+            if kept is not None:
+                return _stamp_load_provenance(kept[0], db_path, kept[1])
 
         # Single-flight cold hydration (#370): concurrent cold callers against
         # the same repo serialize here — one reads the rows and builds the
@@ -2179,6 +2259,13 @@ class SQLiteIndexStore:
             try:
                 conn = self._connect(db_path)
                 try:
+                    # One read transaction: the meta rows recorded on the cache
+                    # entry describe exactly the symbols and files read with
+                    # them. Three autocommit reads could pair a newer
+                    # content_generation with older rows, and that entry would
+                    # then be kept across every later write (`_revalidate_cached`).
+                    # Closing the connection ends it.
+                    conn.execute("BEGIN")
                     meta = self._read_meta(conn)
                     if not meta:
                         return None
@@ -2249,7 +2336,10 @@ class SQLiteIndexStore:
                 post_mtime_ns = _db_mtime_ns(db_path)
             except OSError:
                 post_mtime_ns = 0
-            _cache_put(owner, safe_name, post_mtime_ns, index, branch)
+            _cache_put(
+                owner, safe_name, post_mtime_ns, index, branch,
+                meta=None if branch else meta,
+            )
             return _stamp_load_provenance(index, db_path, post_mtime_ns)
 
     # ── Selective read path (#398 Arc 2) ─────────────────────────────
@@ -2715,6 +2805,7 @@ class SQLiteIndexStore:
                         changed += cur.rowcount
                         written[sid] = summary
                 if changed:
+                    _bump_content_generation(conn)
                     conn.execute(
                         "INSERT OR REPLACE INTO meta (key, value) VALUES ('summaries_generation', ?)",
                         (str(generation),),
@@ -2888,6 +2979,8 @@ class SQLiteIndexStore:
                     stored_cut = None
                 if stored_cut:
                     context_metadata = {**context_metadata, PROVIDERS_CUT_KEY: stored_cut}
+
+            _bump_content_generation(conn)
 
             # The stored BM25 statistics describe the symbols as they were;
             # cleared in this transaction, refilled by the next search (#1343).
@@ -4389,6 +4482,7 @@ class SQLiteIndexStore:
         conn = self._connect(db_path)
         try:
             conn.execute("BEGIN")
+            _bump_content_generation(conn)
             # Write meta
             meta_keys = {
                 "repo": data.get("repo", f"{owner}/{name}"),

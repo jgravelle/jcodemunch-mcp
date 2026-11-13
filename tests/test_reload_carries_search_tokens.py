@@ -52,11 +52,16 @@ def _by_name(index):
 
 
 def _write_from_elsewhere(db: Path, sql: str, params=()) -> None:
-    """A write the cache did not see: a separate connection, as another process makes."""
+    """A write the cache did not see: a separate connection, as another process makes.
+
+    Every writer of `symbols` writes a new content generation in the same
+    transaction (`tests/test_content_generation.py`), so this one does too.
+    """
     before = sqlite_store._db_mtime_ns(db)
     con = sqlite3.connect(str(db))
     try:
         con.execute(sql, params)
+        sqlite_store._bump_content_generation(con)
         con.commit()
     finally:
         con.close()
