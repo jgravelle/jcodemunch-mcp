@@ -2,6 +2,21 @@
 
 ## [Unreleased]
 
+### Fixed - a license key in a project `.jcodemunch.jsonc` warns instead of vanishing
+
+The license check reads `license_key` from `JCODEMUNCH_LICENSE_KEY` or the user's own `config.jsonc`. A key a customer put in a project `.jcodemunch.jsonc` was accepted into the project overlay, never reached that check, and nothing said so: the install read as unlicensed, `config` reported the key as the project's, and a paying customer had no clue why. Found while building the license-paths test (#1378).
+
+The project loader now refuses `license_key` the way it already refuses the trusted-folders keys, and logs a warning that names both supported places. It never prints the key. A key is never read from a project file at all, because a project file can be committed to a repository. The refused-keys list now carries a reason per key, so a license key is not explained with the trust keys' reason. A key in either supported place is unchanged.
+
+### Changed - the OpenAI defaults move off models OpenAI retires on 2027-01-14
+
+OpenAI's deprecations notice of 2026-10-14 removes gpt-4o, gpt-4o-mini, gpt-4.1 and gpt-4.1-mini from the API on 2027-01-14 and names `gpt-6-luna` as the replacement for all four. Two of our defaults pointed at them, so an install that never named a model would start failing that day:
+
+- The OpenAI summarizer's default model: `gpt-4o-mini` -> `gpt-6-luna`. It is one constant now (`OPENAI_DEFAULT_MODEL`), read by both the summarizer and `config --check`'s OpenAI-hosted row, which used to type it separately.
+- The agent selector's OpenAI order: low `gpt-4o-mini` -> `gpt-6-luna`, medium `gpt-4o` -> `gpt-6-sol`, high `o3` unchanged. OpenAI names one successor for both of the first two, so medium takes `gpt-6-sol`, which OpenAI names as the replacement for gpt-5.1, and the three tiers stay distinct.
+
+A model you set yourself (`OPENAI_MODEL`, `summarizer_model`, or your own batting order) is not touched. `model_tier_map`'s `gpt-4o` entry stays: it matches the client's model name to pick a tool tier and calls nothing. A test now fails if a quoted literal in `src/` names a retired OpenAI model, bare, dated (`gpt-4.1-mini-2025-04-14`) or provider-prefixed (`openai/gpt-4o-mini`).
+
 ### Fixed - the agent selector and the Gemini summarizer no longer default to models a new install cannot call
 
 The agent selector's built-in Anthropic order named two models a request cannot use today. Its medium tier was `claude-sonnet-4-20250514`, which Anthropic's deprecations page lists as retired on 2026-06-15. Its high tier was `claude-opus-4-20250115`, which is not a model id Anthropic has ever listed. The Google order named `gemini-2.0-flash`, which Google shut down on 2026-06-01, for its low tier. Its medium and high tiers named `gemini-2.5-pro`, which still answers but shuts down on 2026-12-01. So a user who set `agent_selector` to route without naming models could be routed to a model that returns an error, and from 2026-12-01 every Google tier would have. The low Anthropic tier, `claude-haiku-4-5-20251001`, is still active; it moves to `claude-haiku-5-5` so the three tiers name one model generation. The Gemini summarizer's default, `gemini-2.5-flash-lite`, is not deprecated, but Google limits 2.5 API access to accounts that have used it before, so the default failed on a new account.

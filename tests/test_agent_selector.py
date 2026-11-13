@@ -423,5 +423,6 @@ class TestDefaultProviders:
         assert DEFAULT_PROVIDERS["anthropic"]["high"] == "claude-opus-5-5"
 
     def test_openai_defaults(self):
-        assert DEFAULT_PROVIDERS["openai"]["low"] == "gpt-4o-mini"
+        assert DEFAULT_PROVIDERS["openai"]["low"] == "gpt-6-luna"
+        assert DEFAULT_PROVIDERS["openai"]["medium"] == "gpt-6-sol"
         assert DEFAULT_PROVIDERS["openai"]["high"] == "o3"

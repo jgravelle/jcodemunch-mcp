@@ -316,7 +316,7 @@ Opt-in complexity-based model routing. Off by default — zero behavioral change
 }
 ```
 
-Built-in default batting orders: Anthropic (`claude-haiku-5-5` / `claude-sonnet-5-5` / `claude-opus-5-5`), OpenAI (`gpt-4o-mini` / `gpt-4o` / `o3`), Google (`gemini-3.6-flash` / `gemini-3.8-flash` / `gemini-3.8-flash`).
+Built-in default batting orders: Anthropic (`claude-haiku-5-5` / `claude-sonnet-5-5` / `claude-opus-5-5`), OpenAI (`gpt-6-luna` / `gpt-6-sol` / `o3`), Google (`gemini-3.6-flash` / `gemini-3.8-flash` / `gemini-3.8-flash`).
 
 ### Freshness
 
@@ -381,7 +381,7 @@ A project value that is ignored is logged once, naming the key. Set it in your o
 
 Project config is loaded automatically when a repo is indexed. It uses hash-based caching — the file is only re-parsed when its content changes, not on every watcher cycle.
 
-A license key is not read from a project file. Set `license_key` in your own `config.jsonc` or the `JCODEMUNCH_LICENSE_KEY` environment variable; `license --key` and `install-pack --license` also take a key for one run. A `license_key` in `.jcodemunch.jsonc` is ignored, and no warning names it.
+A license key is not read from a project file. Set `license_key` in your own `config.jsonc` or the `JCODEMUNCH_LICENSE_KEY` environment variable; `license --key` and `install-pack --license` also take a key for one run. A `license_key` in `.jcodemunch.jsonc` is ignored, and the project loader logs a warning that names both places to put it instead (a project file can be committed to a repository).
 
 ## Migrating from environment variables
 

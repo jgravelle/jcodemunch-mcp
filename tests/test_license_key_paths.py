@@ -244,11 +244,13 @@ def test_install_pack_without_a_key_sends_none(pack_api, capsys):
 # --------------------------------------------------------------------------- #
 
 def test_a_key_in_project_config_is_not_read(server, capsys, monkeypatch, tmp_path, caplog):
-    """Records today's answer: `_license_key` reads `config.get("license_key")`
-    with no repo, so only the env var and the GLOBAL config.jsonc supply a key.
-    CONFIGURATION.md says so, including that no warning names the ignored key.
-    If project config should become a source, change the code, CONFIGURATION.md
-    and this cell together.
+    """Only the env var and the GLOBAL config.jsonc supply a key. Since
+    the CHANGELOG entry "a license key in a project `.jcodemunch.jsonc` warns
+    instead of vanishing", the project loader refuses a `license_key` and
+    warns, naming both places (it used to accept it into the overlay silently,
+    so a customer who put the key there read as unlicensed with no clue why).
+    CONFIGURATION.md says so. If project config should become a source, change
+    the code, CONFIGURATION.md and this cell together.
 
     The project file is loaded the way the server loads it when the repo is
     indexed, so the cell holds in a process that HAS read the file, not only in
@@ -261,9 +263,11 @@ def test_a_key_in_project_config_is_not_read(server, capsys, monkeypatch, tmp_pa
     monkeypatch.chdir(project)
     with caplog.at_level(logging.WARNING, logger="jcodemunch_mcp.config"):
         config_module.load_project_config(str(project))
-    assert config_module.get("license_key", repo=str(project)) == TEST_KEY  # the file WAS read
+    assert config_module.get("license_key", repo=str(project)) == ""  # refused at load
     assert lic.licence_key_configured() is False
-    assert not [r for r in caplog.records if "license_key" in r.getMessage()]
+    warned = [r.getMessage() for r in caplog.records if "license_key" in r.getMessage()]
+    assert warned and "JCODEMUNCH_LICENSE_KEY" in warned[0]
+    assert TEST_KEY not in warned[0]
     payload = json.loads(_run(capsys, ["license", "--json"]).out)
     assert server == []
     assert payload["key_status"] == "absent"

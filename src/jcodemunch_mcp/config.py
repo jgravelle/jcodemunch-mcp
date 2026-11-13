@@ -1189,8 +1189,20 @@ def racket_config_digest(repo: str | None) -> str:
 # A project's `.jcodemunch.jsonc` may tighten a setting, never loosen it:
 # it may turn a setting off, never on.
 #
-# Never read from a project file: which folders this install trusts.
-_PROJECT_NEVER_SETS = frozenset({"trusted_folders", "trusted_folders_whitelist_mode"})
+# Never read from a project file, each with the reason the loader's warning
+# gives: which folders this install trusts, and (found by the #1378
+# license-paths test) the license key. The license check reads `license_key` with no repo, so a
+# key in a project file never applied and nothing said so; and a project file
+# can be committed to a repository, so a key is never read from one.
+_TRUST_REASON = "which folders are trusted is set only in your own config"
+_PROJECT_NEVER_SETS: dict[str, str] = {
+    "trusted_folders": _TRUST_REASON,
+    "trusted_folders_whitelist_mode": _TRUST_REASON,
+    "license_key": (
+        "a license key is read only from your own config.jsonc or JCODEMUNCH_LICENSE_KEY, "
+        "because a project file can be committed to a repository"
+    ),
+}
 # Read from a project file only as far as the value is no more permissive than
 # the user's own (global or environment) value. `_apply_project_value` says,
 # key by key, what "more permissive" means.
@@ -1626,10 +1638,7 @@ def load_project_config(source_root: str) -> None:
                 overlay: dict[str, Any] = {}
                 for key, value in project_config.items():
                     if key in _PROJECT_NEVER_SETS:
-                        _warn_project_key(
-                            repo_key, key,
-                            "which folders are trusted is set only in your own config",
-                        )
+                        _warn_project_key(repo_key, key, _PROJECT_NEVER_SETS[key])
                         continue
                     if key in CONFIG_TYPES:
                         if _validate_type(key, value, CONFIG_TYPES[key]):
@@ -3147,7 +3156,7 @@ def generate_template() -> str:
   // Model name to use for the selected summarizer provider.
   // Leave empty ("") to use the provider's default model.
   // Examples: "claude-haiku-4-5-20251001" (anthropic), "gemini-3.5-flash-lite" (gemini),
-  //           "gpt-4o-mini" (openai), "minimax-m2.7" (minimax), "glm-5" (glm),
+  //           "gpt-6-luna" (openai), "minimax-m2.7" (minimax), "glm-5" (glm),
   //           "meta-llama/llama-3.3-70b-instruct:free" (openrouter)
   // "summarizer_model": "",
   // "embed_model": "",
