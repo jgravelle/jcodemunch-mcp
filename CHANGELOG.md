@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+### Fixed - a local OpenAI-compatible endpoint is sent a local default model, and `config --check` shows the one it is sent
+
+With `OPENAI_API_BASE` pointing at a local server and no model named (`OPENAI_MODEL` or `summarizer_model`), the summarizer sent `gpt-6-luna`, OpenAI's hosted default, which a local server does not serve. `config --check` showed `qwen3-coder` for the same setup, so the report and the request disagreed. The summarizer class's own default was already `qwen3-coder`; the factory overrode it with the hosted constant for every base URL.
+
+`openai_default_model(base_url)` is now the one rule, and the factory and `config --check` both read it. No base, `api.openai.com`, or a regional host under it gets `gpt-6-luna`. Any other base gets `qwen3-coder`. This also fixes the opposite case: an explicit `OPENAI_API_BASE=https://api.openai.com/v1` was reported as `qwen3-coder` and is now reported as `gpt-6-luna`, the model sent once `allow_remote_summarizer` permits a remote base. A model you name is used as before.
+
+What changes for you: a local-endpoint setup that named no model was sent `gpt-6-luna` and is now sent `qwen3-coder`. If your server serves a different model, set `OPENAI_MODEL` or `summarizer_model`.
+
 ## [1.108.443] - 2026-11-13 - a built-in default names a model the provider still serves
 
 ### Fixed - a license key in a project `.jcodemunch.jsonc` warns instead of vanishing
