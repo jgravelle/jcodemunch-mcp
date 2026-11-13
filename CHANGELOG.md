@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+### Fixed - a license key in a project `.jcodemunch.jsonc` warns instead of vanishing
+
+The license check reads `license_key` from `JCODEMUNCH_LICENSE_KEY` or the user's own `config.jsonc`. A key a customer put in a project `.jcodemunch.jsonc` was accepted into the project overlay, never reached that check, and nothing said so: the install read as unlicensed, `config` reported the key as the project's, and a paying customer had no clue why. Found while building the license-paths test (#1378).
+
+The project loader now refuses `license_key` the way it already refuses the trusted-folders keys, and logs a warning that names both supported places. It never prints the key. A key is never read from a project file at all, because a project file can be committed to a repository. The refused-keys list now carries a reason per key, so a license key is not explained with the trust keys' reason. A key in either supported place is unchanged.
+
 ### Changed - the OpenAI defaults move off models OpenAI retires on 2027-01-14
 
 OpenAI's deprecations notice of 2026-10-14 removes gpt-4o, gpt-4o-mini, gpt-4.1 and gpt-4.1-mini from the API on 2027-01-14 and names `gpt-6-luna` as the replacement for all four. Two of our defaults pointed at them, so an install that never named a model would start failing that day:
