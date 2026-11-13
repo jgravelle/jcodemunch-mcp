@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.444] - 2026-11-13 - a local OpenAI-compatible endpoint is sent a model it serves
+
 ### Fixed - a local OpenAI-compatible endpoint is sent a local default model, and `config --check` shows the one it is sent
 
 With `OPENAI_API_BASE` pointing at a local server and no model named (`OPENAI_MODEL` or `summarizer_model`), the summarizer sent `gpt-6-luna`, OpenAI's hosted default, which a local server does not serve. `config --check` showed `qwen3-coder` for the same setup, so the report and the request disagreed. The summarizer class's own default was already `qwen3-coder`; the factory overrode it with the hosted constant for every base URL.

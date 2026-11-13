@@ -1,6 +1,12 @@
 {
-  "current": "1.108.443",
+  "current": "1.108.444",
   "entries": [
+    {
+      "version": "1.108.444",
+      "date": "2026-11-13",
+      "title": "a local OpenAI-compatible endpoint is sent a model it serves",
+      "summary": "With OPENAI_API_BASE pointing at a local server and no model named, the summarizer sent OpenAI's hosted default, which a local server does not serve, while config --check showed qwen3-coder. One rule now picks the default from the base URL, read by both: api.openai.com gets gpt-6-luna, any other base gets qwen3-coder. A model you name is used as before."
+    },
     {
       "version": "1.108.443",
       "date": "2026-11-13",
