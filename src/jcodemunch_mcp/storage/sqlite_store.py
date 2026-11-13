@@ -2264,7 +2264,7 @@ class SQLiteIndexStore:
                     # them. Three autocommit reads could pair a newer
                     # content_generation with older rows, and that entry would
                     # then be kept across every later write (`_revalidate_cached`).
-                    # Closing the connection ends it.
+                    # An early return ends it by closing the connection.
                     conn.execute("BEGIN")
                     meta = self._read_meta(conn)
                     if not meta:
@@ -2289,6 +2289,9 @@ class SQLiteIndexStore:
 
                     symbol_rows = conn.execute("SELECT * FROM symbols").fetchall()
                     file_rows = conn.execute("SELECT * FROM files").fetchall()
+                    # The snapshot is complete; end it before the build, so a
+                    # long hydration never pins the WAL against a checkpoint.
+                    conn.execute("COMMIT")
 
                     index = self._build_index_from_rows(meta, symbol_rows, file_rows, owner, name)
                     if stale_index is not None:

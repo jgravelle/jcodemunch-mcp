@@ -251,10 +251,19 @@ def _writers(tree: ast.AST) -> dict[str, bool]:
         # would have to join `_UNLOCKED_META_KEYS`. Exempt by NAME and by the
         # write, never by the word appearing somewhere in the body.
         migrates = node.name.startswith("_migrate_v") and any(
-            isinstance(n, ast.Constant) and n.value == "index_version" for n in ast.walk(node)
+            _writes_index_version(n) for n in ast.walk(node)
         )
         out[node.name] = bumps or migrates
     return out
+
+
+def _writes_index_version(node: ast.AST) -> bool:
+    """A call whose SQL writes `meta` and whose arguments name `index_version`."""
+    if not isinstance(node, ast.Call):
+        return False
+    consts = [n.value for n in ast.walk(node) if isinstance(n, ast.Constant) and isinstance(n.value, str)]
+    writes_meta = any(re.search(r"\b(?:INSERT|REPLACE|UPDATE)\b[^;]*\bmeta\b", c, re.IGNORECASE) for c in consts)
+    return writes_meta and any(c == "index_version" or "'index_version'" in c for c in consts)
 
 
 def test_every_symbol_or_file_writer_bumps_the_generation():
@@ -291,3 +300,10 @@ def test_the_migration_exemption_needs_the_name():
         "    conn.execute('INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)', ('index_version', '5'))\n"
     )
     assert _writers(tree) == {"_migrate_v4_to_v5": True}
+    # A migration that only READS index_version is not exempt.
+    tree = ast.parse(
+        "def _migrate_v9_to_v10(conn):\n"
+        "    v = conn.execute('SELECT value FROM meta WHERE key = ?', ('index_version',))\n"
+        "    conn.execute('UPDATE symbols SET name = name')\n"
+    )
+    assert _writers(tree) == {"_migrate_v9_to_v10": False}
