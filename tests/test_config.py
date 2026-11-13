@@ -1440,6 +1440,70 @@ class TestSummarizerModelDisplay:
             rows = [l for l in capsys.readouterr().out.splitlines() if "OPENAI_MODEL" in l]
             assert rows and "sentinel-model-x" in rows[0], rows
 
+    @pytest.mark.parametrize(
+        "base, which",
+        [
+            ("https://api.openai.com/v1", "hosted"),
+            ("http://localhost:11434/v1", "local"),
+        ],
+    )
+    def test_openai_model_row_reads_the_shared_rule(
+        self, capsys, monkeypatch, base, which
+    ):
+        """`config` reads `openai_default_model`, so an explicit api.openai.com
+        base is reported as hosted and a local base as local."""
+        from jcodemunch_mcp.summarizer import batch_summarize as bs
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp = Path(tmpdir)
+            self._setup(
+                monkeypatch, tmp,
+                project_config={},
+                env_vars={
+                    "JCODEMUNCH_SUMMARIZER_PROVIDER": "openai",
+                    "OPENAI_API_KEY": "sk-test-not-a-real-key",
+                    "OPENAI_API_BASE": base,
+                },
+            )
+            monkeypatch.setattr(bs, "OPENAI_DEFAULT_MODEL", "sentinel-hosted")
+            monkeypatch.setattr(bs, "OPENAI_LOCAL_DEFAULT_MODEL", "sentinel-local")
+            from jcodemunch_mcp.server import _run_config
+            _run_config(check=False)
+            rows = [l for l in capsys.readouterr().out.splitlines() if "OPENAI_MODEL" in l]
+            assert rows and f"sentinel-{which}" in rows[0], rows
+
+    @pytest.mark.parametrize(
+        "base",
+        [None, "https://api.openai.com/v1", "https://eu.api.openai.com/v1", "http://localhost:11434/v1"],
+    )
+    def test_openai_model_row_matches_what_the_runtime_sends(self, capsys, monkeypatch, base):
+        """Agreement observed, not assumed: run `_create_summarizer` and `config`
+        on the same base and compare the model sent with the model reported."""
+        from jcodemunch_mcp.summarizer import batch_summarize as bs
+
+        env = {"JCODEMUNCH_SUMMARIZER_PROVIDER": "openai", "OPENAI_API_KEY": "sk-test-not-a-real-key"}
+        if base:
+            env["OPENAI_API_BASE"] = base
+        with tempfile.TemporaryDirectory() as tmpdir:
+            self._setup(monkeypatch, Path(tmpdir), project_config={}, env_vars=env)
+            sent = {}
+
+            class _Captured:
+                client = object()
+
+            def fake_make(api_key, base_url, model, repo=None):
+                sent["model"] = model
+                return _Captured()
+
+            monkeypatch.setattr(bs, "_make_openai_compat", fake_make)
+            monkeypatch.setattr(bs, "get_provider_name", lambda repo=None: "openai")
+            monkeypatch.setattr(bs, "get_model_name", lambda repo=None: "")
+            assert bs._create_summarizer() is not None
+            from jcodemunch_mcp.server import _run_config
+            _run_config(check=False)
+            rows = [l for l in capsys.readouterr().out.splitlines() if "OPENAI_MODEL" in l]
+            assert rows and sent["model"] in rows[0], (sent, rows)
+
 
 class TestClaudeMdDriftCheck:
     """config --check: CLAUDE.md drift detection."""

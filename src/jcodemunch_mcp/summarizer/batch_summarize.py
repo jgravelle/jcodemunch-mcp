@@ -28,8 +28,29 @@ _AUTO_DETECT_ORDER = [
 # The model an OpenAI summarizer uses when neither OPENAI_MODEL nor
 # `summarizer_model` names one. OpenAI retires gpt-4o-mini on 2027-01-14 and
 # names gpt-6-luna as its replacement (developers.openai.com deprecations,
-# notice of 2026-10-14). `config --check` reads it for the OpenAI-hosted case.
+# notice of 2026-10-14).
 OPENAI_DEFAULT_MODEL = "gpt-6-luna"
+# The default for any other OpenAI-compatible base (a local server, a
+# self-hosted gateway), which does not serve OpenAI's hosted models.
+OPENAI_LOCAL_DEFAULT_MODEL = "qwen3-coder"
+_OPENAI_HOSTED_HOST = "api.openai.com"
+
+
+def openai_default_model(base_url: Optional[str]) -> str:
+    """The model sent when nothing names one, decided by the base URL.
+
+    The one rule: `_create_summarizer` sends it and `config --check` reports it,
+    so the two cannot disagree. No base, or an OpenAI host (api.openai.com or a
+    regional host under it), gets the hosted default; any other base gets the
+    local default.
+    """
+    if not base_url:
+        return OPENAI_DEFAULT_MODEL
+    host = (urlparse(base_url.strip()).hostname or "").lower().rstrip(".")
+    hosted = host == _OPENAI_HOSTED_HOST or host.endswith("." + _OPENAI_HOSTED_HOST)
+    return OPENAI_DEFAULT_MODEL if hosted else OPENAI_LOCAL_DEFAULT_MODEL
+
+
 _VALID_PROVIDERS = {"anthropic", "gemini", "openai", "minimax", "glm", "openrouter", "none"}
 
 # Providers that bill a remote cloud account per call. A bare env key for any of
@@ -612,7 +633,7 @@ class OpenAIBatchSummarizer(BaseSummarizer):
     and GLM-5.
     """
 
-    model: str = "qwen3-coder"
+    model: str = OPENAI_LOCAL_DEFAULT_MODEL
     api_base: Optional[str] = None
     api_key: str = "local-llm"
 
@@ -883,10 +904,11 @@ def _create_summarizer(repo: Optional[str] = None) -> Optional[BaseSummarizer]:
         s = GeminiBatchSummarizer(repo=repo)
         return s if s.client else None
     if name == "openai":
+        base_url = os.environ.get("OPENAI_API_BASE", "https://api.openai.com/v1")
         s = _make_openai_compat(
             api_key=os.environ.get("OPENAI_API_KEY", "local-llm"),
-            base_url=os.environ.get("OPENAI_API_BASE", "https://api.openai.com/v1"),
-            model=model_override or os.environ.get("OPENAI_MODEL", OPENAI_DEFAULT_MODEL),
+            base_url=base_url,
+            model=model_override or os.environ.get("OPENAI_MODEL", openai_default_model(base_url)),
             repo=repo,
         )
         return s if s.client else None
