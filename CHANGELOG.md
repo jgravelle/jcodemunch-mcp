@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.443] - 2026-11-13 - a built-in default names a model the provider still serves
+
 ### Fixed - a license key in a project `.jcodemunch.jsonc` warns instead of vanishing
 
 The license check reads `license_key` from `JCODEMUNCH_LICENSE_KEY` or the user's own `config.jsonc`. A key a customer put in a project `.jcodemunch.jsonc` was accepted into the project overlay, never reached that check, and nothing said so: the install read as unlicensed, `config` reported the key as the project's, and a paying customer had no clue why. Found while building the license-paths test (#1378).

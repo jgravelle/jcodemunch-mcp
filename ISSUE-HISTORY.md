@@ -3260,3 +3260,9 @@ The 1.108.438 entry, verbatim as it stood in `CLAUDE.md`:
 The 1.108.439 entry, verbatim as it stood in `CLAUDE.md`:
 
 - **Prior (1.108.439):** **tokens_saved is a token count, not bytes divided by 4**: each indexed file is counted with tiktoken cl100k_base at save (`token_counts`), scaled per language to Claude; the encoding is fetched once on first use (`tokenizer_download`), the table is the fallback, `_meta.tokens_saved_basis` names the path. Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-13, release 1.108.443)
+
+The 1.108.440 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.440):** **a project's own ignore negation wins over a framework profile's default** (#1398, @dkiaulakis): `get_extra_ignore_patterns` builds profile + config + call, so a profile pattern has the lowest precedence on the walk and in `index_file`, whose refusal names the `!<pattern>` negation. Full text: `CHANGELOG.md`.

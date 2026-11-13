@@ -1,6 +1,12 @@
 {
-  "current": "1.108.442",
+  "current": "1.108.443",
   "entries": [
+    {
+      "version": "1.108.443",
+      "date": "2026-11-13",
+      "title": "a built-in default names a model the provider still serves",
+      "summary": "The agent selector's Anthropic and Google orders and the Gemini summarizer default named models a new install could not call, and the OpenAI defaults named models OpenAI removes on 2027-01-14. Every default now names a current model, read on the provider's own pages, and a scan keeps the retired ids out. A model you set in config is used as before. A license_key in a project .jcodemunch.jsonc now logs a warning instead of being dropped in silence."
+    },
     {
       "version": "1.108.442",
       "date": "2026-11-12",
