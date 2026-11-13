@@ -18,9 +18,12 @@ DEFAULT_PROVIDERS: dict[str, dict[str, str]] = {
         "medium": "claude-sonnet-4-20250514",
         "high": "claude-opus-4-20250115",
     },
+    # gpt-4o-mini and gpt-4o retire 2027-01-14 (OpenAI deprecations, notice of
+    # 2026-10-14), both replaced by gpt-6-luna. medium is gpt-6-sol, which OpenAI
+    # names as the replacement for gpt-5.1, so the three tiers stay distinct.
     "openai": {
-        "low": "gpt-4o-mini",
-        "medium": "gpt-4o",
+        "low": "gpt-6-luna",
+        "medium": "gpt-6-sol",
         "high": "o3",
     },
     "google": {

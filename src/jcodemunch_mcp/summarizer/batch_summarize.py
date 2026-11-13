@@ -25,6 +25,11 @@ _AUTO_DETECT_ORDER = [
     ("ZHIPUAI_API_KEY", "glm"),
     ("OPENROUTER_API_KEY", "openrouter"),
 ]
+# The model an OpenAI summarizer uses when neither OPENAI_MODEL nor
+# `summarizer_model` names one. OpenAI retires gpt-4o-mini on 2027-01-14 and
+# names gpt-6-luna as its replacement (developers.openai.com deprecations,
+# notice of 2026-10-14). `config --check` reads it for the OpenAI-hosted case.
+OPENAI_DEFAULT_MODEL = "gpt-6-luna"
 _VALID_PROVIDERS = {"anthropic", "gemini", "openai", "minimax", "glm", "openrouter", "none"}
 
 # Providers that bill a remote cloud account per call. A bare env key for any of
@@ -878,7 +883,7 @@ def _create_summarizer(repo: Optional[str] = None) -> Optional[BaseSummarizer]:
         s = _make_openai_compat(
             api_key=os.environ.get("OPENAI_API_KEY", "local-llm"),
             base_url=os.environ.get("OPENAI_API_BASE", "https://api.openai.com/v1"),
-            model=model_override or os.environ.get("OPENAI_MODEL", "gpt-4o-mini"),
+            model=model_override or os.environ.get("OPENAI_MODEL", OPENAI_DEFAULT_MODEL),
             repo=repo,
         )
         return s if s.client else None

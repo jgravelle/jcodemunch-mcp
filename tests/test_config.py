@@ -1417,6 +1417,30 @@ class TestSummarizerModelDisplay:
             )
 
 
+    def test_openai_hosted_default_row_reads_the_shared_constant(
+        self, capsys, monkeypatch
+    ):
+        """Backlog 96: the OpenAI-hosted default `config` reports is the summarizer's
+        `OPENAI_DEFAULT_MODEL`, not a second typed copy."""
+        from jcodemunch_mcp.summarizer import batch_summarize as bs
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp = Path(tmpdir)
+            self._setup(
+                monkeypatch, tmp,
+                project_config={},
+                env_vars={
+                    "JCODEMUNCH_SUMMARIZER_PROVIDER": "openai",
+                    "OPENAI_API_KEY": "sk-test-not-a-real-key",
+                },
+            )
+            monkeypatch.setattr(bs, "OPENAI_DEFAULT_MODEL", "sentinel-model-x")
+            from jcodemunch_mcp.server import _run_config
+            _run_config(check=False)
+            rows = [l for l in capsys.readouterr().out.splitlines() if "OPENAI_MODEL" in l]
+            assert rows and "sentinel-model-x" in rows[0], rows
+
+
 class TestClaudeMdDriftCheck:
     """config --check: CLAUDE.md drift detection."""
 
