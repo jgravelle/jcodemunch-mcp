@@ -1,6 +1,12 @@
 {
-  "current": "1.108.445",
+  "current": "1.108.446",
   "entries": [
+    {
+      "version": "1.108.446",
+      "date": "2026-11-14",
+      "title": "a running server that serves older code than is installed is named",
+      "summary": "Upgrading the package does not reach a server that is already running. install-status now lists the running servers on this index store and marks each one restart required, current or unknown; it reports only and stops nothing. USER_GUIDE.md gains \"Upgrading a running server\", with the three ways to read the serving version and a deploy check."
+    },
     {
       "version": "1.108.445",
       "date": "2026-11-13",
