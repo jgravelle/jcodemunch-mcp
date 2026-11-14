@@ -175,12 +175,14 @@ def test_a_refresh_past_its_budget_says_so(indexed, monkeypatch):
     again = ror.refresh_before_read(repo, storage_path=store)
     assert again == {"reason": "in_progress", "refreshed": None}
     assert started == [1]
-    release.set()
     # Wait on the worker itself, not a fixed deadline: a slow runner once took
     # longer than 10 s to finish the held re-index, and the poll failed a run
-    # whose behaviour was correct. The join bound only stops a hang.
+    # whose behaviour was correct. The snapshot is taken while the worker is
+    # parked in `release.wait`, so it cannot finish before it is seen. The join
+    # bound only stops a hang.
     workers = [t for t in threading.enumerate() if t.name == "jcm-refresh-on-read"]
     assert workers, "the re-index ran on no named worker thread"
+    release.set()
     for w in workers:
         w.join(300)
     assert not ror._in_flight
