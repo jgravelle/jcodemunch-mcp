@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+### Fixed - on macOS, a process is identified by its creation time, not by its PID alone
+
+Every check that asks "is this still the same process?" compares a recorded creation time with the one the OS reports now: the parent watch that stops a server whose client died, the lock files that keep one watcher per repository, and the process registry. The creation time came from Windows' `GetProcessTimes` or Linux's `/proc`, and on macOS the function returned nothing, so each check fell back to "is this PID alive?". A server whose client died and whose PID the system then gave to another process kept running, and a lock left by a dead process whose PID had been reused read as held, so no new watcher could start. The first full test run on macOS failed on both.
+
+macOS now reads the start time through libproc (`proc_pidinfo` with `PROC_PIDTBSDINFO`), as epoch seconds stamped once at fork, so two readings of one process agree exactly. A record that is short, names another PID, or carries a zero start is unknown, never a time to compare against.
+
 ## [1.108.446] - 2026-11-14 - a running server that serves older code than is installed is named
 
 ### Added - `install-status` says which running servers need a restart after an upgrade (#1435)
