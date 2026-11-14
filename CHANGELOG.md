@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+### Added - `install-status` says which running servers need a restart after an upgrade (#1435)
+
+@dkiaulakis found a shared HTTP server still serving 1.108.442 after its environment was upgraded to 1.108.444. They caught it through `jcodemunch_guide`'s `version`. Upgrading a package changes what a new process loads, never what a running one already imported. Every server already recorded its version and start time in the presence registry, but nothing compared a running server with what is installed, and the one stale-code check that existed answered only for source installs.
+
+`install-status` now lists the running servers that share this index store and marks each one restart required, current, or unknown. On a pip, uv tool or pipx install the recorded version is the loaded code, so a version that differs from the installed one is a code gap. On a source install every process reports the same metadata version, so the source mtime against the start time decides. The comparison needs the server to serve this install, so each server now also records the directory it imported its package from. A server on another install, or one an older release started, is unknown, never current. The report stops nothing; restarting stays with the client or the service manager. `upgrade` now says that a running server is not reached by the upgrade and points at `install-status`.
+
+USER_GUIDE.md gains "Upgrading a running server": restart, then confirm the serving instance through `serverInfo.version`, the `munch://runtime/identity` resource, or `jcodemunch_guide`, none of which needs an index, a model call or a tier change. SECURITY.md's presence-file entry names the new install-directory field.
+
 ## [1.108.445] - 2026-11-13 - a write that changes no symbol leaves other processes' indexes in place
 
 ### Changed - a write that changes no symbol no longer makes every other process reload the index
