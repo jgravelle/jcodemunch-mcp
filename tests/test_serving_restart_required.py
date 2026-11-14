@@ -37,23 +37,34 @@ def _entry(version="1.108.442", package_dir=PKG, started=None):
     )
 
 
-def test_copied_install_behind_the_installed_version_requires_restart():
-    v = pr.restart_verdict(
-        _entry("1.108.442"),
-        installed_version="1.108.444",
-        package_dir=PKG,
-        source_changed_at=None,
+def _verdict(
+    entry,
+    installed="1.108.444",
+    package_dir=PKG,
+    source_layout=False,
+    source_changed_at=None,
+):
+    return pr.restart_verdict(
+        entry,
+        installed_version=installed,
+        package_dir=package_dir,
+        source_layout=source_layout,
+        source_changed_at=source_changed_at,
     )
+
+
+def test_copied_install_behind_the_installed_version_requires_restart():
+    v = _verdict(_entry("1.108.442"))
     assert v["restart_required"] is True
     assert v["basis"] == "version"
     assert "1.108.442" in v["reason"] and "1.108.444" in v["reason"]
 
 
 def test_copied_install_on_the_installed_version_needs_no_restart():
-    v = pr.restart_verdict(
+    v = _verdict(
         _entry("1.108.444"),
-        installed_version="1.108.444",
-        package_dir=PKG,
+        installed="1.108.444",
+        source_layout=False,
         source_changed_at=None,
     )
     assert v["restart_required"] is False
@@ -61,10 +72,10 @@ def test_copied_install_on_the_installed_version_needs_no_restart():
 
 
 def test_a_server_on_another_install_is_unknown_not_current():
-    v = pr.restart_verdict(
+    v = _verdict(
         _entry("1.108.444", package_dir=str(Path("/elsewhere/jcodemunch_mcp"))),
-        installed_version="1.108.444",
-        package_dir=PKG,
+        installed="1.108.444",
+        source_layout=False,
         source_changed_at=None,
     )
     assert v["restart_required"] is None
@@ -72,20 +83,20 @@ def test_a_server_on_another_install_is_unknown_not_current():
 
 
 def test_a_row_without_an_install_record_is_unknown():
-    v = pr.restart_verdict(
+    v = _verdict(
         _entry("1.108.442", package_dir=None),
-        installed_version="1.108.444",
-        package_dir=PKG,
+        installed="1.108.444",
+        source_layout=False,
         source_changed_at=None,
     )
     assert v["restart_required"] is None
 
 
 def test_an_unknown_installed_version_is_unknown():
-    v = pr.restart_verdict(
+    v = _verdict(
         _entry("1.108.442"),
-        installed_version="unknown",
-        package_dir=PKG,
+        installed="unknown",
+        source_layout=False,
         source_changed_at=None,
     )
     assert v["restart_required"] is None
@@ -98,20 +109,41 @@ def test_source_install_uses_the_source_mtime_not_the_version():
     later = (started + timedelta(minutes=5)).timestamp()
     earlier = (started - timedelta(minutes=5)).timestamp()
     same = _entry("1.108.444", started=started)
-    stale = pr.restart_verdict(
+    stale = _verdict(
         same,
-        installed_version="1.108.444",
-        package_dir=PKG,
+        installed="1.108.444",
+        source_layout=True,
         source_changed_at=later,
     )
-    fresh = pr.restart_verdict(
+    fresh = _verdict(
         same,
-        installed_version="1.108.444",
-        package_dir=PKG,
+        installed="1.108.444",
+        source_layout=True,
         source_changed_at=earlier,
     )
     assert stale["restart_required"] is True and stale["basis"] == "source_mtime"
     assert fresh["restart_required"] is False and fresh["basis"] == "source_mtime"
+
+
+def test_source_install_with_an_unreadable_mtime_is_unknown_not_current():
+    # The metadata version is the same string in every process on a source
+    # install, so falling back to it would report current for a comparison
+    # that was never made.
+    v = _verdict(_entry("1.108.444"), source_layout=True, source_changed_at=None)
+    assert v["restart_required"] is None
+    assert v["basis"] == "source_mtime"
+
+
+def test_an_unknown_layout_is_unknown():
+    v = _verdict(_entry("1.108.442"), source_layout=None)
+    assert v["restart_required"] is None
+
+
+def test_the_session_stats_row_does_not_carry_the_install_path():
+    # sprawl_report reaches the model through get_session_stats.
+    row = _entry().as_dict(None)
+    assert "package_dir" not in row
+    assert _entry().as_dict(None, include_package_dir=True)["package_dir"] == PKG
 
 
 def test_register_records_the_install_and_the_reader_returns_it(tmp_path):
@@ -139,6 +171,9 @@ def test_serving_report_counts_the_three_verdicts(tmp_path, monkeypatch):
     monkeypatch.setattr(pr, "_installed_version", lambda: "1.108.444")
     monkeypatch.setattr(
         "jcodemunch_mcp.install_layout.running_source_changed_at", lambda: None
+    )
+    monkeypatch.setattr(
+        "jcodemunch_mcp.install_layout.is_source_layout", lambda p: False
     )
     rep = pr.serving_report(str(tmp_path))
     assert rep["installed_version"] == "1.108.444"

@@ -16,10 +16,12 @@ daemon to keep the registry honest. This deliberately reuses
 ``process_locks._is_live_holder`` rather than inventing a second liveness
 notion.
 
-Contains no repo paths, no queries, and no file contents. It does record the
+Contains no queries and no file contents. The one path it records is the
 directory the server's own package was imported from (#1435), so a reader can
-tell whether a running server serves THIS install. Written under the index
-store, disclosed in SECURITY.md alongside the lock files and the savings meter.
+tell whether a running server serves THIS install; on a source install that
+directory sits inside the jcodemunch checkout. Only `install-status` reads it
+back; `get_session_stats` does not return it. Written under the index store,
+disclosed in SECURITY.md alongside the lock files and the savings meter.
 """
 
 from __future__ import annotations
@@ -97,7 +99,9 @@ class ProcessEntry:
             started = started.replace(tzinfo=timezone.utc)
         return source_changed_at > started.timestamp()
 
-    def as_dict(self, source_changed_at: Optional[float] = None) -> dict:
+    def as_dict(
+        self, source_changed_at: Optional[float] = None, *, include_package_dir: bool = False
+    ) -> dict:
         out = {
             "pid": self.pid,
             "client_id": self.client_id,
@@ -115,7 +119,10 @@ class ProcessEntry:
             out["age_seconds"] = round(age, 1)
         if self.create_time is not None:
             out["create_time"] = self.create_time
-        if self.package_dir is not None:
+        # ⚠ Off by default: `sprawl_report` reaches the model through
+        # `get_session_stats`, and an install path is not that response's to
+        # carry. `install-status`, a local CLI, asks for it.
+        if include_package_dir and self.package_dir is not None:
             out["package_dir"] = self.package_dir
         return out
 
@@ -253,6 +260,7 @@ def restart_verdict(
     *,
     installed_version: str,
     package_dir: Optional[str],
+    source_layout: Optional[bool],
     source_changed_at: Optional[float],
 ) -> dict:
     """Does this running server serve older code than is installed now? (#1435)
@@ -266,6 +274,10 @@ def restart_verdict(
     mtime later than the server's start can (`code_stale`). On a COPIED install
     (pip, uv tool, pipx) the recorded version IS the loaded code, so a version
     that differs from the installed one is a code gap.
+    ⚠⚠ The layout is passed in, never inferred from `source_changed_at`: that
+    is None on a source install whose mtime walk failed too, and falling through
+    to the version check there compares the one metadata string every process
+    shares and reports current for a comparison that was never made.
     ⚠ The comparison holds only for a server serving THIS install. A server
     imported from another directory (another venv, a uvx cache) answers about
     an install this process did not read, so it is UNKNOWN, never current.
@@ -275,7 +287,7 @@ def restart_verdict(
             "restart_required": None,
             "basis": None,
             "reason": "no install record (started by an older release, or the "
-            "path was unreadable); one restart records it",
+            "path was unreadable)",
         }
     if not _same_dir(entry.package_dir, package_dir):
         return {
@@ -283,7 +295,19 @@ def restart_verdict(
             "basis": None,
             "reason": f"serves a different install ({entry.package_dir})",
         }
-    if source_changed_at is not None:
+    if source_layout is None:
+        return {
+            "restart_required": None,
+            "basis": None,
+            "reason": "install layout could not be established",
+        }
+    if source_layout:
+        if source_changed_at is None:
+            return {
+                "restart_required": None,
+                "basis": "source_mtime",
+                "reason": "source install, but the source mtime was unreadable",
+            }
         stale = entry.code_stale(source_changed_at)
         if stale is None:
             return {
@@ -324,22 +348,30 @@ def serving_report(storage_path: Optional[str] = None) -> dict:
     `_processes` directory, i.e. on this machine and this CODE_INDEX_PATH; a
     server elsewhere is not listed, and the `scope` field says so.
     """
-    from ..install_layout import running_source_changed_at
+    from ..install_layout import is_source_layout, running_source_changed_at
 
     installed = _installed_version()
     here = _package_dir()
+    layout: Optional[bool] = None
+    if here:
+        try:
+            layout = is_source_layout(Path(here) / "__init__.py")
+        except Exception:
+            logger.debug("process registry: layout unreadable", exc_info=True)
+            layout = None
     changed_at = running_source_changed_at()
     me = os.getpid()
     servers = []
     for e in live_processes(storage_path):
         if e.pid == me:
             continue
-        row = e.as_dict(changed_at)
+        row = e.as_dict(changed_at, include_package_dir=True)
         row.update(
             restart_verdict(
                 e,
                 installed_version=installed,
                 package_dir=here,
+                source_layout=layout,
                 source_changed_at=changed_at,
             )
         )

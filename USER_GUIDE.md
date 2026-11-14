@@ -658,13 +658,13 @@ Upgrading the package (`pip install -U`, `uv tool upgrade`, `pipx upgrade`) chan
 On the machine that runs the servers, `jcodemunch-mcp install-status` lists every running server that shares this index store (`CODE_INDEX_PATH`) and marks each one:
 
 - `[!] RESTART REQUIRED`: on a pip, uv tool or pipx install, the server's recorded version differs from the installed version. On a source install, the source changed after the server started.
-- `[ok]`: the server serves the installed code.
+- `[ok]`: the server serves the installed version (on a source install: it started after the last source change).
 - `[?]`: unknown. The server runs from a different install (another virtual environment, a `uvx` cache), or an older release started it and did not record its install directory. Unknown is never reported as current.
 
-It reports only and stops nothing. `install-status --json` carries the same data under `servers`, with `restart_required` set to `true`, `false` or `null` per server. A deploy check that treats unknown as not verified:
+It reports only and stops nothing. It sees only servers registered under the same index store on the same machine; a service that runs under another account or another `CODE_INDEX_PATH` is not listed, so check that one through its own `serverInfo.version` or identity resource. `install-status --json` carries the same data under `servers`, with `restart_required` set to `true`, `false` or `null` per server. A deploy check that exits 0 only when at least one server is listed and every listed server is current, so an unreadable block, an empty list and an unknown all fail:
 
 ```bash
-jcodemunch-mcp install-status --json | python -c "import json,sys; s=json.load(sys.stdin).get('servers') or {}; sys.exit(1 if s.get('restart_required') or s.get('unknown') else 0)"
+jcodemunch-mcp install-status --json | python -c "import json,sys; s=json.load(sys.stdin).get('servers'); sys.exit(0 if s and s.get('servers') and not s.get('restart_required') and not s.get('unknown') else 1)"
 ```
 
 ---
