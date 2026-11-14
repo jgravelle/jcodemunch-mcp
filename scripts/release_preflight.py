@@ -80,10 +80,28 @@ def _run(cmd: list[str], *, gh: bool = False) -> tuple[int, str]:
 
 
 def _gh_json(path: str, *extra: str):
+    if "--paginate" in extra:
+        # gh prints one JSON document per page, and json.loads raises "Extra
+        # data" on the second, so a multi-page read failed a green build here.
+        raise ValueError("a --paginate read goes through _gh_json_pages")
     rc, out = _run(["gh", "api", path, *extra], gh=True)
     if rc != 0:
         raise RuntimeError(out.strip()[-400:])
     return json.loads(out)
+
+
+def _gh_json_pages(path: str, jq: str) -> list:
+    """Every page of a paginated `gh api` read, one parsed value per page.
+
+    `gh api --paginate --jq <expr>` prints the expression's value for each page
+    as compact JSON on its own line. Each line is parsed on its own; a line that
+    does not parse raises, so the caller fails closed. The one reader of a
+    paginated `gh api` call in this file: `_gh_json` refuses `--paginate`.
+    """
+    rc, out = _run(["gh", "api", path, "--paginate", "--jq", jq], gh=True)
+    if rc != 0:
+        raise RuntimeError(out.strip()[-400:])
+    return [json.loads(line) for line in out.splitlines() if line.strip()]
 
 
 # ---------------------------------------------------------------- pure checks
@@ -312,15 +330,17 @@ def main_witness_verdict(
 
 def _head_runs() -> list[dict]:
     _, head = _run(["git", "rev-parse", "HEAD"])
-    runs = _gh_json(
-        f"repos/{SLUG}/commits/{head.strip()}/check-runs",
-        "--paginate",
-        "--jq",
+    pages = _gh_json_pages(
+        f"repos/{SLUG}/commits/{head.strip()}/check-runs?per_page=100",
         ".check_runs",
     )
     flat: list[dict] = []
-    for chunk in runs if isinstance(runs, list) else [runs]:
-        flat.extend(chunk if isinstance(chunk, list) else [chunk])
+    for page in pages:
+        if not isinstance(page, list) or not all(isinstance(r, dict) for r in page):
+            raise ValueError(
+                f"a check-runs page is not a list of runs: {str(page)[:80]}"
+            )
+        flat.extend(page)
     return flat
 
 
@@ -393,24 +413,11 @@ def check_prs() -> tuple[bool, str]:
         number, head = heads[label]
         # Every page, one review per line: GitHub lists reviews oldest first, so a
         # truncated read would miss the newest decision.
-        rc, body = _run(
-            [
-                "gh",
-                "api",
-                f"repos/{SLUG}/pulls/{number}/reviews?per_page=100",
-                "--paginate",
-                "--jq",
-                ".[]",
-            ],
-            gh=True,
-        )
         try:
-            reviews = (
-                [json.loads(line) for line in body.splitlines() if line.strip()]
-                if rc == 0
-                else None
+            reviews = _gh_json_pages(
+                f"repos/{SLUG}/pulls/{number}/reviews?per_page=100", ".[]"
             )
-        except ValueError:
+        except (RuntimeError, ValueError):
             reviews = None
         # Could not read the reviews: the PR keeps holding, as it did before.
         if reviews is not None and changes_requested_on_head(reviews, head):
