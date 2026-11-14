@@ -84,14 +84,17 @@ def main() -> None:
         )
     stamp = json.loads(STAMP.read_text(encoding="utf-8"))
     now = tree_id()
+    # A stamp brought from another machine by import_full_stamp.py says so.
+    imported = stamp.get("imported_from") if isinstance(stamp.get("imported_from"), dict) else None
+    origin = f", imported from {imported.get('platform', 'unknown')}" if imported else ""
     if not stamp.get("ok"):
         block(
-            f"pre_pr: the last full tier on this box FAILED ({stamp.get('date')}, tree {stamp.get('tree', '?')[:12]})."
+            f"pre_pr: the last full tier FAILED ({stamp.get('date')}, tree {stamp.get('tree', '?')[:12]}{origin})."
         )
     if stamp.get("tree") != now:
         block(
             "pre_pr: the full-tier stamp is for a DIFFERENT tree "
-            f"(stamped {stamp.get('tree', '?')[:12]} at {stamp.get('date')}, now {now[:12]}). "
+            f"(stamped {stamp.get('tree', '?')[:12]} at {stamp.get('date')}{origin}, now {now[:12]}). "
             "The tree changed after the run; run `python .claude/hooks/run_full.py` again."
         )
     # W-42 remedy (3): a pre_commit the runner killed leaves `fast.md` as its

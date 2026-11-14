@@ -94,7 +94,9 @@ def test_settings_hooks_point_at_files_that_exist():
                     f"{m.group(1)} has no timeout backstop (DESIGN section 4)"
                 )
     for hook in HOOKS:
-        if hook.name in ("run_full.py", "dod_checklist.py"):
+        # Run by hand, never by an event: the full tier, the checklist, and
+        # the import of a full tier run on another machine.
+        if hook.name in ("run_full.py", "dod_checklist.py", "import_full_stamp.py"):
             continue
         assert hook.name in wired, f"{hook.name} exists but no event runs it"
 
