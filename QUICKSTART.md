@@ -44,6 +44,8 @@ Run `jcodemunch-mcp init --dry-run` to preview what it would do without changing
 
 After `init` completes, restart your MCP client(s). Confirm with `/mcp` in Claude Code — you should see `jcodemunch` listed as connected.
 
+After an upgrade, restart again: a running server keeps serving the code it started with. [Upgrading a running server](USER_GUIDE.md#upgrading-a-running-server) shows how to check the serving version, and `jcodemunch-mcp install-status` lists the servers that need a restart.
+
 > **Recommended:** use `uvx` instead of `pip install`. It resolves the package on demand and avoids PATH issues where MCP clients can't find the executable.
 
 > **`'uvx' is not recognized` (Windows / Cursor / any client)?** `uvx` ships with [uv](https://docs.astral.sh/uv/). Install it with `powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"`, then **fully restart your editor** so it picks up the new PATH. To skip uv entirely: `python -m pip install` the package and launch with `command: "python"`, `args: ["-m", "jcodemunch_mcp"]` instead.

@@ -2645,6 +2645,14 @@ def install_status() -> dict[str, Any]:
     #   release checklist has eight steps and none of them touch the dev box,
     #   so this is the only place the drift can surface.
     report["source_drift"] = _running_source_drift()
+    # #1435: which running servers serve older code than is installed now.
+    try:
+        from ..storage.process_registry import serving_report
+
+        report["servers"] = serving_report(os.environ.get("CODE_INDEX_PATH"))
+    except Exception:
+        logger.debug("servers block unreadable for install-status", exc_info=True)
+        report["servers"] = None
     try:
         from ..parser import grammar_pack
         # #608: the check a user runs after `pip install -U tree-sitter-language-pack`
@@ -2751,6 +2759,10 @@ def print_status(report: Optional[dict[str, Any]] = None, *, as_json: bool = Fal
         print("\nRunning code:")
         print(f"  [?] {drift['reason']}")
 
+    servers = report.get("servers")
+    if servers and servers.get("servers"):
+        _print_servers(servers)
+
     offer = report.get("surface_offer")
     if offer:
         from ..surface_offer import render_offer_lines
@@ -2759,6 +2771,29 @@ def print_status(report: Optional[dict[str, Any]] = None, *, as_json: bool = Fal
         for line in render_offer_lines(offer):
             print(line)
     print()
+
+
+def _print_servers(block: dict[str, Any]) -> None:
+    """Running servers and whether each needs a restart (#1435). Report only."""
+    print(f"\nRunning servers (installed {block.get('installed_version')}):")
+    for s in block.get("servers") or []:
+        who = (
+            f"pid {s.get('pid')} ({s.get('client_id')}, {s.get('transport')}, "
+            f"recorded {s.get('version')})"
+        )
+        verdict = s.get("restart_required")
+        if verdict is True:
+            print(f"  [!] RESTART REQUIRED {who}: {s.get('reason', '')}")
+        elif verdict is False:
+            print(f"  [ok] {who}: {s.get('reason', '')}")
+        else:
+            # UNKNOWN is shown as unknown, never as current.
+            print(f"  [?] {who}: {s.get('reason', '')}")
+    if block.get("restart_required"):
+        print(
+            "      Restart those through their MCP client or service manager; "
+            "this command stops nothing."
+        )
 
 
 def list_targets() -> None:
