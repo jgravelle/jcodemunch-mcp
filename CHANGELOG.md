@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.445] - 2026-11-13 - a write that changes no symbol leaves other processes' indexes in place
+
 ### Changed - a write that changes no symbol no longer makes every other process reload the index
 
 Every process holding an index in memory keys it by the modification time of the `.db` and its `-wal`. Many writers move that time without touching a symbol or a file row: the embedding store, every runtime ingest (OpenTelemetry, SQL log, stack log, diagnostics), the SCIP import and the BM25 statistics write-back. Each one made every other process holding the index re-read and rebuild all of it. With eight agents on one index and one runtime write a second, readers spent most of their time reloading.
