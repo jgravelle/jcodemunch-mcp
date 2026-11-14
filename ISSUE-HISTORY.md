@@ -3284,3 +3284,9 @@ The 1.108.442 entry, verbatim as it stood in `CLAUDE.md`:
 The 1.108.443 entry, verbatim as it stood in `CLAUDE.md`:
 
 - **Prior (1.108.443):** **a built-in default names a model the provider still serves** (#1428, #1429): the OpenAI defaults move to `gpt-6-luna`/`gpt-6-sol`, and the agent selector's Anthropic and Google orders and the Gemini summarizer to current ids, with two scans over `src/` keeping the retired ids out; a project-file `license_key` warns instead of vanishing (#1427). Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-14, release 1.108.447)
+
+The 1.108.444 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.444):** **a local OpenAI-compatible endpoint is sent a model it serves** (#1431): `openai_default_model(base_url)` is the one rule, read by the summarizer factory and `config --check`; no base or an `api.openai.com` host gets `gpt-6-luna`, any other base `qwen3-coder`. Full text: `CHANGELOG.md`.
