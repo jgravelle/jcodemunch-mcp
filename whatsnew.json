@@ -1,6 +1,12 @@
 {
-  "current": "1.108.444",
+  "current": "1.108.445",
   "entries": [
+    {
+      "version": "1.108.445",
+      "date": "2026-11-13",
+      "title": "a write that changes no symbol leaves other processes' indexes in place",
+      "summary": "Every process holding an index reloaded all of it whenever the .db changed, including writes that touch no symbol: embeddings, runtime ingests, SCIP, BM25 statistics. Symbol and file writes now stamp a content generation, and a process keeps its copy when the meta table is exactly as it loaded it. With eight readers and one runtime write a second, reader p99 fell from 1284.9 ms to 138.8 ms."
+    },
     {
       "version": "1.108.444",
       "date": "2026-11-13",

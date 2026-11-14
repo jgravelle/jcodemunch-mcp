@@ -3272,3 +3272,9 @@ The 1.108.440 entry, verbatim as it stood in `CLAUDE.md`:
 The 1.108.441 entry, verbatim as it stood in `CLAUDE.md`:
 
 - **Prior (1.108.441):** **a framework profile's ignore patterns hold on every route that walks into an index** (#1421, the #1398 follow-up): the watcher fast path, `refresh` discovery and `index_file` ask `profile_ignore_patterns_for(root)`; a `paths=` directory is handed the full walk's own profile and the call's patterns, matched against the index root. Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-13, release 1.108.445)
+
+The 1.108.442 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.442):** **a Java or Kotlin class used only by its own package is not reported dead** (#1377, @randyhbh): a file's own package is an implicit wildcard through the #1375 path (`same_package` edges); the JVM resolver never drops segments onto a name that is also a package, and `augment_jvm_declaration_edges` asks the resolver instead of copying its rule. `PARSER_GENERATION` 32. Full text: `CHANGELOG.md`.
