@@ -78,3 +78,16 @@ def test_the_identity_resource_reads_the_same_libproc_start(monkeypatch):
     )
     monkeypatch.setattr(pl, "_darwin_process_start", lambda pid: None)
     assert runtime_identity._darwin_process_start() is None
+
+
+def test_the_identity_probe_dispatches_to_libproc_on_macos(monkeypatch):
+    # The dispatch itself, on every OS: a host that is not Windows, has no
+    # /proc and reports darwin must reach the libproc reader and say "os".
+    from jcodemunch_mcp import runtime_identity
+
+    monkeypatch.setattr(runtime_identity.os, "name", "posix")
+    monkeypatch.setattr(runtime_identity.sys, "platform", "darwin")
+    monkeypatch.setattr(runtime_identity.os.path, "exists", lambda p: False)
+    monkeypatch.setattr(pl, "_darwin_process_start", lambda pid: 1_700_000_000.25)
+    got = runtime_identity._probe_process_start()
+    assert got == {"value": "2023-11-14T22:13:20.250000+00:00", "source": "os"}

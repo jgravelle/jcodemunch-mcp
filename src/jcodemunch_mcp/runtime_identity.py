@@ -6,7 +6,8 @@ processes, detect restarts, and refuse cleanup on identity mismatch.
 
 Contract notes:
 - ``process_start`` is OS-derived process-creation identity when obtainable
-  (Windows GetProcessTimes; Linux /proc starttime + btime). When it is not,
+  (Windows GetProcessTimes; Linux /proc starttime + btime; macOS libproc,
+  read through ``storage.process_locks``). When it is not,
   the fallback is the module's own first-read wall clock, DISCLOSED via
   ``source: "self_recorded"`` — never fabricated as OS evidence.
 - ``instance_id`` is a uuid4 minted once per process lifetime (lazily).
