@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+### Fixed - on macOS, a process is identified by its creation time, not by its PID alone
+
+The lock files that keep one watcher per repository and the process registry decide whether a recorded process is still the same one by comparing its recorded creation time with the one the OS reports now. The creation time came from Windows' `GetProcessTimes` or Linux's `/proc`, and on macOS the function returned nothing, so each check fell back to "is this PID alive?". A lock left by a dead process whose PID the system had given to another process read as held, so no new watcher could start, and a registry row for that PID read as a running server. The first full test run on macOS failed a lock test and a parent-watch test on it. The parent watch itself was not affected in practice: off Windows it first checks whether the server's parent changed, which catches a dead client before any creation time is read.
+
+macOS now reads the start time through libproc (`proc_pidinfo` with `PROC_PIDTBSDINFO`), as epoch seconds stamped once at fork, so two readings of one process agree exactly. A record that is short, names another PID, or carries a zero start is unknown, never a time to compare against.
+
+The server's own identity resource (`munch://runtime/identity`) had a second copy of the Windows and Linux probes and no macOS one, so on a Mac its `process_start` read `self_recorded` instead of `os`. It now asks the same libproc reader, so one function answers both questions. The macOS listing of skipped tests found it, along with four process-identity tests that still skipped there with "creation-time identity not implemented on this platform"; they run on macOS now.
+
 ## [1.108.446] - 2026-11-14 - a running server that serves older code than is installed is named
 
 ### Added - `install-status` says which running servers need a restart after an upgrade (#1435)
