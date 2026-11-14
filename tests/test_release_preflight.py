@@ -416,11 +416,11 @@ def test_a_malformed_reviews_body_holds_the_release(monkeypatch):
     assert ok is False and "#1084" in msg
 
 
-# --- check-runs over more than one page (release run 43593646203, 1.108.445) ---
+# --- check-runs over more than one page ---
 # `gh api --paginate --jq .check_runs` prints one JSON array per page, each on
-# its own line. A HEAD with more than 100 check-runs (17ebf1d had 128) came back
-# as two documents, json.loads raised "Extra data", and the pre-flight failed a
-# green build with "could not read CI".
+# its own line. A HEAD whose check-runs filled more than one page came back as
+# several documents, json.loads raised "Extra data", and the pre-flight failed
+# a green build with "could not read CI".
 
 
 def _check_run_pages(*sizes):
@@ -431,7 +431,9 @@ def _check_run_pages(*sizes):
             page.append({"name": f"job {n}", "conclusion": "success"})
             n += 1
         pages.append(page)
-    pages[-1].extend(_runs(**WITNESSES_OK))
+    # The witnesses ride on page one, so a reader that drops a later page
+    # passes on them and only the later page's content can fail it.
+    pages[0].extend(_runs(**WITNESSES_OK))
     return pages
 
 
@@ -466,7 +468,7 @@ def test_a_failed_run_on_the_second_page_still_fails(monkeypatch):
     body = NL.join(json.dumps(p) for p in pages) + NL
     monkeypatch.setattr(pf, "_run", _fake_gh(body))
     ok, msg = pf.check_ci()
-    assert ok is False, msg
+    assert ok is False and "job 100: failure" in msg, msg
 
 
 def test_an_unparseable_page_fails_closed(monkeypatch):
@@ -479,7 +481,14 @@ def test_an_unparseable_page_fails_closed(monkeypatch):
 def test_an_empty_paginated_body_is_no_runs_not_a_pass(monkeypatch):
     monkeypatch.setattr(pf, "_run", _fake_gh(""))
     ok, msg = pf.check_ci()
-    assert ok is False, msg
+    assert ok is False and "no check-runs on HEAD" in msg, msg
+
+
+def test_a_page_that_is_not_a_list_of_runs_fails_closed(monkeypatch):
+    body = json.dumps(_check_run_pages(2)[0]) + NL + "null" + NL
+    monkeypatch.setattr(pf, "_run", _fake_gh(body))
+    ok, msg = pf.check_ci()
+    assert ok is False and "could not read CI" in msg, msg
 
 
 def test_gh_json_refuses_paginate(monkeypatch):
