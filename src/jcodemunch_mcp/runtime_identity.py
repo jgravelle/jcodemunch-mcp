@@ -19,6 +19,7 @@ Contract notes:
 import json
 import logging
 import os
+import sys
 import threading
 import time
 import uuid
@@ -123,6 +124,18 @@ def _linux_process_start() -> Optional[str]:
     return _iso_utc(datetime.fromtimestamp(epoch_s, tz=timezone.utc))
 
 
+def _darwin_process_start() -> Optional[str]:
+    """macOS start via libproc, read through the lock layer's one reader."""
+    # Imported here: process_locks pulls in the SQLite store, which this
+    # module has no other reason to load.
+    from .storage.process_locks import _darwin_process_start as _libproc_start
+
+    epoch_s = _libproc_start(os.getpid())
+    if epoch_s is None:
+        return None
+    return _iso_utc(datetime.fromtimestamp(epoch_s, tz=timezone.utc))
+
+
 def _probe_process_start() -> Dict[str, str]:
     """OS-derived process start when obtainable; else disclosed self-recorded."""
     try:
@@ -130,6 +143,8 @@ def _probe_process_start() -> Dict[str, str]:
             value = _windows_process_start()
         elif os.path.exists("/proc/self/stat"):
             value = _linux_process_start()
+        elif sys.platform == "darwin":
+            value = _darwin_process_start()
         else:
             value = None
     except Exception:

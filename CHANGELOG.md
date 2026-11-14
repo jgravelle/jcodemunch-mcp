@@ -8,6 +8,8 @@ Every check that asks "is this still the same process?" compares a recorded crea
 
 macOS now reads the start time through libproc (`proc_pidinfo` with `PROC_PIDTBSDINFO`), as epoch seconds stamped once at fork, so two readings of one process agree exactly. A record that is short, names another PID, or carries a zero start is unknown, never a time to compare against.
 
+The server's own identity resource (`munch://runtime/identity`) had a second copy of the Windows and Linux probes and no macOS one, so on a Mac its `process_start` read `self_recorded` instead of `os`. It now asks the same libproc reader, so one function answers both questions. The macOS listing of skipped tests found it, along with four process-identity tests that still skipped there with "creation-time identity not implemented on this platform"; they run on macOS now.
+
 ## [1.108.446] - 2026-11-14 - a running server that serves older code than is installed is named
 
 ### Added - `install-status` says which running servers need a restart after an upgrade (#1435)

@@ -64,3 +64,17 @@ def test_on_macos_this_process_has_a_creation_time():
     assert created is not None and created <= time.time()
     # The wall-clock reading is the same epoch value there.
     assert pl._process_wall_create_time(os.getpid()) == pytest.approx(created)
+
+
+def test_the_identity_resource_reads_the_same_libproc_start(monkeypatch):
+    # munch://runtime/identity had its own Windows and Linux probes and no
+    # macOS one, so there it reported a self-recorded start. It now asks the
+    # lock layer's reader, so one libproc call answers both.
+    from jcodemunch_mcp import runtime_identity
+
+    monkeypatch.setattr(pl, "_darwin_process_start", lambda pid: 1_700_000_000.25)
+    assert (
+        runtime_identity._darwin_process_start() == "2023-11-14T22:13:20.250000+00:00"
+    )
+    monkeypatch.setattr(pl, "_darwin_process_start", lambda pid: None)
+    assert runtime_identity._darwin_process_start() is None

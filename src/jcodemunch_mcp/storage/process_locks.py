@@ -268,7 +268,11 @@ def _darwin_process_start(pid: int) -> Optional[float]:
 
         libproc = ctypes.CDLL("/usr/lib/libproc.dylib", use_errno=True)
         libproc.proc_pidinfo.argtypes = [
-            ctypes.c_int, ctypes.c_int, ctypes.c_uint64, ctypes.c_void_p, ctypes.c_int,
+            ctypes.c_int,
+            ctypes.c_int,
+            ctypes.c_uint64,
+            ctypes.c_void_p,
+            ctypes.c_int,
         ]
         libproc.proc_pidinfo.restype = ctypes.c_int
         buf = ctypes.create_string_buffer(_PROC_BSDINFO_SIZE)
