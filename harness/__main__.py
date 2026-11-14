@@ -781,6 +781,7 @@ DELEGATED = {
     "suite.full_seconds": "this runner, full tier wall clock",
     "ci.skips_ubuntu": "this runner / pr-gate.yml full tier, pytest summary",
     "ci.skips_windows": "this runner / pr-gate.yml full tier, pytest summary",
+    "ci.skips_macos": "this runner on macOS, full tier, pytest summary",
     "suite.full_seconds_ci_windows": "harness full tier on a GitHub windows runner",
     "suite.full_seconds_ci_ubuntu_ctrace": "harness full tier on a GitHub ubuntu runner where coverage runs its C tracer",
     "suite.fast_skips_max": "harness fast tier, pytest summary",
@@ -866,7 +867,17 @@ def offline_checks(stamp: bool = False) -> tuple[bool, list[dict]]:
 
 
 def _skips_floor_id() -> str:
-    return "ci.skips_windows" if sys.platform.startswith("win") else "ci.skips_ubuntu"
+    """Which N7 skip ceiling this platform's full tier is judged by.
+
+    macOS skips more than Linux (Windows-only tests, and the optional numpy,
+    PIL and onnxruntime imports), so it has its own ceiling rather than
+    borrowing the ubuntu one.
+    """
+    if sys.platform.startswith("win"):
+        return "ci.skips_windows"
+    if sys.platform == "darwin":
+        return "ci.skips_macos"
+    return "ci.skips_ubuntu"
 
 
 def _coverage_core_env() -> dict:

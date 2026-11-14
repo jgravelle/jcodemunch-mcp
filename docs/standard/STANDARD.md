@@ -211,10 +211,10 @@ Gap: none; rotation is Practice 5.
 ### N7. CI skip count
 Metric: `skipped` on each CI leg.
 Method: read the pytest summary line of the `pr-gate.yml` full-tier job.
-Current: ubuntu 26, windows 19, local 13 (`CLAUDE.md`); the 2026-08-28 incident was 105 skipped at exit 0.
-Floor: ubuntu at or under 30, windows at or under 25.
+Current: ubuntu 26, windows 19, local 13 (`CLAUDE.md`), macOS 31 (2026-11-14, a full tier on a Mac; no CI leg); the 2026-08-28 incident was 105 skipped at exit 0.
+Floor: ubuntu at or under 30, windows at or under 25, macOS at or under [`ci.skips_macos`].
 Target: a step that fails the job when `skipped` exceeds the floor.
-Status: MEASURED and enforced (`pr-gate.yml` fails a leg over [`ci.skips_ubuntu`] / [`ci.skips_windows`]; the full tier applies the same ceiling locally).
+Status: MEASURED and enforced (`pr-gate.yml` fails a leg over [`ci.skips_ubuntu`] / [`ci.skips_windows`]; the full tier applies the same ceiling locally, and [`ci.skips_macos`] on a Mac).
 Gap: reconcile the 19-vs-13 local delta (FINDINGS F-05).
 
 ### N8. Release latency

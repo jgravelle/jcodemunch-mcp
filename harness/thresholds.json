@@ -495,6 +495,24 @@
       ]
     },
     {
+      "id": "ci.skips_macos",
+      "criterion": "N7",
+      "metric": "pytest skipped count on a macOS full tier",
+      "comparator": "<=",
+      "floor": 35,
+      "unit": "tests",
+      "set_at": {
+        "commit": "eab74cb",
+        "date": "2026-11-14",
+        "reason": "STANDARD N7 Floor; observed 31 on a macOS full tier at eab74cb (20921 passed). Margin 4 over observed, as ci.skips_ubuntu. Before this Floor a macOS run was judged by ci.skips_ubuntu."
+      },
+      "measured": null,
+      "history": [],
+      "enforced_by": [
+        "harness/__main__.py"
+      ]
+    },
+    {
       "id": "index.cold_self_seconds",
       "criterion": "3",
       "metric": "cold index_folder of a copy of src/ (275 files, 4,055 symbols), median of 3 fresh-subprocess runs (benchmarks/self_latency/measure.py, self corpus)",
