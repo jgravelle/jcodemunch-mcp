@@ -80,10 +80,28 @@ def _run(cmd: list[str], *, gh: bool = False) -> tuple[int, str]:
 
 
 def _gh_json(path: str, *extra: str):
+    if "--paginate" in extra:
+        # gh prints one JSON document per page; json.loads raises "Extra data"
+        # on the second. 1.108.445's first dispatch failed a green build that
+        # way (128 check-runs on HEAD, two pages).
+        raise ValueError("a --paginate read goes through _gh_json_pages")
     rc, out = _run(["gh", "api", path, *extra], gh=True)
     if rc != 0:
         raise RuntimeError(out.strip()[-400:])
     return json.loads(out)
+
+
+def _gh_json_pages(path: str, jq: str) -> list:
+    """Every page of a paginated `gh api` read, one parsed value per page.
+
+    `gh api --paginate --jq <expr>` prints the expression's value for each page
+    as compact JSON on its own line. Each line is parsed on its own; a line that
+    does not parse raises, so the caller fails closed.
+    """
+    rc, out = _run(["gh", "api", path, "--paginate", "--jq", jq], gh=True)
+    if rc != 0:
+        raise RuntimeError(out.strip()[-400:])
+    return [json.loads(line) for line in out.splitlines() if line.strip()]
 
 
 # ---------------------------------------------------------------- pure checks
@@ -312,15 +330,13 @@ def main_witness_verdict(
 
 def _head_runs() -> list[dict]:
     _, head = _run(["git", "rev-parse", "HEAD"])
-    runs = _gh_json(
-        f"repos/{SLUG}/commits/{head.strip()}/check-runs",
-        "--paginate",
-        "--jq",
+    pages = _gh_json_pages(
+        f"repos/{SLUG}/commits/{head.strip()}/check-runs?per_page=100",
         ".check_runs",
     )
     flat: list[dict] = []
-    for chunk in runs if isinstance(runs, list) else [runs]:
-        flat.extend(chunk if isinstance(chunk, list) else [chunk])
+    for page in pages:
+        flat.extend(page if isinstance(page, list) else [page])
     return flat
 
 

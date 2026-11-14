@@ -414,3 +414,81 @@ def test_a_malformed_reviews_body_holds_the_release(monkeypatch):
     monkeypatch.setattr(pf, "_run", fake_run)
     ok, msg = pf.check_prs()
     assert ok is False and "#1084" in msg
+
+
+# --- check-runs over more than one page (release run 43593646203, 1.108.445) ---
+# `gh api --paginate --jq .check_runs` prints one JSON array per page, each on
+# its own line. A HEAD with more than 100 check-runs (17ebf1d had 128) came back
+# as two documents, json.loads raised "Extra data", and the pre-flight failed a
+# green build with "could not read CI".
+
+
+def _check_run_pages(*sizes):
+    pages, n = [], 0
+    for size in sizes:
+        page = []
+        for _ in range(size):
+            page.append({"name": f"job {n}", "conclusion": "success"})
+            n += 1
+        pages.append(page)
+    pages[-1].extend(_runs(**WITNESSES_OK))
+    return pages
+
+
+def _fake_gh(body):
+    def fake_run(cmd, gh=False):
+        if cmd[:2] == ["git", "rev-parse"]:
+            return 0, HEAD + NL
+        return 0, body
+
+    return fake_run
+
+
+def test_check_runs_on_two_pages_are_read_as_one_list(monkeypatch):
+    pages = _check_run_pages(100, 25)
+    body = NL.join(json.dumps(p) for p in pages) + NL
+    monkeypatch.setattr(pf, "_run", _fake_gh(body))
+    runs = pf._head_runs()
+    assert len(runs) == 100 + 25 + len(WITNESSES_OK)
+    ok, msg = pf.check_ci()
+    assert ok, msg
+
+
+def test_check_runs_on_one_page_still_read(monkeypatch):
+    body = json.dumps(_check_run_pages(3)[0]) + NL
+    monkeypatch.setattr(pf, "_run", _fake_gh(body))
+    assert len(pf._head_runs()) == 3 + len(WITNESSES_OK)
+
+
+def test_a_failed_run_on_the_second_page_still_fails(monkeypatch):
+    pages = _check_run_pages(100, 5)
+    pages[1][0]["conclusion"] = "failure"
+    body = NL.join(json.dumps(p) for p in pages) + NL
+    monkeypatch.setattr(pf, "_run", _fake_gh(body))
+    ok, msg = pf.check_ci()
+    assert ok is False, msg
+
+
+def test_an_unparseable_page_fails_closed(monkeypatch):
+    body = json.dumps(_check_run_pages(2)[0]) + NL + "<html>rate limited</html>" + NL
+    monkeypatch.setattr(pf, "_run", _fake_gh(body))
+    ok, msg = pf.check_ci()
+    assert ok is False and "could not read CI" in msg
+
+
+def test_an_empty_paginated_body_is_no_runs_not_a_pass(monkeypatch):
+    monkeypatch.setattr(pf, "_run", _fake_gh(""))
+    ok, msg = pf.check_ci()
+    assert ok is False, msg
+
+
+def test_gh_json_refuses_paginate(monkeypatch):
+    """A paginated read goes through the page reader; json.loads cannot parse one."""
+    import pytest
+
+    def no_gh(cmd, gh=False):
+        raise AssertionError("gh must not run")
+
+    monkeypatch.setattr(pf, "_run", no_gh)
+    with pytest.raises(ValueError, match="paginate"):
+        pf._gh_json("repos/x/y", "--paginate")
