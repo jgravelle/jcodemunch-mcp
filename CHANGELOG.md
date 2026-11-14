@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.446] - 2026-11-14 - a running server that serves older code than is installed is named
+
 ### Added - `install-status` says which running servers need a restart after an upgrade (#1435)
 
 @dkiaulakis found a shared HTTP server still serving 1.108.442 after its environment was upgraded to 1.108.444. They caught it through `jcodemunch_guide`'s `version`. Upgrading a package changes what a new process loads, never what a running one already imported. Every server already recorded its version and start time in the presence registry, but nothing compared a running server with what is installed, and the one stale-code check that existed answered only for source installs.

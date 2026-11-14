@@ -3278,3 +3278,9 @@ The 1.108.441 entry, verbatim as it stood in `CLAUDE.md`:
 The 1.108.442 entry, verbatim as it stood in `CLAUDE.md`:
 
 - **Prior (1.108.442):** **a Java or Kotlin class used only by its own package is not reported dead** (#1377, @randyhbh): a file's own package is an implicit wildcard through the #1375 path (`same_package` edges); the JVM resolver never drops segments onto a name that is also a package, and `augment_jvm_declaration_edges` asks the resolver instead of copying its rule. `PARSER_GENERATION` 32. Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-14, release 1.108.446)
+
+The 1.108.443 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.443):** **a built-in default names a model the provider still serves** (#1428, #1429): the OpenAI defaults move to `gpt-6-luna`/`gpt-6-sol`, and the agent selector's Anthropic and Google orders and the Gemini summarizer to current ids, with two scans over `src/` keeping the retired ids out; a project-file `license_key` warns instead of vanishing (#1427). Full text: `CHANGELOG.md`.
