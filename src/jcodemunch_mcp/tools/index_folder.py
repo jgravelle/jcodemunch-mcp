@@ -650,6 +650,15 @@ def _is_shallow_windows_git_root(path: Path) -> bool:
     )
 
 
+def _resolved_entry(entry: str) -> Path:
+    """A trusted_folders entry as the folder it names; as written if that fails."""
+    try:
+        return Path(entry).expanduser().resolve()
+    except (OSError, RuntimeError, ValueError):
+        logger.debug("trusted_folders entry not resolvable: %s", entry, exc_info=True)
+        return Path(entry)
+
+
 @lru_cache(maxsize=512)
 def _is_trusted(
     folder_path: Path, trusted_folders: tuple, whitelist_mode: bool = True
@@ -661,15 +670,20 @@ def _is_trusted(
 
     Empty list returns False (nothing explicitly trusted) for backward compatibility.
     The trust check is skipped for empty list, but the broad check uses this value.
+
+    ⚠ ``folder_path`` arrives resolved, so each entry is resolved the same way
+    before comparing. Compared as written, an entry that names the folder
+    through a symlink (macOS's ``/var`` is ``/private/var``) or a ``..``
+    segment never matched: a trusted folder was refused, and in blacklist mode
+    a listed folder was not refused.
     """
     if not trusted_folders:
         # Empty list: nothing explicitly trusted (backward compatible)
         return False
 
     is_in_list = any(
-        folder_path == Path(trusted_folder)
-        or Path(trusted_folder) in folder_path.parents
-        for trusted_folder in trusted_folders
+        folder_path == entry or entry in folder_path.parents
+        for entry in map(_resolved_entry, trusted_folders)
     )
 
     return is_in_list if whitelist_mode else not is_in_list

@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed - a `trusted_folders` entry is compared as the folder it names
+
+`index_folder` resolves the folder it is given (symlinks and `..` segments) before checking it against `trusted_folders`, but it compared that with each entry exactly as written. So an entry that named the same folder another way never matched. On macOS every temporary directory is under `/var`, which is a link to `/private/var`, so a trusted folder there, or under a symlinked home or checkout, was refused as "not under trusted_folders"; in blacklist mode (`trusted_folders_whitelist_mode: false`) such an entry did not exclude its folder. Each entry is now resolved the same way before the comparison, and an entry that cannot be resolved is compared as written, as before.
+
 ## [1.108.448] - 2026-11-15 - an edit no longer starts an unbounded pile of index runs
 
 ### Fixed - a filtered `search_symbols` describes its filter, never the whole index
