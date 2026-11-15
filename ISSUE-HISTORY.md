@@ -3296,3 +3296,9 @@ The 1.108.444 entry, verbatim as it stood in `CLAUDE.md`:
 The 1.108.445 entry, verbatim as it stood in `CLAUDE.md`:
 
 - **Prior (1.108.445):** **a write that changes no symbol leaves other processes' indexes in place** (#1433): every `symbols`/`files` writer stamps a random `content_generation` into `meta` (a test fails on one that does not), and `_revalidate_cached` keeps a cached index only when the meta table equals what its load read; a branch view or a missing token reloads. Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-15, release 1.108.449)
+
+The 1.108.446 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.446):** **a running server that serves older code than is installed is named** (#1435, @dkiaulakis): `install-status` lists the running servers on this index store with `restart_required` true/false/null; each registry row records its `package_dir`, and `restart_verdict` takes the install layout explicitly (a copied install compares versions, a source install the source mtime; another install, a pre-record row or an unreadable mtime is UNKNOWN). Report only; `get_session_stats` never carries the path. Full text: `CHANGELOG.md`.
