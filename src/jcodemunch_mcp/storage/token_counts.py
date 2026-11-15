@@ -7,8 +7,8 @@ once and the count is stored in the index; a later call only looks it up
 (``savings_tokenizer.credit_files``).
 
 ⚠ Counted on FIRST USE, never at save (the cold-index fix). Counting every
-file while the index was written made a full index about 1.2x slower
-(v1.108.439, #1414) to pay for files no response ever credits. Now a
+file while the index was written made a full index slower (since
+v1.108.439, #1414) to pay for files no response ever credits. Now a
 response that credits a file with no stored count divides that file's
 bytes by the table, says so per file in ``tokens_saved_basis``, and queues
 the file; ``flush_pending`` counts the queued files from the indexed copy
@@ -69,19 +69,47 @@ def prune(conn: sqlite3.Connection) -> int:
 _pending: "list[tuple[object, dict[str, str]]]" = []
 _MAX_PENDING_INDEXES = 4
 _MAX_PENDING_FILES = 5_000
-#: Text counted per flush. The next call waits for a write-back in flight
-#: (server ``_await_bm25_flush``), so one flush stays short; what is left
-#: stays queued for the next one.
+#: Characters of text counted per flush, checked before each file, so one
+#: flush can pass it by one file. The next call waits for a write-back in
+#: flight (server ``_await_bm25_flush``), so one flush stays short; what is
+#: left stays queued for the next one.
 _FLUSH_MAX_BYTES = 1_000_000
 _pending_lock = threading.Lock()
+#: (db path) -> hashes that could not be counted from the indexed copy: no
+#: copy (``cache_mode: metadata_only``, a deleted copy) or a copy whose text no
+#: longer hashes to the key. Remembered for the process so a later credit
+#: does not queue and re-open them on every call. Bounded.
+_uncountable: "dict[str, set[str]]" = {}
+_UNCOUNTABLE_MAX = 50_000
+
+
+def _mark_uncountable(db_path, hashes: Iterable[str]) -> None:
+    key = str(db_path)
+    seen = _uncountable.setdefault(key, set())
+    seen.update(hashes)
+    if len(seen) > _UNCOUNTABLE_MAX:
+        seen.clear()
+
+
+def _content_hash(text: str) -> str:
+    # The rule `files.hash` is written with (index_store._file_hash).
+    import hashlib
+
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
 def queue(index, missing: Mapping[str, str]) -> None:
     """Remember files to count after this call. Never raises."""
     try:
-        if not missing or not getattr(index, "_db_path", None):
+        db_path = getattr(index, "_db_path", None)
+        if not missing or not db_path:
             return
         with _pending_lock:
+            skip = _uncountable.get(str(db_path))
+            if skip:
+                missing = {h: p for h, p in missing.items() if h not in skip}
+                if not missing:
+                    return
             for ix, files in _pending:
                 if ix is index:
                     for h, path in missing.items():
@@ -121,17 +149,22 @@ def flush_pending() -> int:
                 continue
             content_dir = Path(db_path).with_suffix("")
             base = _resolved(content_dir)
-            hashes, texts, size = [], [], 0
+            hashes, texts, size, failed = [], [], 0, []
             items = list(files.items())
             for i, (h, path) in enumerate(items):
                 if size >= _FLUSH_MAX_BYTES:
                     queue(index, dict(items[i:]))
                     break
                 text = _read_copy(content_dir, path, base)
-                if text is not None:
-                    hashes.append(h)
-                    texts.append(text)
-                    size += len(text)
+                if text is None or _content_hash(text) != h:
+                    failed.append(h)
+                    continue
+                hashes.append(h)
+                texts.append(text)
+                size += len(text)
+            if failed:
+                with _pending_lock:
+                    _mark_uncountable(db_path, failed)
             counts = count_many(texts) if texts else None
             if not counts:
                 continue

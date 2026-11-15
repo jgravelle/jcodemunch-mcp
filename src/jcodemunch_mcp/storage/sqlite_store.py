@@ -765,10 +765,26 @@ def _write_back_to_loaded_index(index, write, what: str) -> bool:
                     conn.execute("ROLLBACK")
                     return False
                 write(conn)
+                # `data_version` changes only when ANOTHER connection commits.
+                # Three meta writers, `embed_repo` and the runtime ingests skip
+                # `indexwrite`, so one can commit between our COMMIT and the
+                # stat below; reading it on both sides of that stat says
+                # whether the move we record is ours alone.
+                dv_before = conn.execute("PRAGMA data_version").fetchone()[0]
                 conn.execute("COMMIT")
+                _after_write_back_commit(db_path)
+                # Fold the WAL in now, so closing the connection does not move
+                # the mtime again after the stat (busy readers leave it, and
+                # the move then reads as a rewrite: slower, never wrong).
+                conn.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchall()
+                own_mtime_ns = _db_mtime_ns(db_path)
+                alone = conn.execute("PRAGMA data_version").fetchone()[0] == dv_before
             finally:
                 conn.close()
-            _restamp_after_bm25_write(index, db_path, gen.loaded_mtime_ns)
+            _restamp_after_bm25_write(
+                index, db_path, gen.loaded_mtime_ns,
+                own_mtime_ns=own_mtime_ns if alone else None,
+            )
         return True
     except Exception:
         logger.debug("%s write-back skipped", what, exc_info=True)
@@ -841,7 +857,14 @@ def _unlocked_meta_matches(index, meta: dict) -> bool:
     return True
 
 
-def _restamp_after_bm25_write(index, db_path: Path, loaded_mtime_ns: int) -> None:
+def _after_write_back_commit(db_path: Path) -> None:
+    """Runs right after a write-back's COMMIT. A test seam: a test puts a
+    foreign commit here to pin that interleaving."""
+
+
+def _restamp_after_bm25_write(
+    index, db_path: Path, loaded_mtime_ns: int, own_mtime_ns: Optional[int] = None
+) -> None:
     """Move the warm index to the .db's new mtime, or evict it.
 
     Moving it is what keeps this process from reading its own write as a
@@ -879,8 +902,12 @@ def _restamp_after_bm25_write(index, db_path: Path, loaded_mtime_ns: int) -> Non
                 _index_cache.pop(key, None)
     if same:
         index._loaded_mtime_ns = mtime_ns
-        # The write changed no symbol and no gated meta, so an answer cached
-        # before it still describes this index (retrieval/subject_state.changed).
+    if same and own_mtime_ns is not None and own_mtime_ns == mtime_ns:
+        # The write changed no symbol and no gated meta, no other connection
+        # committed between our COMMIT and the stat, and nothing moved the .db
+        # since, so an answer cached before it still describes this index
+        # (retrieval/subject_state.changed). Any doubt leaves the move
+        # unrecorded, which reads as a rewrite: never wrong, only slower.
         from .generation import note_benign_rewrite
 
         note_benign_rewrite(db_path, loaded_mtime_ns, mtime_ns)

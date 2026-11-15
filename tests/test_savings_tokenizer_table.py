@@ -565,6 +565,109 @@ def test_a_write_back_without_the_encoding_reads_no_indexed_copies(tmp_path, mon
     assert counts == {}
 
 
+def _one_file_index(tmp_path, text="def a():\n    return 1\n"):
+    from jcodemunch_mcp.tools.index_folder import index_folder
+
+    root = tmp_path / "src_repo"
+    root.mkdir()
+    (root / "a.py").write_text(text, encoding="utf-8")
+    store = tmp_path / "store"
+    res = index_folder(str(root), use_ai_summaries=False, storage_path=str(store))
+    assert res.get("success"), res
+    (db,) = list(store.rglob("*.db"))
+    return res["repo"], str(store), db
+
+
+def test_an_index_without_the_table_gains_a_count_at_first_credit(tmp_path, _no_queued_counts):
+    """An index saved before token counts existed has no table; the first
+    credit of a file creates it and stores the count."""
+    import sqlite3
+
+    repo, store, db = _one_file_index(tmp_path)
+    conn = sqlite3.connect(db)
+    conn.execute("DROP TABLE token_counts")
+    conn.commit()
+    conn.close()
+    _credit_and_flush(repo, store, ["a.py"])
+    by_path, _ = _counts(store)
+    assert by_path["a.py"] is not None
+
+
+def test_a_file_with_no_indexed_copy_is_not_queued_again(tmp_path, _no_queued_counts):
+    """No copy to count from (``cache_mode: metadata_only``, a deleted copy):
+    the file is tried once, then not queued again by later credits."""
+    from jcodemunch_mcp.storage import token_counts
+
+    repo, store, db = _one_file_index(tmp_path)
+    (db.with_suffix("") / "a.py").unlink()
+    _credit_and_flush(repo, store, ["a.py"])
+    _, counts = _counts(store)
+    assert counts == {}
+    _credit_and_flush(repo, store, ["a.py"])
+    assert token_counts.pending_count() == 0
+    from jcodemunch_mcp.storage import sqlite_store
+    from jcodemunch_mcp.tools._utils import load_repo_index_or_error
+
+    sqlite_store._cache_clear()
+    index, error, _status = load_repo_index_or_error(repo, store)
+    assert error is None, error
+    st.credit_files(index, ["a.py"], [])
+    assert token_counts.pending_count() == 0, "a file with no copy was queued again"
+
+
+def test_a_copy_that_no_longer_matches_its_hash_is_not_counted(tmp_path, _no_queued_counts):
+    """A count belongs to its bytes: text that does not hash to the queued key
+    is not stored under it."""
+    repo, store, db = _one_file_index(tmp_path)
+    (db.with_suffix("") / "a.py").write_text("x = 'something else entirely'\n", encoding="utf-8")
+    _credit_and_flush(repo, store, ["a.py"])
+    _, counts = _counts(store)
+    assert counts == {}
+
+
+def test_a_foreign_commit_right_after_our_write_back_is_not_forgiven(tmp_path, monkeypatch, _no_queued_counts):
+    """Another writer that commits between our COMMIT and our stat (an
+    embedding or a runtime ingest takes no ``indexwrite``) must still read as a
+    rewrite. The seam runs the foreign commit at exactly that point."""
+    import sqlite3
+
+    from jcodemunch_mcp.storage import generation, sqlite_store
+    from jcodemunch_mcp.tools._utils import load_repo_index_or_error
+
+    repo, store, db = _one_file_index(tmp_path)
+    sqlite_store._cache_clear()
+    index, error, _status = load_repo_index_or_error(repo, store)
+    assert error is None, error
+    before = index._loaded_mtime_ns
+
+    def foreign_commit(_db_path):
+        conn = sqlite3.connect(db)
+        conn.execute("CREATE TABLE IF NOT EXISTS foreign_writer (x INTEGER)")
+        conn.execute("INSERT INTO foreign_writer VALUES (1)")
+        conn.commit()
+        conn.close()
+
+    monkeypatch.setattr(sqlite_store, "_after_write_back_commit", foreign_commit)
+    assert sqlite_store.store_token_counts_for_loaded_index(index, [("f" * 64, 3)])
+    now = sqlite_store._db_mtime_ns(db)
+    assert now != before
+    assert not generation.only_benign_rewrites(str(db), before, now)
+
+
+def test_our_own_write_back_alone_is_forgiven(tmp_path, _no_queued_counts):
+    from jcodemunch_mcp.storage import generation, sqlite_store
+    from jcodemunch_mcp.tools._utils import load_repo_index_or_error
+
+    repo, store, db = _one_file_index(tmp_path)
+    sqlite_store._cache_clear()
+    index, error, _status = load_repo_index_or_error(repo, store)
+    assert error is None, error
+    before = index._loaded_mtime_ns
+    assert sqlite_store.store_token_counts_for_loaded_index(index, [("f" * 64, 3)])
+    now = sqlite_store._db_mtime_ns(db)
+    assert generation.only_benign_rewrites(str(db), before, now)
+
+
 def test_one_write_back_counts_a_bounded_amount_and_keeps_the_rest(tmp_path, monkeypatch, _no_queued_counts):
     """The next call waits for a write-back in flight, so one flush stays short."""
     from jcodemunch_mcp.storage import token_counts
