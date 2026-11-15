@@ -3727,6 +3727,24 @@ def index_folder(
                             "index_folder: force_reparse promoted %d unchanged file(s)",
                             len(_forced),
                         )
+                # A listed file whose cached copy is gone is re-parsed
+                # even when unchanged, so `paths=[file]` repairs it. Listed
+                # files only: the check is one stat per file.
+                _settled = set(changed) | set(new) | set(deleted)
+                _restore = store.missing_cached_copies(
+                    owner, repo_name,
+                    [
+                        fp for fp in sorted(file_mtimes)
+                        if fp not in _settled
+                        and fp in (existing_index.file_hashes or {})
+                    ],
+                )
+                if _restore:
+                    changed = sorted(set(changed) | set(_restore))
+                    logger.info(
+                        "index_folder: %d listed file(s) had no cached copy; re-parsed",
+                        len(_restore),
+                    )
 
             if not changed and not new and not deleted:
                 _refresh_git_head_if_advanced(
