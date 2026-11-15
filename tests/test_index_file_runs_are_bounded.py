@@ -410,9 +410,11 @@ def test_a_slot_directory_is_used_only_when_it_is_private_to_this_user():
     assert slots._check_private(_st(stat.S_IFDIR | 0o777, uid=0), None) is None
 
 
-def test_a_refused_slot_directory_runs_the_work_and_says_so(
+def test_a_refused_slot_directory_runs_nothing_and_says_so(
     slot_dir, store, tmp_path, capsys, monkeypatch
 ):
+    """A slot folder that is a symlink or another user's could hold every slot
+    or none: no run trusts it, and the edit is left to refresh_on_read."""
     from jcodemunch_mcp import server
 
     monkeypatch.setattr(slots, "_check_private", lambda st, uid: "is a symlink")
@@ -421,9 +423,50 @@ def test_a_refused_slot_directory_runs_the_work_and_says_so(
         "jcodemunch_mcp.tools.index_file.index_file", return_value={"success": True}
     ) as m:
         server.main(["index-file", str(target)])
-    assert m.call_count == 1
-    assert "is a symlink" in json.loads(capsys.readouterr().out)["slot_error"]
+    assert m.call_count == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["skipped"] == "slot_dir_refused" and out["indexed"] is False
     assert slots.queue("k", "p") is False  # nothing is written into a refused directory
+
+
+class _St:
+    def __init__(self, mode, uid):
+        self.st_mode, self.st_uid = mode, uid
+
+
+def test_our_own_slot_directory_open_to_others_is_tightened_not_refused(
+    slot_dir, monkeypatch
+):
+    """The lock layer makes a missing folder with the default umask (0755), and
+    on macOS and Linux a check that refused it turned the bound off (the
+    2026-11-15 Mac run of this branch)."""
+    import stat
+
+    modes = {"m": stat.S_IFDIR | 0o755}
+    chmods = []
+    slot_dir.mkdir()
+    monkeypatch.setattr(slots, "_owner_uid", lambda: 501)
+    monkeypatch.setattr(slots.os, "lstat", lambda p: _St(modes["m"], 501))
+
+    def chmod(p, mode):
+        chmods.append(mode)
+        modes["m"] = stat.S_IFDIR | mode
+
+    monkeypatch.setattr(slots.os, "chmod", chmod)
+    assert slots._private_dir() == slot_dir and chmods == [0o700]
+
+
+def test_another_users_slot_directory_is_refused_and_left_alone(slot_dir, monkeypatch):
+    import stat
+
+    chmods = []
+    slot_dir.mkdir()
+    monkeypatch.setattr(slots, "_owner_uid", lambda: 501)
+    monkeypatch.setattr(slots.os, "lstat", lambda p: _St(stat.S_IFDIR | 0o777, 0))
+    monkeypatch.setattr(slots.os, "chmod", lambda p, m: chmods.append(m))
+    with pytest.raises(slots.SlotDirRefused, match="owned by uid 0"):
+        slots._private_dir()
+    assert chmods == []
 
 
 def _claim_in_child(d, key, cwd) -> subprocess.Popen:

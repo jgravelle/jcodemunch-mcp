@@ -40,8 +40,11 @@ directory is created ``0700`` and refused if it is a symlink, is owned by
 another user, or is open to others (``_check_private``), because the system
 temp directory is shared there. On Windows the check is only that it is a
 directory: the temp directory is per user unless ``TMP``/``TEMP`` was pointed
-at a shared folder. A refused directory makes the run go ahead
-unbounded and say so, as any lock error does.
+at a shared folder. A folder this user owns that is open to others
+is tightened to ``0700``; a refused folder (a symlink, another user's, not a
+folder) makes the run do no work and exit, leaving the file to the watcher,
+``refresh_on_read`` or the next edit. Any other lock error runs the work
+unbounded and says so.
 
 The bound lives in the command, so every caller of ``index-file`` inherits it.
 The hook does not read the slots first: importing the lock layer would cost
@@ -109,16 +112,35 @@ def _check_private(st: os.stat_result, uid: Optional[int]) -> Optional[str]:
     return None
 
 
+class SlotDirRefused(PermissionError):
+    """The slot folder is a symlink, another user's, or not a folder."""
+
+
+def _owner_uid() -> Optional[int]:
+    return None if os.name == "nt" else os.getuid()
+
+
 def _private_dir() -> Path:
-    """``slot_dir()``, created if absent; raises if it is not private to this user."""
+    """``slot_dir()``, created if absent and made ``0700`` if it is ours.
+
+    A folder this user owns that is open to others (made by an earlier version,
+    or by the lock layer with the default umask) is tightened. One that is a
+    symlink, belongs to another user or is not a folder raises
+    ``SlotDirRefused``.
+    """
     d = slot_dir()
     try:
         os.mkdir(d, 0o700)
     except FileExistsError:
         pass
-    why = _check_private(os.lstat(d), None if os.name == "nt" else os.getuid())
+    uid = _owner_uid()
+    st = os.lstat(d)
+    why = _check_private(st, uid)
+    if why and uid is not None and stat.S_ISDIR(st.st_mode) and st.st_uid == uid:
+        os.chmod(d, 0o700)
+        why = _check_private(os.lstat(d), uid)
     if why:
-        raise PermissionError(f"{d} {why}; index-file runs are not bounded")
+        raise SlotDirRefused(f"{d} {why}")
     return d
 
 
@@ -168,10 +190,22 @@ def claim(key: str) -> tuple[Optional[Claim], Optional[str]]:
     """Take this key's lock and a machine slot.
 
     Returns ``(claim, None)`` on success, or ``(None, reason)`` where reason is
-    ``"same_index_busy"`` (another run holds this key) or ``"busy"``.
+    ``"same_index_busy"`` (another run holds this key), ``"busy"``, or
+    ``"slot_dir_refused"`` (the slot folder is a symlink or another user's:
+    nothing runs, because a folder someone else controls could hold every
+    slot or none). Any other lock error runs the work and says so.
     """
     try:
         d = str(_private_dir())
+    except SlotDirRefused as e:
+        logger.warning("index-file: no run, the slot folder is refused: %s", e)
+        return None, "slot_dir_refused"
+    except Exception as e:
+        logger.warning(
+            "index-file runs unbounded: the slot folder failed (%s)", e, exc_info=True
+        )
+        return Claim(index_target=None, slot=None, lock_error=f"slot folder: {e}"), None
+    try:
         index_target = _lock_target(f"key-{_digest(key)}")
         got_index = process_locks.acquire(INDEX_SCOPE, index_target, d)
     except Exception as e:
