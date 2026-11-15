@@ -650,13 +650,25 @@ def _is_shallow_windows_git_root(path: Path) -> bool:
     )
 
 
-def _resolved_entry(entry: str) -> Path:
-    """A trusted_folders entry as the folder it names; as written if that fails."""
+def _resolved_entry(entry) -> Optional[Path]:
+    """A trusted_folders entry as the folder it names; as written if that fails.
+
+    ⚠ A relative entry (``""``, ``.``, ``src``, Windows ``C:rel``) names no
+    folder: resolving it would read it against the SERVER's working directory,
+    which can be ``/`` or ``~``. It matches nothing, which is what it matched
+    before entries were resolved. The config file refuses one at load; the env
+    vars (``JCODEMUNCH_TRUSTED_FOLDERS``, ``JCODEMUNCH_TRUSTED_FOLDERS_ENV``)
+    are not validated there, so the comparison must not trust them.
+    """
+    path = Path(entry).expanduser()
+    if not path.is_absolute():
+        logger.warning("trusted_folders entry is not an absolute path and matches nothing: %r", str(entry))
+        return None
     try:
-        return Path(entry).expanduser().resolve()
+        return path.resolve()
     except (OSError, RuntimeError, ValueError):
         logger.debug("trusted_folders entry not resolvable: %s", entry, exc_info=True)
-        return Path(entry)
+        return path
 
 
 @lru_cache(maxsize=512)
@@ -671,8 +683,10 @@ def _is_trusted(
     Empty list returns False (nothing explicitly trusted) for backward compatibility.
     The trust check is skipped for empty list, but the broad check uses this value.
 
-    ⚠ ``folder_path`` arrives resolved, so each entry is resolved the same way
-    before comparing. Compared as written, an entry that names the folder
+    ⚠ ``folder_path`` arrives resolved, so each absolute entry is resolved the
+    same way before comparing, and a relative one matches nothing. The cache
+    keeps the first answer, so a symlinked entry retargeted later is read as
+    its old target until the process restarts. Compared as written, an entry that names the folder
     through a symlink (macOS's ``/var`` is ``/private/var``) or a ``..``
     segment never matched: a trusted folder was refused, and in blacklist mode
     a listed folder was not refused.
@@ -682,7 +696,7 @@ def _is_trusted(
         return False
 
     is_in_list = any(
-        folder_path == entry or entry in folder_path.parents
+        entry is not None and (folder_path == entry or entry in folder_path.parents)
         for entry in map(_resolved_entry, trusted_folders)
     )
 

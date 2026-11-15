@@ -71,6 +71,31 @@ def test_an_unrelated_entry_still_does_not_trust_the_folder(tmp_path):
     assert not _is_trusted(proj.resolve(), (str(other / ".." / "elsewhere"),), True)
 
 
+@pytest.mark.parametrize("entry", ["", ".", "src", "x/..", "C:rel"])
+def test_a_relative_entry_trusts_nothing(tmp_path, monkeypatch, entry):
+    # Resolving it would read it against the server's working directory.
+    proj = _project(tmp_path)
+    monkeypatch.chdir(proj)
+    assert not _is_trusted(proj.resolve(), (entry,), True)
+    assert not _is_trusted((proj / "x").resolve(), (entry,), True)
+    assert _is_trusted(proj.resolve(), (entry,), False)
+
+
+def test_env_entries_reach_the_comparison_as_written(tmp_path, monkeypatch):
+    # The file path resolves entries at load; the env path does not, which is
+    # why the comparison has to.
+    from jcodemunch_mcp import config as config_module
+
+    proj = _project(tmp_path)
+    entry = str(proj / "x" / "..")
+    monkeypatch.setenv("JCODEMUNCH_TRUSTED_FOLDERS", entry)
+    monkeypatch.setattr(config_module, "_GLOBAL_CONFIG", {})
+    config_module._apply_env_var_fallback(set())
+    entries = config_module._GLOBAL_CONFIG["trusted_folders"]
+    assert entries == [entry]
+    assert _is_trusted(proj.resolve(), tuple(entries), True)
+
+
 def _config_get(entries, whitelist):
     def get(key, default=None, repo=None):
         if key == "trusted_folders":
