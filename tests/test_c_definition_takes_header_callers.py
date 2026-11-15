@@ -97,3 +97,34 @@ def test_a_file_with_its_own_f_is_not_a_caller_of_the_definition(tmp_path):
     )
     h = _callers(repo, store, "a.c::f#function")
     assert [(c["file"], c["name"]) for c in h["callers"]] == [("b.c", "g")], h
+
+
+def test_an_attribute_does_not_hide_static(tmp_path):
+    attributed = STATIC_INCLUDES.replace("static int f", "__attribute__((unused)) static int f")
+    repo, store = _index(
+        tmp_path, {"a.h": HEADER, "a.c": DEFINES, "b.c": CALLS, "c.c": attributed}
+    )
+    h = _callers(repo, store, "c.c::f#function")
+    assert h["callers"] == [], h
+
+
+def test_a_caller_that_repeats_the_prototype_is_still_a_caller(tmp_path):
+    # A `;` prototype declares the header's f; it is not a definition of its own.
+    repeats = CALLS.replace("int g(void)", "int f(int x);" + "\n" + "int g(void)")
+    repo, store = _index(tmp_path, {"a.h": HEADER, "a.c": DEFINES, "b.c": repeats})
+    h = _callers(repo, store, "a.c::f#function")
+    assert [(c["file"], c["name"]) for c in h["callers"]] == [("b.c", "g")], h
+
+
+def test_a_cpp_file_with_its_own_overload_is_still_a_caller(tmp_path):
+    # f(2) in b.cpp resolves to the header's f(int), not b.cpp's f(double).
+    repo, store = _index(
+        tmp_path,
+        {
+            "a.hpp": "#pragma once\nint f(int x);\n",
+            "a.cpp": '#include "a.hpp"\n\nint f(int x) {\n    return x + 1;\n}\n',
+            "b.cpp": '#include "a.hpp"\n\nstatic int f(double d) {\n    return 0;\n}\n\nint g() {\n    return f(2);\n}\n',
+        },
+    )
+    h = _callers(repo, store, "a.cpp::f#function")
+    assert ("b.cpp", "g") in [(c["file"], c["name"]) for c in h["callers"]], h

@@ -892,17 +892,30 @@ def _declaring_headers(
 
 
 def _is_file_local(sym: dict) -> bool:
-    """A C/C++ function whose signature declares it ``static``."""
-    head = (sym.get("signature") or "").split("(", 1)[0]
-    return "static" in head.split()
+    """A C/C++ function whose signature declares it ``static``.
 
-
-def _defines_own(symbols: list[dict], name: str) -> bool:
-    """The file defines a function of *name* itself (not a ``;`` declaration).
-
-    Its calls to *name* reach its own definition, so it is not a caller of
-    the one a header declares.
+    Only the words before the function's NAME are read, so an attribute that
+    carries parentheses (``__attribute__((unused)) static int f(...)``) does
+    not hide the storage class.
     """
+    signature = sym.get("signature") or ""
+    name = sym.get("name") or ""
+    match = re.search(word_pattern(name) + r"\s*\(", signature) if name else None
+    head = signature[: match.start()] if match else signature.split("(", 1)[0]
+    return "static" in re.findall(r"[A-Za-z_]\w*", head)
+
+
+def _defines_own(file_path: str, symbols: list[dict], name: str) -> bool:
+    """A C source defines a function of *name* itself (not a ``;`` prototype).
+
+    C has no overloads or namespaces, so its calls to *name* reach its own
+    definition and it is not a caller of the one a header declares. A C++
+    file is never excluded this way: an overload, a namespaced or an
+    anonymous-namespace function of that name can sit beside a real call to
+    the header's.
+    """
+    if not file_path.lower().endswith(".c"):
+        return False
     return any(
         s.get("name") == name
         and s.get("kind") == "function"
@@ -969,7 +982,7 @@ def find_direct_callers(
             if (
                 f != sym_file
                 and f not in scan_files
-                and not _defines_own(symbols_by_file.get(f, []), sym_name)
+                and not _defines_own(f, symbols_by_file.get(f, []), sym_name)
             ):
                 scan_files.append(f)
     # Lines where a symbol of the same name is DECLARED, per file (L-262).
