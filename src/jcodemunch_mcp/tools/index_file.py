@@ -435,7 +435,14 @@ def index_file(
     stored_hash = index.file_hashes.get(rel_path)
     is_new = rel_path not in index.file_hashes
 
-    if not is_new and stored_hash == file_hash:
+    # A file whose cached copy is gone is re-parsed even when its hash
+    # matches, which is what makes `index_file` the one-file repair.
+    _copy_missing = (
+        not is_new
+        and stored_hash == file_hash
+        and bool(store.missing_cached_copies(owner, name, [rel_path]))
+    )
+    if not is_new and stored_hash == file_hash and not _copy_missing:
         # File unchanged — update mtime only if needed, then early exit
         if index.file_mtimes.get(rel_path) != file_mtime:
             store.incremental_save(
