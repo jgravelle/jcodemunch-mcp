@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+### Fixed - at most two `index-file` runs work at once on a machine
+
+The PostToolUse hook starts a detached `jcodemunch-mcp index-file <path>` for every Edit or Write of a code file, and nothing counted them. Each run loads the repository's index: about 250 MB and 2.5 s on a 50,000-symbol index. Eight edits in a row held eight runs and about 800 MB at once. When edits arrive faster than runs finish, the runs pile up, memory pressure slows each one, and the pile grows; a machine running many agent sessions at once had no upper limit. Found while looking into an overnight benchmark run that left the development laptop unresponsive with many python.exe processes. Whether these runs were what piled up that night is not established.
+
+`index-file` now claims one of two slots before it loads an index. A slot is an ordinary process lock, so one held by a process that died or whose PID was reused reads as free, and a crash never leaks a slot. A run that finds both slots taken prints `"skipped": "busy"` and exits. The edit is not lost: `refresh_on_read`, on by default, re-indexes a changed file before the next read answers, and a running watcher does the same. The bound is in the command, so every caller of `index-file` has it. The hook does not check the slots first, because importing the lock layer would add about 0.66 s to every hook.
+
 ## [1.108.447] - 2026-11-14 - on macOS, a process is identified by its creation time
 
 ### Fixed - on macOS, a process is identified by its creation time, not by its PID alone

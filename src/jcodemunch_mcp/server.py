@@ -12021,15 +12021,34 @@ def main(argv: Optional[list[str]] = None):
         if not result.get("success"):
             sys.exit(1)
     elif args.command == "index-file":
-        from .tools.index_file import index_file as _index_file
+        from .storage import index_file_slots as _slots
         import json as _json
 
-        use_ai = not args.no_ai_summaries and _default_use_ai_summaries()
-        result = _index_file(
-            path=args.path,
-            use_ai_summaries=use_ai,
-            storage_path=os.environ.get("CODE_INDEX_PATH"),
-        )
+        # A bounded number of these work at once on a machine: the PostToolUse
+        # hook starts one per edit and never waits (index_file_slots.py).
+        _store = os.environ.get("CODE_INDEX_PATH")
+        _slot = _slots.claim(_store)
+        if _slot is None:
+            print(_json.dumps({
+                "success": True,
+                "skipped": "busy",
+                "max_concurrent": _slots.MAX_CONCURRENT,
+                "path": args.path,
+                "note": "every index-file slot is taken; the next read re-indexes "
+                        "this file when refresh_on_read is on, as does a running watcher",
+            }, indent=2))
+            return
+        try:
+            from .tools import index_file as _index_file_mod
+
+            use_ai = not args.no_ai_summaries and _default_use_ai_summaries()
+            result = _index_file_mod.index_file(
+                path=args.path,
+                use_ai_summaries=use_ai,
+                storage_path=_store,
+            )
+        finally:
+            _slots.release(_slot, _store)
         print(_json.dumps(result, indent=2))
         if not result.get("success"):
             sys.exit(1)
