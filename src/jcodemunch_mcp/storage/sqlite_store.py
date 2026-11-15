@@ -702,43 +702,34 @@ def _stamp_load_provenance(index, db_path: Path, mtime_ns: int):
     return index
 
 
-def _bm25_stats_blob(index) -> Optional[bytes]:
-    """The BM25 statistics row for a full save (#1343), or None.
-
-    Computed over COPIES of the symbols: tokenizing caches a token bag on each
-    symbol dict, and the warm copy this save caches must have the same keys as
-    a disk read (L-224). The four statistics go into the warm copy's cache, so
-    it searches without computing them again. A failure here never fails the
-    save; the row is then left empty and the next search computes the
-    statistics as before.
-    """
-    try:
-        from types import SimpleNamespace
-
-        from ..tools.search_symbols import _corpus_stats, publish_corpus_stats  # lazy: tools import storage
-        from . import bm25_stats
-
-        scratch = SimpleNamespace(
-            symbols=[dict(s) for s in index.symbols],
-            imports=index.imports,
-            alias_map=index.alias_map,
-            psr4_map=getattr(index, "psr4_map", None),
-        )
-        idf, avgdl, inverted, centrality = _corpus_stats(scratch)
-        publish_corpus_stats(index, idf, avgdl, inverted, centrality)
-        return bm25_stats.encode(
-            bm25_stats.corpus_digest(index), len(index.symbols),
-            idf, avgdl, inverted, centrality,
-        )
-    except Exception:
-        logger.warning("BM25 statistics not stored with this index", exc_info=True)
-        return None
-
-
 def store_bm25_stats_for_loaded_index(index, blob: bytes) -> bool:
     """Write a search's BM25 statistics into the .db the index came from.
 
-    Runs from ``bm25_stats.flush_pending``. Takes the ``indexwrite`` lock
+    Runs from ``bm25_stats.flush_pending``. See ``_write_back_to_loaded_index``.
+    """
+    from . import bm25_stats
+
+    return _write_back_to_loaded_index(
+        index, lambda conn: bm25_stats.write_in_txn(conn, blob), "BM25 statistics"
+    )
+
+
+def store_token_counts_for_loaded_index(index, rows) -> bool:
+    """Write per-file token counts a call queued into the .db the index came from.
+
+    Runs from ``token_counts.flush_pending``. See ``_write_back_to_loaded_index``.
+    """
+    from . import token_counts
+
+    return _write_back_to_loaded_index(
+        index, lambda conn: token_counts.write_in_txn(conn, rows), "token counts"
+    )
+
+
+def _write_back_to_loaded_index(index, write, what: str) -> bool:
+    """Run ``write(conn)`` in a transaction on the .db the index came from.
+
+    Takes the ``indexwrite`` lock
     without waiting, so it never queues behind a writer, and writes only if
     the .db is still exactly as it was loaded, checked again inside the write
     transaction. The file is opened ``mode=rw``, so a deleted index is never
@@ -746,7 +737,7 @@ def store_bm25_stats_for_loaded_index(index, blob: bytes) -> bool:
     decides whether the warm index may follow it. Returns whether the row was
     stored. Never raises.
     """
-    from . import bm25_stats, process_locks
+    from . import process_locks
     from .generation import describe
 
     try:
@@ -773,14 +764,14 @@ def store_bm25_stats_for_loaded_index(index, blob: bytes) -> bool:
                 if _db_mtime_ns(db_path) != gen.loaded_mtime_ns:
                     conn.execute("ROLLBACK")
                     return False
-                bm25_stats.write_in_txn(conn, blob)
+                write(conn)
                 conn.execute("COMMIT")
             finally:
                 conn.close()
             _restamp_after_bm25_write(index, db_path, gen.loaded_mtime_ns)
         return True
     except Exception:
-        logger.debug("BM25 statistics write-back skipped", exc_info=True)
+        logger.debug("%s write-back skipped", what, exc_info=True)
         return False
 
 
@@ -2064,9 +2055,6 @@ class SQLiteIndexStore:
         )
 
         db_path = self._db_path(owner, name)
-        # Computed before the lock and written inside the symbols' own
-        # transaction, so the stored row always belongs to these symbols (#1343).
-        bm25_blob = _bm25_stats_blob(index)
         lock_target = f"{owner}/{name}"
         storage_root = str(self.base_path)
         with process_locks.held(
@@ -2085,7 +2073,6 @@ class SQLiteIndexStore:
                 normalized_source_files, raw_files,
                 file_hashes, file_languages, file_mtimes,
                 file_blob_shas, file_summaries, file_sizes, imports,
-                bm25_blob=bm25_blob,
             )
         _evict_result_cache(owner, name)
         return saved
@@ -2106,7 +2093,6 @@ class SQLiteIndexStore:
         file_summaries,
         file_sizes,
         imports,
-        bm25_blob: Optional[bytes] = None,
     ):
         """Inner body of save_index; runs under the indexwrite lock."""
         conn = self._connect(db_path)
@@ -2164,12 +2150,19 @@ class SQLiteIndexStore:
 
             from . import bm25_stats
 
-            bm25_stats.write_in_txn(conn, bm25_blob)
+            # The BM25 statistics are computed by the first search and written
+            # back (bm25_stats.flush_pending), not here: computing them at every
+            # full save made a full index slower (v1.108.423, #1343) for an index
+            # that may never be searched. Clearing keeps a row from outliving the
+            # symbols it was computed from.
+            bm25_stats.clear_in_txn(conn)
 
-            # Per-file token counts for tokens_saved (storage/token_counts.py).
+            # Per-file token counts are taken when a call first credits a file
+            # (storage/token_counts.py); a save only drops counts for content
+            # no indexed file holds.
             from . import token_counts
 
-            token_counts.record(conn, self._content_dir_or_none(owner, name), raw_files)
+            token_counts.prune(conn)
 
             conn.commit()
         finally:
@@ -3107,10 +3100,10 @@ class SQLiteIndexStore:
                 if mtime_only:
                     conn.executemany("UPDATE files SET mtime_ns = ? WHERE path = ?", mtime_only)
 
-            # Per-file token counts for tokens_saved (storage/token_counts.py).
+            # Per-file token counts: see storage/token_counts.py (counted on first credit).
             from . import token_counts
 
-            token_counts.record(conn, self._content_dir_or_none(owner, name), raw_files)
+            token_counts.prune(conn)
 
             # Always read meta (small). Only read all rows when no cached index to patch.
             meta = self._read_meta(conn)
@@ -3882,12 +3875,6 @@ class SQLiteIndexStore:
         serialises concurrent writers to a repo, so the pid-suffixed temp name
         cannot collide.
         """
-        # The text is in hand here, so this is where its token count is
-        # taken (storage/token_counts.py); `metadata_only` keeps no copy to
-        # count from later.
-        from . import token_counts
-
-        token_counts.note(content)
         try:
             from .. import config as _cfg
             if _cfg.get("cache_mode", "full") == "metadata_only":
