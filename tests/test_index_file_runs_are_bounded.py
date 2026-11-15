@@ -12,10 +12,12 @@ process holds proves nothing about another one.
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 import textwrap
 import time
+from pathlib import Path
 from unittest import mock
 
 import pytest
@@ -403,8 +405,12 @@ def test_a_slot_directory_is_used_only_when_it_is_private_to_this_user():
         slots._check_private(_st(stat.S_IFDIR | 0o700, uid=0), 1000)
         == "is owned by uid 0"
     )
-    assert "open to other users" in slots._check_private(
-        _st(stat.S_IFDIR | 0o777), 1000
+    assert (
+        slots._check_private(_st(stat.S_IFDIR | 0o755), 1000) == "has mode 755, not 700"
+    )
+    # a mode the owner itself cannot use is not private either
+    assert (
+        slots._check_private(_st(stat.S_IFDIR | 0o500), 1000) == "has mode 500, not 700"
     )
     # Windows: the temp directory is per user, so only the type is checked.
     assert slots._check_private(_st(stat.S_IFDIR | 0o777, uid=0), None) is None
@@ -434,39 +440,81 @@ class _St:
         self.st_mode, self.st_uid = mode, uid
 
 
-def test_our_own_slot_directory_open_to_others_is_tightened_not_refused(
+def _fake_fd_ops(monkeypatch, mode, uid):
+    """The descriptor operations _check_posix_dir uses, on a fake folder."""
+    import stat
+
+    state = {"mode": stat.S_IFDIR | mode, "uid": uid, "fchmods": [], "closed": 0}
+    monkeypatch.setattr(slots, "_owner_uid", lambda: 501)
+    monkeypatch.setattr(slots, "_open_dir_nofollow", lambda d: 99)
+    monkeypatch.setattr(slots, "_fstat", lambda fd: _St(state["mode"], state["uid"]))
+
+    def fchmod(fd, m):
+        assert fd == 99
+        state["fchmods"].append(m)
+        state["mode"] = stat.S_IFDIR | m
+
+    monkeypatch.setattr(slots, "_fchmod", fchmod)
+    monkeypatch.setattr(
+        slots, "_close", lambda fd: state.__setitem__("closed", state["closed"] + 1)
+    )
+    return state
+
+
+def test_our_own_slot_directory_with_another_mode_is_tightened_not_refused(
     slot_dir, monkeypatch
 ):
     """The lock layer makes a missing folder with the default umask (0755), and
     on macOS and Linux a check that refused it turned the bound off (the
-    2026-11-15 Mac run of this branch)."""
-    import stat
-
-    modes = {"m": stat.S_IFDIR | 0o755}
-    chmods = []
+    2026-11-15 Mac run of this branch). The change goes through the descriptor
+    the check read, never through the path a second time."""
     slot_dir.mkdir()
-    monkeypatch.setattr(slots, "_owner_uid", lambda: 501)
-    monkeypatch.setattr(slots.os, "lstat", lambda p: _St(modes["m"], 501))
-
-    def chmod(p, mode):
-        chmods.append(mode)
-        modes["m"] = stat.S_IFDIR | mode
-
-    monkeypatch.setattr(slots.os, "chmod", chmod)
-    assert slots._private_dir() == slot_dir and chmods == [0o700]
+    state = _fake_fd_ops(monkeypatch, 0o755, 501)
+    assert slots._private_dir() == slot_dir
+    assert state["fchmods"] == [0o700] and state["closed"] == 1
 
 
 def test_another_users_slot_directory_is_refused_and_left_alone(slot_dir, monkeypatch):
-    import stat
-
-    chmods = []
     slot_dir.mkdir()
-    monkeypatch.setattr(slots, "_owner_uid", lambda: 501)
-    monkeypatch.setattr(slots.os, "lstat", lambda p: _St(stat.S_IFDIR | 0o777, 0))
-    monkeypatch.setattr(slots.os, "chmod", lambda p, m: chmods.append(m))
+    state = _fake_fd_ops(monkeypatch, 0o777, 0)
     with pytest.raises(slots.SlotDirRefused, match="owned by uid 0"):
         slots._private_dir()
-    assert chmods == []
+    assert state["fchmods"] == [] and state["closed"] == 1
+
+
+def test_a_slot_directory_that_cannot_be_opened_without_following_a_link_is_refused(
+    slot_dir, monkeypatch
+):
+    slot_dir.mkdir()
+    monkeypatch.setattr(slots, "_owner_uid", lambda: 501)
+
+    def eloop(d):
+        raise OSError(40, "Too many levels of symbolic links")
+
+    monkeypatch.setattr(slots, "_open_dir_nofollow", eloop)
+    with pytest.raises(slots.SlotDirRefused, match="without following a link"):
+        slots._private_dir()
+
+
+@pytest.mark.skipif(
+    os.name == "nt",
+    reason="POSIX modes and symlinks; Windows checks the folder type only",
+)
+def test_on_posix_a_real_0755_folder_becomes_0700_and_a_symlink_is_refused(
+    slot_dir, tmp_path
+):
+    import stat
+
+    slot_dir.mkdir(mode=0o755)
+    os.chmod(slot_dir, 0o755)
+    assert slots._private_dir() == slot_dir
+    assert stat.S_IMODE(os.stat(slot_dir).st_mode) == 0o700
+    target = tmp_path / "elsewhere"
+    target.mkdir(mode=0o700)
+    os.rmdir(slot_dir)
+    os.symlink(target, slot_dir)
+    with pytest.raises(slots.SlotDirRefused):
+        slots._private_dir()
 
 
 def _claim_in_child(d, key, cwd) -> subprocess.Popen:
@@ -535,35 +583,36 @@ def test_a_queued_path_that_index_file_rejects_is_counted_as_failed(
     assert out["coalesced_failures"] == 1 and "coalesced_paths" not in out
 
 
-def test_a_pending_list_held_open_briefly_is_taken_after_a_retry(slot_dir, monkeypatch):
+def test_an_unfinished_queue_write_is_neither_read_nor_removed(slot_dir):
+    """A queued path is written under a temporary name and renamed into place,
+    so a run taking the list mid-write sees nothing and deletes nothing."""
     key = "store|repo"
     assert slots.queue(key, "a.py")
-    real = slots.os.replace
-    refused = []
-
-    def replace(src, dst):
-        if str(src).endswith(".txt") and len(refused) < 2:
-            refused.append(src)
-            raise PermissionError(32, "being used by another process")
-        return real(src, dst)
-
-    monkeypatch.setattr(slots.os, "replace", replace)
-    monkeypatch.setattr(slots, "TAKE_WAIT_SECONDS", 0)
-    assert slots.take_pending(key) == ["a.py"] and len(refused) == 2
+    in_progress = slot_dir / f"{slots._pending_prefix(key)}{'9' * 20}_1_deadbeef.tmp"
+    in_progress.write_text("b.py")
+    assert slots.take_pending(key) == ["a.py"]
+    assert in_progress.exists()
+    in_progress.rename(in_progress.with_suffix(".path"))  # the writer finishes
+    assert slots.take_pending(key) == ["b.py"]
 
 
-def test_a_pending_list_held_open_through_every_retry_is_left_in_place(
+def test_a_queued_entry_that_cannot_be_read_is_left_for_the_next_take(
     slot_dir, monkeypatch
 ):
     key = "store|repo"
-    assert slots.queue(key, "a.py")
+    assert slots.queue(key, "a.py") and slots.queue(key, "b.py")
+    real = Path.read_text
+    refused = []
 
-    def replace(src, dst):
-        raise PermissionError(32, "being used by another process")
+    def read_text(self, *a, **k):
+        if self.suffix == ".path" and not refused:
+            refused.append(self.name)
+            raise PermissionError(13, "denied")
+        return real(self, *a, **k)
 
-    real = slots.os.replace
-    monkeypatch.setattr(slots.os, "replace", replace)
-    monkeypatch.setattr(slots, "TAKE_WAIT_SECONDS", 0)
-    assert slots.take_pending(key) is None
-    monkeypatch.setattr(slots.os, "replace", real)
-    assert slots.take_pending(key) == ["a.py"], "the paths were lost, not left"
+    monkeypatch.setattr(Path, "read_text", read_text)
+    assert slots.take_pending(key) == ["b.py"]
+    monkeypatch.setattr(Path, "read_text", real)
+    assert slots.take_pending(key) == ["a.py"], (
+        "the unreadable entry was lost, not left"
+    )

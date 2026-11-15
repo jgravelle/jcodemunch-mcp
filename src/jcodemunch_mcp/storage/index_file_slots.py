@@ -13,7 +13,9 @@ Two rules, both checked before an index is loaded:
 1. **One run per checkout.** The key is the index store plus the file's git
    root, or the file's own folder outside git (``index_key``). A run whose key
    already has a live run does no work itself. It leaves its path in that
-   key's pending list, and the live run indexes the pending paths in the same
+   key's pending list (one small file per path, written under a temporary
+   name and renamed into place, so a reader never sees half a write), and the
+   live run indexes the pending paths in the same
    process before it finishes. Each pending path is still indexed by its own
    ``index_file`` call, which loads the index again; what the bound saves is
    the concurrent processes, not the loads.
@@ -24,8 +26,7 @@ After the live run gives its locks back it looks at the pending list once more
 (``drain_after_release``, up to ``AFTER_RELEASE_TRIES`` times), so a path
 queued between its last read of the list and its release is not stranded. A
 path is still left over when every machine slot is taken at that moment, when
-the run itself failed, when the list stays held open through every retry, or
-when it arrives during the last try's own release. Such a path, like a
+the run itself failed, or when it arrives during the last try's own release. Such a path, like a
 run turned away as busy, is re-indexed only by a running watcher, by
 ``refresh_on_read`` on the next read of a git repository (at most once per
 30 s per server, and not while another write holds the index), or by the next
@@ -36,15 +37,20 @@ died or whose PID was reused reads as free and a crash never leaks a slot. The
 locks live in one private directory per user (``slot_dir``), never under the
 index store: a host may give every session its own ``CODE_INDEX_PATH``, and a
 bound kept inside each store would bound nothing across them. On POSIX the
-directory is created ``0700`` and refused if it is a symlink, is owned by
-another user, or is open to others (``_check_private``), because the system
-temp directory is shared there. On Windows the check is only that it is a
-directory: the temp directory is per user unless ``TMP``/``TEMP`` was pointed
-at a shared folder. A folder this user owns that is open to others
-is tightened to ``0700``; a refused folder (a symlink, another user's, not a
-folder) makes the run do no work and exit, leaving the file to the watcher,
-``refresh_on_read`` or the next edit. Any other lock error runs the work
-unbounded and says so.
+system temp directory is shared, so the folder carries the user's id and is
+kept at ``0700``: it is opened without following a symlink, checked and, when
+it is this user's own with another mode, tightened through that descriptor.
+A folder that is a symlink, another user's or not a folder is refused, and
+the run does no work and exits, leaving the file to the watcher,
+``refresh_on_read`` or the next edit. The name is predictable, so another
+local user who creates it first turns this user's hook re-index off; the run
+logs that as a WARNING, which nobody reads. On Windows the check is only that
+it is a folder: the temp directory is per user unless ``TMP`` or ``TEMP``
+points at a shared folder.
+
+``process_locks`` reads a lock file it cannot create (a full or read-only
+folder) as held, so such a folder reports ``busy``, not ``slot_error``. An
+exception from the lock layer runs the work unbounded and says so.
 
 The bound lives in the command, so every caller of ``index-file`` inherits it.
 The hook does not read the slots first: importing the lock layer would cost
@@ -60,6 +66,7 @@ import os
 import stat
 import tempfile
 import time
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Optional
@@ -74,17 +81,13 @@ INDEX_SCOPE = "indexfile-index"
 #: processes and 367 MB at the peak, two of them working, on a 50,000-symbol
 #: index (evidence/measurements.md); no comparison of 1, 2 and 3 was made.
 MAX_CONCURRENT = 2
-#: A pending list longer than this is cut; the paths cut are left to the
+#: A key with this many queued paths queues no more; those are left to the
 #: watcher, refresh_on_read or the next edit.
 MAX_PENDING = 500
 #: How many times a finished run re-claims to drain what arrived after its release.
 AFTER_RELEASE_TRIES = 3
 #: How many times one claim re-reads the pending list before giving the locks back.
 DRAIN_ROUNDS = 20
-#: A pending list another process has open (a sharing violation on Windows) is
-#: retried this many times, TAKE_WAIT_SECONDS apart, before it is left in place.
-TAKE_TRIES = 5
-TAKE_WAIT_SECONDS = 0.05
 
 
 def slot_dir() -> Path:
@@ -107,8 +110,8 @@ def _check_private(st: os.stat_result, uid: Optional[int]) -> Optional[str]:
         return "is not a directory"
     if uid is not None and st.st_uid != uid:
         return f"is owned by uid {st.st_uid}"
-    if uid is not None and st.st_mode & 0o077:
-        return f"is open to other users (mode {stat.S_IMODE(st.st_mode):o})"
+    if uid is not None and stat.S_IMODE(st.st_mode) != 0o700:
+        return f"has mode {stat.S_IMODE(st.st_mode):o}, not 700"
     return None
 
 
@@ -120,11 +123,47 @@ def _owner_uid() -> Optional[int]:
     return None if os.name == "nt" else os.getuid()
 
 
-def _private_dir() -> Path:
-    """``slot_dir()``, created if absent and made ``0700`` if it is ours.
+def _open_dir_nofollow(d: Path) -> int:
+    flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
+    return os.open(d, flags)
 
-    A folder this user owns that is open to others (made by an earlier version,
-    or by the lock layer with the default umask) is tightened. One that is a
+
+def _fstat(fd: int) -> os.stat_result:
+    return os.fstat(fd)
+
+
+def _fchmod(fd: int, mode: int) -> None:
+    getattr(os, "fchmod")(fd, mode)  # POSIX only; never reached on Windows
+
+
+def _close(fd: int) -> None:
+    os.close(fd)
+
+
+def _check_posix_dir(d: Path, uid: int) -> Optional[str]:
+    """Check ``d`` through a descriptor opened without following a symlink, and
+    tighten it there when it is ``uid``'s own: the path is looked up once, so
+    nothing can be swapped in between the check and the change."""
+    try:
+        fd = _open_dir_nofollow(d)
+    except OSError as e:
+        return f"cannot be opened as a folder without following a link ({e.strerror})"
+    try:
+        st = _fstat(fd)
+        why = _check_private(st, uid)
+        if why and stat.S_ISDIR(st.st_mode) and st.st_uid == uid:
+            _fchmod(fd, 0o700)
+            why = _check_private(_fstat(fd), uid)
+        return why
+    finally:
+        _close(fd)
+
+
+def _private_dir() -> Path:
+    """``slot_dir()``, created if absent and kept ``0700`` when it is ours.
+
+    A folder this user owns with another mode (made by an earlier version, or
+    by the lock layer with the default umask) is tightened. One that is a
     symlink, belongs to another user or is not a folder raises
     ``SlotDirRefused``.
     """
@@ -134,11 +173,7 @@ def _private_dir() -> Path:
     except FileExistsError:
         pass
     uid = _owner_uid()
-    st = os.lstat(d)
-    why = _check_private(st, uid)
-    if why and uid is not None and stat.S_ISDIR(st.st_mode) and st.st_uid == uid:
-        os.chmod(d, 0o700)
-        why = _check_private(os.lstat(d), uid)
+    why = _check_private(os.lstat(d), None) if uid is None else _check_posix_dir(d, uid)
     if why:
         raise SlotDirRefused(f"{d} {why}")
     return d
@@ -172,8 +207,13 @@ def index_key(path: str, storage_path: Optional[str]) -> str:
     return f"{store}|{os.path.abspath(str(root))}"
 
 
-def _pending_file(key: str) -> Path:
-    return _private_dir() / f"_pending_{_digest(key)}.txt"
+def _pending_prefix(key: str) -> str:
+    return f"_pending_{_digest(key)}_"
+
+
+def _pending_files(key: str) -> list[Path]:
+    """This key's queued paths, oldest first; never an unfinished write."""
+    return sorted(_private_dir().glob(f"{_pending_prefix(key)}*.path"))
 
 
 @dataclass
@@ -245,15 +285,23 @@ def release(c: Claim) -> None:
 
 
 def queue(key: str, path: str) -> bool:
-    """Leave ``path`` for the live run of this key. False when not recorded."""
+    """Leave ``path`` for the live run of this key. False when not recorded.
+
+    The path goes into a file of its own under a temporary name, renamed into
+    place once written, so a run reading the list sees only whole entries and
+    never removes one it has not read.
+    """
     try:
-        p = _pending_file(key)
-        if p.exists() and p.stat().st_size > MAX_PENDING * 1024:
+        d = _private_dir()
+        if len(_pending_files(key)) >= MAX_PENDING:
             return False
-        flags = os.O_WRONLY | os.O_APPEND | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0)
-        fd = os.open(p, flags, 0o600)
-        with os.fdopen(fd, "a", encoding="utf-8") as f:
-            f.write(path + "\n")
+        name = f"{_pending_prefix(key)}{time.time_ns():020d}_{os.getpid()}_{uuid.uuid4().hex[:8]}"
+        tmp = d / f"{name}.tmp"
+        flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
+        fd = os.open(tmp, flags, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(path)
+        os.replace(tmp, d / f"{name}.path")
         return True
     except OSError:
         logger.debug("could not queue %s", path, exc_info=True)
@@ -261,57 +309,38 @@ def queue(key: str, path: str) -> bool:
 
 
 def has_pending(key: str) -> bool:
-    """Whether this key's pending list holds anything (False when it cannot be read)."""
+    """Whether this key has a queued path (False when the folder cannot be read)."""
     try:
-        p = _pending_file(key)
-        return p.exists() and p.stat().st_size > 0
+        return bool(_pending_files(key))
     except OSError:
         logger.debug("could not read the pending list for %s", key, exc_info=True)
         return False
 
 
-def take_pending(key: str) -> Optional[list[str]]:
-    """Read and clear this key's pending list; each path once, in order.
+def take_pending(key: str) -> list[str]:
+    """Read and remove this key's queued paths; each path once, oldest first.
 
-    ``[]`` means there is no list. ``None`` means the list is there and could
-    not be taken: another process held it open through every retry.
+    An entry that cannot be read is left in place for the next take.
     """
     try:
-        p = _pending_file(key)
+        files = _pending_files(key)
     except OSError:
         logger.debug("no private slot directory for %s", key, exc_info=True)
         return []
-    taken = p.with_suffix(f".{os.getpid()}.taking")
-    for attempt in range(TAKE_TRIES):
-        try:
-            os.replace(p, taken)
-            break
-        except FileNotFoundError:
-            return []
-        except OSError:
-            if attempt == TAKE_TRIES - 1:
-                logger.warning(
-                    "index-file: could not take the pending list %s; its paths are left in it",
-                    p,
-                    exc_info=True,
-                )
-                return None
-            time.sleep(TAKE_WAIT_SECONDS)
-    try:
-        lines = taken.read_text(encoding="utf-8").splitlines()
-    except OSError:
-        logger.debug("could not read %s", taken, exc_info=True)
-        lines = []
-    finally:
-        try:
-            taken.unlink()
-        except OSError:
-            pass
     seen: dict[str, None] = {}
-    for line in lines:
-        if line.strip():
-            seen.setdefault(line.strip(), None)
-    return list(seen)[:MAX_PENDING]
+    for f in files[:MAX_PENDING]:
+        try:
+            text = f.read_text(encoding="utf-8").strip()
+        except OSError:
+            logger.debug("could not read %s; left for the next take", f, exc_info=True)
+            continue
+        try:
+            f.unlink()
+        except OSError:
+            logger.debug("could not remove %s", f, exc_info=True)
+        if text:
+            seen.setdefault(text, None)
+    return list(seen)
 
 
 def drain(key: str, index_one: Callable[[str], object]) -> tuple[int, int]:
