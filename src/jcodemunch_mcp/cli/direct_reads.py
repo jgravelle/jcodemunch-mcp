@@ -16,7 +16,7 @@ def run_direct_reads(*, as_json: bool = False, storage_path=None) -> int:
     s = direct_reads.summary(storage_path)
     if as_json:
         print(json.dumps(s if s is not None else {}))
-        return 0
+        return 1 if s and "unreadable" in s else 0
     if s is None:
         print(
             "No direct-read count yet. Run `jcodemunch-mcp init --cursor-hooks`, restart Cursor, and use its agent."

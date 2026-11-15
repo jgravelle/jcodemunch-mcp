@@ -60,6 +60,12 @@ def _load(path: Path) -> Optional[dict]:
         or not isinstance(data.get("days"), dict)
     ):
         return None
+    for counts in data["days"].values():
+        if not isinstance(counts, dict) or not all(
+            isinstance(counts.get(c, 0), int) and not isinstance(counts.get(c, 0), bool)
+            for c in COUNTERS
+        ):
+            return None
     return data
 
 

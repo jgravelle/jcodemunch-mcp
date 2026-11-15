@@ -2464,7 +2464,7 @@ def run_uninstall(
         msg = uninstall_copilot_hooks(dry_run=dry_run, backup=backup)
         print(f"  Copilot hooks:{msg}")
 
-    if cursor_hooks and not scoped_to_one:
+    if cursor_hooks and (not scoped_to_one or target.lower() == "cursor"):
         msg = uninstall_cursor_hooks(dry_run=dry_run, backup=backup)
         print(f"  Cursor hooks:{msg}")
 

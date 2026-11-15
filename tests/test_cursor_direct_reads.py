@@ -168,6 +168,34 @@ def test_an_unreadable_counts_file_is_not_zero_and_is_not_overwritten(store):
     assert path.read_text(encoding="utf-8") == "{not json"
 
 
+@pytest.mark.parametrize(
+    "text",
+    [
+        '{"schema": 1, "days": {"2026-11-15": "many"}}',
+        '{"schema": 1, "days": {"2026-11-15": {"direct_reads": "3"}}}',
+    ],
+)
+def test_a_counts_file_with_a_bad_day_is_unreadable(store, capsys, text):
+    from jcodemunch_mcp.cli.direct_reads import run_direct_reads
+
+    (store / direct_reads.FILE_NAME).write_text(text, encoding="utf-8")
+    assert "unreadable" in direct_reads.summary(str(store), today=TODAY)
+    assert run_direct_reads(as_json=False) == 1
+    assert run_direct_reads(as_json=True) == 1
+    capsys.readouterr()
+
+
+def test_uninstall_cursor_removes_the_cursor_hooks(home, monkeypatch, tmp_path):
+    from jcodemunch_mcp.cli import init as init_mod
+
+    init_mod.install_cursor_hooks(backup=False)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(init_mod, "_detect_clients", lambda: [])
+    init_mod.run_uninstall(target="cursor", no_backup=True, yes=True)
+    data = json.loads((home / ".cursor" / "hooks.json").read_text(encoding="utf-8"))
+    assert data["hooks"] == {}
+
+
 def test_parallel_writers_lose_no_count(store):
     def one():
         direct_reads.record_read(storage_path=str(store), today=TODAY)
