@@ -664,15 +664,16 @@ def _resolved_entry(entry) -> Optional[Path]:
         path = Path(entry).expanduser()
     except (OSError, RuntimeError, ValueError):
         # POSIX raises for a `~name` naming no user: no folder, so no match.
-        logger.warning("trusted_folders entry names no home directory and matches nothing: %r", str(entry))
+        # The entry is not logged: it is a path from the environment.
+        logger.warning("a trusted_folders entry names no home directory and matches nothing")
         return None
     if not path.is_absolute():
-        logger.warning("trusted_folders entry is not an absolute path and matches nothing: %r", str(entry))
+        logger.warning("a trusted_folders entry is not an absolute path and matches nothing")
         return None
     try:
         return path.resolve()
     except (OSError, RuntimeError, ValueError):
-        logger.debug("trusted_folders entry not resolvable: %s", entry, exc_info=True)
+        logger.debug("a trusted_folders entry is not resolvable; compared as written", exc_info=True)
         return path
 
 
