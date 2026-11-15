@@ -1,6 +1,7 @@
 """Native registration must not traverse a workspace's symlink graph."""
 
 import asyncio
+import itertools
 import os
 from contextlib import aclosing
 from types import SimpleNamespace
@@ -144,8 +145,11 @@ async def test_backend_selection_preserves_reconciliation_and_closure(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("extra_reads", [0, 40])
 @pytest.mark.parametrize("operation", ["add", "delete", "replace"])
-async def test_topology_refresh_closes_old_watch_and_requests_rescan(tmp_path, operation, explicit_watches):
+async def test_topology_refresh_closes_old_watch_and_requests_rescan(tmp_path, operation, extra_reads, explicit_watches):
+    """`extra_reads` stands in for a slow runner, where the watcher loop makes
+    more passes and reads the clock more often: the fake clock must not run out."""
     watchfiles = pytest.importorskip("watchfiles")
     root = str(tmp_path)
     child = tmp_path / "child"
@@ -174,7 +178,11 @@ async def test_topology_refresh_closes_old_watch_and_requests_rescan(tmp_path, o
         finally:
             closed.append(generation)
 
-    ticks = iter(range(0, 1000, 61))
+    # Unbounded: a finite range raised StopIteration inside the async
+    # generator whenever the loop read the clock once more than expected.
+    ticks = itertools.count(0, 61)
+    for _ in range(extra_reads):
+        next(ticks)
     with patch.object(watchfiles, "awatch", fake_awatch), patch.object(
         watcher, "time", SimpleNamespace(monotonic=lambda: next(ticks))
     ):
