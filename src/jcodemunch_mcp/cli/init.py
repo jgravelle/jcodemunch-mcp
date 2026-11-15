@@ -1222,9 +1222,7 @@ def uninstall_cursor_hooks(*, dry_run: bool = False, backup: bool = True) -> str
         return f"  would remove the jcodemunch Cursor hooks from {path}"
     if backup:
         _backup_path(path).write_text(raw, encoding="utf-8")
-    if not hooks and set(data) <= {"version", "hooks"}:
-        path.unlink()
-        return f"  removed empty {path}"
+    # The file is kept even when nothing is left in it: it may predate us.
     path.write_text(json.dumps(data, indent=2), encoding="utf-8")
     return f"  removed the jcodemunch Cursor hooks from {path}"
 
