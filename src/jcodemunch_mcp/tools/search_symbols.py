@@ -208,7 +208,8 @@ def _scope_to_filters(result: dict, query: str, index, filters: dict) -> None:
     from ..retrieval.verdict import filters_refuse_absence as _filters_refuse
     from ..retrieval.verdict import refuse_absence as _refuse_absence
 
-    meta = result.get("_meta") if isinstance(result.get("_meta"), dict) else {}
+    _meta = result.get("_meta")
+    meta: dict = _meta if isinstance(_meta, dict) else {}
     exact = meta.get("exact_match")
     rows = result.get("results") or []
     if isinstance(exact, dict):
@@ -251,7 +252,12 @@ def _scope_to_filters(result: dict, query: str, index, filters: dict) -> None:
                 f"this as evidence the target is not present within that scope; it "
                 f"says nothing about files outside it.{tail}"
             )
-        elif not refused and old_exact_note and verdict.get("note") == old_exact_note:
+        elif (
+            not refused
+            and isinstance(exact, dict)
+            and old_exact_note
+            and verdict.get("note") == old_exact_note
+        ):
             verdict["note"] = exact["note"]
     neg = result.get("negative_evidence")
     if isinstance(neg, dict):
