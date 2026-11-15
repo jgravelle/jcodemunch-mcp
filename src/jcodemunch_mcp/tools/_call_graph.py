@@ -851,6 +851,43 @@ def _dispatch_callers(index: "CodeIndex", sym: dict, symbols_by_file: dict[str, 
     return results
 
 
+_C_SOURCE_SUFFIXES = (".c", ".cc", ".cpp", ".cxx", ".c++")
+_C_HEADER_SUFFIXES = (".h", ".hh", ".hpp", ".hxx", ".h++")
+
+
+def _declaring_headers(
+    index: "CodeIndex", sym: dict, symbols_by_file: dict[str, list[dict]]
+) -> list[str]:
+    """Headers a C/C++ source includes that declare a symbol of *sym*'s name.
+
+    A caller includes the header, never the source, so the import graph links
+    it to the declaration and the definition shows no callers. The definition
+    takes the callers of a same-named declaration in a header its OWN file
+    includes; a source that does not include the header takes nothing.
+    """
+    sym_file: str = sym.get("file", "")
+    sym_name: str = sym.get("name", "")
+    if not sym_file.lower().endswith(_C_SOURCE_SUFFIXES) or not sym_name:
+        return []
+    from ..parser.imports import resolve_specifier
+
+    source_files_fs = set(index.source_files)
+    alias_map = getattr(index, "alias_map", {}) or {}
+    psr4_map = getattr(index, "psr4_map", None)
+    headers: list[str] = []
+    for imp in (index.imports or {}).get(sym_file, []):
+        target = resolve_specifier(imp["specifier"], sym_file, source_files_fs, alias_map, psr4_map)
+        if (
+            target
+            and target != sym_file
+            and target not in headers
+            and target.lower().endswith(_C_HEADER_SUFFIXES)
+            and any(s.get("name") == sym_name for s in symbols_by_file.get(target, []))
+        ):
+            headers.append(target)
+    return headers
+
+
 def find_direct_callers(
     index: "CodeIndex",
     store: "IndexStore",
@@ -900,15 +937,22 @@ def find_direct_callers(
         return []
 
     callers: list[dict] = []
-    seen_ids: set[str] = set(ast_caller_ids) | lsp_ids
+    seen_ids: set[str] = set(ast_caller_ids) | lsp_ids | {sym.get("id", "")}
+    # The files to scan: the symbol's importers, then those of each header
+    # that declares it (a C/C++ definition is called through its header).
+    scan_files: list[str] = list(reverse_adj.get(sym_file, []))
+    for header in _declaring_headers(index, sym, symbols_by_file):
+        for f in reverse_adj.get(header, []):
+            if f != sym_file and f not in scan_files:
+                scan_files.append(f)
     # Lines where a symbol of the same name is DECLARED, per file (L-262).
     decl_lines: dict[str, set[int]] = {}
-    for f in reverse_adj.get(sym_file, []):
+    for f in scan_files:
         lines = {s.get("line") for s in symbols_by_file.get(f, []) if s.get("name") == sym_name}
         if lines:
             decl_lines[f] = lines
 
-    for imp_file in reverse_adj.get(sym_file, []):
+    for imp_file in scan_files:
         if content_cache is not None:
             file_content = content_cache.content(imp_file)
         else:

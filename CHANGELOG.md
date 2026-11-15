@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+### Fixed - a C or C++ function shows the callers that reach it through its header
+
+`b.c` includes `a.h` and calls `f`; `a.c` defines `f`. The import graph links `b.c` to `a.h`, never to `a.c`, so `get_call_hierarchy` filed the caller under the header's declaration and the definition, the symbol a reader asks about, came back with no callers.
+
+A definition in a `.c`/`.cc`/`.cpp`/`.cxx` file now takes the callers found for a same-named declaration in a header its own file includes. A same-named function in a source that does not include that header takes nothing. No new edges are stored and nothing is re-parsed; the callers are found on the existing text path, so they stay `text_matched`.
+
 ## [1.108.450] - 2026-11-15 - a trusted folder is matched by the folder it names
 
 ### Fixed - a `trusted_folders` entry is compared as the folder it names
