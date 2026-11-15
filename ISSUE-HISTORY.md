@@ -3290,3 +3290,9 @@ The 1.108.443 entry, verbatim as it stood in `CLAUDE.md`:
 The 1.108.444 entry, verbatim as it stood in `CLAUDE.md`:
 
 - **Prior (1.108.444):** **a local OpenAI-compatible endpoint is sent a model it serves** (#1431): `openai_default_model(base_url)` is the one rule, read by the summarizer factory and `config --check`; no base or an `api.openai.com` host gets `gpt-6-luna`, any other base `qwen3-coder`. Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-15, release 1.108.448)
+
+The 1.108.445 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.445):** **a write that changes no symbol leaves other processes' indexes in place** (#1433): every `symbols`/`files` writer stamps a random `content_generation` into `meta` (a test fails on one that does not), and `_revalidate_cached` keeps a cached index only when the meta table equals what its load read; a branch view or a missing token reloads. Full text: `CHANGELOG.md`.
