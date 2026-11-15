@@ -651,7 +651,7 @@ Upgrading the package (`pip install -U`, `uv tool upgrade`, `pipx upgrade`) chan
 2. Restart the server.
 3. Ask the running server for its version. Each of these needs no index, no model call and no tool-tier change:
    - `serverInfo.version` in the MCP `initialize` response.
-   - The `munch://runtime/identity` resource: `version`, plus `instance_id` and `process_start`, which change on every restart, and `build`, a digest of the installed files that differs between two installs of the same version built from different code (`null` with `build_reason` on a source or editable install).
+   - The `munch://runtime/identity` resource: `version`, plus `instance_id` and `process_start`, which change on every restart, and `build`, a digest of the installed source files that differs between two installs of the same version built from different code and matches for two installs of the same wheel (`null` with `build_reason` on a source or editable install).
    - The `jcodemunch_guide` tool, field `version`. It is visible at every tool tier.
 4. Compare. The served version must equal the installed version, and `instance_id` must differ from the value you read before the restart. To tie an instance to one deploy, set `JCODEMUNCH_LAUNCH_ID` in the service's environment; the resource echoes it as `launch_id`.
 

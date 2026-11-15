@@ -12173,6 +12173,16 @@ def main(argv: Optional[list[str]] = None):
                 )
                 watcher_enabled = False
 
+        # (#1435) Read the build now, while the RECORD still describes the code
+        # this process loaded. Read lazily, an in-place upgrade before the first
+        # identity read would make an old process report the new build.
+        try:
+            from .runtime_identity import get_build as _get_build
+
+            _get_build()
+        except Exception:
+            logger.debug("build digest: startup read failed", exc_info=True)
+
         # Presence registry (jcm#375 follow-up): record that this server process
         # exists so `get_session_stats` can report how many jcodemunch servers
         # share this index store. A client that never reaps stdio servers at

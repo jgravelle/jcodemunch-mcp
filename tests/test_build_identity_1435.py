@@ -64,6 +64,52 @@ def test_the_same_version_built_from_other_files_has_another_build(installed):
     assert ri._probe_build(init, _Dist(site, RECORD))["build"] != ri._probe_build(init, _Dist(site, other))["build"]
 
 
+def test_one_build_installed_two_ways_has_one_build(installed):
+    """Rows that depend on the install, not the build, are not hashed.
+
+    A launcher script embeds the interpreter path, INSTALLER names pip or uv,
+    REQUESTED depends on how the package was asked for, and .pyc files exist
+    per Python version. Identical code must read as one build.
+    """
+    site, init = installed
+    by_pip = RECORD + (
+        "../../Scripts/jcodemunch-mcp.exe,sha256=PIPLAUNCH,108000\n"
+        "jcodemunch_mcp-1.108.447.dist-info/INSTALLER,sha256=PIP,4\n"
+        "jcodemunch_mcp-1.108.447.dist-info/REQUESTED,sha256=,0\n"
+        "jcodemunch_mcp/__pycache__/server.cpython-310.pyc,,\n"
+    )
+    by_uv = (
+        "jcodemunch_mcp/server.py,sha256=BBBB,900000\n"  # another row order
+        "jcodemunch_mcp/__init__.py,sha256=AAAA,120\n"
+        "../../bin/jcodemunch-mcp,sha256=UVLAUNCH,300\n"
+        "jcodemunch_mcp-1.108.447.dist-info/INSTALLER,sha256=UV,2\n"
+        "jcodemunch_mcp/__pycache__/server.cpython-313.pyc,sha256=PYC,5\n"
+        "jcodemunch_mcp-1.108.447.dist-info/RECORD,,\n"
+    )
+    one = ri._probe_build(init, _Dist(site, by_pip))["build"]
+    assert one is not None
+    assert one == ri._probe_build(init, _Dist(site, by_uv))["build"]
+    assert one == ri._probe_build(init, _Dist(site, RECORD))["build"]
+
+
+def test_the_build_is_read_at_server_startup_not_on_first_use():
+    """Read lazily, an in-place upgrade before the first identity read would
+    make an old process report the new install's build."""
+    src = (Path(__file__).resolve().parents[1] / "src" / "jcodemunch_mcp" / "server.py").read_text(encoding="utf-8")
+    at = src.index("_get_build()")
+    assert at < src.index("_register_process(\n"), "the build must be read before the registry can fail"
+
+
+def test_under_the_source_tree_the_default_probe_reports_a_source_install():
+    """No fake distribution: the real default path, as this suite runs it."""
+    from jcodemunch_mcp.install_layout import is_source_layout
+
+    if not is_source_layout(Path(ri.__file__).parent / "__init__.py"):
+        pytest.skip("not running from a source tree")
+    got = ri._probe_build()
+    assert got["build"] is None and got["build_reason"].startswith("source install")
+
+
 def test_a_source_install_has_no_build_and_says_why(tmp_path):
     init = tmp_path / "src" / "jcodemunch_mcp" / "__init__.py"
     init.parent.mkdir(parents=True)
