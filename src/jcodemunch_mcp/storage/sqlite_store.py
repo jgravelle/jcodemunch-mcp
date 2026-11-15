@@ -3823,7 +3823,16 @@ class SQLiteIndexStore:
         missing = []
         for fp in file_paths:
             path = self._safe_content_path(content_dir, fp)
-            if path is not None and not path.exists():
+            if path is None:
+                continue
+            try:
+                present = path.exists()
+            except OSError:
+                # Python 3.10/3.11 raise here on some errnos (a permission error):
+                # a check that could not be made forces nothing.
+                logger.debug("could not check the cached copy of %s", fp, exc_info=True)
+                continue
+            if not present:
                 missing.append(fp)
         return missing
 

@@ -688,10 +688,10 @@ def get_symbol_source(
             # reads as the symbol's actual source under a confident verdict.
             if source is None and "source_status" not in entry:
                 entry["source_status"] = "content_cache_missing"
-                entry["source_unavailable_reason"] = (
-                    f"The cached copy of {symbol['file']} is missing under {content_dir}; "
-                    "the index row is intact, so this is not a stale index. "
-                    "Run index_file on this file, or index_folder with paths=[file], to restore it; `jcodemunch-mcp refresh <folder>` restores every missing copy."
+                from ..retrieval.verdict import content_copy_missing_reason
+
+                entry["source_unavailable_reason"] = content_copy_missing_reason(
+                    symbol["file"], content_dir
                 )
                 unavailable_source_ids.append(symbol["id"])
         if context_before:
