@@ -40,9 +40,28 @@ from typing import Optional, Sequence
 # well-formed call its absence evidence (found while shipping #377 item 10).
 PROTOCOL_KEYS = frozenset({"_meta", "suppress_meta", "_current_model"})
 
+#: Keys the dispatcher reads for a tool as another spelling of a declared
+#: parameter. They are honored, so reporting them as ignored would be false;
+#: they stay out of the published schema to keep its size. A ratchet
+#: (tests/test_honored_aliases_are_not_reported_ignored.py) fails on a
+#: dispatcher alias missing here.
+DISPATCH_ALIASES: dict[str, frozenset] = {
+    "get_file_outline": frozenset({"file"}),
+}
+
+
+class ArgumentError(ValueError):
+    """The caller's arguments cannot form a call (neither or both of a pair).
+
+    A ``ValueError`` so direct callers that catch one are unchanged. The
+    dispatcher answers it as the caller's mistake, never as an internal error.
+    """
+
 
 def unrecognized_keys(
-    arguments: Optional[dict], declared: Optional[Sequence[str]]
+    arguments: Optional[dict],
+    declared: Optional[Sequence[str]],
+    tool: Optional[str] = None,
 ) -> list[str]:
     """Argument keys this tool does not declare, sorted.
 
@@ -52,7 +71,7 @@ def unrecognized_keys(
     """
     if not isinstance(arguments, dict) or not declared:
         return []
-    known = set(declared) | PROTOCOL_KEYS
+    known = set(declared) | PROTOCOL_KEYS | DISPATCH_ALIASES.get(tool or "", frozenset())
     return sorted(k for k in arguments if k not in known)
 
 

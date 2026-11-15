@@ -7762,7 +7762,7 @@ async def _call_tool_impl(name: str, arguments: dict) -> list[TextContent] | Cal
         _ignored: list[str] = []
         try:
             _ignored = _arg_contract.unrecognized_keys(
-                arguments, _declared_arg_keys(name)
+                arguments, _declared_arg_keys(name), name
             )
             if _ignored:
                 _arg_contract.apply_argument_contract(result, _ignored)
@@ -8147,6 +8147,20 @@ async def _call_tool_impl(name: str, arguments: dict) -> list[TextContent] | Cal
             # schemas omit repo — name what this session has already resolved.
             _missing_msg += " This session has resolved: " + ", ".join(_steer_state["repos"]) + ". Pass repo=<one of these>."
         return _fail(json.dumps({"error": _missing_msg}, separators=(',', ':')))
+    except _arg_contract.ArgumentError as exc:
+        # The caller's arguments cannot form a call. Not an internal error, and
+        # the reply names what was sent that the tool does not read, which is
+        # usually why (`path=` for `file_path=`).
+        _call_ok = False
+        payload = {"error": str(exc)}
+        try:
+            _bad = _arg_contract.unrecognized_keys(arguments, _declared_arg_keys(name), name)
+        except Exception:
+            logger.debug("Argument-contract check failed", exc_info=True)
+            _bad = []
+        if _bad:
+            payload["ignored_arguments"] = _bad
+        return _fail(json.dumps(payload, separators=(',', ':')))
     except Exception as exc:
         _call_ok = False
         logger.error("call_tool %s failed", name, exc_info=True)
