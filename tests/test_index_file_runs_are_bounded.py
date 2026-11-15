@@ -500,16 +500,16 @@ def test_a_slot_directory_that_cannot_be_opened_without_following_a_link_is_refu
     os.name == "nt",
     reason="POSIX modes and symlinks; Windows checks the folder type only",
 )
-def test_on_posix_a_real_0711_folder_becomes_0700_and_a_symlink_is_refused(
+def test_on_posix_a_real_0500_folder_becomes_0700_and_a_symlink_is_refused(
     slot_dir, tmp_path
 ):
-    # Any mode other than 0700 is tightened; 0711 shows it without giving
-    # group or others read or write access in the test.
+    # Any mode other than 0700 is tightened; 0500 (owner only) shows it with
+    # no group or other bit in the test.
     import stat
 
     slot_dir.mkdir(mode=0o700)
-    os.chmod(slot_dir, 0o711)
-    assert stat.S_IMODE(os.stat(slot_dir).st_mode) == 0o711, "non-vacuity"
+    os.chmod(slot_dir, 0o500)
+    assert stat.S_IMODE(os.stat(slot_dir).st_mode) == 0o500, "non-vacuity"
     assert slots._private_dir() == slot_dir
     assert stat.S_IMODE(os.stat(slot_dir).st_mode) == 0o700
     target = tmp_path / "elsewhere"
