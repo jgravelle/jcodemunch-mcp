@@ -351,7 +351,9 @@ def find_importers(
     if file_path is not None and file_paths is not None and len(file_paths) == 0:
         file_paths = None
     if (file_path is None and file_paths is None) or (file_path is not None and file_paths is not None):
-        raise ValueError("Provide exactly one of 'file_path' or 'file_paths', not both and not neither.")
+        from ._arg_contract import ArgumentError
+
+        raise ArgumentError("Provide exactly one of 'file_path' or 'file_paths', not both and not neither.")
 
     # Resolve cross_repo default from config if not explicitly provided
     if cross_repo is None:

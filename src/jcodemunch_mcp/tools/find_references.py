@@ -436,7 +436,9 @@ def find_references(
     if identifier is not None and identifiers is not None and len(identifiers) == 0:
         identifiers = None
     if (identifier is None and identifiers is None) or (identifier is not None and identifiers is not None):
-        raise ValueError("Provide exactly one of 'identifier' or 'identifiers', not both and not neither.")
+        from ._arg_contract import ArgumentError
+
+        raise ArgumentError("Provide exactly one of 'identifier' or 'identifiers', not both and not neither.")
 
     start = time.perf_counter()
     max_results = max(1, min(max_results, 200))
