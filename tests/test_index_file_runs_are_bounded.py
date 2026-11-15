@@ -48,7 +48,9 @@ def _hold_in_child(d, scope: str, target: str) -> subprocess.Popen:
         time.sleep(120)
         """
     )
-    child = subprocess.Popen([sys.executable, "-c", code], stdout=subprocess.PIPE, text=True)
+    child = subprocess.Popen(
+        [sys.executable, "-c", code], stdout=subprocess.PIPE, text=True
+    )
     assert child.stdout.readline().strip() == "held"
     return child
 
@@ -83,7 +85,9 @@ def test_the_slots_are_outside_every_index_store(monkeypatch, tmp_path):
     assert a not in first.parents and b not in first.parents
 
 
-def test_no_run_starts_while_every_slot_is_held_by_a_live_process(slot_dir, every_slot_held):
+def test_no_run_starts_while_every_slot_is_held_by_a_live_process(
+    slot_dir, every_slot_held
+):
     c, why = slots.claim("store|repo-a")
     assert c is None and why == "busy"
 
@@ -116,7 +120,9 @@ def test_the_pending_list_is_taken_once_without_repeats(slot_dir):
     assert slots.take_pending("store|repo-a") == []
 
 
-def test_index_file_does_no_work_when_every_slot_is_held(slot_dir, store, every_slot_held, tmp_path, capsys):
+def test_index_file_does_no_work_when_every_slot_is_held(
+    slot_dir, store, every_slot_held, tmp_path, capsys
+):
     from jcodemunch_mcp import server
 
     target = _file(tmp_path)
@@ -128,7 +134,9 @@ def test_index_file_does_no_work_when_every_slot_is_held(slot_dir, store, every_
     assert out["queued_for_live_run"] is False
 
 
-def test_index_file_for_an_index_with_a_live_run_queues_and_does_no_work(slot_dir, store, tmp_path, capsys):
+def test_index_file_for_an_index_with_a_live_run_queues_and_does_no_work(
+    slot_dir, store, tmp_path, capsys
+):
     from jcodemunch_mcp import server
 
     target = _file(tmp_path)
@@ -139,14 +147,18 @@ def test_index_file_for_an_index_with_a_live_run_queues_and_does_no_work(slot_di
             server.main(["index-file", str(target)])
         work.assert_not_called()
         out = json.loads(capsys.readouterr().out)
-        assert out["skipped"] == "same_index_busy" and out["queued_for_live_run"] is True
+        assert (
+            out["skipped"] == "same_index_busy" and out["queued_for_live_run"] is True
+        )
         assert slots.take_pending(key) == [str(target)]
     finally:
         child.kill()
         child.wait()
 
 
-def test_the_live_run_indexes_what_was_queued_and_gives_both_locks_back(slot_dir, store, tmp_path, capsys):
+def test_the_live_run_indexes_what_was_queued_and_gives_both_locks_back(
+    slot_dir, store, tmp_path, capsys
+):
     from jcodemunch_mcp import server
 
     target = _file(tmp_path)
@@ -158,11 +170,15 @@ def test_the_live_run_indexes_what_was_queued_and_gives_both_locks_back(slot_dir
         if not done:
             # Another edit arrives while the first run has its index loaded.
             assert slots.queue(key, str(later))
-            assert len(_locks_left(slot_dir)) == 2, "the run did not hold one slot and its index lock"
+            assert len(_locks_left(slot_dir)) == 2, (
+                "the run did not hold one slot and its index lock"
+            )
         done.append(path)
         return {"success": True}
 
-    with mock.patch("jcodemunch_mcp.tools.index_file.index_file", side_effect=fake_index_file):
+    with mock.patch(
+        "jcodemunch_mcp.tools.index_file.index_file", side_effect=fake_index_file
+    ):
         server.main(["index-file", str(target)])
     assert done == [str(target), str(later)]
     assert json.loads(capsys.readouterr().out)["coalesced_paths"] == 1
@@ -173,13 +189,17 @@ def test_both_locks_are_given_back_when_the_run_fails(slot_dir, store, tmp_path)
     from jcodemunch_mcp import server
 
     target = _file(tmp_path)
-    with mock.patch("jcodemunch_mcp.tools.index_file.index_file", side_effect=RuntimeError("boom")):
+    with mock.patch(
+        "jcodemunch_mcp.tools.index_file.index_file", side_effect=RuntimeError("boom")
+    ):
         with pytest.raises(RuntimeError):
             server.main(["index-file", str(target)])
     assert _locks_left(slot_dir) == []
 
 
-def test_the_hook_still_starts_a_run_when_every_slot_is_held(slot_dir, every_slot_held, tmp_path):
+def test_the_hook_still_starts_a_run_when_every_slot_is_held(
+    slot_dir, every_slot_held, tmp_path
+):
     """The hook does not read the slots: importing the lock layer costs every hook
     0.66 s, and the command that it starts enforces the bound itself."""
     from jcodemunch_mcp.cli.hooks import reindex
@@ -205,8 +225,11 @@ def test_a_burst_of_real_runs_never_works_more_than_the_bound_at_once(slot_dir):
         """
     )
     burst = [
-        subprocess.Popen([sys.executable, "-c", code, str(slot_dir), f"store|repo-{i}"],
-                         stdout=subprocess.PIPE, text=True)
+        subprocess.Popen(
+            [sys.executable, "-c", code, str(slot_dir), f"store|repo-{i}"],
+            stdout=subprocess.PIPE,
+            text=True,
+        )
         for i in range(slots.MAX_CONCURRENT + 4)
     ]
     started = time.monotonic()
@@ -217,7 +240,9 @@ def test_a_burst_of_real_runs_never_works_more_than_the_bound_at_once(slot_dir):
     assert len(set(worked)) == len(worked), "two live processes held one slot"
 
 
-def test_a_lock_error_runs_the_work_and_says_so(slot_dir, store, tmp_path, capsys, monkeypatch):
+def test_a_lock_error_runs_the_work_and_says_so(
+    slot_dir, store, tmp_path, capsys, monkeypatch
+):
     """UNKNOWN is not busy: a lock layer that cannot be used must not turn every re-index off."""
     from jcodemunch_mcp import server
     from jcodemunch_mcp.storage import process_locks
@@ -227,13 +252,17 @@ def test_a_lock_error_runs_the_work_and_says_so(slot_dir, store, tmp_path, capsy
 
     monkeypatch.setattr(process_locks, "acquire", broken)
     target = _file(tmp_path)
-    with mock.patch("jcodemunch_mcp.tools.index_file.index_file", return_value={"success": True}) as work:
+    with mock.patch(
+        "jcodemunch_mcp.tools.index_file.index_file", return_value={"success": True}
+    ) as work:
         server.main(["index-file", str(target)])
     work.assert_called_once()
     assert "read-only" in json.loads(capsys.readouterr().out)["slot_error"]
 
 
-def test_the_stored_mtime_is_never_from_a_later_edit_than_the_stored_content(tmp_path, monkeypatch):
+def test_the_stored_mtime_is_never_from_a_later_edit_than_the_stored_content(
+    tmp_path, monkeypatch
+):
     """An edit landing between the read and the stat must leave the file looking changed,
     or refresh_on_read (which compares mtimes) can never repair a skipped run."""
     import builtins
@@ -249,7 +278,10 @@ def test_the_stored_mtime_is_never_from_a_later_edit_than_the_stored_content(tmp
     f.write_text("def add(a, b):\n    return a + b\n", encoding="utf-8")
     store = str(tmp_path / "store")
     assert index_folder(str(src), use_ai_summaries=False, storage_path=store)["success"]
-    f.write_text("def add(a, b):\n    return a + b\n\ndef sub(a, b):\n    return a - b\n", encoding="utf-8")
+    f.write_text(
+        "def add(a, b):\n    return a + b\n\ndef sub(a, b):\n    return a - b\n",
+        encoding="utf-8",
+    )
 
     real_open = builtins.open
     edited = {}
@@ -265,11 +297,14 @@ def test_the_stored_mtime_is_never_from_a_later_edit_than_the_stored_content(tmp
             os.utime(f, ns=(later, later))
             edited["mtime"] = later
             import io
+
             return io.StringIO(text)
         return handle
 
     monkeypatch.setattr(mod, "open", open_then_edit, raising=False)
-    assert mod.index_file(path=str(f), use_ai_summaries=False, storage_path=store)["success"]
+    assert mod.index_file(path=str(f), use_ai_summaries=False, storage_path=store)[
+        "success"
+    ]
     stored = IndexStore(base_path=store)
     idx = next(iter(stored.list_repos()), None)
     assert idx is not None
@@ -277,4 +312,108 @@ def test_the_stored_mtime_is_never_from_a_later_edit_than_the_stored_content(tmp
     loaded = stored.load_index(owner, name)
     stored_ns = loaded.file_mtimes.get("calc.py")
     assert stored_ns is not None
-    assert stored_ns < edited["mtime"], "the stored mtime belongs to an edit whose content was not stored"
+    assert stored_ns < edited["mtime"], (
+        "the stored mtime belongs to an edit whose content was not stored"
+    )
+
+
+def test_a_path_queued_after_the_last_read_and_before_the_release_is_still_indexed(
+    slot_dir, store, tmp_path, capsys
+):
+    """The interleaving is pinned: the queue write happens inside the live run's
+    release, after drain's last take_pending and before the locks are free."""
+    from jcodemunch_mcp import server
+
+    target = _file(tmp_path)
+    late = _file(tmp_path, "late.py")
+    key = slots.index_key(str(target), store)
+    done = []
+    real_release = slots.release
+    releases = []
+
+    def release_with_a_late_edit(c):
+        if not releases:
+            assert slots.queue(
+                key, str(late)
+            )  # the lock is still held: this is the stranded case
+        releases.append(c)
+        real_release(c)
+
+    def fake_index_file(path, **kwargs):
+        done.append(path)
+        return {"success": True}
+
+    with (
+        mock.patch.object(slots, "release", side_effect=release_with_a_late_edit),
+        mock.patch(
+            "jcodemunch_mcp.tools.index_file.index_file", side_effect=fake_index_file
+        ),
+    ):
+        server.main(["index-file", str(target)])
+    assert done == [str(target), str(late)], "the late path was stranded"
+    assert json.loads(capsys.readouterr().out)["coalesced_paths"] == 1
+    assert not slots.has_pending(key) and _locks_left(slot_dir) == []
+
+
+def test_one_queued_path_failing_is_counted_and_never_stops_the_rest(
+    slot_dir, store, tmp_path, capsys
+):
+    from jcodemunch_mcp import server
+
+    target = _file(tmp_path)
+    bad, good = _file(tmp_path, "bad.py"), _file(tmp_path, "good.py")
+    key = slots.index_key(str(target), store)
+    assert slots.queue(key, str(bad)) and slots.queue(key, str(good))
+    done = []
+
+    def fake_index_file(path, **kwargs):
+        if path == str(bad):
+            raise RuntimeError("parse failed")
+        done.append(path)
+        return {"success": True}
+
+    with mock.patch(
+        "jcodemunch_mcp.tools.index_file.index_file", side_effect=fake_index_file
+    ):
+        server.main(["index-file", str(target)])
+    out = json.loads(capsys.readouterr().out)
+    assert done == [str(target), str(good)]
+    assert out["coalesced_paths"] == 1 and out["coalesced_failures"] == 1
+    assert _locks_left(slot_dir) == []
+
+
+def _st(mode, uid=1000):
+    return mock.Mock(st_mode=mode, st_uid=uid)
+
+
+def test_a_slot_directory_is_used_only_when_it_is_private_to_this_user():
+    import stat
+
+    assert slots._check_private(_st(stat.S_IFDIR | 0o700), 1000) is None
+    assert slots._check_private(_st(stat.S_IFLNK | 0o777), 1000) == "is a symlink"
+    assert slots._check_private(_st(stat.S_IFREG | 0o600), 1000) == "is not a directory"
+    assert (
+        slots._check_private(_st(stat.S_IFDIR | 0o700, uid=0), 1000)
+        == "is owned by uid 0"
+    )
+    assert "open to other users" in slots._check_private(
+        _st(stat.S_IFDIR | 0o777), 1000
+    )
+    # Windows: the temp directory is per user, so only the type is checked.
+    assert slots._check_private(_st(stat.S_IFDIR | 0o777, uid=0), None) is None
+
+
+def test_a_refused_slot_directory_runs_the_work_and_says_so(
+    slot_dir, store, tmp_path, capsys, monkeypatch
+):
+    from jcodemunch_mcp import server
+
+    monkeypatch.setattr(slots, "_check_private", lambda st, uid: "is a symlink")
+    target = _file(tmp_path)
+    with mock.patch(
+        "jcodemunch_mcp.tools.index_file.index_file", return_value={"success": True}
+    ) as m:
+        server.main(["index-file", str(target)])
+    assert m.call_count == 1
+    assert "is a symlink" in json.loads(capsys.readouterr().out)["slot_error"]
+    assert slots.queue("k", "p") is False  # nothing is written into a refused directory

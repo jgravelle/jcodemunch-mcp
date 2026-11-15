@@ -12056,24 +12056,27 @@ def main(argv: Optional[list[str]] = None):
                 use_ai_summaries=use_ai,
                 storage_path=_store,
             )
-            # Paths other runs queued for this index while it was loaded.
-            _coalesced = 0
-            for _round in range(20):
-                _pending = _slots.take_pending(_key)
-                if not _pending:
-                    break
-                for _q in _pending:
-                    _index_file_mod.index_file(
-                        path=_q, use_ai_summaries=use_ai, storage_path=_store,
-                    )
-                    _coalesced += 1
-            if isinstance(result, dict):
-                if _coalesced:
-                    result["coalesced_paths"] = _coalesced
-                if _claim.lock_error:
-                    result["slot_error"] = _claim.lock_error
+            def _index_one(_q):
+                return _index_file_mod.index_file(
+                    path=_q, use_ai_summaries=use_ai, storage_path=_store,
+                )
+
+            # Paths other runs queued for this checkout while this run held it.
+            _coalesced, _failed = _slots.drain(_key, _index_one)
         finally:
             _slots.release(_claim)
+        # A path queued after the last read of the list and before the release
+        # would otherwise be stranded behind a lock that is now free.
+        _late, _late_failed = _slots.drain_after_release(_key, _index_one)
+        _coalesced += _late
+        _failed += _late_failed
+        if isinstance(result, dict):
+            if _coalesced:
+                result["coalesced_paths"] = _coalesced
+            if _failed:
+                result["coalesced_failures"] = _failed
+            if _claim.lock_error:
+                result["slot_error"] = _claim.lock_error
         print(_json.dumps(result, indent=2))
         if not result.get("success"):
             sys.exit(1)
