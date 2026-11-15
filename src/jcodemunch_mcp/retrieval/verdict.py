@@ -96,14 +96,21 @@ def index_withheld_meta(index) -> Optional[dict]:
     inside ``_meta.verdict`` on an absent or degraded answer, so a search that
     found something over a corpus missing a large source file read as complete.
     Returns None when nothing was withheld for size, or the index predates
-    coverage recording. The limit is the one the walk used, read off the
-    per-file record when the index carries it.
+    coverage recording. The count is the index's withheld set
+    (``withheld_files_total``), the same reading :func:`withheld_file_info`
+    makes: ``withheld.too_large`` is only the latest walk's count, so after a
+    subdir walk it can be lower than what the index still withholds. The limit
+    is the one the walk used, read off the per-file record when the index
+    carries it.
     """
     cov = getattr(index, "coverage", None)
     if not isinstance(cov, dict):
         return None
+    total = cov.get("withheld_files_total")
+    if total is None:
+        total = (cov.get("withheld") or {}).get("too_large")
     try:
-        n = int((cov.get("withheld") or {}).get("too_large") or 0)
+        n = int(total or 0)
     except (TypeError, ValueError):
         return None
     if n <= 0:
@@ -139,8 +146,7 @@ def index_withheld_warning(block: Optional[dict]) -> Optional[str]:
     files = "1 file" if n == 1 else f"{n} files"
     return (
         f"This index left out {files} over {over}, so these results do not "
-        "include them. Raise max_file_size in config.jsonc, or set "
-        "JCODEMUNCH_MAX_FILE_SIZE, and re-index to include them."
+        f"include them. {_TOO_LARGE_REMEDY}"
     )
 
 

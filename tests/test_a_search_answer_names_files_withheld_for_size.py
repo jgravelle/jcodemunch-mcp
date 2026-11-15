@@ -99,3 +99,60 @@ def test_the_cap_line_and_the_size_line_are_separate_sentences():
     line = index_withheld_warning({"files_over_size_limit": 3, "max_file_size": 512000})
     assert line.startswith("This index left out 3 files over")
     assert "max_folder_files" not in line
+
+
+def test_a_subfolder_walk_does_not_lower_the_count(tmp_path):
+    """The latest walk's skip count is not the index's withheld set."""
+    from jcodemunch_mcp.tools.index_folder import index_folder
+    from jcodemunch_mcp.tools.search_symbols import search_symbols
+
+    src = tmp_path / "proj"
+    (src / "sub").mkdir(parents=True)
+    (src / "small.py").write_text("def alpha_beta():\n    return 1\n", encoding="utf-8")
+    big = "".join(f"def big_{i}():\n    return {i}\n" for i in range(4000))
+    (src / "big.py").write_text(big, encoding="utf-8")
+    (src / "sub" / "big2.py").write_text(big, encoding="utf-8")
+    store = tmp_path / "store"
+    r = index_folder(str(src), use_ai_summaries=False, storage_path=str(store), max_size=20000)
+    assert r.get("success"), r
+    out = search_symbols(repo=r["repo"], query="alpha_beta", storage_path=str(store))
+    assert out["_meta"]["index_withheld"]["files_over_size_limit"] == 2
+    index_folder(str(src / "sub"), use_ai_summaries=False, storage_path=str(store), max_size=20000)
+    out = search_symbols(repo=r["repo"], query="alpha_beta", storage_path=str(store))
+    assert out["_meta"]["index_withheld"]["files_over_size_limit"] == 2
+
+
+def test_the_remedy_names_the_project_file_too():
+    from jcodemunch_mcp.retrieval.verdict import index_withheld_warning
+
+    line = index_withheld_warning({"files_over_size_limit": 2})
+    assert ".jcodemunch.jsonc" in line and "JCODEMUNCH_MAX_FILE_SIZE" in line
+
+
+async def test_get_ranked_context_carries_the_line_too(repo):
+    repo_id, _ = repo
+    r = await _call("get_ranked_context", {"repo": repo_id, "query": "alpha_beta"})
+    assert "1 file" in r.get("index_warning", "")
+
+
+async def test_the_cap_line_and_the_size_line_join_in_one_body_key(tmp_path, monkeypatch):
+    """An index both capped and size-withheld carries both sentences in one key."""
+    from jcodemunch_mcp.tools.index_folder import index_folder
+
+    src = tmp_path / "proj"
+    src.mkdir()
+    (src / "a_small.py").write_text("def alpha_beta():\n    return 1\n", encoding="utf-8")
+    for k in range(4):
+        (src / f"b_{k}.py").write_text(f"def other_{k}():\n    return {k}\n", encoding="utf-8")
+    big = "".join(f"def big_{i}():\n    return {i}\n" for i in range(4000))
+    (src / "big.py").write_text(big, encoding="utf-8")
+    store = tmp_path / "store"
+    r = index_folder(
+        str(src), use_ai_summaries=False, storage_path=str(store),
+        max_size=20000, max_folder_files=2,
+    )
+    assert r.get("success"), r
+    monkeypatch.setenv("CODE_INDEX_PATH", str(store))
+    out = await _call("search_symbols", {"repo": r["repo"], "query": "alpha_beta"})
+    line = out.get("index_warning", "")
+    assert "max_folder_files" in line and "max_file_size" in line, line
