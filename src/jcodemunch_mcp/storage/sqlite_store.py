@@ -759,14 +759,14 @@ def _write_back_to_loaded_index(index, write, what: str) -> bool:
             )
             try:
                 conn.execute("BEGIN IMMEDIATE")
-                # Three meta writers skip `indexwrite` (L-230); one could have
+                # The meta writers in `_UNLOCKED_META_KEYS` skip `indexwrite`; one could have
                 # committed since the check above.
                 if _db_mtime_ns(db_path) != gen.loaded_mtime_ns:
                     conn.execute("ROLLBACK")
                     return False
                 write(conn)
                 # `data_version` changes only when ANOTHER connection commits.
-                # Three meta writers, `embed_repo` and the runtime ingests skip
+                # The `_UNLOCKED_META_KEYS` writers, `embed_repo` and the runtime ingests skip
                 # `indexwrite`, so one can commit between our COMMIT and the
                 # stat below; reading it on both sides of that stat says
                 # whether the move we record is ours alone.
