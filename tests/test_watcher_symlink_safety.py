@@ -148,8 +148,11 @@ async def test_backend_selection_preserves_reconciliation_and_closure(
 @pytest.mark.parametrize("extra_reads", [0, 40])
 @pytest.mark.parametrize("operation", ["add", "delete", "replace"])
 async def test_topology_refresh_closes_old_watch_and_requests_rescan(tmp_path, operation, extra_reads, explicit_watches):
-    """`extra_reads` stands in for a slow runner, where the watcher loop makes
-    more passes and reads the clock more often: the fake clock must not run out."""
+    """The fake clock must not run out. `_safe_awatch` reads it 6 times in this
+    test, but the patch replaces the module-global `watcher.time`, so any other
+    reader in the process (a watcher thread an earlier test left running, or a
+    census that keeps re-arming) also draws on it. `extra_reads` stands for
+    such reads."""
     watchfiles = pytest.importorskip("watchfiles")
     root = str(tmp_path)
     child = tmp_path / "child"
@@ -178,13 +181,21 @@ async def test_topology_refresh_closes_old_watch_and_requests_rescan(tmp_path, o
         finally:
             closed.append(generation)
 
-    # Unbounded: a finite range raised StopIteration inside the async
-    # generator whenever the loop read the clock once more than expected.
-    ticks = itertools.count(0, 61)
+    # A finite range(0, 1000, 61) raised StopIteration inside the async
+    # generator once 17 reads were used up (CI run 43746739943, windows 3.13;
+    # which reader used them is not established). The clock is unbounded now,
+    # and a loop that never settles fails loudly instead of hanging.
+    reads = itertools.count()
+
+    def clock():
+        n = next(reads)
+        assert n < 10_000, "the fake clock was read 10,000 times: a loop that never settles"
+        return n * 61
+
     for _ in range(extra_reads):
-        next(ticks)
+        clock()
     with patch.object(watchfiles, "awatch", fake_awatch), patch.object(
-        watcher, "time", SimpleNamespace(monotonic=lambda: next(ticks))
+        watcher, "time", SimpleNamespace(monotonic=clock)
     ):
         async with aclosing(watcher._safe_awatch(root, 200)) as stream:
             assert await anext(stream) == {(watchfiles.Change.modified, root)}
