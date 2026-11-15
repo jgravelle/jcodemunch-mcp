@@ -113,6 +113,9 @@ def test_a_subfolder_walk_does_not_lower_the_count(tmp_path):
     big = "".join(f"def big_{i}():\n    return {i}\n" for i in range(4000))
     (src / "big.py").write_text(big, encoding="utf-8")
     (src / "sub" / "big2.py").write_text(big, encoding="utf-8")
+    # A small file in `sub` too: a walk that finds only an oversized file
+    # reports "No source files found" and saves nothing.
+    (src / "sub" / "ok.py").write_text("def ok():" + chr(10) + "    return 2" + chr(10), encoding="utf-8")
     # A git root, so the walk of `sub` merges into this index instead of making
     # a second one, which would leave the first index's count untouched and the
     # test unable to fail.
