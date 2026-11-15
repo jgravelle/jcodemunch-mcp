@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added - two servers on the same version can be told apart by build (#1435)
+
+@dkiaulakis asked for a serving identity that automation can compare with what is installed. `version` is the recorded metadata number, so two installs of one release built from different files report the same string. The `munch://runtime/identity` resource now carries `build`: `sha256:` and 16 hex digits over the installed distribution's `RECORD`, the file pip and uv write listing every installed file with its own hash. Only the rows for the package's own source files count: launcher scripts, the installer's name, `REQUESTED` and compiled `.pyc` files differ between two installs of one wheel, so hashing them would give identical code two builds. It is read once, when the server starts, from that one local file, with no index and no network; read later, an upgrade in place before the first read would make an old process report the new build. Where no RECORD describes the loaded code, `build` is `null` and `build_reason` says why: a source or editable install, or a process that loaded another copy than the installed distribution. It describes the files as installed, so a file edited in place afterwards does not change it. Each server records its build in its presence file, and `install-status` prints it beside the installed one, for example `installed X.Y.Z, build sha256:...` over `pid N (svc, streamable-http, recorded X.Y.Z, build sha256:...)`. A server started by a release before this one has no recorded build, and none is printed for it.
+
 ### Fixed - a full index no longer pays for search statistics and token counts nobody has asked for yet
 
 Building a full index got slower in two steps. From 1.108.423 (#1343) every full save computed the BM25 corpus statistics over all symbols, so a later process could reuse them; from 1.108.439 (#1414) the indexer counted every file's tokens with the cl100k tokenizer as it wrote the file's cached copy, so `tokens_saved` could credit a file by its count. Both were paid at every full save, for an index that might never be searched and for files no response would ever credit.
