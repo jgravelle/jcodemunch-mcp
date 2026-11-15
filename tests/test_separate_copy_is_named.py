@@ -75,7 +75,7 @@ def test_the_sentence_names_the_indexed_folder_and_the_call(two_checkouts):
 
 def test_counter_says_it_and_stays_in_budget():
     text = server._mcp_instructions("counter", separate_copy=True)
-    assert text.startswith("This folder copies a repo jcodemunch indexed elsewhere")
+    assert text.startswith("Repo indexed elsewhere; index this copy with")
     assert 'order("index_folder", {"path":".","identity_mode":"local"}, allow_state_change=true)' in text
     assert len(text) <= server._MCP_INSTRUCTIONS_MAX_CHARS
 

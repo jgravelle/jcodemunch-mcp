@@ -483,7 +483,7 @@ def _mcp_instructions(
         subject = "This repo can be indexed by jcodemunch"
     if separate_copy and indexed_files is None and surface == "counter":
         subject = (
-            "This folder copies a repo jcodemunch indexed elsewhere; index it with "
+            "Repo indexed elsewhere; index this copy with "
             'order("index_folder", {"path":".","identity_mode":"local"}, allow_state_change=true)'
         )
     if surface == "counter":
