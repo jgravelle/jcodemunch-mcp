@@ -702,43 +702,34 @@ def _stamp_load_provenance(index, db_path: Path, mtime_ns: int):
     return index
 
 
-def _bm25_stats_blob(index) -> Optional[bytes]:
-    """The BM25 statistics row for a full save (#1343), or None.
-
-    Computed over COPIES of the symbols: tokenizing caches a token bag on each
-    symbol dict, and the warm copy this save caches must have the same keys as
-    a disk read (L-224). The four statistics go into the warm copy's cache, so
-    it searches without computing them again. A failure here never fails the
-    save; the row is then left empty and the next search computes the
-    statistics as before.
-    """
-    try:
-        from types import SimpleNamespace
-
-        from ..tools.search_symbols import _corpus_stats, publish_corpus_stats  # lazy: tools import storage
-        from . import bm25_stats
-
-        scratch = SimpleNamespace(
-            symbols=[dict(s) for s in index.symbols],
-            imports=index.imports,
-            alias_map=index.alias_map,
-            psr4_map=getattr(index, "psr4_map", None),
-        )
-        idf, avgdl, inverted, centrality = _corpus_stats(scratch)
-        publish_corpus_stats(index, idf, avgdl, inverted, centrality)
-        return bm25_stats.encode(
-            bm25_stats.corpus_digest(index), len(index.symbols),
-            idf, avgdl, inverted, centrality,
-        )
-    except Exception:
-        logger.warning("BM25 statistics not stored with this index", exc_info=True)
-        return None
-
-
 def store_bm25_stats_for_loaded_index(index, blob: bytes) -> bool:
     """Write a search's BM25 statistics into the .db the index came from.
 
-    Runs from ``bm25_stats.flush_pending``. Takes the ``indexwrite`` lock
+    Runs from ``bm25_stats.flush_pending``. See ``_write_back_to_loaded_index``.
+    """
+    from . import bm25_stats
+
+    return _write_back_to_loaded_index(
+        index, lambda conn: bm25_stats.write_in_txn(conn, blob), "BM25 statistics"
+    )
+
+
+def store_token_counts_for_loaded_index(index, rows) -> bool:
+    """Write per-file token counts a call queued into the .db the index came from.
+
+    Runs from ``token_counts.flush_pending``. See ``_write_back_to_loaded_index``.
+    """
+    from . import token_counts
+
+    return _write_back_to_loaded_index(
+        index, lambda conn: token_counts.write_in_txn(conn, rows), "token counts"
+    )
+
+
+def _write_back_to_loaded_index(index, write, what: str) -> bool:
+    """Run ``write(conn)`` in a transaction on the .db the index came from.
+
+    Takes the ``indexwrite`` lock
     without waiting, so it never queues behind a writer, and writes only if
     the .db is still exactly as it was loaded, checked again inside the write
     transaction. The file is opened ``mode=rw``, so a deleted index is never
@@ -746,7 +737,7 @@ def store_bm25_stats_for_loaded_index(index, blob: bytes) -> bool:
     decides whether the warm index may follow it. Returns whether the row was
     stored. Never raises.
     """
-    from . import bm25_stats, process_locks
+    from . import process_locks
     from .generation import describe
 
     try:
@@ -768,19 +759,35 @@ def store_bm25_stats_for_loaded_index(index, blob: bytes) -> bool:
             )
             try:
                 conn.execute("BEGIN IMMEDIATE")
-                # Three meta writers skip `indexwrite` (L-230); one could have
+                # The meta writers in `_UNLOCKED_META_KEYS` skip `indexwrite`; one could have
                 # committed since the check above.
                 if _db_mtime_ns(db_path) != gen.loaded_mtime_ns:
                     conn.execute("ROLLBACK")
                     return False
-                bm25_stats.write_in_txn(conn, blob)
+                write(conn)
+                # `data_version` changes only when ANOTHER connection commits.
+                # The `_UNLOCKED_META_KEYS` writers, `embed_repo` and the runtime ingests skip
+                # `indexwrite`, so one can commit between our COMMIT and the
+                # stat below; reading it on both sides of that stat says
+                # whether the move we record is ours alone.
+                dv_before = conn.execute("PRAGMA data_version").fetchone()[0]
                 conn.execute("COMMIT")
+                _after_write_back_commit(db_path)
+                # Fold the WAL in now, so closing the connection does not move
+                # the mtime again after the stat (busy readers leave it, and
+                # the move then reads as a rewrite: slower, never wrong).
+                conn.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchall()
+                own_mtime_ns = _db_mtime_ns(db_path)
+                alone = conn.execute("PRAGMA data_version").fetchone()[0] == dv_before
             finally:
                 conn.close()
-            _restamp_after_bm25_write(index, db_path, gen.loaded_mtime_ns)
+            _restamp_after_bm25_write(
+                index, db_path, gen.loaded_mtime_ns,
+                own_mtime_ns=own_mtime_ns if alone else None,
+            )
         return True
     except Exception:
-        logger.debug("BM25 statistics write-back skipped", exc_info=True)
+        logger.debug("%s write-back skipped", what, exc_info=True)
         return False
 
 
@@ -850,7 +857,14 @@ def _unlocked_meta_matches(index, meta: dict) -> bool:
     return True
 
 
-def _restamp_after_bm25_write(index, db_path: Path, loaded_mtime_ns: int) -> None:
+def _after_write_back_commit(db_path: Path) -> None:
+    """Runs right after a write-back's COMMIT. A test seam: a test puts a
+    foreign commit here to pin that interleaving."""
+
+
+def _restamp_after_bm25_write(
+    index, db_path: Path, loaded_mtime_ns: int, own_mtime_ns: Optional[int] = None
+) -> None:
     """Move the warm index to the .db's new mtime, or evict it.
 
     Moving it is what keeps this process from reading its own write as a
@@ -888,6 +902,15 @@ def _restamp_after_bm25_write(index, db_path: Path, loaded_mtime_ns: int) -> Non
                 _index_cache.pop(key, None)
     if same:
         index._loaded_mtime_ns = mtime_ns
+    if same and own_mtime_ns is not None and own_mtime_ns == mtime_ns:
+        # The write changed no symbol and no gated meta, no other connection
+        # committed between our COMMIT and the stat, and nothing moved the .db
+        # since, so an answer cached before it still describes this index
+        # (retrieval/subject_state.changed). Any doubt leaves the move
+        # unrecorded, which reads as a rewrite: never wrong, only slower.
+        from .generation import note_benign_rewrite
+
+        note_benign_rewrite(db_path, loaded_mtime_ns, mtime_ns)
 
 
 def _db_mtime_ns(db_path: Path) -> int:
@@ -2064,9 +2087,6 @@ class SQLiteIndexStore:
         )
 
         db_path = self._db_path(owner, name)
-        # Computed before the lock and written inside the symbols' own
-        # transaction, so the stored row always belongs to these symbols (#1343).
-        bm25_blob = _bm25_stats_blob(index)
         lock_target = f"{owner}/{name}"
         storage_root = str(self.base_path)
         with process_locks.held(
@@ -2085,7 +2105,6 @@ class SQLiteIndexStore:
                 normalized_source_files, raw_files,
                 file_hashes, file_languages, file_mtimes,
                 file_blob_shas, file_summaries, file_sizes, imports,
-                bm25_blob=bm25_blob,
             )
         _evict_result_cache(owner, name)
         return saved
@@ -2106,7 +2125,6 @@ class SQLiteIndexStore:
         file_summaries,
         file_sizes,
         imports,
-        bm25_blob: Optional[bytes] = None,
     ):
         """Inner body of save_index; runs under the indexwrite lock."""
         conn = self._connect(db_path)
@@ -2164,12 +2182,19 @@ class SQLiteIndexStore:
 
             from . import bm25_stats
 
-            bm25_stats.write_in_txn(conn, bm25_blob)
+            # The BM25 statistics are computed by the first search and written
+            # back (bm25_stats.flush_pending), not here: computing them at every
+            # full save made a full index slower (v1.108.423, #1343) for an index
+            # that may never be searched. Clearing keeps a row from outliving the
+            # symbols it was computed from.
+            bm25_stats.clear_in_txn(conn)
 
-            # Per-file token counts for tokens_saved (storage/token_counts.py).
+            # Per-file token counts are taken when a call first credits a file
+            # (storage/token_counts.py); a save only drops counts for content
+            # no indexed file holds.
             from . import token_counts
 
-            token_counts.record(conn, self._content_dir_or_none(owner, name), raw_files)
+            token_counts.prune(conn)
 
             conn.commit()
         finally:
@@ -3107,10 +3132,10 @@ class SQLiteIndexStore:
                 if mtime_only:
                     conn.executemany("UPDATE files SET mtime_ns = ? WHERE path = ?", mtime_only)
 
-            # Per-file token counts for tokens_saved (storage/token_counts.py).
+            # Per-file token counts: see storage/token_counts.py (counted on first credit).
             from . import token_counts
 
-            token_counts.record(conn, self._content_dir_or_none(owner, name), raw_files)
+            token_counts.prune(conn)
 
             # Always read meta (small). Only read all rows when no cached index to patch.
             meta = self._read_meta(conn)
@@ -3882,12 +3907,6 @@ class SQLiteIndexStore:
         serialises concurrent writers to a repo, so the pid-suffixed temp name
         cannot collide.
         """
-        # The text is in hand here, so this is where its token count is
-        # taken (storage/token_counts.py); `metadata_only` keeps no copy to
-        # count from later.
-        from . import token_counts
-
-        token_counts.note(content)
         try:
             from .. import config as _cfg
             if _cfg.get("cache_mode", "full") == "metadata_only":
