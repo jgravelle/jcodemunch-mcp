@@ -161,7 +161,8 @@ def _freshness_correction(cluster: dict, repo: Optional[str], storage_path: Opti
     service_active = False
     try:
         from .get_watch_status import get_watch_status
-        ws = get_watch_status(storage_path=storage_path)
+        # Only `service.active` is read here; skip the completeness count.
+        ws = get_watch_status(storage_path=storage_path, check_completeness=False)
         if isinstance(ws, dict):
             service_active = bool((ws.get("service") or {}).get("active"))
     except Exception:

@@ -656,47 +656,6 @@ class TestTrustedFolders:
             config_module._GLOBAL_CONFIG.clear()
             config_module._GLOBAL_CONFIG.update(orig_config)
 
-    def test_index_folder_uses_project_config_trusted_folders(self, tmp_path):
-        """index_folder should use .jcodemunch.jsonc trusted_folders setting."""
-        from jcodemunch_mcp.tools.index_folder import index_folder
-        from jcodemunch_mcp import config as config_module
-
-        project_root = tmp_path / "project"
-        project_root.mkdir()
-        (project_root / "main.py").write_text("def hello():\n    return 1\n")
-
-        # Create project config that trusts the entire project (".")
-        project_config = project_root / ".jcodemunch.jsonc"
-        project_config.write_text('{"trusted_folders": ["."]}')
-
-        orig_global = config_module._GLOBAL_CONFIG.copy()
-        orig_projects = config_module._PROJECT_CONFIGS.copy()
-        orig_hashes = config_module._PROJECT_CONFIG_HASHES.copy()
-
-        # Set global config with a different trusted folder
-        config_module._GLOBAL_CONFIG.clear()
-        config_module._GLOBAL_CONFIG.update(config_module.DEFAULTS)
-        config_module._GLOBAL_CONFIG["trusted_folders"] = ["/other/trusted"]
-        config_module._PROJECT_CONFIGS.clear()
-        config_module._PROJECT_CONFIG_HASHES.clear()
-
-        try:
-            # Index should succeed because project config overrides with "."
-            result = index_folder(
-                str(project_root),
-                use_ai_summaries=False,
-                storage_path=str(tmp_path / "store"),
-            )
-        finally:
-            config_module._GLOBAL_CONFIG.clear()
-            config_module._GLOBAL_CONFIG.update(orig_global)
-            config_module._PROJECT_CONFIGS.clear()
-            config_module._PROJECT_CONFIGS.update(orig_projects)
-            config_module._PROJECT_CONFIG_HASHES.clear()
-            config_module._PROJECT_CONFIG_HASHES.update(orig_hashes)
-
-        assert result["success"] is True, result
-
     def test_index_folder_project_config_escape_blocked(self, tmp_path):
         """Project config escape attempt should cause index to fail trust check."""
         from jcodemunch_mcp.tools.index_folder import index_folder
@@ -721,8 +680,8 @@ class TestTrustedFolders:
         config_module._PROJECT_CONFIG_HASHES.clear()
 
         try:
-            # Since the escape is rejected, trusted_folders falls back to global []
-            # and the project path is not trusted, so it should fail
+            # A project file's trusted_folders is ignored, so the user's own
+            # (empty) list applies
             result = index_folder(
                 str(project_root),
                 use_ai_summaries=False,

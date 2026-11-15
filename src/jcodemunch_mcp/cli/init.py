@@ -1219,7 +1219,13 @@ def run_index(*, dry_run: bool = False) -> str:
 
     try:
         from ..tools.index_folder import index_folder
-        return _index_summary(cwd, index_folder(path=cwd))
+        from ..security import get_cli_folder_cap
+
+        cap, cap_key = get_cli_folder_cap(str(Path(cwd).resolve()))
+        return _index_summary(
+            cwd,
+            index_folder(path=cwd, max_folder_files=cap, cap_key=cap_key),
+        )
     except Exception as e:
         return f"  indexing failed: {e}"
 
@@ -1249,8 +1255,23 @@ def _index_summary(cwd: str, result: dict) -> str:
         parts.append(f"{result['symbol_count']} symbols")
     detail = ", ".join(parts)
     if result.get("truncated"):
-        capped = "the file cap was reached, {} of {} files are in the index".format(
-            result.get("files_indexed", "some"), result.get("files_discovered", "the")
+        from ..security import cap_label, cap_raise_advice
+
+        # Name the key that set the cap and how to raise it, as every other cap
+        # message does: the obvious guess, max_folder_files, would also raise
+        # an agent's in-call cap, which is kept low on purpose.
+        key = cap_label(result)
+        value = result.get("max_folder_files")
+        named = f"{key} = {value}" if isinstance(value, int) else key
+        advice = cap_raise_advice(key)
+        capped = (
+            "the file cap ({}) was reached, {} of {} files are in the index; "
+            "{} to index the rest"
+        ).format(
+            named,
+            result.get("files_indexed", "some"),
+            result.get("files_discovered", "the"),
+            advice[0].lower() + advice[1:],
         )
         detail = f"{detail}; {capped}" if detail else capped
     if unchanged:
@@ -1771,6 +1792,26 @@ def run_init(
             for line in _offer:
                 print(line)
 
+    # ----- Offer, never apply: the surface a new install would get -----
+    # `upgrade` re-runs `init --hooks --yes`, and a user refreshing hooks types
+    # the same, so this is where an install that predates the `counter` default
+    # sees what switching saves. It prints and changes nothing; the user runs
+    # the switch command. Same block and renderer as `install-status`.
+    # ⚠ `hooks_explicit`, not `hooks`: `install <agent>` passes hooks=True as
+    # its own default, and the offer belongs to the refresh a user runs.
+    if (hooks_explicit or os.environ.get(UPGRADE_REFRESH_ENV) == "1") and not demo:
+        try:
+            _surface = _surface_offer_block()
+        except Exception:
+            logger.debug("surface offer check failed", exc_info=True)
+            _surface = None
+        if _surface:
+            from ..surface_offer import render_offer_lines
+
+            print()
+            for line in render_offer_lines(_surface):
+                print(line)
+
     # ----- Done -----
     print()
     if demo:
@@ -1795,8 +1836,8 @@ def run_init(
             for line in _LICENCE_LINES:
                 print(line)
             # This machine was just shown the license line, so the server's
-            # one-time notice is not due. `upgrade` re-runs init silently and
-            # prints nothing, so it writes no marker.
+            # one-time notice is not due. `upgrade` re-runs init without the
+            # license line, so it writes no marker.
             from ..license_notice import mark_shown
 
             mark_shown("init")
@@ -2604,6 +2645,14 @@ def install_status() -> dict[str, Any]:
     #   release checklist has eight steps and none of them touch the dev box,
     #   so this is the only place the drift can surface.
     report["source_drift"] = _running_source_drift()
+    # #1435: which running servers serve older code than is installed now.
+    try:
+        from ..storage.process_registry import serving_report
+
+        report["servers"] = serving_report(os.environ.get("CODE_INDEX_PATH"))
+    except Exception:
+        logger.debug("servers block unreadable for install-status", exc_info=True)
+        report["servers"] = None
     try:
         from ..parser import grammar_pack
         # #608: the check a user runs after `pip install -U tree-sitter-language-pack`
@@ -2710,6 +2759,10 @@ def print_status(report: Optional[dict[str, Any]] = None, *, as_json: bool = Fal
         print("\nRunning code:")
         print(f"  [?] {drift['reason']}")
 
+    servers = report.get("servers")
+    if servers and servers.get("servers"):
+        _print_servers(servers)
+
     offer = report.get("surface_offer")
     if offer:
         from ..surface_offer import render_offer_lines
@@ -2718,6 +2771,33 @@ def print_status(report: Optional[dict[str, Any]] = None, *, as_json: bool = Fal
         for line in render_offer_lines(offer):
             print(line)
     print()
+
+
+def _print_servers(block: dict[str, Any]) -> None:
+    """Running servers and whether each needs a restart (#1435). Report only."""
+    build = block.get("installed_build")
+    built = f", build {build}" if build else ""
+    print(f"\nRunning servers (installed {block.get('installed_version')}{built}):")
+    for s in block.get("servers") or []:
+        who = (
+            f"pid {s.get('pid')} ({s.get('client_id')}, {s.get('transport')}, "
+            f"recorded {s.get('version')}"
+            + (f", build {s['build']}" if s.get("build") else "")
+            + ")"
+        )
+        verdict = s.get("restart_required")
+        if verdict is True:
+            print(f"  [!] RESTART REQUIRED {who}: {s.get('reason', '')}")
+        elif verdict is False:
+            print(f"  [ok] {who}: {s.get('reason', '')}")
+        else:
+            # UNKNOWN is shown as unknown, never as current.
+            print(f"  [?] {who}: {s.get('reason', '')}")
+    if block.get("restart_required"):
+        print(
+            "      Restart those through their MCP client or service manager; "
+            "this command stops nothing."
+        )
 
 
 def list_targets() -> None:

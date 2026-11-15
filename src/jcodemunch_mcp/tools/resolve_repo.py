@@ -194,6 +194,8 @@ def _build_indexed_response(
         except Exception:
             cap = {}
         if cap.get("truncated"):
+            from ..security import cap_label, cap_remedy
+
             result["truncated"] = True
             result["files_discovered"] = cap.get("files_discovered")
             result["files_indexed"] = cap.get("files_indexed")
@@ -201,10 +203,14 @@ def _build_indexed_response(
             result["truncation_warning"] = (
                 f"Index truncated by the file cap: {cap.get('files_discovered')} files "
                 f"discovered, {cap.get('files_indexed')} indexed, "
-                f"{cap.get('files_skipped_cap')} dropped (max_folder_files="
+                f"{cap.get('files_skipped_cap')} dropped ({cap_label(cap)}="
                 f"{cap.get('max_folder_files')}). Entire files are missing from search "
-                f"results. Raise max_folder_files in config.jsonc (or set "
-                f"JCODEMUNCH_MAX_FOLDER_FILES) and re-index."
+                "results. "
+                + (
+                    cap_remedy(cap)
+                    or "Raise max_folder_files in config.jsonc (or set "
+                    "JCODEMUNCH_MAX_FOLDER_FILES) and re-index."
+                )
             )
     return result
 
@@ -389,6 +395,38 @@ def _attach_working_tree_mismatch(result: dict, p_resolved: Path) -> None:
         "queried_path": str(p_resolved),
         "indexed_root": sr,
     }
+
+
+def separate_copy(result: object) -> "Optional[tuple[str, str]]":
+    """`(repo, indexed_root)` when `result` is a resolve_repo answer for a separate
+    copy of a repo indexed from another folder, else None.
+
+    The server's startup check and the PreToolUse hook both read this, so a
+    moved or copied checkout is decided by `_attach_working_tree_mismatch` alone
+    and never by a second path rule. A copy whose repo identity does not match
+    the index (no `.git`, another folder name) is not flagged there, so it is
+    not one here either.
+    """
+    if not isinstance(result, dict) or result.get("indexed") is not True:
+        return None
+    if result.get("working_tree_mismatch") is not True:
+        return None
+    root = ((result.get("_meta") or {}).get("working_tree") or {}).get("indexed_root")
+    root = root or result.get("source_root")
+    repo = result.get("repo")
+    if not root or not repo:
+        return None
+    return str(repo), str(root)
+
+
+def separate_copy_sentence(repo: str, indexed_root: str) -> str:
+    """The one sentence a separate copy is told, naming the folder the index reads."""
+    return (
+        f"jCodemunch: this folder is a separate copy of {repo}, which is indexed "
+        f"from {indexed_root}. Its tools answer from that folder, not this one. "
+        'To index this folder, call index_folder with {"path": ".", "identity_mode": "local"} '
+        '(on the counter surface: order("index_folder", <those args>, allow_state_change=true)).'
+    )
 
 
 def resolve_repo(path: str, storage_path: Optional[str] = None) -> dict:

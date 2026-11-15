@@ -1,0 +1,3767 @@
+{
+ "meta": {
+  "tokenizer": "cl100k",
+  "model": "cl100k_base",
+  "overhead_tokens": 0,
+  "requests": 469,
+  "chunk_bytes": 300000,
+  "primary_bytes": 1200000,
+  "secondary_langs": 3,
+  "max_file": 512000,
+  "min_repos_for_row": 2
+ },
+ "chunks": [
+  {
+   "repo": "django/django",
+   "sha": "9600da0b98b98b00e310c66b964f259ad5932daa",
+   "language": "python",
+   "files": 106,
+   "bytes": 285462,
+   "input_tokens": 78530
+  },
+  {
+   "repo": "django/django",
+   "sha": "9600da0b98b98b00e310c66b964f259ad5932daa",
+   "language": "python",
+   "files": 22,
+   "bytes": 283195,
+   "input_tokens": 56274
+  },
+  {
+   "repo": "django/django",
+   "sha": "9600da0b98b98b00e310c66b964f259ad5932daa",
+   "language": "python",
+   "files": 46,
+   "bytes": 298091,
+   "input_tokens": 58844
+  },
+  {
+   "repo": "django/django",
+   "sha": "9600da0b98b98b00e310c66b964f259ad5932daa",
+   "language": "python",
+   "files": 78,
+   "bytes": 278040,
+   "input_tokens": 61110
+  },
+  {
+   "repo": "django/django",
+   "sha": "9600da0b98b98b00e310c66b964f259ad5932daa",
+   "language": "python",
+   "files": 4,
+   "bytes": 45994,
+   "input_tokens": 11375
+  },
+  {
+   "repo": "django/django",
+   "sha": "9600da0b98b98b00e310c66b964f259ad5932daa",
+   "language": "html",
+   "files": 363,
+   "bytes": 260211,
+   "input_tokens": 70335
+  },
+  {
+   "repo": "django/django",
+   "sha": "9600da0b98b98b00e310c66b964f259ad5932daa",
+   "language": "javascript",
+   "files": 45,
+   "bytes": 204965,
+   "input_tokens": 43610
+  },
+  {
+   "repo": "django/django",
+   "sha": "9600da0b98b98b00e310c66b964f259ad5932daa",
+   "language": "css",
+   "files": 41,
+   "bytes": 99635,
+   "input_tokens": 27956
+  },
+  {
+   "repo": "pallets/flask",
+   "sha": "49943b5a94413a530761350f04e896f76e8d620e",
+   "language": "python",
+   "files": 39,
+   "bytes": 276880,
+   "input_tokens": 62014
+  },
+  {
+   "repo": "pallets/flask",
+   "sha": "49943b5a94413a530761350f04e896f76e8d620e",
+   "language": "python",
+   "files": 24,
+   "bytes": 293549,
+   "input_tokens": 68184
+  },
+  {
+   "repo": "pallets/flask",
+   "sha": "49943b5a94413a530761350f04e896f76e8d620e",
+   "language": "python",
+   "files": 17,
+   "bytes": 20903,
+   "input_tokens": 4705
+  },
+  {
+   "repo": "pallets/flask",
+   "sha": "49943b5a94413a530761350f04e896f76e8d620e",
+   "language": "html",
+   "files": 20,
+   "bytes": 10493,
+   "input_tokens": 2853
+  },
+  {
+   "repo": "pallets/flask",
+   "sha": "49943b5a94413a530761350f04e896f76e8d620e",
+   "language": "yaml",
+   "files": 8,
+   "bytes": 8481,
+   "input_tokens": 2681
+  },
+  {
+   "repo": "pallets/flask",
+   "sha": "49943b5a94413a530761350f04e896f76e8d620e",
+   "language": "toml",
+   "files": 5,
+   "bytes": 8663,
+   "input_tokens": 2511
+  },
+  {
+   "repo": "psf/requests",
+   "sha": "3c7baaa05ab4aa49cc819ce3a819d260de19c157",
+   "language": "python",
+   "files": 30,
+   "bytes": 253351,
+   "input_tokens": 58350
+  },
+  {
+   "repo": "psf/requests",
+   "sha": "3c7baaa05ab4aa49cc819ce3a819d260de19c157",
+   "language": "python",
+   "files": 6,
+   "bytes": 153810,
+   "input_tokens": 36089
+  },
+  {
+   "repo": "psf/requests",
+   "sha": "3c7baaa05ab4aa49cc819ce3a819d260de19c157",
+   "language": "yaml",
+   "files": 12,
+   "bytes": 12932,
+   "input_tokens": 3860
+  },
+  {
+   "repo": "psf/requests",
+   "sha": "3c7baaa05ab4aa49cc819ce3a819d260de19c157",
+   "language": "toml",
+   "files": 1,
+   "bytes": 3404,
+   "input_tokens": 971
+  },
+  {
+   "repo": "psf/requests",
+   "sha": "3c7baaa05ab4aa49cc819ce3a819d260de19c157",
+   "language": "css",
+   "files": 1,
+   "bytes": 287,
+   "input_tokens": 83
+  },
+  {
+   "repo": "psf/black",
+   "sha": "b4f1fcae48826790b6f93ca9226d20003bce0eaa",
+   "language": "python",
+   "files": 3,
+   "bytes": 229981,
+   "input_tokens": 83314
+  },
+  {
+   "repo": "psf/black",
+   "sha": "b4f1fcae48826790b6f93ca9226d20003bce0eaa",
+   "language": "python",
+   "files": 1,
+   "bytes": 159994,
+   "input_tokens": 39999
+  },
+  {
+   "repo": "psf/black",
+   "sha": "b4f1fcae48826790b6f93ca9226d20003bce0eaa",
+   "language": "python",
+   "files": 10,
+   "bytes": 297633,
+   "input_tokens": 96476
+  },
+  {
+   "repo": "psf/black",
+   "sha": "b4f1fcae48826790b6f93ca9226d20003bce0eaa",
+   "language": "python",
+   "files": 10,
+   "bytes": 240419,
+   "input_tokens": 53704
+  },
+  {
+   "repo": "psf/black",
+   "sha": "b4f1fcae48826790b6f93ca9226d20003bce0eaa",
+   "language": "python",
+   "files": 11,
+   "bytes": 192444,
+   "input_tokens": 43705
+  },
+  {
+   "repo": "psf/black",
+   "sha": "b4f1fcae48826790b6f93ca9226d20003bce0eaa",
+   "language": "yaml",
+   "files": 21,
+   "bytes": 52825,
+   "input_tokens": 14393
+  },
+  {
+   "repo": "psf/black",
+   "sha": "b4f1fcae48826790b6f93ca9226d20003bce0eaa",
+   "language": "toml",
+   "files": 16,
+   "bytes": 9066,
+   "input_tokens": 2673
+  },
+  {
+   "repo": "psf/black",
+   "sha": "b4f1fcae48826790b6f93ca9226d20003bce0eaa",
+   "language": "json",
+   "files": 1,
+   "bytes": 8742,
+   "input_tokens": 2011
+  },
+  {
+   "repo": "expressjs/express",
+   "sha": "43fca52d28a422c8be48fd489cbd4f2d6152bab6",
+   "language": "javascript",
+   "files": 72,
+   "bytes": 299036,
+   "input_tokens": 75523
+  },
+  {
+   "repo": "expressjs/express",
+   "sha": "43fca52d28a422c8be48fd489cbd4f2d6152bab6",
+   "language": "javascript",
+   "files": 70,
+   "bytes": 265588,
+   "input_tokens": 65130
+  },
+  {
+   "repo": "expressjs/express",
+   "sha": "43fca52d28a422c8be48fd489cbd4f2d6152bab6",
+   "language": "ejs",
+   "files": 20,
+   "bytes": 5277,
+   "input_tokens": 1637
+  },
+  {
+   "repo": "expressjs/express",
+   "sha": "43fca52d28a422c8be48fd489cbd4f2d6152bab6",
+   "language": "yaml",
+   "files": 7,
+   "bytes": 15302,
+   "input_tokens": 4185
+  },
+  {
+   "repo": "expressjs/express",
+   "sha": "43fca52d28a422c8be48fd489cbd4f2d6152bab6",
+   "language": "css",
+   "files": 4,
+   "bytes": 604,
+   "input_tokens": 203
+  },
+  {
+   "repo": "lodash/lodash",
+   "sha": "2b5e6f7399a7b48005140b5d5c6bc6c0e62919a8",
+   "language": "javascript",
+   "files": 25,
+   "bytes": 189751,
+   "input_tokens": 46551
+  },
+  {
+   "repo": "lodash/lodash",
+   "sha": "2b5e6f7399a7b48005140b5d5c6bc6c0e62919a8",
+   "language": "yaml",
+   "files": 8,
+   "bytes": 10286,
+   "input_tokens": 2829
+  },
+  {
+   "repo": "lodash/lodash",
+   "sha": "2b5e6f7399a7b48005140b5d5c6bc6c0e62919a8",
+   "language": "html",
+   "files": 5,
+   "bytes": 36963,
+   "input_tokens": 7889
+  },
+  {
+   "repo": "lodash/lodash",
+   "sha": "2b5e6f7399a7b48005140b5d5c6bc6c0e62919a8",
+   "language": "json",
+   "files": 3,
+   "bytes": 215414,
+   "input_tokens": 79608
+  },
+  {
+   "repo": "webpack/webpack",
+   "sha": "27d9f2c4334a81ab9919d4a8627e8fba12b4e839",
+   "language": "javascript",
+   "files": 506,
+   "bytes": 261922,
+   "input_tokens": 69007
+  },
+  {
+   "repo": "webpack/webpack",
+   "sha": "27d9f2c4334a81ab9919d4a8627e8fba12b4e839",
+   "language": "javascript",
+   "files": 14,
+   "bytes": 298982,
+   "input_tokens": 72436
+  },
+  {
+   "repo": "webpack/webpack",
+   "sha": "27d9f2c4334a81ab9919d4a8627e8fba12b4e839",
+   "language": "javascript",
+   "files": 42,
+   "bytes": 299123,
+   "input_tokens": 72658
+  },
+  {
+   "repo": "webpack/webpack",
+   "sha": "27d9f2c4334a81ab9919d4a8627e8fba12b4e839",
+   "language": "javascript",
+   "files": 22,
+   "bytes": 294865,
+   "input_tokens": 74605
+  },
+  {
+   "repo": "webpack/webpack",
+   "sha": "27d9f2c4334a81ab9919d4a8627e8fba12b4e839",
+   "language": "javascript",
+   "files": 8,
+   "bytes": 36914,
+   "input_tokens": 8796
+  },
+  {
+   "repo": "webpack/webpack",
+   "sha": "27d9f2c4334a81ab9919d4a8627e8fba12b4e839",
+   "language": "css",
+   "files": 577,
+   "bytes": 298269,
+   "input_tokens": 91812
+  },
+  {
+   "repo": "webpack/webpack",
+   "sha": "27d9f2c4334a81ab9919d4a8627e8fba12b4e839",
+   "language": "json",
+   "files": 17,
+   "bytes": 32122,
+   "input_tokens": 10006
+  },
+  {
+   "repo": "webpack/webpack",
+   "sha": "27d9f2c4334a81ab9919d4a8627e8fba12b4e839",
+   "language": "html",
+   "files": 474,
+   "bytes": 158867,
+   "input_tokens": 48580
+  },
+  {
+   "repo": "mrdoob/three.js",
+   "sha": "054a1fa19be93fc4f729f89dd12438b55b96aeaa",
+   "language": "javascript",
+   "files": 25,
+   "bytes": 299892,
+   "input_tokens": 86009
+  },
+  {
+   "repo": "mrdoob/three.js",
+   "sha": "054a1fa19be93fc4f729f89dd12438b55b96aeaa",
+   "language": "javascript",
+   "files": 54,
+   "bytes": 275313,
+   "input_tokens": 66609
+  },
+  {
+   "repo": "mrdoob/three.js",
+   "sha": "054a1fa19be93fc4f729f89dd12438b55b96aeaa",
+   "language": "javascript",
+   "files": 35,
+   "bytes": 229253,
+   "input_tokens": 63170
+  },
+  {
+   "repo": "mrdoob/three.js",
+   "sha": "054a1fa19be93fc4f729f89dd12438b55b96aeaa",
+   "language": "javascript",
+   "files": 3,
+   "bytes": 292968,
+   "input_tokens": 65281
+  },
+  {
+   "repo": "mrdoob/three.js",
+   "sha": "054a1fa19be93fc4f729f89dd12438b55b96aeaa",
+   "language": "javascript",
+   "files": 3,
+   "bytes": 90235,
+   "input_tokens": 22312
+  },
+  {
+   "repo": "mrdoob/three.js",
+   "sha": "054a1fa19be93fc4f729f89dd12438b55b96aeaa",
+   "language": "html",
+   "files": 22,
+   "bytes": 297129,
+   "input_tokens": 87285
+  },
+  {
+   "repo": "mrdoob/three.js",
+   "sha": "054a1fa19be93fc4f729f89dd12438b55b96aeaa",
+   "language": "json",
+   "files": 13,
+   "bytes": 247483,
+   "input_tokens": 102077
+  },
+  {
+   "repo": "mrdoob/three.js",
+   "sha": "054a1fa19be93fc4f729f89dd12438b55b96aeaa",
+   "language": "css",
+   "files": 26,
+   "bytes": 178182,
+   "input_tokens": 52545
+  },
+  {
+   "repo": "nestjs/nest",
+   "sha": "f5a84c2ca3a76d830b733c8307ceeea82be54c18",
+   "language": "typescript",
+   "files": 96,
+   "bytes": 293706,
+   "input_tokens": 68633
+  },
+  {
+   "repo": "nestjs/nest",
+   "sha": "f5a84c2ca3a76d830b733c8307ceeea82be54c18",
+   "language": "typescript",
+   "files": 99,
+   "bytes": 288108,
+   "input_tokens": 67453
+  },
+  {
+   "repo": "nestjs/nest",
+   "sha": "f5a84c2ca3a76d830b733c8307ceeea82be54c18",
+   "language": "typescript",
+   "files": 236,
+   "bytes": 297703,
+   "input_tokens": 70903
+  },
+  {
+   "repo": "nestjs/nest",
+   "sha": "f5a84c2ca3a76d830b733c8307ceeea82be54c18",
+   "language": "typescript",
+   "files": 99,
+   "bytes": 284054,
+   "input_tokens": 64985
+  },
+  {
+   "repo": "nestjs/nest",
+   "sha": "f5a84c2ca3a76d830b733c8307ceeea82be54c18",
+   "language": "typescript",
+   "files": 33,
+   "bytes": 36807,
+   "input_tokens": 8078
+  },
+  {
+   "repo": "nestjs/nest",
+   "sha": "f5a84c2ca3a76d830b733c8307ceeea82be54c18",
+   "language": "json",
+   "files": 257,
+   "bytes": 291610,
+   "input_tokens": 97706
+  },
+  {
+   "repo": "nestjs/nest",
+   "sha": "f5a84c2ca3a76d830b733c8307ceeea82be54c18",
+   "language": "yaml",
+   "files": 22,
+   "bytes": 32618,
+   "input_tokens": 8199
+  },
+  {
+   "repo": "nestjs/nest",
+   "sha": "f5a84c2ca3a76d830b733c8307ceeea82be54c18",
+   "language": "javascript",
+   "files": 11,
+   "bytes": 6779,
+   "input_tokens": 1653
+  },
+  {
+   "repo": "vitejs/vite",
+   "sha": "39d63b8479c6314caab9b78a05d3aaaf36a86b2c",
+   "language": "typescript",
+   "files": 60,
+   "bytes": 290216,
+   "input_tokens": 71472
+  },
+  {
+   "repo": "vitejs/vite",
+   "sha": "39d63b8479c6314caab9b78a05d3aaaf36a86b2c",
+   "language": "typescript",
+   "files": 24,
+   "bytes": 294441,
+   "input_tokens": 70974
+  },
+  {
+   "repo": "vitejs/vite",
+   "sha": "39d63b8479c6314caab9b78a05d3aaaf36a86b2c",
+   "language": "typescript",
+   "files": 21,
+   "bytes": 287963,
+   "input_tokens": 69528
+  },
+  {
+   "repo": "vitejs/vite",
+   "sha": "39d63b8479c6314caab9b78a05d3aaaf36a86b2c",
+   "language": "typescript",
+   "files": 49,
+   "bytes": 295829,
+   "input_tokens": 75833
+  },
+  {
+   "repo": "vitejs/vite",
+   "sha": "39d63b8479c6314caab9b78a05d3aaaf36a86b2c",
+   "language": "typescript",
+   "files": 3,
+   "bytes": 31323,
+   "input_tokens": 7122
+  },
+  {
+   "repo": "vitejs/vite",
+   "sha": "39d63b8479c6314caab9b78a05d3aaaf36a86b2c",
+   "language": "javascript",
+   "files": 852,
+   "bytes": 297200,
+   "input_tokens": 76490
+  },
+  {
+   "repo": "vitejs/vite",
+   "sha": "39d63b8479c6314caab9b78a05d3aaaf36a86b2c",
+   "language": "json",
+   "files": 348,
+   "bytes": 106974,
+   "input_tokens": 35812
+  },
+  {
+   "repo": "vitejs/vite",
+   "sha": "39d63b8479c6314caab9b78a05d3aaaf36a86b2c",
+   "language": "css",
+   "files": 195,
+   "bytes": 100787,
+   "input_tokens": 40627
+  },
+  {
+   "repo": "colinhacks/zod",
+   "sha": "19c40d2072288b4cafec851e9d056a72a88e5973",
+   "language": "typescript",
+   "files": 125,
+   "bytes": 297208,
+   "input_tokens": 82065
+  },
+  {
+   "repo": "colinhacks/zod",
+   "sha": "19c40d2072288b4cafec851e9d056a72a88e5973",
+   "language": "typescript",
+   "files": 53,
+   "bytes": 295753,
+   "input_tokens": 77916
+  },
+  {
+   "repo": "colinhacks/zod",
+   "sha": "19c40d2072288b4cafec851e9d056a72a88e5973",
+   "language": "typescript",
+   "files": 54,
+   "bytes": 273770,
+   "input_tokens": 87053
+  },
+  {
+   "repo": "colinhacks/zod",
+   "sha": "19c40d2072288b4cafec851e9d056a72a88e5973",
+   "language": "typescript",
+   "files": 21,
+   "bytes": 286817,
+   "input_tokens": 78296
+  },
+  {
+   "repo": "colinhacks/zod",
+   "sha": "19c40d2072288b4cafec851e9d056a72a88e5973",
+   "language": "typescript",
+   "files": 6,
+   "bytes": 38624,
+   "input_tokens": 9985
+  },
+  {
+   "repo": "colinhacks/zod",
+   "sha": "19c40d2072288b4cafec851e9d056a72a88e5973",
+   "language": "json",
+   "files": 36,
+   "bytes": 28101,
+   "input_tokens": 9191
+  },
+  {
+   "repo": "colinhacks/zod",
+   "sha": "19c40d2072288b4cafec851e9d056a72a88e5973",
+   "language": "tsx",
+   "files": 34,
+   "bytes": 81888,
+   "input_tokens": 21451
+  },
+  {
+   "repo": "colinhacks/zod",
+   "sha": "19c40d2072288b4cafec851e9d056a72a88e5973",
+   "language": "yaml",
+   "files": 1,
+   "bytes": 19,
+   "input_tokens": 6
+  },
+  {
+   "repo": "prisma/prisma",
+   "sha": "e1b4c8a1018c97aff71aaa3a14dba44335e6cf4a",
+   "language": "typescript",
+   "files": 84,
+   "bytes": 296967,
+   "input_tokens": 70371
+  },
+  {
+   "repo": "prisma/prisma",
+   "sha": "e1b4c8a1018c97aff71aaa3a14dba44335e6cf4a",
+   "language": "typescript",
+   "files": 107,
+   "bytes": 278409,
+   "input_tokens": 67700
+  },
+  {
+   "repo": "prisma/prisma",
+   "sha": "e1b4c8a1018c97aff71aaa3a14dba44335e6cf4a",
+   "language": "typescript",
+   "files": 77,
+   "bytes": 288334,
+   "input_tokens": 66577
+  },
+  {
+   "repo": "prisma/prisma",
+   "sha": "e1b4c8a1018c97aff71aaa3a14dba44335e6cf4a",
+   "language": "typescript",
+   "files": 108,
+   "bytes": 295468,
+   "input_tokens": 69654
+  },
+  {
+   "repo": "prisma/prisma",
+   "sha": "e1b4c8a1018c97aff71aaa3a14dba44335e6cf4a",
+   "language": "json",
+   "files": 99,
+   "bytes": 291471,
+   "input_tokens": 75217
+  },
+  {
+   "repo": "prisma/prisma",
+   "sha": "e1b4c8a1018c97aff71aaa3a14dba44335e6cf4a",
+   "language": "javascript",
+   "files": 40,
+   "bytes": 296230,
+   "input_tokens": 75833
+  },
+  {
+   "repo": "prisma/prisma",
+   "sha": "e1b4c8a1018c97aff71aaa3a14dba44335e6cf4a",
+   "language": "tsx",
+   "files": 38,
+   "bytes": 82683,
+   "input_tokens": 19614
+  },
+  {
+   "repo": "gin-gonic/gin",
+   "sha": "0f09c3a9b4626d9fe9979cf4d0521d6ae32ab646",
+   "language": "go",
+   "files": 19,
+   "bytes": 286126,
+   "input_tokens": 78808
+  },
+  {
+   "repo": "gin-gonic/gin",
+   "sha": "0f09c3a9b4626d9fe9979cf4d0521d6ae32ab646",
+   "language": "go",
+   "files": 32,
+   "bytes": 283828,
+   "input_tokens": 79919
+  },
+  {
+   "repo": "gin-gonic/gin",
+   "sha": "0f09c3a9b4626d9fe9979cf4d0521d6ae32ab646",
+   "language": "go",
+   "files": 47,
+   "bytes": 127241,
+   "input_tokens": 34718
+  },
+  {
+   "repo": "gin-gonic/gin",
+   "sha": "0f09c3a9b4626d9fe9979cf4d0521d6ae32ab646",
+   "language": "yaml",
+   "files": 11,
+   "bytes": 12687,
+   "input_tokens": 3272
+  },
+  {
+   "repo": "spf13/cobra",
+   "sha": "adbc8813901bba65827259daa8e22ff94ec1f30e",
+   "language": "go",
+   "files": 15,
+   "bytes": 284053,
+   "input_tokens": 76991
+  },
+  {
+   "repo": "spf13/cobra",
+   "sha": "adbc8813901bba65827259daa8e22ff94ec1f30e",
+   "language": "go",
+   "files": 21,
+   "bytes": 228581,
+   "input_tokens": 61289
+  },
+  {
+   "repo": "spf13/cobra",
+   "sha": "adbc8813901bba65827259daa8e22ff94ec1f30e",
+   "language": "yaml",
+   "files": 5,
+   "bytes": 6263,
+   "input_tokens": 1758
+  },
+  {
+   "repo": "gohugoio/hugo",
+   "sha": "afb2d9ac7558afebe05bd2bcb399311f33d7fff1",
+   "language": "go",
+   "files": 43,
+   "bytes": 296598,
+   "input_tokens": 81814
+  },
+  {
+   "repo": "gohugoio/hugo",
+   "sha": "afb2d9ac7558afebe05bd2bcb399311f33d7fff1",
+   "language": "go",
+   "files": 74,
+   "bytes": 298988,
+   "input_tokens": 85085
+  },
+  {
+   "repo": "gohugoio/hugo",
+   "sha": "afb2d9ac7558afebe05bd2bcb399311f33d7fff1",
+   "language": "go",
+   "files": 58,
+   "bytes": 298375,
+   "input_tokens": 84103
+  },
+  {
+   "repo": "gohugoio/hugo",
+   "sha": "afb2d9ac7558afebe05bd2bcb399311f33d7fff1",
+   "language": "go",
+   "files": 51,
+   "bytes": 298497,
+   "input_tokens": 84507
+  },
+  {
+   "repo": "gohugoio/hugo",
+   "sha": "afb2d9ac7558afebe05bd2bcb399311f33d7fff1",
+   "language": "go",
+   "files": 1,
+   "bytes": 2458,
+   "input_tokens": 712
+  },
+  {
+   "repo": "gohugoio/hugo",
+   "sha": "afb2d9ac7558afebe05bd2bcb399311f33d7fff1",
+   "language": "html",
+   "files": 121,
+   "bytes": 196332,
+   "input_tokens": 66642
+  },
+  {
+   "repo": "gohugoio/hugo",
+   "sha": "afb2d9ac7558afebe05bd2bcb399311f33d7fff1",
+   "language": "javascript",
+   "files": 18,
+   "bytes": 18407,
+   "input_tokens": 4793
+  },
+  {
+   "repo": "gohugoio/hugo",
+   "sha": "afb2d9ac7558afebe05bd2bcb399311f33d7fff1",
+   "language": "yaml",
+   "files": 17,
+   "bytes": 164538,
+   "input_tokens": 42673
+  },
+  {
+   "repo": "prometheus/prometheus",
+   "sha": "49c815a0ea46c7a6a6b723e4b634c4bf36f7022c",
+   "language": "go",
+   "files": 18,
+   "bytes": 296761,
+   "input_tokens": 78111
+  },
+  {
+   "repo": "prometheus/prometheus",
+   "sha": "49c815a0ea46c7a6a6b723e4b634c4bf36f7022c",
+   "language": "go",
+   "files": 18,
+   "bytes": 215838,
+   "input_tokens": 56883
+  },
+  {
+   "repo": "prometheus/prometheus",
+   "sha": "49c815a0ea46c7a6a6b723e4b634c4bf36f7022c",
+   "language": "go",
+   "files": 16,
+   "bytes": 298628,
+   "input_tokens": 78005
+  },
+  {
+   "repo": "prometheus/prometheus",
+   "sha": "49c815a0ea46c7a6a6b723e4b634c4bf36f7022c",
+   "language": "go",
+   "files": 17,
+   "bytes": 297323,
+   "input_tokens": 78399
+  },
+  {
+   "repo": "prometheus/prometheus",
+   "sha": "49c815a0ea46c7a6a6b723e4b634c4bf36f7022c",
+   "language": "go",
+   "files": 2,
+   "bytes": 43192,
+   "input_tokens": 11502
+  },
+  {
+   "repo": "prometheus/prometheus",
+   "sha": "49c815a0ea46c7a6a6b723e4b634c4bf36f7022c",
+   "language": "tsx",
+   "files": 56,
+   "bytes": 275735,
+   "input_tokens": 60545
+  },
+  {
+   "repo": "prometheus/prometheus",
+   "sha": "49c815a0ea46c7a6a6b723e4b634c4bf36f7022c",
+   "language": "typescript",
+   "files": 56,
+   "bytes": 299689,
+   "input_tokens": 77257
+  },
+  {
+   "repo": "prometheus/prometheus",
+   "sha": "49c815a0ea46c7a6a6b723e4b634c4bf36f7022c",
+   "language": "yaml",
+   "files": 51,
+   "bytes": 103883,
+   "input_tokens": 27049
+  },
+  {
+   "repo": "BurntSushi/ripgrep",
+   "sha": "178cc027e283fd965cb72d0a7395b219eada170c",
+   "language": "rust",
+   "files": 15,
+   "bytes": 119453,
+   "input_tokens": 27692
+  },
+  {
+   "repo": "BurntSushi/ripgrep",
+   "sha": "178cc027e283fd965cb72d0a7395b219eada170c",
+   "language": "rust",
+   "files": 2,
+   "bytes": 292839,
+   "input_tokens": 73755
+  },
+  {
+   "repo": "BurntSushi/ripgrep",
+   "sha": "178cc027e283fd965cb72d0a7395b219eada170c",
+   "language": "rust",
+   "files": 23,
+   "bytes": 240390,
+   "input_tokens": 60639
+  },
+  {
+   "repo": "BurntSushi/ripgrep",
+   "sha": "178cc027e283fd965cb72d0a7395b219eada170c",
+   "language": "rust",
+   "files": 8,
+   "bytes": 296278,
+   "input_tokens": 69705
+  },
+  {
+   "repo": "BurntSushi/ripgrep",
+   "sha": "178cc027e283fd965cb72d0a7395b219eada170c",
+   "language": "rust",
+   "files": 17,
+   "bytes": 170387,
+   "input_tokens": 42316
+  },
+  {
+   "repo": "BurntSushi/ripgrep",
+   "sha": "178cc027e283fd965cb72d0a7395b219eada170c",
+   "language": "toml",
+   "files": 13,
+   "bytes": 13074,
+   "input_tokens": 3970
+  },
+  {
+   "repo": "BurntSushi/ripgrep",
+   "sha": "178cc027e283fd965cb72d0a7395b219eada170c",
+   "language": "yaml",
+   "files": 5,
+   "bytes": 27110,
+   "input_tokens": 7133
+  },
+  {
+   "repo": "BurntSushi/ripgrep",
+   "sha": "178cc027e283fd965cb72d0a7395b219eada170c",
+   "language": "bash",
+   "files": 2,
+   "bytes": 3416,
+   "input_tokens": 1243
+  },
+  {
+   "repo": "tokio-rs/tokio",
+   "sha": "ab0814fc8c62b3d8be40aad068e2fed6562cfeb0",
+   "language": "rust",
+   "files": 81,
+   "bytes": 277366,
+   "input_tokens": 66862
+  },
+  {
+   "repo": "tokio-rs/tokio",
+   "sha": "ab0814fc8c62b3d8be40aad068e2fed6562cfeb0",
+   "language": "rust",
+   "files": 43,
+   "bytes": 292251,
+   "input_tokens": 72677
+  },
+  {
+   "repo": "tokio-rs/tokio",
+   "sha": "ab0814fc8c62b3d8be40aad068e2fed6562cfeb0",
+   "language": "rust",
+   "files": 55,
+   "bytes": 295919,
+   "input_tokens": 72810
+  },
+  {
+   "repo": "tokio-rs/tokio",
+   "sha": "ab0814fc8c62b3d8be40aad068e2fed6562cfeb0",
+   "language": "rust",
+   "files": 25,
+   "bytes": 296418,
+   "input_tokens": 78267
+  },
+  {
+   "repo": "tokio-rs/tokio",
+   "sha": "ab0814fc8c62b3d8be40aad068e2fed6562cfeb0",
+   "language": "rust",
+   "files": 1,
+   "bytes": 18072,
+   "input_tokens": 4608
+  },
+  {
+   "repo": "tokio-rs/tokio",
+   "sha": "ab0814fc8c62b3d8be40aad068e2fed6562cfeb0",
+   "language": "toml",
+   "files": 18,
+   "bytes": 21417,
+   "input_tokens": 6627
+  },
+  {
+   "repo": "tokio-rs/tokio",
+   "sha": "ab0814fc8c62b3d8be40aad068e2fed6562cfeb0",
+   "language": "yaml",
+   "files": 11,
+   "bytes": 68515,
+   "input_tokens": 18449
+  },
+  {
+   "repo": "tokio-rs/tokio",
+   "sha": "ab0814fc8c62b3d8be40aad068e2fed6562cfeb0",
+   "language": "json",
+   "files": 1,
+   "bytes": 1063,
+   "input_tokens": 386
+  },
+  {
+   "repo": "serde-rs/serde",
+   "sha": "aa7913ad0211fef960df68e7812a6211145a888c",
+   "language": "rust",
+   "files": 14,
+   "bytes": 296314,
+   "input_tokens": 71174
+  },
+  {
+   "repo": "serde-rs/serde",
+   "sha": "aa7913ad0211fef960df68e7812a6211145a888c",
+   "language": "rust",
+   "files": 18,
+   "bytes": 299700,
+   "input_tokens": 73769
+  },
+  {
+   "repo": "serde-rs/serde",
+   "sha": "aa7913ad0211fef960df68e7812a6211145a888c",
+   "language": "rust",
+   "files": 28,
+   "bytes": 260538,
+   "input_tokens": 58539
+  },
+  {
+   "repo": "serde-rs/serde",
+   "sha": "aa7913ad0211fef960df68e7812a6211145a888c",
+   "language": "rust",
+   "files": 9,
+   "bytes": 294189,
+   "input_tokens": 71900
+  },
+  {
+   "repo": "serde-rs/serde",
+   "sha": "aa7913ad0211fef960df68e7812a6211145a888c",
+   "language": "rust",
+   "files": 6,
+   "bytes": 36436,
+   "input_tokens": 9432
+  },
+  {
+   "repo": "serde-rs/serde",
+   "sha": "aa7913ad0211fef960df68e7812a6211145a888c",
+   "language": "toml",
+   "files": 7,
+   "bytes": 8799,
+   "input_tokens": 2357
+  },
+  {
+   "repo": "serde-rs/serde",
+   "sha": "aa7913ad0211fef960df68e7812a6211145a888c",
+   "language": "yaml",
+   "files": 2,
+   "bytes": 5727,
+   "input_tokens": 1704
+  },
+  {
+   "repo": "clap-rs/clap",
+   "sha": "ec93e71255c0b833a34f50662a3fdb22f53f6ded",
+   "language": "rust",
+   "files": 13,
+   "bytes": 295909,
+   "input_tokens": 74064
+  },
+  {
+   "repo": "clap-rs/clap",
+   "sha": "ec93e71255c0b833a34f50662a3fdb22f53f6ded",
+   "language": "rust",
+   "files": 16,
+   "bytes": 292380,
+   "input_tokens": 71370
+  },
+  {
+   "repo": "clap-rs/clap",
+   "sha": "ec93e71255c0b833a34f50662a3fdb22f53f6ded",
+   "language": "rust",
+   "files": 17,
+   "bytes": 235679,
+   "input_tokens": 55634
+  },
+  {
+   "repo": "clap-rs/clap",
+   "sha": "ec93e71255c0b833a34f50662a3fdb22f53f6ded",
+   "language": "rust",
+   "files": 34,
+   "bytes": 286893,
+   "input_tokens": 67245
+  },
+  {
+   "repo": "clap-rs/clap",
+   "sha": "ec93e71255c0b833a34f50662a3fdb22f53f6ded",
+   "language": "rust",
+   "files": 6,
+   "bytes": 72879,
+   "input_tokens": 17585
+  },
+  {
+   "repo": "clap-rs/clap",
+   "sha": "ec93e71255c0b833a34f50662a3fdb22f53f6ded",
+   "language": "toml",
+   "files": 21,
+   "bytes": 43386,
+   "input_tokens": 11778
+  },
+  {
+   "repo": "clap-rs/clap",
+   "sha": "ec93e71255c0b833a34f50662a3fdb22f53f6ded",
+   "language": "yaml",
+   "files": 14,
+   "bytes": 31139,
+   "input_tokens": 8980
+  },
+  {
+   "repo": "clap-rs/clap",
+   "sha": "ec93e71255c0b833a34f50662a3fdb22f53f6ded",
+   "language": "python",
+   "files": 1,
+   "bytes": 1029,
+   "input_tokens": 235
+  },
+  {
+   "repo": "google/guava",
+   "sha": "72a3f9060a600a795c6c9ccfcd907d2ad975753c",
+   "language": "java",
+   "files": 40,
+   "bytes": 280335,
+   "input_tokens": 64151
+  },
+  {
+   "repo": "google/guava",
+   "sha": "72a3f9060a600a795c6c9ccfcd907d2ad975753c",
+   "language": "java",
+   "files": 22,
+   "bytes": 257841,
+   "input_tokens": 59331
+  },
+  {
+   "repo": "google/guava",
+   "sha": "72a3f9060a600a795c6c9ccfcd907d2ad975753c",
+   "language": "java",
+   "files": 19,
+   "bytes": 295628,
+   "input_tokens": 66162
+  },
+  {
+   "repo": "google/guava",
+   "sha": "72a3f9060a600a795c6c9ccfcd907d2ad975753c",
+   "language": "java",
+   "files": 33,
+   "bytes": 269809,
+   "input_tokens": 60601
+  },
+  {
+   "repo": "google/guava",
+   "sha": "72a3f9060a600a795c6c9ccfcd907d2ad975753c",
+   "language": "java",
+   "files": 6,
+   "bytes": 91352,
+   "input_tokens": 21010
+  },
+  {
+   "repo": "google/guava",
+   "sha": "72a3f9060a600a795c6c9ccfcd907d2ad975753c",
+   "language": "xml",
+   "files": 33,
+   "bytes": 177089,
+   "input_tokens": 40828
+  },
+  {
+   "repo": "google/guava",
+   "sha": "72a3f9060a600a795c6c9ccfcd907d2ad975753c",
+   "language": "yaml",
+   "files": 6,
+   "bytes": 22373,
+   "input_tokens": 5191
+  },
+  {
+   "repo": "google/guava",
+   "sha": "72a3f9060a600a795c6c9ccfcd907d2ad975753c",
+   "language": "bash",
+   "files": 3,
+   "bytes": 2990,
+   "input_tokens": 823
+  },
+  {
+   "repo": "FasterXML/jackson-databind",
+   "sha": "55cb6b4e2554d056431e2d8c76e46f1cb789329e",
+   "language": "java",
+   "files": 14,
+   "bytes": 297592,
+   "input_tokens": 61424
+  },
+  {
+   "repo": "FasterXML/jackson-databind",
+   "sha": "55cb6b4e2554d056431e2d8c76e46f1cb789329e",
+   "language": "java",
+   "files": 9,
+   "bytes": 295067,
+   "input_tokens": 62861
+  },
+  {
+   "repo": "FasterXML/jackson-databind",
+   "sha": "55cb6b4e2554d056431e2d8c76e46f1cb789329e",
+   "language": "java",
+   "files": 10,
+   "bytes": 282692,
+   "input_tokens": 57125
+  },
+  {
+   "repo": "FasterXML/jackson-databind",
+   "sha": "55cb6b4e2554d056431e2d8c76e46f1cb789329e",
+   "language": "java",
+   "files": 38,
+   "bytes": 296077,
+   "input_tokens": 60526
+  },
+  {
+   "repo": "FasterXML/jackson-databind",
+   "sha": "55cb6b4e2554d056431e2d8c76e46f1cb789329e",
+   "language": "java",
+   "files": 1,
+   "bytes": 23133,
+   "input_tokens": 4597
+  },
+  {
+   "repo": "FasterXML/jackson-databind",
+   "sha": "55cb6b4e2554d056431e2d8c76e46f1cb789329e",
+   "language": "html",
+   "files": 15,
+   "bytes": 5094,
+   "input_tokens": 1530
+  },
+  {
+   "repo": "FasterXML/jackson-databind",
+   "sha": "55cb6b4e2554d056431e2d8c76e46f1cb789329e",
+   "language": "yaml",
+   "files": 14,
+   "bytes": 21818,
+   "input_tokens": 5969
+  },
+  {
+   "repo": "FasterXML/jackson-databind",
+   "sha": "55cb6b4e2554d056431e2d8c76e46f1cb789329e",
+   "language": "json",
+   "files": 3,
+   "bytes": 442,
+   "input_tokens": 134
+  },
+  {
+   "repo": "junit-team/junit5",
+   "sha": "c22e1f87178f145356d780b71a66bc99045a3841",
+   "language": "java",
+   "files": 155,
+   "bytes": 299267,
+   "input_tokens": 68200
+  },
+  {
+   "repo": "junit-team/junit5",
+   "sha": "c22e1f87178f145356d780b71a66bc99045a3841",
+   "language": "java",
+   "files": 25,
+   "bytes": 289452,
+   "input_tokens": 69798
+  },
+  {
+   "repo": "junit-team/junit5",
+   "sha": "c22e1f87178f145356d780b71a66bc99045a3841",
+   "language": "java",
+   "files": 82,
+   "bytes": 279710,
+   "input_tokens": 65798
+  },
+  {
+   "repo": "junit-team/junit5",
+   "sha": "c22e1f87178f145356d780b71a66bc99045a3841",
+   "language": "java",
+   "files": 86,
+   "bytes": 278334,
+   "input_tokens": 64523
+  },
+  {
+   "repo": "junit-team/junit5",
+   "sha": "c22e1f87178f145356d780b71a66bc99045a3841",
+   "language": "java",
+   "files": 6,
+   "bytes": 51433,
+   "input_tokens": 11187
+  },
+  {
+   "repo": "junit-team/junit5",
+   "sha": "c22e1f87178f145356d780b71a66bc99045a3841",
+   "language": "kotlin",
+   "files": 156,
+   "bytes": 297204,
+   "input_tokens": 65373
+  },
+  {
+   "repo": "junit-team/junit5",
+   "sha": "c22e1f87178f145356d780b71a66bc99045a3841",
+   "language": "yaml",
+   "files": 33,
+   "bytes": 84118,
+   "input_tokens": 20461
+  },
+  {
+   "repo": "junit-team/junit5",
+   "sha": "c22e1f87178f145356d780b71a66bc99045a3841",
+   "language": "xml",
+   "files": 24,
+   "bytes": 87840,
+   "input_tokens": 20438
+  },
+  {
+   "repo": "square/retrofit",
+   "sha": "a7460117708b4c1c20a2dafb24eb540d388d0e85",
+   "language": "java",
+   "files": 35,
+   "bytes": 299439,
+   "input_tokens": 62699
+  },
+  {
+   "repo": "square/retrofit",
+   "sha": "a7460117708b4c1c20a2dafb24eb540d388d0e85",
+   "language": "java",
+   "files": 85,
+   "bytes": 298455,
+   "input_tokens": 63628
+  },
+  {
+   "repo": "square/retrofit",
+   "sha": "a7460117708b4c1c20a2dafb24eb540d388d0e85",
+   "language": "java",
+   "files": 68,
+   "bytes": 298301,
+   "input_tokens": 60031
+  },
+  {
+   "repo": "square/retrofit",
+   "sha": "a7460117708b4c1c20a2dafb24eb540d388d0e85",
+   "language": "java",
+   "files": 98,
+   "bytes": 299313,
+   "input_tokens": 61671
+  },
+  {
+   "repo": "square/retrofit",
+   "sha": "a7460117708b4c1c20a2dafb24eb540d388d0e85",
+   "language": "java",
+   "files": 2,
+   "bytes": 3614,
+   "input_tokens": 742
+  },
+  {
+   "repo": "square/retrofit",
+   "sha": "a7460117708b4c1c20a2dafb24eb540d388d0e85",
+   "language": "html",
+   "files": 60,
+   "bytes": 293914,
+   "input_tokens": 82205
+  },
+  {
+   "repo": "square/retrofit",
+   "sha": "a7460117708b4c1c20a2dafb24eb540d388d0e85",
+   "language": "javascript",
+   "files": 33,
+   "bytes": 81644,
+   "input_tokens": 22390
+  },
+  {
+   "repo": "square/retrofit",
+   "sha": "a7460117708b4c1c20a2dafb24eb540d388d0e85",
+   "language": "css",
+   "files": 24,
+   "bytes": 297645,
+   "input_tokens": 85304
+  },
+  {
+   "repo": "JamesNK/Newtonsoft.Json",
+   "sha": "52fa3aef1f2cadcd3a3f874251eddc98d3efbbaa",
+   "language": "csharp",
+   "files": 34,
+   "bytes": 290684,
+   "input_tokens": 54915
+  },
+  {
+   "repo": "JamesNK/Newtonsoft.Json",
+   "sha": "52fa3aef1f2cadcd3a3f874251eddc98d3efbbaa",
+   "language": "csharp",
+   "files": 4,
+   "bytes": 298239,
+   "input_tokens": 47856
+  },
+  {
+   "repo": "JamesNK/Newtonsoft.Json",
+   "sha": "52fa3aef1f2cadcd3a3f874251eddc98d3efbbaa",
+   "language": "csharp",
+   "files": 25,
+   "bytes": 293260,
+   "input_tokens": 52369
+  },
+  {
+   "repo": "JamesNK/Newtonsoft.Json",
+   "sha": "52fa3aef1f2cadcd3a3f874251eddc98d3efbbaa",
+   "language": "csharp",
+   "files": 27,
+   "bytes": 299165,
+   "input_tokens": 53816
+  },
+  {
+   "repo": "JamesNK/Newtonsoft.Json",
+   "sha": "52fa3aef1f2cadcd3a3f874251eddc98d3efbbaa",
+   "language": "csharp",
+   "files": 1,
+   "bytes": 7564,
+   "input_tokens": 1155
+  },
+  {
+   "repo": "JamesNK/Newtonsoft.Json",
+   "sha": "52fa3aef1f2cadcd3a3f874251eddc98d3efbbaa",
+   "language": "json",
+   "files": 24,
+   "bytes": 46394,
+   "input_tokens": 9595
+  },
+  {
+   "repo": "JamesNK/Newtonsoft.Json",
+   "sha": "52fa3aef1f2cadcd3a3f874251eddc98d3efbbaa",
+   "language": "xml",
+   "files": 7,
+   "bytes": 32120,
+   "input_tokens": 8018
+  },
+  {
+   "repo": "JamesNK/Newtonsoft.Json",
+   "sha": "52fa3aef1f2cadcd3a3f874251eddc98d3efbbaa",
+   "language": "powershell",
+   "files": 5,
+   "bytes": 47473,
+   "input_tokens": 11630
+  },
+  {
+   "repo": "DapperLib/Dapper",
+   "sha": "eb47546a408bbf6c178bda4f04dc205bc51ffbfe",
+   "language": "csharp",
+   "files": 43,
+   "bytes": 274105,
+   "input_tokens": 53028
+  },
+  {
+   "repo": "DapperLib/Dapper",
+   "sha": "eb47546a408bbf6c178bda4f04dc205bc51ffbfe",
+   "language": "csharp",
+   "files": 16,
+   "bytes": 279802,
+   "input_tokens": 53593
+  },
+  {
+   "repo": "DapperLib/Dapper",
+   "sha": "eb47546a408bbf6c178bda4f04dc205bc51ffbfe",
+   "language": "csharp",
+   "files": 51,
+   "bytes": 290310,
+   "input_tokens": 56640
+  },
+  {
+   "repo": "DapperLib/Dapper",
+   "sha": "eb47546a408bbf6c178bda4f04dc205bc51ffbfe",
+   "language": "csharp",
+   "files": 27,
+   "bytes": 299854,
+   "input_tokens": 62627
+  },
+  {
+   "repo": "DapperLib/Dapper",
+   "sha": "eb47546a408bbf6c178bda4f04dc205bc51ffbfe",
+   "language": "csharp",
+   "files": 20,
+   "bytes": 28931,
+   "input_tokens": 6370
+  },
+  {
+   "repo": "DapperLib/Dapper",
+   "sha": "eb47546a408bbf6c178bda4f04dc205bc51ffbfe",
+   "language": "xml",
+   "files": 19,
+   "bytes": 26500,
+   "input_tokens": 6719
+  },
+  {
+   "repo": "DapperLib/Dapper",
+   "sha": "eb47546a408bbf6c178bda4f04dc205bc51ffbfe",
+   "language": "yaml",
+   "files": 6,
+   "bytes": 15509,
+   "input_tokens": 3940
+  },
+  {
+   "repo": "DapperLib/Dapper",
+   "sha": "eb47546a408bbf6c178bda4f04dc205bc51ffbfe",
+   "language": "json",
+   "files": 4,
+   "bytes": 646,
+   "input_tokens": 205
+  },
+  {
+   "repo": "App-vNext/Polly",
+   "sha": "98eaf1220c5e4ab58e0b4170eed8827f81e12cc3",
+   "language": "csharp",
+   "files": 95,
+   "bytes": 297119,
+   "input_tokens": 59092
+  },
+  {
+   "repo": "App-vNext/Polly",
+   "sha": "98eaf1220c5e4ab58e0b4170eed8827f81e12cc3",
+   "language": "csharp",
+   "files": 33,
+   "bytes": 258146,
+   "input_tokens": 54305
+  },
+  {
+   "repo": "App-vNext/Polly",
+   "sha": "98eaf1220c5e4ab58e0b4170eed8827f81e12cc3",
+   "language": "csharp",
+   "files": 35,
+   "bytes": 299092,
+   "input_tokens": 63118
+  },
+  {
+   "repo": "App-vNext/Polly",
+   "sha": "98eaf1220c5e4ab58e0b4170eed8827f81e12cc3",
+   "language": "csharp",
+   "files": 45,
+   "bytes": 279332,
+   "input_tokens": 58465
+  },
+  {
+   "repo": "App-vNext/Polly",
+   "sha": "98eaf1220c5e4ab58e0b4170eed8827f81e12cc3",
+   "language": "csharp",
+   "files": 1,
+   "bytes": 37700,
+   "input_tokens": 7955
+  },
+  {
+   "repo": "App-vNext/Polly",
+   "sha": "98eaf1220c5e4ab58e0b4170eed8827f81e12cc3",
+   "language": "xml",
+   "files": 37,
+   "bytes": 48042,
+   "input_tokens": 12183
+  },
+  {
+   "repo": "App-vNext/Polly",
+   "sha": "98eaf1220c5e4ab58e0b4170eed8827f81e12cc3",
+   "language": "yaml",
+   "files": 33,
+   "bytes": 69046,
+   "input_tokens": 17355
+  },
+  {
+   "repo": "App-vNext/Polly",
+   "sha": "98eaf1220c5e4ab58e0b4170eed8827f81e12cc3",
+   "language": "json",
+   "files": 16,
+   "bytes": 7153,
+   "input_tokens": 2006
+  },
+  {
+   "repo": "AutoMapper/AutoMapper",
+   "sha": "9c31182a3eb99d5191ccc71ee90105846830917f",
+   "language": "csharp",
+   "files": 39,
+   "bytes": 275001,
+   "input_tokens": 54788
+  },
+  {
+   "repo": "AutoMapper/AutoMapper",
+   "sha": "9c31182a3eb99d5191ccc71ee90105846830917f",
+   "language": "csharp",
+   "files": 69,
+   "bytes": 275751,
+   "input_tokens": 52665
+  },
+  {
+   "repo": "AutoMapper/AutoMapper",
+   "sha": "9c31182a3eb99d5191ccc71ee90105846830917f",
+   "language": "csharp",
+   "files": 21,
+   "bytes": 296187,
+   "input_tokens": 62536
+  },
+  {
+   "repo": "AutoMapper/AutoMapper",
+   "sha": "9c31182a3eb99d5191ccc71ee90105846830917f",
+   "language": "csharp",
+   "files": 37,
+   "bytes": 280064,
+   "input_tokens": 58387
+  },
+  {
+   "repo": "AutoMapper/AutoMapper",
+   "sha": "9c31182a3eb99d5191ccc71ee90105846830917f",
+   "language": "csharp",
+   "files": 3,
+   "bytes": 50931,
+   "input_tokens": 11036
+  },
+  {
+   "repo": "AutoMapper/AutoMapper",
+   "sha": "9c31182a3eb99d5191ccc71ee90105846830917f",
+   "language": "xml",
+   "files": 9,
+   "bytes": 35028,
+   "input_tokens": 9529
+  },
+  {
+   "repo": "AutoMapper/AutoMapper",
+   "sha": "9c31182a3eb99d5191ccc71ee90105846830917f",
+   "language": "yaml",
+   "files": 6,
+   "bytes": 11497,
+   "input_tokens": 2959
+  },
+  {
+   "repo": "AutoMapper/AutoMapper",
+   "sha": "9c31182a3eb99d5191ccc71ee90105846830917f",
+   "language": "powershell",
+   "files": 3,
+   "bytes": 3372,
+   "input_tokens": 925
+  },
+  {
+   "repo": "redis/redis",
+   "sha": "0cfe837207b3236360ef57780f59843940f926d2",
+   "language": "c",
+   "files": 5,
+   "bytes": 181943,
+   "input_tokens": 86297
+  },
+  {
+   "repo": "redis/redis",
+   "sha": "0cfe837207b3236360ef57780f59843940f926d2",
+   "language": "c",
+   "files": 4,
+   "bytes": 294825,
+   "input_tokens": 72317
+  },
+  {
+   "repo": "redis/redis",
+   "sha": "0cfe837207b3236360ef57780f59843940f926d2",
+   "language": "c",
+   "files": 10,
+   "bytes": 287143,
+   "input_tokens": 69745
+  },
+  {
+   "repo": "redis/redis",
+   "sha": "0cfe837207b3236360ef57780f59843940f926d2",
+   "language": "c",
+   "files": 12,
+   "bytes": 274837,
+   "input_tokens": 70596
+  },
+  {
+   "repo": "redis/redis",
+   "sha": "0cfe837207b3236360ef57780f59843940f926d2",
+   "language": "c",
+   "files": 4,
+   "bytes": 160639,
+   "input_tokens": 42350
+  },
+  {
+   "repo": "redis/redis",
+   "sha": "0cfe837207b3236360ef57780f59843940f926d2",
+   "language": "json",
+   "files": 172,
+   "bytes": 299180,
+   "input_tokens": 56600
+  },
+  {
+   "repo": "redis/redis",
+   "sha": "0cfe837207b3236360ef57780f59843940f926d2",
+   "language": "cpp",
+   "files": 17,
+   "bytes": 250335,
+   "input_tokens": 60755
+  },
+  {
+   "repo": "redis/redis",
+   "sha": "0cfe837207b3236360ef57780f59843940f926d2",
+   "language": "tcl",
+   "files": 15,
+   "bytes": 228289,
+   "input_tokens": 58151
+  },
+  {
+   "repo": "curl/curl",
+   "sha": "69cbe2698393c38909e2eade2e8b505ccf244365",
+   "language": "c",
+   "files": 75,
+   "bytes": 299092,
+   "input_tokens": 75754
+  },
+  {
+   "repo": "curl/curl",
+   "sha": "69cbe2698393c38909e2eade2e8b505ccf244365",
+   "language": "c",
+   "files": 71,
+   "bytes": 289807,
+   "input_tokens": 72035
+  },
+  {
+   "repo": "curl/curl",
+   "sha": "69cbe2698393c38909e2eade2e8b505ccf244365",
+   "language": "c",
+   "files": 11,
+   "bytes": 283647,
+   "input_tokens": 75666
+  },
+  {
+   "repo": "curl/curl",
+   "sha": "69cbe2698393c38909e2eade2e8b505ccf244365",
+   "language": "c",
+   "files": 18,
+   "bytes": 293863,
+   "input_tokens": 78654
+  },
+  {
+   "repo": "curl/curl",
+   "sha": "69cbe2698393c38909e2eade2e8b505ccf244365",
+   "language": "c",
+   "files": 3,
+   "bytes": 32053,
+   "input_tokens": 9113
+  },
+  {
+   "repo": "curl/curl",
+   "sha": "69cbe2698393c38909e2eade2e8b505ccf244365",
+   "language": "cpp",
+   "files": 24,
+   "bytes": 299901,
+   "input_tokens": 69830
+  },
+  {
+   "repo": "curl/curl",
+   "sha": "69cbe2698393c38909e2eade2e8b505ccf244365",
+   "language": "perl",
+   "files": 32,
+   "bytes": 299653,
+   "input_tokens": 82150
+  },
+  {
+   "repo": "curl/curl",
+   "sha": "69cbe2698393c38909e2eade2e8b505ccf244365",
+   "language": "python",
+   "files": 22,
+   "bytes": 278088,
+   "input_tokens": 69802
+  },
+  {
+   "repo": "jqlang/jq",
+   "sha": "5c001b18d7237cce1fdba63608732163f978dd23",
+   "language": "c",
+   "files": 10,
+   "bytes": 278086,
+   "input_tokens": 84008
+  },
+  {
+   "repo": "jqlang/jq",
+   "sha": "5c001b18d7237cce1fdba63608732163f978dd23",
+   "language": "c",
+   "files": 10,
+   "bytes": 258440,
+   "input_tokens": 87375
+  },
+  {
+   "repo": "jqlang/jq",
+   "sha": "5c001b18d7237cce1fdba63608732163f978dd23",
+   "language": "c",
+   "files": 7,
+   "bytes": 181587,
+   "input_tokens": 58921
+  },
+  {
+   "repo": "jqlang/jq",
+   "sha": "5c001b18d7237cce1fdba63608732163f978dd23",
+   "language": "cpp",
+   "files": 24,
+   "bytes": 73333,
+   "input_tokens": 24593
+  },
+  {
+   "repo": "jqlang/jq",
+   "sha": "5c001b18d7237cce1fdba63608732163f978dd23",
+   "language": "yaml",
+   "files": 15,
+   "bytes": 242674,
+   "input_tokens": 61769
+  },
+  {
+   "repo": "jqlang/jq",
+   "sha": "5c001b18d7237cce1fdba63608732163f978dd23",
+   "language": "python",
+   "files": 5,
+   "bytes": 13976,
+   "input_tokens": 3395
+  },
+  {
+   "repo": "libuv/libuv",
+   "sha": "ac325226bd37e9ca978694dd01b7cf600f05a339",
+   "language": "c",
+   "files": 57,
+   "bytes": 295899,
+   "input_tokens": 83997
+  },
+  {
+   "repo": "libuv/libuv",
+   "sha": "ac325226bd37e9ca978694dd01b7cf600f05a339",
+   "language": "c",
+   "files": 21,
+   "bytes": 283022,
+   "input_tokens": 80259
+  },
+  {
+   "repo": "libuv/libuv",
+   "sha": "ac325226bd37e9ca978694dd01b7cf600f05a339",
+   "language": "c",
+   "files": 23,
+   "bytes": 299534,
+   "input_tokens": 83429
+  },
+  {
+   "repo": "libuv/libuv",
+   "sha": "ac325226bd37e9ca978694dd01b7cf600f05a339",
+   "language": "c",
+   "files": 11,
+   "bytes": 288080,
+   "input_tokens": 71886
+  },
+  {
+   "repo": "libuv/libuv",
+   "sha": "ac325226bd37e9ca978694dd01b7cf600f05a339",
+   "language": "c",
+   "files": 2,
+   "bytes": 29203,
+   "input_tokens": 7708
+  },
+  {
+   "repo": "libuv/libuv",
+   "sha": "ac325226bd37e9ca978694dd01b7cf600f05a339",
+   "language": "cpp",
+   "files": 31,
+   "bytes": 289570,
+   "input_tokens": 60806
+  },
+  {
+   "repo": "libuv/libuv",
+   "sha": "ac325226bd37e9ca978694dd01b7cf600f05a339",
+   "language": "yaml",
+   "files": 12,
+   "bytes": 27570,
+   "input_tokens": 8110
+  },
+  {
+   "repo": "libuv/libuv",
+   "sha": "ac325226bd37e9ca978694dd01b7cf600f05a339",
+   "language": "python",
+   "files": 3,
+   "bytes": 15129,
+   "input_tokens": 3917
+  },
+  {
+   "repo": "fmtlib/fmt",
+   "sha": "4229eb5820af49bf797641168624c8a754a1a4eb",
+   "language": "cpp",
+   "files": 8,
+   "bytes": 255750,
+   "input_tokens": 67939
+  },
+  {
+   "repo": "fmtlib/fmt",
+   "sha": "4229eb5820af49bf797641168624c8a754a1a4eb",
+   "language": "cpp",
+   "files": 5,
+   "bytes": 295933,
+   "input_tokens": 93628
+  },
+  {
+   "repo": "fmtlib/fmt",
+   "sha": "4229eb5820af49bf797641168624c8a754a1a4eb",
+   "language": "cpp",
+   "files": 17,
+   "bytes": 233629,
+   "input_tokens": 65800
+  },
+  {
+   "repo": "fmtlib/fmt",
+   "sha": "4229eb5820af49bf797641168624c8a754a1a4eb",
+   "language": "cpp",
+   "files": 25,
+   "bytes": 299346,
+   "input_tokens": 85066
+  },
+  {
+   "repo": "fmtlib/fmt",
+   "sha": "4229eb5820af49bf797641168624c8a754a1a4eb",
+   "language": "cpp",
+   "files": 12,
+   "bytes": 33059,
+   "input_tokens": 9889
+  },
+  {
+   "repo": "fmtlib/fmt",
+   "sha": "4229eb5820af49bf797641168624c8a754a1a4eb",
+   "language": "yaml",
+   "files": 12,
+   "bytes": 28890,
+   "input_tokens": 8496
+  },
+  {
+   "repo": "fmtlib/fmt",
+   "sha": "4229eb5820af49bf797641168624c8a754a1a4eb",
+   "language": "python",
+   "files": 4,
+   "bytes": 49166,
+   "input_tokens": 11907
+  },
+  {
+   "repo": "fmtlib/fmt",
+   "sha": "4229eb5820af49bf797641168624c8a754a1a4eb",
+   "language": "css",
+   "files": 1,
+   "bytes": 2267,
+   "input_tokens": 650
+  },
+  {
+   "repo": "nlohmann/json",
+   "sha": "017a3ce0011545104c319ae41be318ec61750553",
+   "language": "cpp",
+   "files": 358,
+   "bytes": 295181,
+   "input_tokens": 82418
+  },
+  {
+   "repo": "nlohmann/json",
+   "sha": "017a3ce0011545104c319ae41be318ec61750553",
+   "language": "cpp",
+   "files": 1,
+   "bytes": 345614,
+   "input_tokens": 74522
+  },
+  {
+   "repo": "nlohmann/json",
+   "sha": "017a3ce0011545104c319ae41be318ec61750553",
+   "language": "cpp",
+   "files": 12,
+   "bytes": 240662,
+   "input_tokens": 56539
+  },
+  {
+   "repo": "nlohmann/json",
+   "sha": "017a3ce0011545104c319ae41be318ec61750553",
+   "language": "cpp",
+   "files": 11,
+   "bytes": 256581,
+   "input_tokens": 83039
+  },
+  {
+   "repo": "nlohmann/json",
+   "sha": "017a3ce0011545104c319ae41be318ec61750553",
+   "language": "python",
+   "files": 29,
+   "bytes": 299408,
+   "input_tokens": 87719
+  },
+  {
+   "repo": "nlohmann/json",
+   "sha": "017a3ce0011545104c319ae41be318ec61750553",
+   "language": "yaml",
+   "files": 25,
+   "bytes": 116520,
+   "input_tokens": 31913
+  },
+  {
+   "repo": "nlohmann/json",
+   "sha": "017a3ce0011545104c319ae41be318ec61750553",
+   "language": "json",
+   "files": 2,
+   "bytes": 56317,
+   "input_tokens": 21305
+  },
+  {
+   "repo": "google/leveldb",
+   "sha": "bb74ef739973a70ca9f0d90788a1da89b788c0ad",
+   "language": "cpp",
+   "files": 22,
+   "bytes": 299084,
+   "input_tokens": 79766
+  },
+  {
+   "repo": "google/leveldb",
+   "sha": "bb74ef739973a70ca9f0d90788a1da89b788c0ad",
+   "language": "cpp",
+   "files": 48,
+   "bytes": 298914,
+   "input_tokens": 75752
+  },
+  {
+   "repo": "google/leveldb",
+   "sha": "bb74ef739973a70ca9f0d90788a1da89b788c0ad",
+   "language": "cpp",
+   "files": 62,
+   "bytes": 293064,
+   "input_tokens": 83766
+  },
+  {
+   "repo": "google/leveldb",
+   "sha": "bb74ef739973a70ca9f0d90788a1da89b788c0ad",
+   "language": "yaml",
+   "files": 1,
+   "bytes": 3203,
+   "input_tokens": 845
+  },
+  {
+   "repo": "google/leveldb",
+   "sha": "bb74ef739973a70ca9f0d90788a1da89b788c0ad",
+   "language": "c",
+   "files": 1,
+   "bytes": 11593,
+   "input_tokens": 3361
+  },
+  {
+   "repo": "google/leveldb",
+   "sha": "bb74ef739973a70ca9f0d90788a1da89b788c0ad",
+   "language": "html",
+   "files": 1,
+   "bytes": 20938,
+   "input_tokens": 6609
+  },
+  {
+   "repo": "google/googletest",
+   "sha": "24990589481d2ed05602a304bee5ca716273762a",
+   "language": "cpp",
+   "files": 3,
+   "bytes": 123913,
+   "input_tokens": 29011
+  },
+  {
+   "repo": "google/googletest",
+   "sha": "24990589481d2ed05602a304bee5ca716273762a",
+   "language": "cpp",
+   "files": 4,
+   "bytes": 283412,
+   "input_tokens": 67981
+  },
+  {
+   "repo": "google/googletest",
+   "sha": "24990589481d2ed05602a304bee5ca716273762a",
+   "language": "cpp",
+   "files": 17,
+   "bytes": 297591,
+   "input_tokens": 73977
+  },
+  {
+   "repo": "google/googletest",
+   "sha": "24990589481d2ed05602a304bee5ca716273762a",
+   "language": "cpp",
+   "files": 4,
+   "bytes": 211377,
+   "input_tokens": 60179
+  },
+  {
+   "repo": "google/googletest",
+   "sha": "24990589481d2ed05602a304bee5ca716273762a",
+   "language": "cpp",
+   "files": 8,
+   "bytes": 272228,
+   "input_tokens": 78041
+  },
+  {
+   "repo": "google/googletest",
+   "sha": "24990589481d2ed05602a304bee5ca716273762a",
+   "language": "python",
+   "files": 32,
+   "bytes": 251870,
+   "input_tokens": 59475
+  },
+  {
+   "repo": "google/googletest",
+   "sha": "24990589481d2ed05602a304bee5ca716273762a",
+   "language": "yaml",
+   "files": 8,
+   "bytes": 23166,
+   "input_tokens": 5864
+  },
+  {
+   "repo": "google/googletest",
+   "sha": "24990589481d2ed05602a304bee5ca716273762a",
+   "language": "bash",
+   "files": 2,
+   "bytes": 9646,
+   "input_tokens": 2751
+  },
+  {
+   "repo": "rails/rails",
+   "sha": "fec707f56360ce14b1a3c24b4be5e8f3bc84e12f",
+   "language": "ruby",
+   "files": 106,
+   "bytes": 298230,
+   "input_tokens": 68245
+  },
+  {
+   "repo": "rails/rails",
+   "sha": "fec707f56360ce14b1a3c24b4be5e8f3bc84e12f",
+   "language": "ruby",
+   "files": 115,
+   "bytes": 298786,
+   "input_tokens": 73071
+  },
+  {
+   "repo": "rails/rails",
+   "sha": "fec707f56360ce14b1a3c24b4be5e8f3bc84e12f",
+   "language": "ruby",
+   "files": 67,
+   "bytes": 293077,
+   "input_tokens": 68016
+  },
+  {
+   "repo": "rails/rails",
+   "sha": "fec707f56360ce14b1a3c24b4be5e8f3bc84e12f",
+   "language": "ruby",
+   "files": 37,
+   "bytes": 291630,
+   "input_tokens": 68003
+  },
+  {
+   "repo": "rails/rails",
+   "sha": "fec707f56360ce14b1a3c24b4be5e8f3bc84e12f",
+   "language": "ruby",
+   "files": 1,
+   "bytes": 18513,
+   "input_tokens": 4373
+  },
+  {
+   "repo": "rails/rails",
+   "sha": "fec707f56360ce14b1a3c24b4be5e8f3bc84e12f",
+   "language": "erb",
+   "files": 97,
+   "bytes": 85751,
+   "input_tokens": 27983
+  },
+  {
+   "repo": "rails/rails",
+   "sha": "fec707f56360ce14b1a3c24b4be5e8f3bc84e12f",
+   "language": "javascript",
+   "files": 54,
+   "bytes": 286334,
+   "input_tokens": 77840
+  },
+  {
+   "repo": "rails/rails",
+   "sha": "fec707f56360ce14b1a3c24b4be5e8f3bc84e12f",
+   "language": "yaml",
+   "files": 45,
+   "bytes": 87844,
+   "input_tokens": 22904
+  },
+  {
+   "repo": "sinatra/sinatra",
+   "sha": "cb22afd7902b566b6eaba6c4ea89739494a65d12",
+   "language": "ruby",
+   "files": 81,
+   "bytes": 299866,
+   "input_tokens": 76065
+  },
+  {
+   "repo": "sinatra/sinatra",
+   "sha": "cb22afd7902b566b6eaba6c4ea89739494a65d12",
+   "language": "ruby",
+   "files": 50,
+   "bytes": 280593,
+   "input_tokens": 76782
+  },
+  {
+   "repo": "sinatra/sinatra",
+   "sha": "cb22afd7902b566b6eaba6c4ea89739494a65d12",
+   "language": "ruby",
+   "files": 16,
+   "bytes": 98438,
+   "input_tokens": 27081
+  },
+  {
+   "repo": "sinatra/sinatra",
+   "sha": "cb22afd7902b566b6eaba6c4ea89739494a65d12",
+   "language": "erb",
+   "files": 23,
+   "bytes": 1707,
+   "input_tokens": 585
+  },
+  {
+   "repo": "sinatra/sinatra",
+   "sha": "cb22afd7902b566b6eaba6c4ea89739494a65d12",
+   "language": "yaml",
+   "files": 10,
+   "bytes": 10697,
+   "input_tokens": 2935
+  },
+  {
+   "repo": "sinatra/sinatra",
+   "sha": "cb22afd7902b566b6eaba6c4ea89739494a65d12",
+   "language": "sass",
+   "files": 3,
+   "bytes": 74,
+   "input_tokens": 27
+  },
+  {
+   "repo": "rubocop/rubocop",
+   "sha": "d8a705e76dae9b74ff8810eecf0d5d3a9cd16cd3",
+   "language": "ruby",
+   "files": 54,
+   "bytes": 298090,
+   "input_tokens": 69234
+  },
+  {
+   "repo": "rubocop/rubocop",
+   "sha": "d8a705e76dae9b74ff8810eecf0d5d3a9cd16cd3",
+   "language": "ruby",
+   "files": 80,
+   "bytes": 298938,
+   "input_tokens": 69870
+  },
+  {
+   "repo": "rubocop/rubocop",
+   "sha": "d8a705e76dae9b74ff8810eecf0d5d3a9cd16cd3",
+   "language": "ruby",
+   "files": 88,
+   "bytes": 292614,
+   "input_tokens": 67292
+  },
+  {
+   "repo": "rubocop/rubocop",
+   "sha": "d8a705e76dae9b74ff8810eecf0d5d3a9cd16cd3",
+   "language": "ruby",
+   "files": 59,
+   "bytes": 298521,
+   "input_tokens": 68615
+  },
+  {
+   "repo": "rubocop/rubocop",
+   "sha": "d8a705e76dae9b74ff8810eecf0d5d3a9cd16cd3",
+   "language": "ruby",
+   "files": 3,
+   "bytes": 9220,
+   "input_tokens": 2298
+  },
+  {
+   "repo": "rubocop/rubocop",
+   "sha": "d8a705e76dae9b74ff8810eecf0d5d3a9cd16cd3",
+   "language": "yaml",
+   "files": 17,
+   "bytes": 241334,
+   "input_tokens": 62857
+  },
+  {
+   "repo": "rubocop/rubocop",
+   "sha": "d8a705e76dae9b74ff8810eecf0d5d3a9cd16cd3",
+   "language": "erb",
+   "files": 2,
+   "bytes": 6625,
+   "input_tokens": 2007
+  },
+  {
+   "repo": "rubocop/rubocop",
+   "sha": "d8a705e76dae9b74ff8810eecf0d5d3a9cd16cd3",
+   "language": "elisp",
+   "files": 1,
+   "bytes": 480,
+   "input_tokens": 129
+  },
+  {
+   "repo": "jekyll/jekyll",
+   "sha": "97c3bdc822df9d5bea4c269b29a28de5a5e29d70",
+   "language": "ruby",
+   "files": 69,
+   "bytes": 296341,
+   "input_tokens": 68941
+  },
+  {
+   "repo": "jekyll/jekyll",
+   "sha": "97c3bdc822df9d5bea4c269b29a28de5a5e29d70",
+   "language": "ruby",
+   "files": 70,
+   "bytes": 298853,
+   "input_tokens": 71613
+  },
+  {
+   "repo": "jekyll/jekyll",
+   "sha": "97c3bdc822df9d5bea4c269b29a28de5a5e29d70",
+   "language": "ruby",
+   "files": 26,
+   "bytes": 125072,
+   "input_tokens": 29727
+  },
+  {
+   "repo": "jekyll/jekyll",
+   "sha": "97c3bdc822df9d5bea4c269b29a28de5a5e29d70",
+   "language": "html",
+   "files": 73,
+   "bytes": 32923,
+   "input_tokens": 8819
+  },
+  {
+   "repo": "jekyll/jekyll",
+   "sha": "97c3bdc822df9d5bea4c269b29a28de5a5e29d70",
+   "language": "yaml",
+   "files": 42,
+   "bytes": 93241,
+   "input_tokens": 24174
+  },
+  {
+   "repo": "jekyll/jekyll",
+   "sha": "97c3bdc822df9d5bea4c269b29a28de5a5e29d70",
+   "language": "scss",
+   "files": 15,
+   "bytes": 77241,
+   "input_tokens": 28421
+  },
+  {
+   "repo": "laravel/framework",
+   "sha": "c33d357a57f1db1cb562104bd367a9ff3ebbe1d5",
+   "language": "php",
+   "files": 86,
+   "bytes": 296067,
+   "input_tokens": 64066
+  },
+  {
+   "repo": "laravel/framework",
+   "sha": "c33d357a57f1db1cb562104bd367a9ff3ebbe1d5",
+   "language": "php",
+   "files": 54,
+   "bytes": 295431,
+   "input_tokens": 67772
+  },
+  {
+   "repo": "laravel/framework",
+   "sha": "c33d357a57f1db1cb562104bd367a9ff3ebbe1d5",
+   "language": "php",
+   "files": 44,
+   "bytes": 246705,
+   "input_tokens": 58731
+  },
+  {
+   "repo": "laravel/framework",
+   "sha": "c33d357a57f1db1cb562104bd367a9ff3ebbe1d5",
+   "language": "php",
+   "files": 65,
+   "bytes": 295740,
+   "input_tokens": 66793
+  },
+  {
+   "repo": "laravel/framework",
+   "sha": "c33d357a57f1db1cb562104bd367a9ff3ebbe1d5",
+   "language": "php",
+   "files": 10,
+   "bytes": 65039,
+   "input_tokens": 14739
+  },
+  {
+   "repo": "laravel/framework",
+   "sha": "c33d357a57f1db1cb562104bd367a9ff3ebbe1d5",
+   "language": "yaml",
+   "files": 57,
+   "bytes": 69082,
+   "input_tokens": 17980
+  },
+  {
+   "repo": "laravel/framework",
+   "sha": "c33d357a57f1db1cb562104bd367a9ff3ebbe1d5",
+   "language": "json",
+   "files": 49,
+   "bytes": 170374,
+   "input_tokens": 48048
+  },
+  {
+   "repo": "laravel/framework",
+   "sha": "c33d357a57f1db1cb562104bd367a9ff3ebbe1d5",
+   "language": "bash",
+   "files": 4,
+   "bytes": 7439,
+   "input_tokens": 1849
+  },
+  {
+   "repo": "symfony/console",
+   "sha": "dc3c284882e545b47f590c392e7be0da4184b6e2",
+   "language": "php",
+   "files": 56,
+   "bytes": 299501,
+   "input_tokens": 66310
+  },
+  {
+   "repo": "symfony/console",
+   "sha": "dc3c284882e545b47f590c392e7be0da4184b6e2",
+   "language": "php",
+   "files": 62,
+   "bytes": 258098,
+   "input_tokens": 58969
+  },
+  {
+   "repo": "symfony/console",
+   "sha": "dc3c284882e545b47f590c392e7be0da4184b6e2",
+   "language": "php",
+   "files": 62,
+   "bytes": 297611,
+   "input_tokens": 68421
+  },
+  {
+   "repo": "symfony/console",
+   "sha": "dc3c284882e545b47f590c392e7be0da4184b6e2",
+   "language": "php",
+   "files": 16,
+   "bytes": 291120,
+   "input_tokens": 64819
+  },
+  {
+   "repo": "symfony/console",
+   "sha": "dc3c284882e545b47f590c392e7be0da4184b6e2",
+   "language": "php",
+   "files": 6,
+   "bytes": 35046,
+   "input_tokens": 7902
+  },
+  {
+   "repo": "symfony/console",
+   "sha": "dc3c284882e545b47f590c392e7be0da4184b6e2",
+   "language": "json",
+   "files": 28,
+   "bytes": 86426,
+   "input_tokens": 15152
+  },
+  {
+   "repo": "symfony/console",
+   "sha": "dc3c284882e545b47f590c392e7be0da4184b6e2",
+   "language": "xml",
+   "files": 27,
+   "bytes": 48604,
+   "input_tokens": 12412
+  },
+  {
+   "repo": "symfony/console",
+   "sha": "dc3c284882e545b47f590c392e7be0da4184b6e2",
+   "language": "bash",
+   "files": 6,
+   "bytes": 22325,
+   "input_tokens": 6062
+  },
+  {
+   "repo": "guzzle/guzzle",
+   "sha": "7d9b1f430bb65ac664e120af227bf9a795ad6333",
+   "language": "php",
+   "files": 25,
+   "bytes": 294941,
+   "input_tokens": 66754
+  },
+  {
+   "repo": "guzzle/guzzle",
+   "sha": "7d9b1f430bb65ac664e120af227bf9a795ad6333",
+   "language": "php",
+   "files": 31,
+   "bytes": 292638,
+   "input_tokens": 65431
+  },
+  {
+   "repo": "guzzle/guzzle",
+   "sha": "7d9b1f430bb65ac664e120af227bf9a795ad6333",
+   "language": "php",
+   "files": 21,
+   "bytes": 277955,
+   "input_tokens": 61763
+  },
+  {
+   "repo": "guzzle/guzzle",
+   "sha": "7d9b1f430bb65ac664e120af227bf9a795ad6333",
+   "language": "php",
+   "files": 15,
+   "bytes": 298902,
+   "input_tokens": 69175
+  },
+  {
+   "repo": "guzzle/guzzle",
+   "sha": "7d9b1f430bb65ac664e120af227bf9a795ad6333",
+   "language": "php",
+   "files": 7,
+   "bytes": 30373,
+   "input_tokens": 6839
+  },
+  {
+   "repo": "guzzle/guzzle",
+   "sha": "7d9b1f430bb65ac664e120af227bf9a795ad6333",
+   "language": "json",
+   "files": 4,
+   "bytes": 4424,
+   "input_tokens": 1217
+  },
+  {
+   "repo": "guzzle/guzzle",
+   "sha": "7d9b1f430bb65ac664e120af227bf9a795ad6333",
+   "language": "yaml",
+   "files": 4,
+   "bytes": 5354,
+   "input_tokens": 1438
+  },
+  {
+   "repo": "composer/composer",
+   "sha": "d9d851d93b71ba914200ccfdda2d03fc0f2c51aa",
+   "language": "php",
+   "files": 21,
+   "bytes": 295985,
+   "input_tokens": 67670
+  },
+  {
+   "repo": "composer/composer",
+   "sha": "d9d851d93b71ba914200ccfdda2d03fc0f2c51aa",
+   "language": "php",
+   "files": 22,
+   "bytes": 286364,
+   "input_tokens": 62318
+  },
+  {
+   "repo": "composer/composer",
+   "sha": "d9d851d93b71ba914200ccfdda2d03fc0f2c51aa",
+   "language": "php",
+   "files": 17,
+   "bytes": 288263,
+   "input_tokens": 62934
+  },
+  {
+   "repo": "composer/composer",
+   "sha": "d9d851d93b71ba914200ccfdda2d03fc0f2c51aa",
+   "language": "php",
+   "files": 30,
+   "bytes": 296133,
+   "input_tokens": 65720
+  },
+  {
+   "repo": "composer/composer",
+   "sha": "d9d851d93b71ba914200ccfdda2d03fc0f2c51aa",
+   "language": "php",
+   "files": 5,
+   "bytes": 27893,
+   "input_tokens": 6341
+  },
+  {
+   "repo": "composer/composer",
+   "sha": "d9d851d93b71ba914200ccfdda2d03fc0f2c51aa",
+   "language": "json",
+   "files": 95,
+   "bytes": 145304,
+   "input_tokens": 30094
+  },
+  {
+   "repo": "composer/composer",
+   "sha": "d9d851d93b71ba914200ccfdda2d03fc0f2c51aa",
+   "language": "yaml",
+   "files": 12,
+   "bytes": 22290,
+   "input_tokens": 5930
+  },
+  {
+   "repo": "composer/composer",
+   "sha": "d9d851d93b71ba914200ccfdda2d03fc0f2c51aa",
+   "language": "xml",
+   "files": 1,
+   "bytes": 1281,
+   "input_tokens": 314
+  },
+  {
+   "repo": "ktorio/ktor",
+   "sha": "591b8436592de21bf307f5e7b97a8e9fed54efe0",
+   "language": "kotlin",
+   "files": 107,
+   "bytes": 299680,
+   "input_tokens": 64675
+  },
+  {
+   "repo": "ktorio/ktor",
+   "sha": "591b8436592de21bf307f5e7b97a8e9fed54efe0",
+   "language": "kotlin",
+   "files": 67,
+   "bytes": 299041,
+   "input_tokens": 62667
+  },
+  {
+   "repo": "ktorio/ktor",
+   "sha": "591b8436592de21bf307f5e7b97a8e9fed54efe0",
+   "language": "kotlin",
+   "files": 46,
+   "bytes": 275451,
+   "input_tokens": 60131
+  },
+  {
+   "repo": "ktorio/ktor",
+   "sha": "591b8436592de21bf307f5e7b97a8e9fed54efe0",
+   "language": "kotlin",
+   "files": 89,
+   "bytes": 299737,
+   "input_tokens": 64455
+  },
+  {
+   "repo": "ktorio/ktor",
+   "sha": "591b8436592de21bf307f5e7b97a8e9fed54efe0",
+   "language": "kotlin",
+   "files": 2,
+   "bytes": 20900,
+   "input_tokens": 5010
+  },
+  {
+   "repo": "ktorio/ktor",
+   "sha": "591b8436592de21bf307f5e7b97a8e9fed54efe0",
+   "language": "yaml",
+   "files": 47,
+   "bytes": 52082,
+   "input_tokens": 12624
+  },
+  {
+   "repo": "ktorio/ktor",
+   "sha": "591b8436592de21bf307f5e7b97a8e9fed54efe0",
+   "language": "json",
+   "files": 21,
+   "bytes": 115404,
+   "input_tokens": 18173
+  },
+  {
+   "repo": "ktorio/ktor",
+   "sha": "591b8436592de21bf307f5e7b97a8e9fed54efe0",
+   "language": "xml",
+   "files": 20,
+   "bytes": 33425,
+   "input_tokens": 9204
+  },
+  {
+   "repo": "Kotlin/kotlinx.coroutines",
+   "sha": "ead082131ceb45b8e4fda027c74471103c1cd09f",
+   "language": "kotlin",
+   "files": 100,
+   "bytes": 291180,
+   "input_tokens": 64192
+  },
+  {
+   "repo": "Kotlin/kotlinx.coroutines",
+   "sha": "ead082131ceb45b8e4fda027c74471103c1cd09f",
+   "language": "kotlin",
+   "files": 32,
+   "bytes": 284203,
+   "input_tokens": 61157
+  },
+  {
+   "repo": "Kotlin/kotlinx.coroutines",
+   "sha": "ead082131ceb45b8e4fda027c74471103c1cd09f",
+   "language": "kotlin",
+   "files": 15,
+   "bytes": 191973,
+   "input_tokens": 40732
+  },
+  {
+   "repo": "Kotlin/kotlinx.coroutines",
+   "sha": "ead082131ceb45b8e4fda027c74471103c1cd09f",
+   "language": "kotlin",
+   "files": 9,
+   "bytes": 297609,
+   "input_tokens": 62729
+  },
+  {
+   "repo": "Kotlin/kotlinx.coroutines",
+   "sha": "ead082131ceb45b8e4fda027c74471103c1cd09f",
+   "language": "kotlin",
+   "files": 16,
+   "bytes": 130537,
+   "input_tokens": 29061
+  },
+  {
+   "repo": "Kotlin/kotlinx.coroutines",
+   "sha": "ead082131ceb45b8e4fda027c74471103c1cd09f",
+   "language": "java",
+   "files": 22,
+   "bytes": 35587,
+   "input_tokens": 6334
+  },
+  {
+   "repo": "Kotlin/kotlinx.coroutines",
+   "sha": "ead082131ceb45b8e4fda027c74471103c1cd09f",
+   "language": "xml",
+   "files": 8,
+   "bytes": 3066,
+   "input_tokens": 823
+  },
+  {
+   "repo": "Kotlin/kotlinx.coroutines",
+   "sha": "ead082131ceb45b8e4fda027c74471103c1cd09f",
+   "language": "yaml",
+   "files": 6,
+   "bytes": 10847,
+   "input_tokens": 2309
+  },
+  {
+   "repo": "detekt/detekt",
+   "sha": "f14dcd0bd312cd696648aa9e02810076ab03c411",
+   "language": "kotlin",
+   "files": 146,
+   "bytes": 297673,
+   "input_tokens": 62400
+  },
+  {
+   "repo": "detekt/detekt",
+   "sha": "f14dcd0bd312cd696648aa9e02810076ab03c411",
+   "language": "kotlin",
+   "files": 90,
+   "bytes": 293234,
+   "input_tokens": 57271
+  },
+  {
+   "repo": "detekt/detekt",
+   "sha": "f14dcd0bd312cd696648aa9e02810076ab03c411",
+   "language": "kotlin",
+   "files": 57,
+   "bytes": 299320,
+   "input_tokens": 58730
+  },
+  {
+   "repo": "detekt/detekt",
+   "sha": "f14dcd0bd312cd696648aa9e02810076ab03c411",
+   "language": "kotlin",
+   "files": 117,
+   "bytes": 299682,
+   "input_tokens": 63428
+  },
+  {
+   "repo": "detekt/detekt",
+   "sha": "f14dcd0bd312cd696648aa9e02810076ab03c411",
+   "language": "kotlin",
+   "files": 6,
+   "bytes": 7806,
+   "input_tokens": 1621
+  },
+  {
+   "repo": "detekt/detekt",
+   "sha": "f14dcd0bd312cd696648aa9e02810076ab03c411",
+   "language": "json",
+   "files": 79,
+   "bytes": 31405,
+   "input_tokens": 7948
+  },
+  {
+   "repo": "detekt/detekt",
+   "sha": "f14dcd0bd312cd696648aa9e02810076ab03c411",
+   "language": "yaml",
+   "files": 50,
+   "bytes": 69808,
+   "input_tokens": 18696
+  },
+  {
+   "repo": "detekt/detekt",
+   "sha": "f14dcd0bd312cd696648aa9e02810076ab03c411",
+   "language": "java",
+   "files": 27,
+   "bytes": 4100,
+   "input_tokens": 824
+  },
+  {
+   "repo": "square/okio",
+   "sha": "f0e3f479f83531332de076ed39bc001a5618d538",
+   "language": "kotlin",
+   "files": 52,
+   "bytes": 262144,
+   "input_tokens": 65705
+  },
+  {
+   "repo": "square/okio",
+   "sha": "f0e3f479f83531332de076ed39bc001a5618d538",
+   "language": "kotlin",
+   "files": 32,
+   "bytes": 297529,
+   "input_tokens": 80644
+  },
+  {
+   "repo": "square/okio",
+   "sha": "f0e3f479f83531332de076ed39bc001a5618d538",
+   "language": "kotlin",
+   "files": 58,
+   "bytes": 298200,
+   "input_tokens": 73570
+  },
+  {
+   "repo": "square/okio",
+   "sha": "f0e3f479f83531332de076ed39bc001a5618d538",
+   "language": "kotlin",
+   "files": 45,
+   "bytes": 299296,
+   "input_tokens": 76087
+  },
+  {
+   "repo": "square/okio",
+   "sha": "f0e3f479f83531332de076ed39bc001a5618d538",
+   "language": "kotlin",
+   "files": 8,
+   "bytes": 41233,
+   "input_tokens": 9896
+  },
+  {
+   "repo": "square/okio",
+   "sha": "f0e3f479f83531332de076ed39bc001a5618d538",
+   "language": "java",
+   "files": 28,
+   "bytes": 91653,
+   "input_tokens": 22896
+  },
+  {
+   "repo": "square/okio",
+   "sha": "f0e3f479f83531332de076ed39bc001a5618d538",
+   "language": "yaml",
+   "files": 3,
+   "bytes": 8893,
+   "input_tokens": 2769
+  },
+  {
+   "repo": "square/okio",
+   "sha": "f0e3f479f83531332de076ed39bc001a5618d538",
+   "language": "xml",
+   "files": 3,
+   "bytes": 802,
+   "input_tokens": 188
+  },
+  {
+   "repo": "Alamofire/Alamofire",
+   "sha": "b3e74e8301cc53c8f82afb9db141d52952876e69",
+   "language": "swift",
+   "files": 23,
+   "bytes": 290532,
+   "input_tokens": 57609
+  },
+  {
+   "repo": "Alamofire/Alamofire",
+   "sha": "b3e74e8301cc53c8f82afb9db141d52952876e69",
+   "language": "swift",
+   "files": 16,
+   "bytes": 267753,
+   "input_tokens": 52244
+  },
+  {
+   "repo": "Alamofire/Alamofire",
+   "sha": "b3e74e8301cc53c8f82afb9db141d52952876e69",
+   "language": "swift",
+   "files": 14,
+   "bytes": 288792,
+   "input_tokens": 60298
+  },
+  {
+   "repo": "Alamofire/Alamofire",
+   "sha": "b3e74e8301cc53c8f82afb9db141d52952876e69",
+   "language": "swift",
+   "files": 13,
+   "bytes": 293245,
+   "input_tokens": 56777
+  },
+  {
+   "repo": "Alamofire/Alamofire",
+   "sha": "b3e74e8301cc53c8f82afb9db141d52952876e69",
+   "language": "swift",
+   "files": 6,
+   "bytes": 25149,
+   "input_tokens": 5430
+  },
+  {
+   "repo": "Alamofire/Alamofire",
+   "sha": "b3e74e8301cc53c8f82afb9db141d52952876e69",
+   "language": "html",
+   "files": 5,
+   "bytes": 257459,
+   "input_tokens": 58065
+  },
+  {
+   "repo": "Alamofire/Alamofire",
+   "sha": "b3e74e8301cc53c8f82afb9db141d52952876e69",
+   "language": "json",
+   "files": 5,
+   "bytes": 2103,
+   "input_tokens": 819
+  },
+  {
+   "repo": "Alamofire/Alamofire",
+   "sha": "b3e74e8301cc53c8f82afb9db141d52952876e69",
+   "language": "javascript",
+   "files": 8,
+   "bytes": 283850,
+   "input_tokens": 84866
+  },
+  {
+   "repo": "apple/swift-nio",
+   "sha": "b440f7bae8894b5ec42e0f1842fcd77483ab3984",
+   "language": "swift",
+   "files": 74,
+   "bytes": 282972,
+   "input_tokens": 62053
+  },
+  {
+   "repo": "apple/swift-nio",
+   "sha": "b440f7bae8894b5ec42e0f1842fcd77483ab3984",
+   "language": "swift",
+   "files": 8,
+   "bytes": 200812,
+   "input_tokens": 46637
+  },
+  {
+   "repo": "apple/swift-nio",
+   "sha": "b440f7bae8894b5ec42e0f1842fcd77483ab3984",
+   "language": "swift",
+   "files": 8,
+   "bytes": 259582,
+   "input_tokens": 66566
+  },
+  {
+   "repo": "apple/swift-nio",
+   "sha": "b440f7bae8894b5ec42e0f1842fcd77483ab3984",
+   "language": "swift",
+   "files": 9,
+   "bytes": 269303,
+   "input_tokens": 58772
+  },
+  {
+   "repo": "apple/swift-nio",
+   "sha": "b440f7bae8894b5ec42e0f1842fcd77483ab3984",
+   "language": "swift",
+   "files": 8,
+   "bytes": 180661,
+   "input_tokens": 39986
+  },
+  {
+   "repo": "apple/swift-nio",
+   "sha": "b440f7bae8894b5ec42e0f1842fcd77483ab3984",
+   "language": "bash",
+   "files": 61,
+   "bytes": 163362,
+   "input_tokens": 43746
+  },
+  {
+   "repo": "apple/swift-nio",
+   "sha": "b440f7bae8894b5ec42e0f1842fcd77483ab3984",
+   "language": "yaml",
+   "files": 21,
+   "bytes": 118785,
+   "input_tokens": 29216
+  },
+  {
+   "repo": "apple/swift-nio",
+   "sha": "b440f7bae8894b5ec42e0f1842fcd77483ab3984",
+   "language": "c",
+   "files": 12,
+   "bytes": 52372,
+   "input_tokens": 13325
+  },
+  {
+   "repo": "onevcat/Kingfisher",
+   "sha": "503d8e875623dcc3c1482370c4cd54579b9fa5ce",
+   "language": "swift",
+   "files": 83,
+   "bytes": 296296,
+   "input_tokens": 61725
+  },
+  {
+   "repo": "onevcat/Kingfisher",
+   "sha": "503d8e875623dcc3c1482370c4cd54579b9fa5ce",
+   "language": "swift",
+   "files": 12,
+   "bytes": 237133,
+   "input_tokens": 49233
+  },
+  {
+   "repo": "onevcat/Kingfisher",
+   "sha": "503d8e875623dcc3c1482370c4cd54579b9fa5ce",
+   "language": "swift",
+   "files": 18,
+   "bytes": 297272,
+   "input_tokens": 63177
+  },
+  {
+   "repo": "onevcat/Kingfisher",
+   "sha": "503d8e875623dcc3c1482370c4cd54579b9fa5ce",
+   "language": "swift",
+   "files": 35,
+   "bytes": 294902,
+   "input_tokens": 61805
+  },
+  {
+   "repo": "onevcat/Kingfisher",
+   "sha": "503d8e875623dcc3c1482370c4cd54579b9fa5ce",
+   "language": "swift",
+   "files": 3,
+   "bytes": 40507,
+   "input_tokens": 8755
+  },
+  {
+   "repo": "onevcat/Kingfisher",
+   "sha": "503d8e875623dcc3c1482370c4cd54579b9fa5ce",
+   "language": "cpp",
+   "files": 31,
+   "bytes": 9008,
+   "input_tokens": 2105
+  },
+  {
+   "repo": "onevcat/Kingfisher",
+   "sha": "503d8e875623dcc3c1482370c4cd54579b9fa5ce",
+   "language": "objc",
+   "files": 25,
+   "bytes": 34614,
+   "input_tokens": 7875
+  },
+  {
+   "repo": "onevcat/Kingfisher",
+   "sha": "503d8e875623dcc3c1482370c4cd54579b9fa5ce",
+   "language": "json",
+   "files": 22,
+   "bytes": 7038,
+   "input_tokens": 2685
+  },
+  {
+   "repo": "typelevel/cats",
+   "sha": "e28985fe2a0d7123a8fb84cbb70c72b5e3d935ca",
+   "language": "scala",
+   "files": 105,
+   "bytes": 299873,
+   "input_tokens": 78269
+  },
+  {
+   "repo": "typelevel/cats",
+   "sha": "e28985fe2a0d7123a8fb84cbb70c72b5e3d935ca",
+   "language": "scala",
+   "files": 55,
+   "bytes": 293244,
+   "input_tokens": 83528
+  },
+  {
+   "repo": "typelevel/cats",
+   "sha": "e28985fe2a0d7123a8fb84cbb70c72b5e3d935ca",
+   "language": "scala",
+   "files": 40,
+   "bytes": 295132,
+   "input_tokens": 84268
+  },
+  {
+   "repo": "typelevel/cats",
+   "sha": "e28985fe2a0d7123a8fb84cbb70c72b5e3d935ca",
+   "language": "scala",
+   "files": 14,
+   "bytes": 271365,
+   "input_tokens": 88356
+  },
+  {
+   "repo": "typelevel/cats",
+   "sha": "e28985fe2a0d7123a8fb84cbb70c72b5e3d935ca",
+   "language": "scala",
+   "files": 1,
+   "bytes": 36723,
+   "input_tokens": 11161
+  },
+  {
+   "repo": "typelevel/cats",
+   "sha": "e28985fe2a0d7123a8fb84cbb70c72b5e3d935ca",
+   "language": "yaml",
+   "files": 4,
+   "bytes": 20963,
+   "input_tokens": 5772
+  },
+  {
+   "repo": "typelevel/cats",
+   "sha": "e28985fe2a0d7123a8fb84cbb70c72b5e3d935ca",
+   "language": "nix",
+   "files": 1,
+   "bytes": 783,
+   "input_tokens": 247
+  },
+  {
+   "repo": "typelevel/cats",
+   "sha": "e28985fe2a0d7123a8fb84cbb70c72b5e3d935ca",
+   "language": "javascript",
+   "files": 1,
+   "bytes": 4422,
+   "input_tokens": 1035
+  },
+  {
+   "repo": "circe/circe",
+   "sha": "b38c17d9a9dd9b761a68319cff038d75bbf0cf8d",
+   "language": "scala",
+   "files": 62,
+   "bytes": 299644,
+   "input_tokens": 74513
+  },
+  {
+   "repo": "circe/circe",
+   "sha": "b38c17d9a9dd9b761a68319cff038d75bbf0cf8d",
+   "language": "scala",
+   "files": 85,
+   "bytes": 299782,
+   "input_tokens": 74452
+  },
+  {
+   "repo": "circe/circe",
+   "sha": "b38c17d9a9dd9b761a68319cff038d75bbf0cf8d",
+   "language": "scala",
+   "files": 77,
+   "bytes": 285230,
+   "input_tokens": 72212
+  },
+  {
+   "repo": "circe/circe",
+   "sha": "b38c17d9a9dd9b761a68319cff038d75bbf0cf8d",
+   "language": "scala",
+   "files": 6,
+   "bytes": 74647,
+   "input_tokens": 19057
+  },
+  {
+   "repo": "circe/circe",
+   "sha": "b38c17d9a9dd9b761a68319cff038d75bbf0cf8d",
+   "language": "yaml",
+   "files": 3,
+   "bytes": 21554,
+   "input_tokens": 5921
+  },
+  {
+   "repo": "circe/circe",
+   "sha": "b38c17d9a9dd9b761a68319cff038d75bbf0cf8d",
+   "language": "json",
+   "files": 2,
+   "bytes": 154796,
+   "input_tokens": 10322
+  },
+  {
+   "repo": "circe/circe",
+   "sha": "b38c17d9a9dd9b761a68319cff038d75bbf0cf8d",
+   "language": "nix",
+   "files": 1,
+   "bytes": 718,
+   "input_tokens": 188
+  },
+  {
+   "repo": "scalameta/scalafmt",
+   "sha": "e1f0c2dcdcc5649c424264ca5b88b6b0322ae30a",
+   "language": "scala",
+   "files": 17,
+   "bytes": 170113,
+   "input_tokens": 42258
+  },
+  {
+   "repo": "scalameta/scalafmt",
+   "sha": "e1f0c2dcdcc5649c424264ca5b88b6b0322ae30a",
+   "language": "scala",
+   "files": 3,
+   "bytes": 186624,
+   "input_tokens": 43173
+  },
+  {
+   "repo": "scalameta/scalafmt",
+   "sha": "e1f0c2dcdcc5649c424264ca5b88b6b0322ae30a",
+   "language": "scala",
+   "files": 27,
+   "bytes": 299178,
+   "input_tokens": 72072
+  },
+  {
+   "repo": "scalameta/scalafmt",
+   "sha": "e1f0c2dcdcc5649c424264ca5b88b6b0322ae30a",
+   "language": "scala",
+   "files": 70,
+   "bytes": 295997,
+   "input_tokens": 75675
+  },
+  {
+   "repo": "scalameta/scalafmt",
+   "sha": "e1f0c2dcdcc5649c424264ca5b88b6b0322ae30a",
+   "language": "scala",
+   "files": 10,
+   "bytes": 226587,
+   "input_tokens": 58608
+  },
+  {
+   "repo": "scalameta/scalafmt",
+   "sha": "e1f0c2dcdcc5649c424264ca5b88b6b0322ae30a",
+   "language": "java",
+   "files": 13,
+   "bytes": 16073,
+   "input_tokens": 3296
+  },
+  {
+   "repo": "scalameta/scalafmt",
+   "sha": "e1f0c2dcdcc5649c424264ca5b88b6b0322ae30a",
+   "language": "yaml",
+   "files": 7,
+   "bytes": 17029,
+   "input_tokens": 4626
+  },
+  {
+   "repo": "scalameta/scalafmt",
+   "sha": "e1f0c2dcdcc5649c424264ca5b88b6b0322ae30a",
+   "language": "bash",
+   "files": 5,
+   "bytes": 3648,
+   "input_tokens": 1184
+  },
+  {
+   "repo": "akka/akka",
+   "sha": "aeab8a909377696025e9dfa508abf1efca73342f",
+   "language": "scala",
+   "files": 17,
+   "bytes": 266972,
+   "input_tokens": 60803
+  },
+  {
+   "repo": "akka/akka",
+   "sha": "aeab8a909377696025e9dfa508abf1efca73342f",
+   "language": "scala",
+   "files": 27,
+   "bytes": 297001,
+   "input_tokens": 67875
+  },
+  {
+   "repo": "akka/akka",
+   "sha": "aeab8a909377696025e9dfa508abf1efca73342f",
+   "language": "scala",
+   "files": 29,
+   "bytes": 298233,
+   "input_tokens": 68749
+  },
+  {
+   "repo": "akka/akka",
+   "sha": "aeab8a909377696025e9dfa508abf1efca73342f",
+   "language": "scala",
+   "files": 42,
+   "bytes": 298447,
+   "input_tokens": 69948
+  },
+  {
+   "repo": "akka/akka",
+   "sha": "aeab8a909377696025e9dfa508abf1efca73342f",
+   "language": "scala",
+   "files": 4,
+   "bytes": 10586,
+   "input_tokens": 2369
+  },
+  {
+   "repo": "akka/akka",
+   "sha": "aeab8a909377696025e9dfa508abf1efca73342f",
+   "language": "java",
+   "files": 86,
+   "bytes": 298124,
+   "input_tokens": 66390
+  },
+  {
+   "repo": "akka/akka",
+   "sha": "aeab8a909377696025e9dfa508abf1efca73342f",
+   "language": "xml",
+   "files": 72,
+   "bytes": 88954,
+   "input_tokens": 23230
+  },
+  {
+   "repo": "akka/akka",
+   "sha": "aeab8a909377696025e9dfa508abf1efca73342f",
+   "language": "json",
+   "files": 29,
+   "bytes": 43016,
+   "input_tokens": 13511
+  },
+  {
+   "repo": "cfug/dio",
+   "sha": "f1bef462289b40992d625d4eb2a2f42321217573",
+   "language": "dart",
+   "files": 51,
+   "bytes": 298506,
+   "input_tokens": 66169
+  },
+  {
+   "repo": "cfug/dio",
+   "sha": "f1bef462289b40992d625d4eb2a2f42321217573",
+   "language": "dart",
+   "files": 76,
+   "bytes": 298555,
+   "input_tokens": 66160
+  },
+  {
+   "repo": "cfug/dio",
+   "sha": "f1bef462289b40992d625d4eb2a2f42321217573",
+   "language": "dart",
+   "files": 29,
+   "bytes": 111179,
+   "input_tokens": 23914
+  },
+  {
+   "repo": "cfug/dio",
+   "sha": "f1bef462289b40992d625d4eb2a2f42321217573",
+   "language": "yaml",
+   "files": 46,
+   "bytes": 47396,
+   "input_tokens": 12571
+  },
+  {
+   "repo": "cfug/dio",
+   "sha": "f1bef462289b40992d625d4eb2a2f42321217573",
+   "language": "cpp",
+   "files": 32,
+   "bytes": 47992,
+   "input_tokens": 10917
+  },
+  {
+   "repo": "cfug/dio",
+   "sha": "f1bef462289b40992d625d4eb2a2f42321217573",
+   "language": "xml",
+   "files": 13,
+   "bytes": 12316,
+   "input_tokens": 2651
+  },
+  {
+   "repo": "rrousselGit/riverpod",
+   "sha": "fd076befac7b58ace8e8251bad076ac4cf5240ff",
+   "language": "dart",
+   "files": 17,
+   "bytes": 37113,
+   "input_tokens": 8657
+  },
+  {
+   "repo": "rrousselGit/riverpod",
+   "sha": "fd076befac7b58ace8e8251bad076ac4cf5240ff",
+   "language": "dart",
+   "files": 1,
+   "bytes": 318470,
+   "input_tokens": 78852
+  },
+  {
+   "repo": "rrousselGit/riverpod",
+   "sha": "fd076befac7b58ace8e8251bad076ac4cf5240ff",
+   "language": "dart",
+   "files": 37,
+   "bytes": 284293,
+   "input_tokens": 64955
+  },
+  {
+   "repo": "rrousselGit/riverpod",
+   "sha": "fd076befac7b58ace8e8251bad076ac4cf5240ff",
+   "language": "dart",
+   "files": 56,
+   "bytes": 294809,
+   "input_tokens": 64840
+  },
+  {
+   "repo": "rrousselGit/riverpod",
+   "sha": "fd076befac7b58ace8e8251bad076ac4cf5240ff",
+   "language": "dart",
+   "files": 41,
+   "bytes": 264880,
+   "input_tokens": 62726
+  },
+  {
+   "repo": "rrousselGit/riverpod",
+   "sha": "fd076befac7b58ace8e8251bad076ac4cf5240ff",
+   "language": "yaml",
+   "files": 116,
+   "bytes": 98340,
+   "input_tokens": 25832
+  },
+  {
+   "repo": "rrousselGit/riverpod",
+   "sha": "fd076befac7b58ace8e8251bad076ac4cf5240ff",
+   "language": "tsx",
+   "files": 66,
+   "bytes": 48840,
+   "input_tokens": 12399
+  },
+  {
+   "repo": "rrousselGit/riverpod",
+   "sha": "fd076befac7b58ace8e8251bad076ac4cf5240ff",
+   "language": "json",
+   "files": 6,
+   "bytes": 280870,
+   "input_tokens": 68844
+  },
+  {
+   "repo": "felangel/bloc",
+   "sha": "b9be1e252ee24ffbe9f2fb629edc7624b2cfbf05",
+   "language": "dart",
+   "files": 247,
+   "bytes": 299702,
+   "input_tokens": 64145
+  },
+  {
+   "repo": "felangel/bloc",
+   "sha": "b9be1e252ee24ffbe9f2fb629edc7624b2cfbf05",
+   "language": "dart",
+   "files": 172,
+   "bytes": 296398,
+   "input_tokens": 63108
+  },
+  {
+   "repo": "felangel/bloc",
+   "sha": "b9be1e252ee24ffbe9f2fb629edc7624b2cfbf05",
+   "language": "dart",
+   "files": 88,
+   "bytes": 295004,
+   "input_tokens": 67065
+  },
+  {
+   "repo": "felangel/bloc",
+   "sha": "b9be1e252ee24ffbe9f2fb629edc7624b2cfbf05",
+   "language": "dart",
+   "files": 70,
+   "bytes": 299686,
+   "input_tokens": 93123
+  },
+  {
+   "repo": "felangel/bloc",
+   "sha": "b9be1e252ee24ffbe9f2fb629edc7624b2cfbf05",
+   "language": "astro",
+   "files": 203,
+   "bytes": 91500,
+   "input_tokens": 23126
+  },
+  {
+   "repo": "felangel/bloc",
+   "sha": "b9be1e252ee24ffbe9f2fb629edc7624b2cfbf05",
+   "language": "yaml",
+   "files": 144,
+   "bytes": 69748,
+   "input_tokens": 18851
+  },
+  {
+   "repo": "felangel/bloc",
+   "sha": "b9be1e252ee24ffbe9f2fb629edc7624b2cfbf05",
+   "language": "typescript",
+   "files": 38,
+   "bytes": 52869,
+   "input_tokens": 12869
+  },
+  {
+   "repo": "dart-lang/http",
+   "sha": "2bac218a1115a58addd140d7a7eaabf803d57631",
+   "language": "dart",
+   "files": 6,
+   "bytes": 69585,
+   "input_tokens": 15177
+  },
+  {
+   "repo": "dart-lang/http",
+   "sha": "2bac218a1115a58addd140d7a7eaabf803d57631",
+   "language": "dart",
+   "files": 1,
+   "bytes": 301033,
+   "input_tokens": 77958
+  },
+  {
+   "repo": "dart-lang/http",
+   "sha": "2bac218a1115a58addd140d7a7eaabf803d57631",
+   "language": "dart",
+   "files": 48,
+   "bytes": 296973,
+   "input_tokens": 66734
+  },
+  {
+   "repo": "dart-lang/http",
+   "sha": "2bac218a1115a58addd140d7a7eaabf803d57631",
+   "language": "dart",
+   "files": 57,
+   "bytes": 288529,
+   "input_tokens": 66502
+  },
+  {
+   "repo": "dart-lang/http",
+   "sha": "2bac218a1115a58addd140d7a7eaabf803d57631",
+   "language": "dart",
+   "files": 20,
+   "bytes": 240595,
+   "input_tokens": 55942
+  },
+  {
+   "repo": "dart-lang/http",
+   "sha": "2bac218a1115a58addd140d7a7eaabf803d57631",
+   "language": "yaml",
+   "files": 56,
+   "bytes": 98627,
+   "input_tokens": 27810
+  },
+  {
+   "repo": "dart-lang/http",
+   "sha": "2bac218a1115a58addd140d7a7eaabf803d57631",
+   "language": "xml",
+   "files": 23,
+   "bytes": 16440,
+   "input_tokens": 3445
+  },
+  {
+   "repo": "dart-lang/http",
+   "sha": "2bac218a1115a58addd140d7a7eaabf803d57631",
+   "language": "cpp",
+   "files": 17,
+   "bytes": 24599,
+   "input_tokens": 5621
+  },
+  {
+   "repo": "phoenixframework/phoenix",
+   "sha": "789f851c3cda02f56702a16700ebba48d270cbd3",
+   "language": "elixir",
+   "files": 69,
+   "bytes": 299028,
+   "input_tokens": 77495
+  },
+  {
+   "repo": "phoenixframework/phoenix",
+   "sha": "789f851c3cda02f56702a16700ebba48d270cbd3",
+   "language": "elixir",
+   "files": 29,
+   "bytes": 293477,
+   "input_tokens": 76244
+  },
+  {
+   "repo": "phoenixframework/phoenix",
+   "sha": "789f851c3cda02f56702a16700ebba48d270cbd3",
+   "language": "elixir",
+   "files": 25,
+   "bytes": 294740,
+   "input_tokens": 76308
+  },
+  {
+   "repo": "phoenixframework/phoenix",
+   "sha": "789f851c3cda02f56702a16700ebba48d270cbd3",
+   "language": "elixir",
+   "files": 29,
+   "bytes": 298963,
+   "input_tokens": 71144
+  },
+  {
+   "repo": "phoenixframework/phoenix",
+   "sha": "789f851c3cda02f56702a16700ebba48d270cbd3",
+   "language": "elixir",
+   "files": 1,
+   "bytes": 13105,
+   "input_tokens": 3634
+  },
+  {
+   "repo": "phoenixframework/phoenix",
+   "sha": "789f851c3cda02f56702a16700ebba48d270cbd3",
+   "language": "javascript",
+   "files": 22,
+   "bytes": 247078,
+   "input_tokens": 56924
+  },
+  {
+   "repo": "phoenixframework/phoenix",
+   "sha": "789f851c3cda02f56702a16700ebba48d270cbd3",
+   "language": "yaml",
+   "files": 11,
+   "bytes": 21737,
+   "input_tokens": 6389
+  },
+  {
+   "repo": "phoenixframework/phoenix",
+   "sha": "789f851c3cda02f56702a16700ebba48d270cbd3",
+   "language": "bash",
+   "files": 4,
+   "bytes": 4216,
+   "input_tokens": 1263
+  },
+  {
+   "repo": "elixir-ecto/ecto",
+   "sha": "0e31befcada8660dc622884199f4418494d73bac",
+   "language": "elixir",
+   "files": 25,
+   "bytes": 275453,
+   "input_tokens": 81672
+  },
+  {
+   "repo": "elixir-ecto/ecto",
+   "sha": "0e31befcada8660dc622884199f4418494d73bac",
+   "language": "elixir",
+   "files": 9,
+   "bytes": 299733,
+   "input_tokens": 77890
+  },
+  {
+   "repo": "elixir-ecto/ecto",
+   "sha": "0e31befcada8660dc622884199f4418494d73bac",
+   "language": "elixir",
+   "files": 4,
+   "bytes": 217486,
+   "input_tokens": 54173
+  },
+  {
+   "repo": "elixir-ecto/ecto",
+   "sha": "0e31befcada8660dc622884199f4418494d73bac",
+   "language": "elixir",
+   "files": 11,
+   "bytes": 299431,
+   "input_tokens": 82486
+  },
+  {
+   "repo": "elixir-ecto/ecto",
+   "sha": "0e31befcada8660dc622884199f4418494d73bac",
+   "language": "elixir",
+   "files": 4,
+   "bytes": 105097,
+   "input_tokens": 28790
+  },
+  {
+   "repo": "elixir-ecto/ecto",
+   "sha": "0e31befcada8660dc622884199f4418494d73bac",
+   "language": "yaml",
+   "files": 3,
+   "bytes": 3849,
+   "input_tokens": 1085
+  },
+  {
+   "repo": "elixir-plug/plug",
+   "sha": "0d5b5eacb93b6de8f89454452cb232aa57672733",
+   "language": "elixir",
+   "files": 28,
+   "bytes": 295823,
+   "input_tokens": 99489
+  },
+  {
+   "repo": "elixir-plug/plug",
+   "sha": "0d5b5eacb93b6de8f89454452cb232aa57672733",
+   "language": "elixir",
+   "files": 35,
+   "bytes": 269634,
+   "input_tokens": 73922
+  },
+  {
+   "repo": "elixir-plug/plug",
+   "sha": "0d5b5eacb93b6de8f89454452cb232aa57672733",
+   "language": "elixir",
+   "files": 14,
+   "bytes": 95938,
+   "input_tokens": 26265
+  },
+  {
+   "repo": "elixir-plug/plug",
+   "sha": "0d5b5eacb93b6de8f89454452cb232aa57672733",
+   "language": "yaml",
+   "files": 1,
+   "bytes": 1242,
+   "input_tokens": 344
+  },
+  {
+   "repo": "elixir-plug/plug",
+   "sha": "0d5b5eacb93b6de8f89454452cb232aa57672733",
+   "language": "erlang",
+   "files": 1,
+   "bytes": 15973,
+   "input_tokens": 4755
+  },
+  {
+   "repo": "elixir-lang/elixir",
+   "sha": "2d81cf3fc97cd5760170d3dc1552663e4cd32856",
+   "language": "elixir",
+   "files": 20,
+   "bytes": 285099,
+   "input_tokens": 80306
+  },
+  {
+   "repo": "elixir-lang/elixir",
+   "sha": "2d81cf3fc97cd5760170d3dc1552663e4cd32856",
+   "language": "elixir",
+   "files": 5,
+   "bytes": 165951,
+   "input_tokens": 42416
+  },
+  {
+   "repo": "elixir-lang/elixir",
+   "sha": "2d81cf3fc97cd5760170d3dc1552663e4cd32856",
+   "language": "elixir",
+   "files": 2,
+   "bytes": 238343,
+   "input_tokens": 69632
+  },
+  {
+   "repo": "elixir-lang/elixir",
+   "sha": "2d81cf3fc97cd5760170d3dc1552663e4cd32856",
+   "language": "elixir",
+   "files": 11,
+   "bytes": 279219,
+   "input_tokens": 76156
+  },
+  {
+   "repo": "elixir-lang/elixir",
+   "sha": "2d81cf3fc97cd5760170d3dc1552663e4cd32856",
+   "language": "elixir",
+   "files": 1,
+   "bytes": 196650,
+   "input_tokens": 53791
+  },
+  {
+   "repo": "elixir-lang/elixir",
+   "sha": "2d81cf3fc97cd5760170d3dc1552663e4cd32856",
+   "language": "erlang",
+   "files": 21,
+   "bytes": 252362,
+   "input_tokens": 75723
+  },
+  {
+   "repo": "elixir-lang/elixir",
+   "sha": "2d81cf3fc97cd5760170d3dc1552663e4cd32856",
+   "language": "yaml",
+   "files": 20,
+   "bytes": 51094,
+   "input_tokens": 14365
+  },
+  {
+   "repo": "elixir-lang/elixir",
+   "sha": "2d81cf3fc97cd5760170d3dc1552663e4cd32856",
+   "language": "kotlin",
+   "files": 1,
+   "bytes": 2987,
+   "input_tokens": 725
+  },
+  {
+   "repo": "realm/SwiftLint",
+   "sha": "d9c55cdd401f57bdc1de965e620852ddb87fd175",
+   "language": "swift",
+   "files": 69,
+   "bytes": 299477,
+   "input_tokens": 64558
+  },
+  {
+   "repo": "realm/SwiftLint",
+   "sha": "d9c55cdd401f57bdc1de965e620852ddb87fd175",
+   "language": "swift",
+   "files": 45,
+   "bytes": 295809,
+   "input_tokens": 58818
+  },
+  {
+   "repo": "realm/SwiftLint",
+   "sha": "d9c55cdd401f57bdc1de965e620852ddb87fd175",
+   "language": "swift",
+   "files": 60,
+   "bytes": 299408,
+   "input_tokens": 60192
+  },
+  {
+   "repo": "realm/SwiftLint",
+   "sha": "d9c55cdd401f57bdc1de965e620852ddb87fd175",
+   "language": "swift",
+   "files": 60,
+   "bytes": 298654,
+   "input_tokens": 59152
+  },
+  {
+   "repo": "realm/SwiftLint",
+   "sha": "d9c55cdd401f57bdc1de965e620852ddb87fd175",
+   "language": "yaml",
+   "files": 95,
+   "bytes": 93492,
+   "input_tokens": 25534
+  },
+  {
+   "repo": "realm/SwiftLint",
+   "sha": "d9c55cdd401f57bdc1de965e620852ddb87fd175",
+   "language": "json",
+   "files": 6,
+   "bytes": 4656,
+   "input_tokens": 1465
+  },
+  {
+   "repo": "realm/SwiftLint",
+   "sha": "d9c55cdd401f57bdc1de965e620852ddb87fd175",
+   "language": "bash",
+   "files": 6,
+   "bytes": 6892,
+   "input_tokens": 1887
+  }
+ ]
+}

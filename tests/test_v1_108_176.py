@@ -233,7 +233,7 @@ def test_a_file_lost_after_discovery_is_counted_and_flips_complete(tmp_path, mon
     _real = ifmod.validate_path
     monkeypatch.setattr(
         ifmod, "validate_path",
-        lambda root, path: False if path.name == "mod2.py" else _real(root, path),
+        lambda root, path, **kw: False if path.name == "mod2.py" else _real(root, path, **kw),
     )
     r = ifmod.index_folder(str(src), use_ai_summaries=False, storage_path=str(store))
     assert r["success"] is True
@@ -263,7 +263,7 @@ def test_that_partial_index_then_refuses_to_prove_absence(tmp_path, monkeypatch)
     _real = ifmod.validate_path
     monkeypatch.setattr(
         ifmod, "validate_path",
-        lambda root, path: False if path.name == "mod2.py" else _real(root, path),
+        lambda root, path, **kw: False if path.name == "mod2.py" else _real(root, path, **kw),
     )
     r = ifmod.index_folder(str(src), use_ai_summaries=False, storage_path=str(store))
     owner, name = r["repo"].split("/", 1)

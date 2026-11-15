@@ -52,6 +52,31 @@ def _head(path: Path) -> str | None:
         return None
 
 
+def remove_tree(path: Path) -> None:
+    """Delete a directory tree, including git's read-only object files.
+
+    On Windows `shutil.rmtree(ignore_errors=True)` cannot delete a read-only
+    file and says nothing, so a git checkout survived its own removal: `fetch`
+    then re-ran `git init` over a half-deleted repo, and `run.py` left its
+    `self` clone in the temp folder on every run. Clear the flag and retry;
+    anything still refused stays, as before.
+    """
+    import shutil
+    import stat
+
+    def _retry_writable(func, target, _exc):
+        try:
+            os.chmod(target, stat.S_IWRITE)
+            func(target)
+        except OSError:
+            pass
+
+    if sys.version_info >= (3, 12):
+        shutil.rmtree(path, onexc=_retry_writable)
+    else:
+        shutil.rmtree(path, onerror=_retry_writable)
+
+
 def fetch(entry: dict, root: Path | None = None, log=print) -> Path:
     """The checkout for one entry, fetched if absent or at the wrong commit.
     A shallow fetch by SHA: history is not part of any corpus."""
@@ -60,9 +85,7 @@ def fetch(entry: dict, root: Path | None = None, log=print) -> Path:
     if _head(dest) == entry["sha"]:
         return dest
     if dest.exists():
-        import shutil
-
-        shutil.rmtree(dest, ignore_errors=True)
+        remove_tree(dest)
     dest.mkdir(parents=True, exist_ok=True)
     url = f"https://github.com/{entry['repo']}.git"
     log(f"fetching {entry['id']} from {url}")

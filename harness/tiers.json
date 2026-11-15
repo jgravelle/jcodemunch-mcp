@@ -195,7 +195,8 @@
     "latency.get_symbol_source_warm_p95_ms",
     "latency.get_file_outline_warm_p95_ms",
     "index.cold_self_seconds",
-    "index.one_file_reindex_ms"
+    "index.one_file_reindex_ms",
+    "index.cold_over_one_file_ratio"
    ]
   },
   {

@@ -2,9 +2,613 @@
 
 ## [Unreleased]
 
-### Added - the tool counters say how many calls found nothing
+### Fixed - the tool counters say how many calls found nothing
 
 `_tool_counters.json` counted a search for a name nothing carries as one more ordinary call, so the per-tool figures `diagnose` reports could not tell calls that answered from calls that found nothing (customer report). Since 1.108.409 (#1308) such an answer carries `negative_evidence` in its body, the channel a default install keeps. The dispatcher now reads that marker while the answer is still a dict, before any compact encoding, and the counters keep a third count per tool, `no_match`, beside `calls` and `tokens_returned`; `diagnose` reports it in each `by_tool` row. A call relayed by the front door keeps its marker with the tool that answered, the same as its size. A counters file written before this release reads `no_match` as 0 and keeps adding; a count that could not be written keeps its `no_match` for the next write. Nothing new is sent anywhere, and `"tool_counters": false` still records nothing. SECURITY.md and CONFIGURATION.md name the third count.
+
+## [1.108.450] - 2026-11-15 - a trusted folder is matched by the folder it names
+
+### Fixed - a `trusted_folders` entry is compared as the folder it names
+
+`index_folder` resolves the folder it is given (symlinks and `..` segments) before checking it against `trusted_folders`. Entries from the config file are resolved when it loads, but entries from `JCODEMUNCH_TRUSTED_FOLDERS` or `JCODEMUNCH_TRUSTED_FOLDERS_ENV` were compared exactly as written. So such an entry that named the same folder another way never matched. On macOS every temporary directory is under `/var`, which is a link to `/private/var`, so a trusted folder there, or under a symlinked home or checkout, was refused as "not under trusted_folders"; in blacklist mode (`trusted_folders_whitelist_mode: false`) such an entry did not exclude its folder. Each entry is now resolved the same way before the comparison, and an entry that cannot be resolved is compared as written, as before. A relative entry (an empty string, `.`, `src`) or one whose `~name` names no user still matches nothing and is logged: resolving a relative entry would read it against the server's working directory.
+
+## [1.108.449] - 2026-11-15 - an index that is missing something says so
+
+### Added - two servers on the same version can be told apart by build (#1435)
+
+@dkiaulakis asked for a serving identity that automation can compare with what is installed. `version` is the recorded metadata number, so two installs of one release built from different files report the same string. The `munch://runtime/identity` resource now carries `build`: `sha256:` and 16 hex digits over the installed distribution's `RECORD`, the file pip and uv write listing every installed file with its own hash. Only the rows for the package's own source files count: launcher scripts, the installer's name, `REQUESTED` and compiled `.pyc` files differ between two installs of one wheel, so hashing them would give identical code two builds. It is read once, when the server starts, from that one local file, with no index and no network; read later, an upgrade in place before the first read would make an old process report the new build. Where no RECORD describes the loaded code, `build` is `null` and `build_reason` says why: a source or editable install, or a process that loaded another copy than the installed distribution. It describes the files as installed, so a file edited in place afterwards does not change it. Each server records its build in its presence file, and `install-status` prints it beside the installed one, for example `installed X.Y.Z, build sha256:...` over `pid N (svc, streamable-http, recorded X.Y.Z, build sha256:...)`. A server started by a release before this one has no recorded build, and none is printed for it.
+
+### Fixed - a search answer says how many files the per-file size limit left out
+
+A file over `max_file_size` (512,000 bytes by default) is counted in the index's coverage, but the count reached an answer only inside `_meta.verdict`, and only on an absent or degraded answer. `meta_fields: []`, the shipped default, strips `_meta`, so a `search_symbols` or `search_text` call that found something over a corpus missing a large source file read as a search of the whole repo. A user's audit found current source files missing from their indexes with nothing said. Now `search_symbols`, `search_text` and `get_ranked_context` (which shares `search_symbols`' attach) carry `_meta.index_withheld` (the count of files the index still withholds, and the limit the walk used when the index records one), and the answer body's `index_warning` names the count and the setting that moves it: `max_file_size` in the config, the project's `.jcodemunch.jsonc`, or `JCODEMUNCH_MAX_FILE_SIZE`. The count is the index's withheld set, so a later walk of one subfolder does not lower it. It is its own sentence beside the file-count cap line (#1336), because the two are different settings with different remedies. An index that withheld nothing carries neither.
+
+### Fixed - a separate copy of an indexed repo says why the index is silent
+
+When an agent's working folder was a second checkout of a repo indexed from
+another folder, `resolve_repo` already flagged it (`working_tree_mismatch`).
+The server's startup text and the PreToolUse hook both read that answer as
+"not indexed here", which is right, and then said nothing. The agent saw no
+index and no reason, and searched with Grep for the whole session.
+
+Both now read the flag through `resolve_repo.separate_copy`, so only
+`resolve_repo` decides that a folder is a separate copy. The hook still skips
+the question for a folder inside or above an indexed root, which can only
+leave a note out:
+
+- On the default `counter` surface, the startup text says this folder copies a
+  repo indexed elsewhere and gives the `order("index_folder", ...)` call that
+  indexes it. The `full` surface's text is too close to its 1,000-character
+  limit for the sentence, so it is unchanged there. On both, the server logs
+  one WARNING naming the folder the index was built from, because a path has
+  no length limit.
+- The PreToolUse hook (installed by `init --guidance`) says the same, naming
+  the folder, once per session and folder. That one call gets the note
+  instead of the usual advice, so under `JCODEMUNCH_ENFORCE=strict` a Read or
+  Grep from such a folder into an indexed root passes once without a deny.
+  To check each folder only once,
+  the hook writes an empty marker file under
+  `~/.code-index/hook_state/separate_copy/` on its first call in every session
+  and folder, indexed or not, and later tool calls skip the check. Markers
+  older than a week are deleted when a new one is written.
+
+One `resolve_repo` call at startup now feeds both the file count and this
+check. A copy whose repo identity does not match the index, such as a copy
+with no `.git` under another folder name, is not flagged by `resolve_repo`,
+so it still gets no note.
+
+## [1.108.448] - 2026-11-15 - an edit no longer starts an unbounded pile of index runs
+
+### Fixed - a filtered `search_symbols` describes its filter, never the whole index
+
+`search_symbols(query="index_folder", language="rust")` answered "No symbol named 'index_folder' is in this index" while the index held it in Python, and with no rows the same call on a complete index minted a citable absence and the warning "Do not claim this feature exists". The filter appeared nowhere in the answer. Now every filtered call names its filters in the verdict and scopes every sentence about the index to them, in every exit (lexical, semantic, fusion and fusion's empty-scope return). An attribute filter (`language`, `kind`, `decorator`) selects symbols by a property of the symbol, so finding nothing inside it is not absence of the name: its `absent` state is refused, with the filter named as the reason. A `file_pattern` alone is a path scope and keeps a citable absence within it, as `search_text` does. When the scan found no exact match inside the filter and the index has some outside it, `exact_outside_filters` gives their count. `search_text` takes no `language` argument; it still reports one under `ignored_arguments`, which already refuses its absence.
+
+### Fixed - `get_file_outline(file=...)` is not reported as ignored, and a missing file argument is the caller's error
+
+`get_file_outline` reads `file` as another spelling of `file_path`, yet the argument contract (since 1.108.175) listed `file` under `ignored_arguments`, which also refused any absence the call could prove. Aliases the dispatcher honors are now declared beside the contract, and a test reads every key each tool's `if name == ...` dispatch branch reads as `arguments.get(...)` or `arguments[...]`, and fails on one the contract would call ignored. A call with neither `file_path` nor `file_paths` (for example `path=`) came back as "Internal error processing get_file_outline", which reads as our bug. It is now an argument error naming `file_path` and `file_paths`, with the key that was sent listed under `ignored_arguments`. The same applies to `find_importers`, `find_references` and `check_references`, which share the neither-or-both check.
+
+### Fixed - one `index-file` run per checkout, and at most two on the machine
+
+The PostToolUse hook starts a detached `jcodemunch-mcp index-file <path>` for every Edit or Write of a code file, and nothing counted them. Each run loads the repository's index: about 250 MB and 2.5 s on a 50,000-symbol index, and eight edits in a row held eight runs and about 800 MB at once. An overnight benchmark run left the development laptop unresponsive with many python.exe processes. The evidence points at these runs, though it does not prove it: the only two sessions that ever stalled out of 433 edited 43 and 47 times against an index that takes 634 s to build, a session with 66 edits on a small index never stalled, and the host ended each session by killing only the agent, so its runs outlived it.
+
+Before `index-file` loads an index it now takes a lock for its checkout (the index store plus the file's git root, or the file's folder outside git) and one of two machine slots. A run for a checkout that already has a live run leaves its path in that checkout's pending list, and the live run indexes the pending paths before it finishes. Each queued path is still its own `index_file` call; the bound limits processes, not index loads. After the live run gives its locks back it checks the list again, up to three times, and a run that queued its path checks it once more after writing it, so a path queued in the moment between the live run's last read and its release is not stranded. Each queued path is a small file of its own, written under a temporary name and renamed into place, so a run reading the list never sees half a write and never removes an entry it has not read. A queued path counts as failed in `coalesced_failures` whether `index_file` raises or returns `success: false`, and one failure does not stop the rest. A run that finds both slots taken prints `"skipped": "busy"` and exits without loading anything. With the bound, the same eight edits held six processes and 367 MB at the peak, two of them working (measured on Python 3.14; the run without the bound used 3.12); the bound counts runs that load an index, and a run turned away is still a short-lived python.exe.
+
+The locks are ordinary process locks, so one held by a process that died reads as free. Every lock name is an absolute path inside the slot folder: the lock layer reads a name as a path, so a bare name would have meant a different lock in every working directory, and the hook starts its runs wherever the agent's shell happens to be. They live in one private folder per user, never under the index store, because a host may give every session its own `CODE_INDEX_PATH`. On POSIX the system temp directory is shared, so the folder carries the user's id and is kept at mode 0700: a folder of the user's own with another mode it can still open is tightened, through a descriptor opened without following a link (one its owner cannot open is refused), and one that is a symlink or belongs to another user is refused, so the run indexes nothing, prints `"skipped": "slot_dir_refused"` and leaves the file to the routes below, because a folder someone else controls could hold every slot or none. On POSIX each pending entry is written and read without following a symlink (Windows has no such flag; an entry is only a path string). A `.tmp` entry left by a writer that died mid-write is removed by the next run for that checkout once it is a minute old, and an entry that cannot be read as text is left in place without stopping the rest. The name is predictable, so another local user who creates that folder first turns this user's hook re-index off; each run logs that as a WARNING. If the lock layer raises, the run goes ahead and reports `slot_error`. A lock file the lock layer cannot create (a full or read-only folder) reads as held, so that case reports `busy`. The hook does not check the slots first, because importing the lock layer would add about 0.66 s to every hook.
+
+A file whose run was turned away as busy, or that was still queued when every slot was taken, its live run failed, or the checkout's lock was held only by a run that found no slot, is re-indexed by a running watcher, by `refresh_on_read` on the next read of a git repository, or by its next edit. `refresh_on_read` checks at most once per 30 s per server and skips while another write holds the index, so a read inside that window can still answer from the old file. To make that check able to see the edit at all, `index_file` now takes a file's modification time before it reads the content. Taken after, an edit landing between the two was stored as the old content under the new edit's time, and a comparison of times never found it.
+
+### Fixed - a file whose cached copy is missing says so, and re-indexing that one file repairs it
+
+A user on 1.108.417 got empty source with `source_status: content_cache_missing`, and a reason telling them to re-index the whole repo. jcodemunch keeps an index and, beside it, a cached copy of each file's text; source is served from the copy. When a copy is gone (a pruned cache, an index copied without its content folder), the index row is intact and the file is not stale, yet `index_file`, an incremental `index_folder` and `index_folder(paths=[file])` all said the file was unchanged and repaired nothing, because the unchanged check compared hashes and never asked whether the copy existed. Now `index_file <path>` and `index_folder` with `paths=` re-parse a listed file whose copy is missing, and `get_symbol_source` (its reason and its verdict note), `get_file_content` and `get_context_bundle` name the missing copy and that one-file repair, or `jcodemunch-mcp refresh <folder> --reset` for many (without `--reset`, a finished refresh campaign re-parses nothing), or for an `index_repo` snapshot `index_repo` with `incremental=False` (a default incremental run answers "No changes detected" from the tree SHA). The check is one file stat per listed file: every `index_file` call pays one, and `paths=` pays one per listed file. On this repo's 1,564-file index one stat per file took 0.1574 s in all, so an `index_folder` without `paths=` does not make it and costs what it did. Under `cache_mode: metadata_only`, which keeps no copies, nothing is re-parsed.
+
+## [1.108.447] - 2026-11-14 - on macOS, a process is identified by its creation time
+
+### Fixed - on macOS, a process is identified by its creation time, not by its PID alone
+
+The lock files that keep one watcher per repository and the process registry decide whether a recorded process is still the same one by comparing its recorded creation time with the one the OS reports now. The creation time came from Windows' `GetProcessTimes` or Linux's `/proc`, and on macOS the function returned nothing, so each check fell back to "is this PID alive?". A lock left by a dead process whose PID the system had given to another process read as held, so no new watcher could start, and a registry row for that PID read as a running server. The first full test run on macOS failed a lock test and a parent-watch test on it. The parent watch itself was not affected in practice: off Windows it first checks whether the server's parent changed, which catches a dead client before any creation time is read.
+
+macOS now reads the start time through libproc (`proc_pidinfo` with `PROC_PIDTBSDINFO`), as epoch seconds stamped once at fork, so two readings of one process agree exactly. A record that is short, names another PID, or carries a zero start is unknown, never a time to compare against.
+
+The server's own identity resource (`munch://runtime/identity`) had a second copy of the Windows and Linux probes and no macOS one, so on a Mac its `process_start` read `self_recorded` instead of `os`. It now asks the same libproc reader, so one function answers both questions. The macOS listing of skipped tests found it, along with four process-identity tests that still skipped there with "creation-time identity not implemented on this platform"; they run on macOS now.
+
+## [1.108.446] - 2026-11-14 - a running server that serves older code than is installed is named
+
+### Added - `install-status` says which running servers need a restart after an upgrade (#1435)
+
+@dkiaulakis found a shared HTTP server still serving 1.108.442 after its environment was upgraded to 1.108.444. They caught it through `jcodemunch_guide`'s `version`. Upgrading a package changes what a new process loads, never what a running one already imported. Every server already recorded its version and start time in the presence registry, but nothing compared a running server with what is installed, and the one stale-code check that existed answered only for source installs.
+
+`install-status` now lists the running servers that share this index store and marks each one restart required, current, or unknown. On a pip, uv tool or pipx install the recorded version is the loaded code, so a version that differs from the installed one is a code gap. On a source install every process reports the same metadata version, so the source mtime against the start time decides. The comparison needs the server to serve this install, so each server now also records the directory it imported its package from. A server on another install, or one an older release started, is unknown, never current. The report stops nothing; restarting stays with the client or the service manager. `upgrade` now says that a running server is not reached by the upgrade and points at `install-status`.
+
+USER_GUIDE.md gains "Upgrading a running server": restart, then confirm the serving instance through `serverInfo.version`, the `munch://runtime/identity` resource, or `jcodemunch_guide`, none of which needs an index, a model call or a tier change. SECURITY.md's presence-file entry names the new install-directory field.
+
+## [1.108.445] - 2026-11-13 - a write that changes no symbol leaves other processes' indexes in place
+
+### Changed - a write that changes no symbol no longer makes every other process reload the index
+
+Every process holding an index in memory keys it by the modification time of the `.db` and its `-wal`. Many writers move that time without touching a symbol or a file row: the embedding store, every runtime ingest (OpenTelemetry, SQL log, stack log, diagnostics), the SCIP import and the BM25 statistics write-back. Each one made every other process holding the index re-read and rebuild all of it. With eight agents on one index and one runtime write a second, readers spent most of their time reloading.
+
+Every transaction that writes the `symbols` or `files` table now also writes a fresh random `content_generation` token into `meta`, and a load remembers the meta rows it read. A process whose stamp moved reads the meta table once and keeps its copy only when every row, the token included, is exactly as it loaded them. A different token, any changed meta row, or a token missing on either side reloads, as before. A branch view always reloads, because its delta rows carry no token. The three reads of a load now share one read transaction, so the remembered meta can never be newer than the rows it is kept with. A test fails on any function in `src/` that writes `symbols` or `files` without writing the token; schema migrations are exempt because they rewrite `index_version`.
+
+Measured with eight reader processes on one 34,225-symbol index for 20 seconds, one write a second, the copy carrying a token (`.claude/state/evidence/row3_measure.md`):
+
+| tree | writer | searches in 20 s | p99 ms |
+|---|---|---|---|
+| main | none | 18108 | 110.4 |
+| main | runtime-table row | 4561 | 1284.9 |
+| this release | none | 19072 | 101.3 |
+| this release | runtime-table row | 12078 | 138.8 |
+
+A write to a `meta` row still reloads every reader, as designed (1335.0 ms p99 in the same run). In the runtime-write run the writer's own p95 rose from 19 ms to 1147 ms once the readers stopped reloading; that writer-side stall is a separate open item and is not addressed here.
+
+What changes for you: an index gets its first token from the first save by this release that changes a symbol or a file (a re-index with changes, or a watcher event). Until then every write reloads, as before.
+
+The one writer this cannot see: `update_symbol_summaries` in 1.108.383 and 1.108.384 writes summaries and no meta row. If one of those two releases writes summaries into an index this release holds, the old summary text stays in this process until the next content write. Every other writer, of any release, changes a meta row (`indexed_at`, `index_version` or `summaries_generation`) and is seen.
+
+## [1.108.444] - 2026-11-13 - a local OpenAI-compatible endpoint is sent a model it serves
+
+### Fixed - a local OpenAI-compatible endpoint is sent a local default model, and `config --check` shows the one it is sent
+
+With `OPENAI_API_BASE` pointing at a local server and no model named (`OPENAI_MODEL` or `summarizer_model`), the summarizer sent `gpt-6-luna`, OpenAI's hosted default, which a local server does not serve. `config --check` showed `qwen3-coder` for the same setup, so the report and the request disagreed. The summarizer class's own default was already `qwen3-coder`; the factory overrode it with the hosted constant for every base URL.
+
+`openai_default_model(base_url)` is now the one rule, and the factory and `config --check` both read it. No base, `api.openai.com`, or a regional host under it gets `gpt-6-luna`. Any other base gets `qwen3-coder`. This also fixes the opposite case: an explicit `OPENAI_API_BASE=https://api.openai.com/v1` was reported as `qwen3-coder` and is now reported as `gpt-6-luna`, the model sent once `allow_remote_summarizer` permits a remote base. A model you name is used as before.
+
+What changes for you: a local-endpoint setup that named no model was sent `gpt-6-luna` and is now sent `qwen3-coder`. If your server serves a different model, set `OPENAI_MODEL` or `summarizer_model`.
+
+## [1.108.443] - 2026-11-13 - a built-in default names a model the provider still serves
+
+### Fixed - a license key in a project `.jcodemunch.jsonc` warns instead of vanishing
+
+The license check reads `license_key` from `JCODEMUNCH_LICENSE_KEY` or the user's own `config.jsonc`. A key a customer put in a project `.jcodemunch.jsonc` was accepted into the project overlay, never reached that check, and nothing said so: the install read as unlicensed, `config` reported the key as the project's, and a paying customer had no clue why. Found while building the license-paths test (#1378).
+
+The project loader now refuses `license_key` the way it already refuses the trusted-folders keys, and logs a warning that names both supported places. It never prints the key. A key is never read from a project file at all, because a project file can be committed to a repository. The refused-keys list now carries a reason per key, so a license key is not explained with the trust keys' reason. A key in either supported place is unchanged.
+
+### Changed - the OpenAI defaults move off models OpenAI retires on 2027-01-14
+
+OpenAI's deprecations notice of 2026-10-14 removes gpt-4o, gpt-4o-mini, gpt-4.1 and gpt-4.1-mini from the API on 2027-01-14 and names `gpt-6-luna` as the replacement for all four. Two of our defaults pointed at them, so an install that never named a model would start failing that day:
+
+- The OpenAI summarizer's default model: `gpt-4o-mini` -> `gpt-6-luna`. It is one constant now (`OPENAI_DEFAULT_MODEL`), read by both the summarizer and `config --check`'s OpenAI-hosted row, which used to type it separately.
+- The agent selector's OpenAI order: low `gpt-4o-mini` -> `gpt-6-luna`, medium `gpt-4o` -> `gpt-6-sol`, high `o3` unchanged. OpenAI names one successor for both of the first two, so medium takes `gpt-6-sol`, which OpenAI names as the replacement for gpt-5.1, and the three tiers stay distinct.
+
+A model you set yourself (`OPENAI_MODEL`, `summarizer_model`, or your own batting order) is not touched. `model_tier_map`'s `gpt-4o` entry stays: it matches the client's model name to pick a tool tier and calls nothing. A test now fails if a quoted literal in `src/` names a retired OpenAI model, bare, dated (`gpt-4.1-mini-2025-04-14`) or provider-prefixed (`openai/gpt-4o-mini`).
+
+### Fixed - the agent selector and the Gemini summarizer no longer default to models a new install cannot call
+
+The agent selector's built-in Anthropic order named two models a request cannot use today. Its medium tier was `claude-sonnet-4-20250514`, which Anthropic's deprecations page lists as retired on 2026-06-15. Its high tier was `claude-opus-4-20250115`, which is not a model id Anthropic has ever listed. The Google order named `gemini-2.0-flash`, which Google shut down on 2026-06-01, for its low tier. Its medium and high tiers named `gemini-2.5-pro`, which still answers but shuts down on 2026-12-01. So a user who set `agent_selector` to route without naming models could be routed to a model that returns an error, and from 2026-12-01 every Google tier would have. The low Anthropic tier, `claude-haiku-4-5-20251001`, is still active; it moves to `claude-haiku-5-5` so the three tiers name one model generation. The Gemini summarizer's default, `gemini-2.5-flash-lite`, is not deprecated, but Google limits 2.5 API access to accounts that have used it before, so the default failed on a new account.
+
+Each replacement was read on its provider's own models or deprecations page on 2026-11-12:
+
+- Anthropic: low `claude-haiku-5-5`, medium `claude-sonnet-5-5`, high `claude-opus-5-5`.
+- Google: low `gemini-3.6-flash`, Google's named replacement for `gemini-2.0-flash`. Medium and high `gemini-3.8-flash`, Google's named replacement for `gemini-2.5-pro` and its newest stable model. Google lists no stable Pro model, so the top two tiers share one id.
+- The Gemini summarizer: `gemini-3.5-flash-lite`, which Google recommends for new projects.
+
+A model you set in config is used as before; only the defaults moved. The Anthropic summarizer's default, `claude-haiku-4-5-20251001`, is still an active model and is unchanged. `tests/test_no_default_names_a_retired_provider_model.py` pins the new defaults and scans `src/` for any of the six uncallable ids, so a default cannot quietly return to one of them.
+
+## [1.108.442] - 2026-11-12 - a Java or Kotlin class used only by its own package is not reported dead
+
+### Fixed - a Java or Kotlin class used only by its own package is not reported dead (#1377)
+
+@randyhbh asked whether the reference tools see same-package use, which in Java and Kotlin writes no `import` line. `check_references` and `check_delete_safe` did: their content scan found the use, and the delete preflight blocked. `find_dead_code` did not. It reads only the import graph, so a class used only by code in its own package had zero importers and was reported dead at confidence 1.0, reason `zero_importers`.
+
+A file's own package is an implicit `import <package>.*`, so the extractor now emits it through the same path as an explicit wildcard (#1375): one `<package>.Name` edge per type name the file uses, marked `wildcard` and `same_package`. A name the package does not declare (`String`, `Override`) resolves to nothing and is dropped by every consumer that already drops a dead wildcard edge, so no tool needed its own rule. A same-named class in another package gains nothing. `find_references` now lists same-package users too. The package line is read with comments and strings removed, so a trailing comment no longer hides it, and a backticked Kotlin segment is read.
+
+Resolving those edges exposed a resolver defect that #1375's explicit wildcards already had. When a JVM name matches no file, trailing segments are dropped (that is how `import static a.b.C.member` reaches `C`), so `com.acme.util.String` reached a file `com/acme/util.kt` sitting beside the `util/` package, and every file in the package read as importing it. A shorter name that is also a package is now skipped: a name below a package lives in the package.
+
+The new edges move structural numbers on JVM repos, because same-package use is a real file-level dependency. Two classes in one package that use each other are now a dependency cycle, and a class's afferent coupling counts its same-package users. `get_dependency_cycles`, `get_coupling_metrics`, `get_dependency_graph`, `get_blast_radius` and the cycle and coupling axes of `get_repo_health` read these edges.
+
+Not covered: a Kotlin top-level function used from its own package (only capitalised type names are read); Java's default package; and a source tree whose directories do not mirror the package below a `src/<set>/java` or `src/<set>/kotlin` root (or the repo root), where the edges are stored but resolve to nothing, as explicit imports already do there. The parser generation moves to 32, so the first index after upgrading re-parses every file and existing indexes gain the edges.
+
+## [1.108.441] - 2026-11-12 - a framework profile's ignore patterns hold on every route that walks into an index
+
+### Fixed - a framework profile's ignore patterns hold on the watcher's fast path, in `refresh` and for a `paths=` directory (#1421)
+
+1.108.440 (#1398, @dkiaulakis) settled how a framework profile's ignore patterns rank against a project's own. Three routes that add files to an index never read the profile at all. The watcher's fast path (`index_folder` with `changed_paths=`) merged only the config and per-call patterns, so an edit inside an express project's `coverage/` report put that file into an index the full walk had kept it out of. `refresh` discovered its corpus without the profile and re-parsed what it found through `paths=`, so the same report directory went in, and the corpus whose coverage `refresh` proved was not the one the full walk indexes. A directory named in `index_folder(paths=[...])` was walked from that directory with no profile either, so `paths=["."]` indexed the report too.
+
+The fast path, `refresh` and `index_file` now ask one helper, `profile_ignore_patterns_for(root)`, which detects the profile at the index root as the full walk does. A `paths=` directory uses the profile the full walk detected (at the git root, after the retarget that indexes a subdirectory under its repository) and matches it, with the config's and the call's own patterns ranked above it, against the index root, because the patterns are written relative to it (spring-boot's `src/test/`). A FILE named in `paths=` is still the caller's choice, as the skip-directory rules already were. A file an earlier watcher event or `refresh` put in the index stays until the next full walk prunes it. Its patterns rank below the project's and the call's own, so a `!pattern` negation in either still wins. The watcher's own directory walk still leaves the profile out on purpose. It only decides what to watch, and watching more than discovery indexes is the safe direction; an event inside an excluded directory is now refused by the fast path.
+
+### CI - a failing nightly test opens an issue (#1420)
+
+`scripts/open_regression_issue.py` filed an issue only for a failing Floor. A failing test reaches the harness summary as the check row `check.pytest_exit`, so a red nightly test opened no issue. It now files one issue per failing Floor and per failing check, and a failed test run's issue names the failing tests. Nothing in the installed package changed.
+
+## [1.108.440] - 2026-11-11 - a project's own ignore negation wins over a framework profile's default
+
+### Fixed - a project's own ignore negation wins over a framework profile's default (#1398)
+
+With `express` in `package.json`, a `.jcodemunch.jsonc` that re-included `!tools/coverage/**` still lost `tools/coverage/` from the index, because the express profile's `coverage/` default was appended after the project's patterns and ignore matching is last-match-wins. `index_file` merged the same way, then refused the file and said a framework profile's pattern had no setting, so the user had no remedy to try. The refusal now names the `!<pattern>` negation, which works. Reported by [@dkiaulakis](https://github.com/dkiaulakis).
+
+The order is decided in one place now: `get_extra_ignore_patterns` takes the profile's patterns as their own argument and puts them first, below the global and project config and below a per-call list. `index_folder` and `index_file` pass them that way instead of concatenating. A profile default still applies wherever the project says nothing, so a plain `coverage/` report directory stays out.
+
+## [1.108.439] - 2026-11-11 - tokens_saved is a token count, not bytes divided by 4
+
+### Changed - `tokens_saved` is a token count, not bytes divided by 4
+
+The per-call `tokens_saved` divided the bytes a response saved by 4. On Claude's tokenizer that undercounted: over a pinned 64-repo corpus (`benchmarks/savings_tokenizer/`, every repo and SHA in `corpus.json`, 83,819,932 bytes in 469 chunks, counted with the free `count_tokens` endpoint), Claude reads 2.445 bytes per token. On the README's 15 benchmark lookups the old figure was 0.736 of Claude's own count (express 0.625, fastapi 0.783, gin 0.596). **So the per-call figure goes up, because bytes/4 undercounted on Claude's tokenizer.** A single bytes-per-token figure per language still misses individual repos, because a docstring-heavy file reads far fewer tokens per byte than its language's average: over the corpus's 247 (repo, language) samples it lands within 0.95-1.07 of Claude's count for 57% of them, against 70% for the count scaled by the per-language ratio (both computed from the committed `claude_counts.json` and `cl100k_counts.json`, scored in-sample).
+
+Each indexed file is now counted with OpenAI's `cl100k_base` encoding once, when its index is saved, into a `token_counts` table in the index's own database, keyed by content hash; a call reads those counts and counts only its own response. With the default `savings_tokenizer: "claude"` the count is scaled by the Claude/cl100k ratio measured per language over the same corpus (`claude_over_cl100k.json`); `"openai"` uses the cl100k_base count as it is, so a Codex or GPT client is not told a figure in Claude's units. On the 15 lookups the new figure is 0.967 of Claude's count overall (express 1.054, fastapi 0.939, gin 1.039; 0.98 when the reference also counts `_meta`, which a default install strips). The remaining per-repo spread is the ratio's own: a repo whose cl100k-to-Claude ratio differs from its language's average moves by that much. `_meta.tokens_saved_basis` names how each figure was counted. An index saved before this release has no counts until its next save of any kind, which counts every file from the copy the indexer keeps, without a re-parse; until then its files fall back to the measured bytes per token for their language, and the basis says so.
+
+`search_symbols`' three exits share one crediting rule now, and the response side is the rows as served. It used to be each symbol's `byte_length`, the size of a source body that a compact or standard row does not send, so the credit did not depend on what was served. `get_symbol_source` credits the same way. A cached `search_symbols` answer is still credited and still carries `cache_hit: true`. The other tools that report `tokens_saved` (`get_file_outline`, `get_context_bundle`, `get_ranked_context` and thirteen more) still credit from byte sizes, and now divide them by the measured bytes per token for the unit (2.445 for Claude, 4.07 for cl100k_base) instead of 4; their basis says so. Moving them onto the stored counts is a follow-up.
+
+**New dependency: `tiktoken` (MIT), and one new network call.** The first time a count is needed, `tiktoken` fetches `cl100k_base.tiktoken` (1,681,126 bytes) once from `https://openaipublic.blob.core.windows.net/encodings/`, checks it against its pinned SHA-256, and keeps it in its own cache (`TIKTOKEN_CACHE_DIR`, else `data-gym-cache` under the temp directory). The request sends nothing about you or your code. It runs on a background thread, so no call waits for it or fails because of it; until the file arrives, and whenever the fetch is off, fails or the machine is offline, counts use the bytes-per-token table and `_meta.tokens_saved_basis` says why (`tokenizer_download is off`, `being fetched`, `fetch failed`, and `has not finished` once a fetch has run for two minutes, since `tiktoken`'s request carries no timeout). `"tokenizer_download": false` or `JCODEMUNCH_TOKENIZER_DOWNLOAD=0` stops the fetch; a copy already in tiktoken's cache is still used, after its hash is checked, since `tiktoken` re-fetches a cached file that fails it. An index saved before the file arrived gets its counts on its next save. `get_context_bundle` and `audit_agent_config` already counted with `tiktoken` when it happened to be installed, by calling `tiktoken.get_encoding` in the call, which would fetch the file synchronously now that `tiktoken` is always there; both count through the same loader instead. README, SECURITY.md's background-behavior list and CONFIGURATION.md name the call. `tiktoken` brings `regex` and `requests` with it; its MIT notice is in `jcodemunch_mcp/data/NOTICE.md`. The wheel grows by 12,706 bytes (2,093,728 to 2,106,434, both built at 1.108.438). Measured on the three benchmark corpora with the encoding loaded, a full index took between 0.05 s less and 0.25 s more (two interleaved rounds per corpus, on a busy machine), and a `search_symbols` call 0.5 to 1.1 ms longer at the median, with `get_symbol_source` no slower. Reindexing one changed file cost about 30 ms more on the self-latency bench (measured on an earlier commit of this change; the final tree's bench reads 217.1 ms against a 284 ms Floor) (median 331.5 ms against 301.4 ms on main, two interleaved runs each, the file being a 122,655-byte module whose count alone takes 15 ms): a changed file is counted when it is saved (`.claude/state/evidence/savings_measurements.md` in the PR).
+
+**Nothing already recorded is rescaled.** The lifetime total in `_savings.json` keeps every count taken under bytes/4 and adds new calls in the new unit; `get_session_stats`' `total_tokens_saved_basis` reports `mixed_basis: true` for a ledger that spans the change (`SAVINGS_BASIS_GENERATION` 3) and names the tokenizer in use. The anonymous savings counter receives the new per-call figures from this release on.
+
+## [1.108.438] - 2026-11-11 - an index that holds a small part of the tree reads incomplete, not fresh
+
+### Fixed - get_watch_status says when an index holds a small part of the tree (#1395)
+
+`index_freshness` compares the indexed revision with `HEAD`, so an index rebuilt at `HEAD` that held 14 of about 9,400 tracked source files read `fresh`, and `any_stale` stayed `false`. An agent that checked the status before trusting the index had no sign anything was missing, then searched for a function whose file was not indexed and found only an old copy elsewhere. Reported by @dkiaulakis.
+
+Recency and completeness are separate facts, and each repo entry now reports both. Beside `index_freshness`, it carries `index_completeness` (`complete`, `incomplete` or `unknown`), the measured `indexed_files` and `tracked_source_files`, and their ratio `index_coverage`, and the response gains `any_incomplete`. The denominator is the files `git ls-files` lists that the indexer would take, decided by the indexer's own per-file rule (skip directories, the project's ignore patterns, secrets, extensions, the size cap), so its deliberate exclusions do not count against it. The numerator counts only indexed files that are tracked, so untracked files cannot pad the ratio. Below 0.90 the index reads `incomplete`. When the count cannot be taken, it reads `unknown`, never `complete` and never a number. That covers a folder that is not a git work tree, git failing, an index whose file list cannot be read, a tree with nothing tracked yet, and `check_freshness=False`. A first pass counts tracked files by extension alone; when that already clears the floor the per-file rule is skipped, and `tracked_source_files_basis` says which count was used. The rules are the project's configured ones, so files a past call excluded with its own `extra_ignore_patterns` or `max_size` count as missing, which errs toward `incomplete`. Cost, measured on one machine over 26 indexed repos: three paired runs added 2.3 s and 2.8 s to a warm call (89 and 109 ms per repo) and 3.9 s to the first. The check runs one `git ls-files` per repo. `any_completeness_unknown` is true when any entry could not be counted, so `any_incomplete: false` is never the only signal. A file whose eligibility check raises still counts toward the denominator, because dropping it would raise the ratio. `list_repos` and `suggest_corrections` read none of these keys, so they pass `check_completeness=False` and pay nothing for them. `index_freshness` and `any_stale` keep their meaning. Tests: `tests/test_watch_status_reports_completeness.py`.
+
+## [1.108.437] - 2026-11-11 - a file the index withheld is not answered as a missing file
+
+### Fixed - a file the index withheld is no longer answered as a file that does not exist (#1396)
+
+A file over `max_file_size` is refused during discovery, and the index kept only how many such files there were (`coverage.withheld.too_large`). `get_file_outline` and `get_file_content` had nothing to tell a withheld path from one that never existed, so both got the same answer: no symbols, verdict `absent`, and the note "treat this as strong evidence the target is not present". An agent told to stop looking for a file that is real and current goes looking for an older copy instead. Reported by @dkiaulakis.
+
+The coverage record now names the files a walk withheld for size, each with its size and the limit it was over, capped at 200 entries with `withheld_files_total` and `withheld_files_truncated` beside it. A subdir walk replaces only the entries inside its folder, and a `paths=` run leaves the record as it was. For a withheld path, `get_file_outline` and `get_file_content` answer with a `withheld` object (`reason`, `size`, `limit`, `summary`, `remedy`) in the response body, because the default `meta_fields: []` strips `_meta`, and the verdict reads `degraded` (absence not proven) instead of `absent`; `get_file_content`'s error says the file is not indexed and why. A listed file is confirmed on disk under the index's root first, so a withheld file that has since been deleted reads `absent`. A path the record does not list is never looked up on disk, because that lookup would confirm that a `.env`, a gitignored file or a `node_modules` file exists and give its size. When the index withheld files it does not name (a capped record, or an index built before this release), an unlisted path reads `withheld_unnamed`: absence not proven, with the count, the remedy and the usual near-miss suggestions, and nothing about the path itself. A path that leaves the root still reads `absent`, since no withheld file can be there. An index built before this release keeps that hedge until a full `index_folder` writes the record. Not covered yet: `get_dependency_graph`, `get_coupling_metrics`, `get_extraction_candidates` and `plan_refactoring` still answer a withheld file with "File not found in index" (none of them emits an absence verdict), and an `index_repo` index records no withheld files, so a withheld file there still reads `absent`. Tests: `tests/test_withheld_file_is_not_absent.py`.
+
+### Fixed - a Bearer token in a quoted Authorization header is redacted
+
+The `bearer_token` pattern needed `Authorization` followed directly by `:` or
+`=` and then `Bearer`, so a quoted header such as JSON
+`"Authorization": "Bearer <token>"`, a Python dict literal, a shell assignment
+`AUTHORIZATION="Bearer <token>"` or a JSON string inside a string
+(`\"Authorization\": \"Bearer <token>\"`) passed through tool
+responses unredacted. A quote, an escaped quote or a backtick may now close the
+key and open the value, and the scheme name matches in any case (`bearer`,
+`BEARER`), as RFC 7235 allows. The 20-character floor, the `Authorization`
+anchor and the unquoted forms are unchanged.
+
+## [1.108.436] - 2026-11-11 - a call that names paths= never replaces the rest of the index
+
+### Fixed - a call that names `paths=` never replaces the rest of the index (#1397)
+
+`index_folder(paths=[...], incremental=False)` saved the listed files as the whole index and dropped every other indexed file, and still returned `success: true` with nothing saying files were removed. #333 had settled what `paths=` means (refresh a subset, never replace the corpus), but only the incremental path honoured it: with `paths=`, discovery returns the listed files and nothing else, so any route to a full re-parse saved that list as the index. The caller's `incremental=False` was one route. The others were the one-off re-parse a `PARSER_GENERATION` bump or a Racket reader change forces, a pending `invalidate_cache` rebuild, a subdir walk with `paths=` (its merge carried only the files outside the walked folder), and the root-marker and v1.95 migrations, which rebuild the whole corpus from the walk. Reported by @dkiaulakis.
+
+The rule now sits at the full save itself: under `paths=`, every stored file the caller did not list is kept, whichever route led there, so a route added later inherits it. With `paths=`, `incremental=False` re-parses the listed files even when they are unchanged, keeps every other file, and says so in `warnings`; `performed_incremental` reads `true` beside `requested_incremental: false`. A listed file that is gone from disk is still removed. The root-marker migration waits for a run without `paths=`, and a v1.95 index refuses a `paths=` call before anything is deleted. A due parser-generation or Racket re-parse is not run under `paths=`: the listed files are re-read with the current parser, the generation is left where it was, the warning names the reason, and the next run without `paths=` performs it. A pending `invalidate_cache` rebuild likewise waits for a run without `paths=`. `tests/test_refresh_campaign.py::test_an_unforced_subset_still_escalates` required the old escalation, which passed only while seven of its eight files were dropped; it now checks that the upgrade stays due. Tests: `tests/test_paths_never_replaces_the_corpus.py`.
+
+## [1.108.435] - 2026-11-11 - a Kotlin import of a top-level declaration reaches the file that declares it
+
+### Fixed - a Kotlin import of a top-level declaration is an edge to the file that declares it (#1376)
+
+`import com.acme.app.mapper.buildSnapshot` imports a top-level function declared in `SnapshotMapper.kt`, and one Kotlin file can declare several classes. Java and Kotlin import resolution matched the dotted name against file paths only, so the import resolved to nothing, and `find_importers`, `get_dependency_graph` and the dead-code tools read the declaring file as unimported. The same held for a top-level `val`, `const val`, `object`, `typealias`, and a second class in a file named after another one. Reported by @randyhbh in #1374 and split out as #1376.
+
+When an import names no file, the package (the name minus its last segment) now names a directory below a source root, and the last segment names a top-level declaration in a `.kt` or `.java` file there. The edge the import wrote is kept and one is added to the declaring file, the shape Racket collection paths already use, so the resolver stays path-only and none of its call sites changed. Java's route to a Kotlin file's top-level functions resolves the same way: `import a.b.SnapshotMapperKt;` and `import static a.b.SnapshotMapperKt.buildSnapshot;` reach `SnapshotMapper.kt`. A method of the same name inside a class is not a match, and a name the package does not declare still resolves to nothing. An added edge must resolve back to the file that declares the name: where two modules hold a file of the same class path, or a `.java` file shares a Kotlin facade's class path, no edge is added rather than one to the wrong file. Several imports from one file become one added edge carrying all their names. The added edges are derived from the indexed symbols each time a full index is built or loaded and are never stored, so a declaration moved to another file moves its edge, and no re-parse is needed. The step costs 0.92 s per load on a synthetic 20,000-file Kotlin index with 220,000 import lines; repositories with no Java or Kotlin skip it. A file renamed with `@file:JvmName` is not seen. Tests: `tests/test_kotlin_top_level_imports.py`.
+
+## [1.108.434] - 2026-11-10 - the full tool surface no longer loads six schemas into every request
+
+### Changed - the full tool surface no longer loads six schemas into every request (#1393)
+
+On `JCODEMUNCH_TOOL_SURFACE=full` (or `tool_surface: "full"`), the six core
+tools carried `_meta["anthropic/alwaysLoad"]`, so Claude Code sent their full
+schemas in every request even with tool search deferring the rest. Measured
+offline on this tree (tiktoken cl100k_base, which ranks the pieces; Claude's
+tokenizer counts differently), what a deferring client gets up front on
+`full` went from 4,751 tokens (3,459 of them the six schemas) to 1,362: 91
+tool names and the instructions. (Correction, 2026-11-11: that pair was
+measured with `test_summarizer` enabled (91 tools; the shipped
+`disabled_tools` hides it), schemas as spaced JSON, and names with the
+`mcp__jcodemunch__` prefix, and the 3,459 is on that basis too. At
+shipped defaults, with schemas as compact JSON, the same change is
+4,384 tokens (3,105 of them the six schemas) to 1,349 over 90 tools:
+`benchmarks/harness/capture_surface_tokens.py` run on e0faaaa6~1 for
+the first figure and on e0faaaa6 for the second. The reproducible
+record for the current tree, with its basis written down, is
+`benchmarks/surface_tokens.json`.) A benchmark run (Opus 5.5, Claude Code
+2.1.319, jcm 1.108.429) had measured the full arm at a cost ratio of 1.144
+against a session without jCodeMunch, with no jCodeMunch call made in any
+session of either jCodeMunch arm, and traced the extra cost to the prompt
+prefix.
+
+What it costs: on `full`, an agent now pays one ToolSearch call before its
+first core-tool call. The full instructions already give that call
+(`ToolSearch "select:mcp__jcodemunch__resolve_repo,..."`), loading all six at
+once. The default `counter` surface is unchanged: its three front-door verbs
+still load up front, and its byte-pinned tool list does not move.
+
+## [1.108.433] - 2026-11-10 - the bundled local encoder no longer pays for padding
+
+### Changed - the bundled local encoder no longer pays for padding (#1388)
+
+Every text sent to the bundled ONNX encoder ran at all 256 positions, so a
+batch of short symbol names cost as much as a batch of 256-token
+docstrings. The padded positions are masked out of attention and out of the
+mean-pool, so that work changed no vector. The encoder now sorts a batch by
+real token length, runs it in groups of 16, and trims each group to its
+longest real text; vectors come back in input order. On the retained run
+(512 Django symbol texts, caller batch 50, two threads,
+`benchmarks/encoder-padding-sample.json`) throughput went from 19.13 and
+18.35 texts/s to 127.75 and 128.82, with a max absolute vector difference of
+0.0. A long text can no longer set the width of the whole batch, and the
+run plan is tested without numpy, so CI covers it. Contributed by
+@tmhtech4.
+
+### Fixed - an empty batch no longer loads the local encoder (#1389)
+
+`encode_batch([])` imported numpy, built the ONNX session (downloading the
+model when it was absent) and then failed inside ONNX on an empty feed, so a
+call with nothing to encode could cost a model download and still raise. It
+now returns `[]` before any import or session, so an empty batch needs
+neither numpy nor the model. `encode_batch(None)` still raises `TypeError`.
+Contributed by @tmhtech4.
+
+### Added - `JCODEMUNCH_LOCAL_EMBED_THREADS` sets the local encoder's threads (#1389)
+
+The bundled ONNX encoder always ran on two intra-op threads, which keeps an
+MCP server from taking every core while the user works but makes a one-off
+`embed_repo` build slower than the machine allows. The variable sets the
+thread count when the session is created. The default stays 2. A value that
+is not a positive integer falls back to 2 rather than to ONNX's own 0, which
+means all cores. A value above the cores this process may use is capped
+there, because extra threads only add contention and a large enough value
+stops ONNX Runtime creating the session at all. Contributed by @tmhtech4.
+
+## [1.108.432] - 2026-11-10 - a Java or Kotlin wildcard import is an edge to each class the file uses
+
+### Fixed - a Java or Kotlin wildcard import is an edge to each class the file uses (#1375)
+
+`import com.acme.app.util.*;` was not extracted at all: the import pattern reads a dotted name and stops at the `*`. So on a repository that writes wildcard imports, a class used only through one had no importers, and `find_importers`, `get_dependency_graph` and `check_delete_safe` read it as unused. Reported by @randyhbh in #1374 and split out as #1375.
+
+A wildcard names a package, and every tool that reads the import graph maps one import to one file. So `import a.b.*` now stands for one `a.b.Name` import per type name the file uses, each marked `wildcard: "a.b.*"`. A name that `a/b/` declares resolves to its file; the rest (`String`, `Override`) resolve to nothing, as a JDK import already did. Resolution happens against the current file set, so a class added to the package later is found without re-parsing the importer. A name the file imports explicitly or declares itself shadows the wildcard and is not an edge, and neither is a name that appears only in a comment or a string, a constant (`MAX_VALUE`), a member after a `.` or a fully qualified use. `import static a.b.C.*` is an import of `a.b.C`. `find_references`, `check_references` and `plan_refactoring` match imports by name without resolving them, so they skip a wildcard import whose class the package does not declare: none of them reports the file as importing `String`.
+
+Re-index a JVM repository to pick this up: `PARSER_GENERATION` is 31, so the next `index_folder` re-parses every file once.
+
+## [1.108.431] - 2026-11-09 - a read re-indexes the files that changed since the index was built
+
+### Added - a caller says on which lines it calls the target
+
+`get_call_hierarchy` gave each caller's definition line, so "where is `f`
+called" still sent an agent into every caller to find the call.
+
+Each caller row now carries `call_lines`: the lines in that caller's body
+that call the target, as a word followed by `(` (`obj.f(` counts, `def f(`
+does not; comments are not told apart, and `call_lines_basis` says so). The
+response carries `call_sites`, a flat `file:line` list for the direct
+callers. Both are capped (10 lines a row, 50 sites). Every row carries
+`call_lines_total` and `call_lines_truncated`, and every callers answer
+carries `call_sites_total` and `call_sites_truncated`, cut or not and empty
+or not, so the compact encoding decodes a row as it was sent.
+
+A row whose lines could not be read says so. If the file cannot be read, or
+the index holds no `end_line` for the caller, the row carries
+`call_lines: null` and a reason in `call_lines_unknown` (`file_unreadable`
+or `no_end_line`). `[]` means the body was read and holds no textual call.
+`call_lines_unknown_count` counts the unknown rows, and
+`call_sites_unknown_callers` counts the direct callers that
+`call_sites_total` leaves out for that reason. A bare name with several
+definitions still refuses as ambiguous. The compact encoding is `ch3`
+(`ch1` and `ch2` stay decodable).
+
+Measured on this repository's own index (callers, depth 1), against the same
+response with the call-site keys removed: `_find_symbol` (5 callers) grows
+from 2,052 to 2,918 bytes of JSON (+42.2%) and from 2,033 to 2,557 compact
+(+25.8%); `_utils.resolve_repo` (116 callers, 122 call sites, cut to 50)
+grows from 28,538 to 41,891 bytes of JSON (+46.8%), 2,187 of them the
+`call_sites` list, and from 19,492 to 22,620 compact (+16.0%).
+
+### Added - a read re-indexes the files that changed since the index was built
+
+After a rebase, a branch switch or an edit made outside the agent, the index still held the old code, and a search served it with nothing in the answer to say so; only the agent's own edits reached the index without the watcher running. Public repositories write rules into their agent instructions telling the agent the index may be stale. Now, before a read tool answers on a git repository, the server asks git which files changed since the index was built: the indexed commit against the working tree, plus untracked files. It asks at most once per repository every 30 seconds in each server process. A changed path counts only if the indexer would take it, by the same rule `index_file` uses, so a binary or a log never reads as stale; past 200 such refusals (an un-ignored `node_modules/`) it stops asking and the answer says `undetermined`, or `unchecked` beside a repair, never that the index is current. When there are at most 50, it re-indexes exactly those files before answering. One budget of 2 seconds bounds the whole check on the caller's thread: each git call gets what is left of it as its timeout, the per-path rule stops at it, and the re-index is waited on for the rest; before, the budget bounded only the wait and the git calls ran ahead of it unbounded (review). When git does not answer inside the budget, the answer says `undetermined` with `unchecked: "budget"`. The one step the deadline cannot cut short is a pre-scan of the tree for `package.json` files, which the indexer's rule runs for a changed file over the size cap, and which the check now pays once instead of once per such file. A re-index that outlives the budget keeps running, and the answer says `in_progress` with how many files are stale (`stale_files`) but no `refreshed` count and no call, since its outcome is not known yet. While it runs, a read of the same repository gets `in_progress` with no count and starts no second re-index, so two never run at once. Otherwise it answers from the index as it is and adds an `index_refresh` block naming the reason (`too_many_files`, `locked` or `failed`) and the `index_folder` call that fixes it; `failed` carries `refreshed: null`, since `index_folder` may have written part of the set before it raised. It reads only the index's metadata, never its symbols. Re-indexed files get heuristic summaries until the next `summarize_repo`. Every index write now also clears that process's cached `find_references` and `get_blast_radius` answers for the repository; before, only the index tools did, so a write by anything else, refresh on read included, left them serving answers from before it. And a write that lands while a tool runs (the `in_progress` worker, the in-process watcher) clears them again when the call ends: the tool had read the index from before the write and cached its answer after the store's eviction, so the stale answer survived it (review). That check sits in the dispatcher, below every tool that caches, so the next one inherits it. The block is a body key every encoder carries, not `_meta`, which a default install strips. It never waits on another process writing the same index, and a folder that is not a git repository keeps today's per-row freshness flag. It's on by default; `refresh_on_read: false` in `config.jsonc` or `JCODEMUNCH_REFRESH_ON_READ=0` turns it off. It runs read-only git commands and writes only the local index, and README and SECURITY.md ("Background behavior, fully disclosed") say so. Tests: `tests/test_refresh_on_read.py`, and `tests/test_a_refused_absence_never_reads_as_proof.py` covers the default install whose repair did not run.
+
+## [1.108.430] - 2026-11-09 - a Java or Kotlin import is an edge to the file that declares it
+
+### Fixed - a Java or Kotlin import is an edge to the file that declares the class (#1374)
+
+On a Java or Kotlin repository the import graph had no edges, so `find_importers`, `get_dependency_graph`, `get_architecture_metrics`, `get_repo_health` and `check_delete_safe` all read an empty graph, and the last two answered with confidence: a healthy repo with no unstable modules, and an imported class safe to delete. Reported by @randyhbh on a Gradle monorepo. The import was extracted (`import com.acme.app.util.Hosts`) and then never resolved, for two reasons: `.java` and `.kt` were not among the extensions the resolver tries, and the only source roots it tried were the repo root and the Python ones, which it finds by `__init__.py`. Maven and Gradle keep sources under `<module>/src/<sourceSet>/java` or `.../kotlin`, often several modules deep. So even the class at the repo root resolved to nothing, and a dotted JDK name fell through to the Python reading instead: `java.util.List` bound a `java/util/List.ts` when one existed.
+
+An import from a `.java`, `.kt` or `.kts` file now resolves to the `.java` or `.kt` file that declares the class, Java to Kotlin and the reverse. Each file's class path is its path below a Maven or Gradle source root (`.../src/<sourceSet>/{java,kotlin}`, the repo-root one included) or below the repo root, mapped once per indexed file set. When a class name is declared in more than one module, the importer's own module wins. `import static a.b.C.member` and a nested class `a.b.Outer.Inner` resolve to the outer class's file. A JDK or library name (`java.util.List`, `org.springframework...`) resolves to nothing unless the repository holds a file at that class path, and a miss no longer falls through to another language's rules. The step is taken only for a JVM importer, so a Python, JavaScript or Ruby import resolves as before.
+
+Found while checking the fix through `index_folder`: an import ending in `;` and then a carriage return or trailing spaces was not extracted, because the import pattern stopped there. In a CRLF checkout (Windows) that was every Java import; Kotlin without `;` was unaffected. That pattern is fixed too, and `PARSER_GENERATION` moves to 30 so an existing index re-parses its files and gains the edges; the resolver half needs no re-parse. Wildcard imports (`import a.b.*`), Kotlin top-level functions and same-package references are separate issues and unchanged here. Tests: `tests/test_jvm_import_resolution.py`.
+
+### Changed - a no-change re-index of a large repository reads no symbols
+
+Re-indexing a folder where nothing changed used to load the whole stored index, every symbol row, to learn which git root and source root it was built from and to use it as the base to compare against. Neither needs a symbol. Both reads are now a selective view of the stored index, which holds the repository's metadata, file hashes and modification times and reads no symbol rows. When a later step does need the symbols, because a file was edited, added or deleted, the view loads them at that point, so the result is unchanged and only the cost moves. An index still stored in the legacy JSON format is loaded in full as before.
+
+Before indexing, every file is checked to resolve inside the folder being indexed, once while the folder is walked and again just before parsing. Each check resolved the folder itself again for every file, one extra system call per file. The second check now resolves the folder once per call; the check during the walk still resolves it per file. Each file is still resolved and checked against it, so a path that leaves the folder through `..`, a symlink or a junction is still refused, and a folder that is itself a link, pointed somewhere else between two re-indexes, is resolved again on the next one.
+
+## [1.108.429] - 2026-11-09 - a hook answers in about a second
+
+### Changed - a hook answers in about a second, and the Grep answer reads the sources it proved unchanged (#1369)
+
+An answered Grep now takes 1.07 to 1.21 s for the whole hook process, measured on four fresh Home Assistant copies, and a decline at a 0.6 s budget takes 0.86 s. Before, every hook command imported the server and its dependencies (the MCP SDK, httpx and jsonschema) before it read its input, and the opt-in Grep answer's 4-second budget started only after that. On a freshly indexed copy the import took 1.5 to 2.1 s, so an answered Grep took 5.1 s from process start, and a declined one ran past its budget by the same amount. A bare `jcodemunch-mcp hook-<name>`, the form `init` writes, now runs its handler directly after the same first steps the server takes: UTF-8 output, the package integrity check, and keyring resolution of environment values. Every other command goes through the server as before. A hook process no longer runs the server module's own start-up and exit steps: with `session_resume` on it doesn't save session state at exit, and with `render_diagram_viewer_enabled` on it doesn't clear diagram-viewer temp files. Both serve the server, not a hook.
+
+Once its freshness check has proved every file in scope unchanged since indexing, the Grep answer now reads each file from the source tree instead of the index's cached copy. The copy holds the same text, but on a just-indexed workspace it was written moments ago, and on Windows its first open measured 15.2 ms per file against 0.08 ms for the source the indexer had just read. A path that leaves the source root is not read, and every other `search_text` call still reads the cached copies. Under `cache_mode: "metadata_only"` the answer reads the source tree too, the same files its freshness check just proved unchanged; before, it read whatever cached copy was on disk.
+
+The console entry point is now `jcodemunch_mcp.cli_entry:cli`. A launcher that still names `jcodemunch_mcp.server:cli` keeps working.
+
+## [1.108.428] - 2026-11-08 - the published benchmark counts the answer an agent receives
+
+### Changed - the published benchmark counts the answer an agent receives (#1367)
+
+The published token benchmark is re-measured with the served count: the text the server sends on a fresh install's default settings, with the same calls and the same fetched symbols. jCodeMunch uses 96.2% fewer tokens per lookup on average than grep-and-read on the 15-lookup benchmark (90.4% to 99.2% across the lookups, 10.4x to 132.5x per query). The fifth query changed from "context bind" to "param bind" on all three repositories, because on express "context bind" returned no symbols; every one of the 15 lookups now returns symbols. `benchmarks/jcm_reference.json` records `method: served` and the costs measured beside a lookup (license notice 160 tokens, steering hint 66 tokens, the already-delivered note when one session runs a repo's five lookups: express 475, fastapi 324, gin 0). `results.md`, `METHODOLOGY.md`, `REPRODUCING.md`, `benchmarks/README.md`, `README.md`, `TOKEN_SAVINGS.md` and the provenance registry carry the new run. A dated methodology-change note opens `results.md`; it lives in `benchmarks/results_notes.md`, which `run_benchmark.py --out` writes under the title, so a re-capture keeps it (`tests/test_results_notes_survive_a_capture.py`).
+
+## [1.108.427] - 2026-11-08 - the Grep answer replies right after a large index is built
+
+### Changed - the token benchmark counts the answer an agent receives (#1361)
+
+`benchmarks/harness/run_benchmark.py` called `search_symbols` and `get_symbol_source` as Python functions and counted the JSON of what they returned. No agent receives that: on a default install the server drops `_meta` (`meta_fields: []`) and sends the compact encoding (`server_output: adaptive`). The benchmark now counts the text `server.call_tool` serves, on the config a fresh install has (`config.DEFAULTS`, ignoring the machine's own config file and config environment variables), with the same calls, arguments and fetched symbols. Each lookup is measured on its own, and what a longer session adds is measured beside it: the license notice on a machine's first answer and the one-time steering hint, each as the same search served with it minus without, and each repo's lookups re-run as one session, minus the per-lookup total. The run neither uses up this machine's license notice nor counts it in a lookup. A `--floor` run counts the way the committed reference was counted (a reference that names no method was counted the old way), and refuses a run that asks for the other method, so a Floor never compares two ways of counting. The old count stays available as `--method raw`. The published figures and the reference artifacts are unchanged by this entry; a new reference is a separate step. Tests: `tests/test_the_token_benchmark_counts_the_served_response.py`.
+
+### Changed - the Grep answer replies right after a large index is built (#1363)
+
+Right after a large index is built, the opt-in Grep answer now replies inside its 4-second budget. On a freshly copied and indexed Home Assistant tree, three first searches of 208, 328 and 555 lines ran to 4.0 s and went unanswered on 1.108.426, leaving the Grep to run normally; they now answer in 1.3 s, 0.9 s and 1.0 s, the slowest of two fresh runs each. The cause was on Windows: the first open of a file written moments ago is slow, 29.5 ms per file on the first open against 0.10 ms on the second, measured on copies of a Home Assistant module. The index's cached copies of your files are all freshly written, and the search opened its candidates one at a time, so the first search paid that cost for every candidate.
+
+`search_text` now opens its candidate files on a small pool of threads (up to 32, with at most 64 files read ahead) and matches them in the same order as before. The answer is the same: the same files are read, the same lines match, and the counts, the cut page and the report of any file it couldn't read are unchanged. The freshness check makes the same one `stat` per file in scope, now on a few threads before it compares them, so it stays exact: every file in the Grep's scope is still checked against its indexed mtime before an answer is given. The threads only read the index's cached copies and your files' metadata, write nothing and stop before the search returns; SECURITY.md lists them under background behavior.
+
+## [1.108.426] - 2026-11-08 - a function assigned to a member is a JavaScript symbol
+
+### Fixed - the steering hint no longer turns a search answer back into JSON (#1359)
+
+The one search per session that carries the steering hint now costs 292 tokens instead of 434, on the pinned express corpus ("middleware"; 226 without the hint). After a few search and read calls with no bundle call, a `search_symbols` or `search_text` answer carries a one-line hint pointing at `get_ranked_context`. That answer used to be served as JSON, so the compact encoding couldn't drop the hint, and that one search cost more than the same answer encoded. The hint has its own key, `_meta.steer_hint` (it was `_meta.hint`), which the compact encoding carries (`UNIVERSAL_META_JSON`); a tool's ordinary `_meta.hint` stays off the wire as before. The encoding ids do not change: a decoder that predates this reads the same rows and ignores the new key. Tests: `tests/test_the_steering_hint_keeps_the_compact_encoding.py`.
+
+### Fixed - a function assigned to a member is a JavaScript symbol (#1312)
+
+CommonJS code defines most of its API by assignment: express writes `res.send = function send(body) {...}`, `exports.compileTrust = function ...` and `Foo.prototype.bar = function () {...}`. None of these produced a symbol, so in express's `lib/` a search for `send` found only the `require` of the npm package `send`, and `response.js` indexed as the single variable `res`. Found by Benchmarking's relationship checks on 1.108.401 (LEDGER L-263).
+
+A function, arrow or generator assigned to a member at module scope is now a symbol. `obj.name = ...` and `Foo.prototype.name = ...` give a method (`res.send`, `Foo.bar`); `exports.name = ...` and `module.exports.name = ...` give a function named `name`. The body of a UMD or IIFE wrapper counts as module scope; the body of any other function does not, so an assignment inside a route callback or a factory stays out. TypeScript gets the same rule. The span is the whole assignment statement.
+
+A declaration keeps its id. `class Foo { bar() {} }` beside `Foo.prototype.bar = ...`, or `function f() {}` beside `exports.f = ...`, keeps the declaration and adds nothing, so no existing id moves or gains a `~1`. A repeated assignment keeps the first. Prototype methods carry no parent, so an outline does not nest them under their class. `defineGetter(req, 'protocol', ...)` and other definitions made through a call are not covered. `PARSER_GENERATION` moves to 29, so an existing JavaScript or TypeScript index re-parses once on the next index run.
+
+### Fixed - a bound JavaScript function's signature is its header, not its whole body (#1312)
+
+A function bound by a declaration (`const f = function (a) {...}`, `const g = (a) => {...}`, `export const h = async () => {...}`) or by a class field (`handler = (e) => {...}`) stored its whole statement, body included, as its `signature`. The statement node has no `body` field, so the rule that cuts a plain `function f(a)` at its body never applied. Every search row for such a function carried all of its lines, and words inside the body matched searches. The member-assigned functions above inherited it, which is how the token benchmark on this change found it: its first run put express over the per-repository rise Floor (LEDGER L-291).
+
+The signature now ends where the function's own body starts: `const f = function f(a)`, `const g = (a) =>`, `res.json = function (obj)`, `handler = (e) =>`. The span is unchanged, so `get_symbol_source` still returns the whole function. Search rows for these functions are shorter, and a search no longer matches words that appear only in a bound function's body; a plain `function` declaration already worked this way. The same `PARSER_GENERATION` bump re-parses existing indexes.
+
+### Changed - the Grep answer does less disk work when the file cache is cold (#1357)
+
+On Windows, the text filter behind the opt-in Grep answer now confirms its cached file copies with one directory listing per folder instead of one `stat` per file. On the same Home Assistant index, over 14,432 cached copies, the listing took 1.8 s to 2.4 s where per-file `stat` took 15.8 s to 24.5 s on the same loaded machine, with identical size and mtime for every file. It's aimed at the first Grep after a long idle gap, when the operating system's file cache is cold: on that index that Grep needed 7.2 s against the 4-second budget, and ran unanswered.
+
+- the listing carries every entry's size and mtime, which is all the filter needs to confirm a trigram row still describes its copy. A cached copy the listing doesn't hold is searched, never skipped. Elsewhere a listing costs one system call per file anyway, so nothing changes there;
+- opening the index for a text search no longer decodes every file's imports JSON, which a text search never reads. Imports decode only when something reads them, from the same snapshot, so the value is unchanged. An index with Racket still decodes at load, because loading adds Racket collection edges to its imports.
+
+The freshness check on your own files keeps one `stat` per file, on purpose. A listing would be cheaper there too, but on Windows a file edited through a hard link in another folder keeps its old size and mtime in its own folder's listing, so a listing could call an edited file unchanged. A fast wrong answer is worse than a slow right one. The cold total with these changes will be measured on the next idle gap; emptying the file cache by hand needs administrator rights.
+
+## [1.108.425] - 2026-11-08 - the Grep answer reaches large repositories
+
+### Fixed - `receipt` and `diagnose` read the savings file the way the meter does (#1335)
+
+`receipt`'s lifetime figure and `diagnose`'s savings report each parsed `_savings.json` by their own rules, beside `token_tracker._read_ledger`, the reader the meter uses. #1309 and its follow-up taught that reader to refuse a file whose totals or tables the meter cannot add to; the other two never learned it. So `receipt` took `true` as a total and crashed with `OverflowError` on `{"total_tokens_saved": Infinity}` and `ValueError` on `NaN`, and `diagnose` reported a file the meter refuses as readable. Both now read through `_read_ledger`: a file the meter refuses gives no lifetime figure in `receipt` and no figure in `diagnose`, and a file that starts with a byte-order mark is read, as the meter reads it. `receipt` says why such a file gives no figure (a `lifetime.refused` reason in a JSON export) rather than reporting that nothing has been recorded yet. `diagnose --include-anon-id` reports no id from a file the meter refuses, since that file is not the one the meter adds to. A test fails if any function that names `_savings.json` in code parses it with `json.load` itself. Found while fixing #1309's follow-up. Tests: `tests/test_savings_file_has_one_reader.py`.
+
+### Changed - `upgrade` and the hooks refresh show the surface offer (#1355)
+
+An install created before the `counter` default keeps its tool surface, on purpose: a package update never changes which tools a user is served. Until now the priced offer to switch showed up only in `jcodemunch-mcp surface`, `install-status`, a log line at server start, and a notice on the first `resolve_repo` answer, so an install still on the full tool list could go a long time without seeing it.
+
+`init --hooks`, which `upgrade` runs and which a user types to refresh hooks, now prints the same offer: the same block and renderer `install-status` uses, with this install's own figures and unchanged wording. It's still only a message. Nothing changes until the user runs the switch command, `surface_offer_seen` silences it, and an install already on the default surface sees nothing.
+
+### Fixed - the Grep answer reaches large repositories (#1356)
+
+On a 23,186-file Home Assistant index, the opt-in Grep answer (`JCODEMUNCH_HOOK_GREP_ANSWER=1`) now answers a Grep over `homeassistant/` (140 lines in 71 files) in 2.0 s, with the same count as before. It used to need 6.2 s, past its 4-second budget, so that Grep ran unanswered. Large repositories are the ones the answer is for. The search was never the slow part: three costs grew with the whole repository, and all three are now cut.
+
+- loading the index walked the tree for tsconfig and jsconfig files to build TypeScript import aliases, on an index holding no such file. The walk now reads the index's own file list first, and skips only when that list comes from a full discovery walk the file cap didn't cut and names no such file. A skipped walk is never cached, so a tsconfig added later is read by the next index. Every cold load of any index gets faster from this, not only the hook. The trade-off: a tsconfig on disk that the index itself leaves out (gitignored, excluded by a pattern, or over the size limit) is no longer read when the index loads;
+- the freshness check looked at every indexed file, which alone took 3.2 s. It now checks only the files inside the Grep's scope, since a changed file outside it can't change the answer, and reads each file's mtime with one `stat` instead of an existence check plus a `stat`;
+- one hook call read the index's file table three times. It reads it once now, and the enclosing-symbol step reads just the matched files' symbol rows.
+
+The 2.0 s is with the operating system's file cache warm. The first Grep after a long idle gap, when the search reads the index's cached file copies from disk, can still miss the 4 s budget; when it does, the Grep runs exactly as it would without the hook.
+
+## [1.108.424] - 2026-11-07 - a project config file can only tighten settings
+
+### Changed - a project config file can only tighten settings (#1353)
+
+For the settings that decide which folders are trusted, what may be read or run, what is sent off the machine and what a summarizer may bill, a project's `.jcodemunch.jsonc` can now tighten the user's own value but not loosen it. A project file no longer sets `trusted_folders` or `trusted_folders_whitelist_mode`. It sets `allow_paid_summaries`, `allow_remote_summarizer`, `use_ai_summaries`, `summarizer_body_chars`, `openai_extra_body`, `git_blame_enabled`, `redact_source_root`, `response_max_bytes` and `enrichment` only to a value no more permissive than the user's own; in `enrichment` that covers `lsp_enabled` and the language-server table. `disabled_tools` from a project file adds to the user's list and cannot re-enable a tool, and `exclude_secret_patterns` keeps only the exclusions the user also makes. A project names `summarizer_provider` or `summarizer_model` only when the user's own opt-in covers the choice: a paid provider needs `allow_paid_summaries`, and an OpenAI-compatible base off the machine needs that and `allow_remote_summarizer`. A project that picks its provider and model keeps working for a user who opted in. `max_file_size`, `max_folder_files` and `max_index_files` stay project-settable. Each ignored key is logged once by name. CONFIGURATION.md, "Project-level overrides", lists the rule.
+
+## [1.108.423] - 2026-11-07 - a file that fails to parse no longer lets a search claim a name is absent
+
+### Fixed - a file whose parse fails no longer lets a search claim a name is absent (#1351)
+
+A file whose parse runs past the per-file budget (`JCODEMUNCH_PARSE_BUDGET_SECONDS`, 20 seconds by default) or raises gets a warning naming it, and its symbols are left out of the index. Nothing else recorded the gap: the file still counted as indexed and the index called itself complete, so a search for a function defined in that file answered `absent`, and an agent could act on that as proof the function does not exist. A failed parse is now a withheld file, like a file over the size limit. The index records it, the coverage reads incomplete, and an answer that would claim absence is refused with the count (`withheld.parse_failed`). This holds for a full index, an incremental run, a `paths=` re-index, the watcher and `index_file`. A later run that does not re-parse the file keeps the failure, including a run under a lower file cap that keeps the file as it was last parsed; one that parses it cleanly, or finds it deleted, clears it. The file's text stays searchable with `search_text`. Two routes are not covered: an index built from a GitHub repository (`index_repo`) records no coverage at all, and a re-index of a branch's changed files records its parse failures nowhere, because a branch reads its base index's coverage.
+
+### Changed - a fresh process reuses the search statistics stored in the index
+
+Before its first search, a new server process tokenized every symbol to rebuild the corpus statistics that ranking needs (term weights, the term-to-symbol lists and file centrality), because they lived only in memory. On a large index that was most of the first search: [@tmhtech4](https://github.com/tmhtech4) measured a fresh-process search on the 1,040,596-symbol nodejs/node index and proposed keeping them on disk (#1343). They are now stored inside the index's own `.db`. A full index writes them in the same transaction as the symbols. An incremental re-index or a summary write deletes them in its own transaction, and the next search that has to compute them stores them again after its response is sent, only while no other tool call is running in that server, and calls that arrive meanwhile wait for the write, so no call's before-and-after check on the index sees it. Another server process holding the same index loads it again once after that write. A process reuses them only when they match what it loaded: they carry a hash of every field the tokenizer reads, of every symbol, in the order loaded, plus the import graph centrality is computed from, and a hash of the tokenizer and import-resolver code. So the same symbols in another order, a rewrite that keeps the symbol count and the file time, a writer that does not know about the stored statistics, a release that changes how text is tokenized or how imports resolve, and a change to the `extra_extensions` setting are all misses, and the statistics are computed as before. A damaged, oversized or unreadable row is also a miss, never an error. Nothing is written beside the index, so deleting an index leaves nothing behind. On a 50,320-symbol index the statistics took 1.5 s to compute, and checking the stored copy against the loaded symbols took 0.13 s. A full index spends that compute once at save time instead of in the first search of each process; storing them after a search adds the 0.13 s check and 0.08 s of encoding on that index. The 1,040,596-symbol timing in #1343 is Tim's and has not been re-measured on this change. The same review found that a summary write, which re-keys the cached index after it commits, read back every setting other writers can change without the index lock except the record of whether the file cap cut the index short (added in #1341). A summary write that landed while another process recorded a partial index could leave this process serving it as complete; it reads that record back too now, and a test fails if a writer outside the lock writes a setting the read-back omits. Tests: `tests/test_bm25_stats_live_in_the_index.py`.
+
+## [1.108.422] - 2026-11-06 - the shared parse cache never serves what an older parser emitted
+
+### Fixed - the shared parse cache never serves what an older parser emitted
+
+The shared parse cache (`JCODEMUNCH_PARSE_CACHE`, off unless set) stores each file's symbols so that seats on one host parse an identical file once. Its key named the index format and, for Racket, the reader, but not the parser generation, the number a release raises when the extractor's output changes for unchanged bytes. So on a host with the cache set, the re-index a release forces read every file back from the cache, kept the old symbols, and stamped the index as upgraded, which stops it from ever upgrading. An upgrade of tree-sitter, the language pack or the F# grammar inside its allowed range served old entries the same way. The key now carries the parser generation and the installed version of each grammar package, so an entry written by any other parser is a miss and the file is parsed again. A test raises each generation constant in the parser and checks that the key changes, so a new one left out of the key fails it. On a host with the cache set, every stored entry misses once after the upgrade and the file is parsed again; old entries leave through the cache's usual row cap. Installs without the cache are unaffected.
+
+## [1.108.421] - 2026-11-06 - a starter pack installs in a few megabytes, and a file tree costs a third of the characters
+
+### Changed - `get_file_tree` sends the same tree in a third to a half of the characters
+
+`get_file_tree` returned its tree as JSON: every node repeated its keys and every file repeated its whole directory path. No encoder could carry a nested tree, so the tree always went out as JSON, at about 139 characters a file. It now has a compact encoding. Each file is one row of directory, name, language and symbol count (and summary when asked for), and each repeated directory and language is written once. On nestjs indexed at 2,000 files, the default call (500 files) went from 69,494 characters to 23,409, the whole repository from 259,011 to 88,901, and the default call with summaries from 109,561 to 57,496. The arguments and the decoded answer are unchanged: the decoder rebuilds the tree with the tool's own nesting rule. The encoder decodes its own output and ships JSON whenever that doesn't reproduce the whole response exactly, `_meta` included, so a field added later can't be lost on the wire. Keys the server adds to `_meta`, such as `budget` and `secrets_redacted`, ride along as one JSON value. A small tree, where the compact form is larger, still ships as JSON. With `server_output` set to `compact`, a tree under a `path_prefix` used to arrive with its directories' children as a string; it now decodes as a tree.
+
+### Fixed - `install-pack` no longer holds a whole pack in memory
+
+`install-pack` read the whole download into memory, wrote it to a temp file, then read each file in the archive whole before writing it out. The free Node.js pack is about to grow from 8 MB to a 150 MB download holding a 759 MB index, now that the pack covers the whole repository, and installing it that way peaked at 1,758 MB of allocations, enough to fail on a small machine or container. The download now goes to the temp file in 1 MB pieces and each archive file is copied the same way, so the same install peaks at 5.7 MB, and the Django pack at 5.5 MB. A download cut off partway, or stopped with Ctrl-C, leaves no temp file behind, and a cut-off one says so. The 120-second timeout is unchanged: it applies to each wait for data, not to the whole download, so a slow link that keeps sending never trips it. Tests: `tests/test_install_pack_streams.py`.
+
+## [1.108.420] - 2026-11-06 - re-indexing one file by path keeps a partial index marked partial
+
+### Fixed - re-indexing one file by path keeps a partial index marked partial
+
+An index the file cap cut short stores that it is partial, and every search over it says so, so a name it can't find is not reported as absent. An `index_folder` call with `paths=[...]` usually re-reads a few files, so it can't tell whether the cap still cuts the rest. It wrote its own cap status anyway, which always reads untruncated: one edited file saved this way, the usual step after an edit, made a partial index read as complete, and searches stopped saying it was partial. Every save route now asks one rule: a path-list save keeps the stored status, whether it goes through the incremental save, the full save a parser upgrade or `incremental=False` forces, or the branch save. A walk of the whole tree still writes the status it found, so it still clears once a raised cap covers every file.
+
+## [1.108.419] - 2026-11-05 - the file cap limits what one call parses, not what the index keeps
+
+### Changed - the opt-in Grep answer counts every match of a large Grep, and leaves a small one to run
+
+With `JCODEMUNCH_HOOK_GREP_ANSWER=1`, the PreToolUse hook answers a Grep from the index inside the refusal. It read one default `search_text` page and declined any page cut short, so it answered only Greps matching a page's worth of lines or fewer. Those are the Greps that are cheapest to run as written, and a Grep large enough for the index to save something was always declined.
+
+The hook now collects the whole match set first, through a new keyword-only `scan_limit` on `search_text` that the server never passes (the MCP tool's arguments, page size and schema are unchanged). A match set under both size thresholds runs as the Grep it was. At or over either one, the answer counts the whole set without the matching lines: every match counted by file and by the function or class it sits in, with each symbol's id and span for one `get_symbol_source` call. When that does not fit the answer's size cap, it counts by file alone, and past that it lists the files with the most matches and sums the rest, so a very large set is answered with less detail instead of being declined. The lines are left out on purpose: measured over four repositories, an answer carrying them was smaller than the Grep's own output for none of 215 queries, while the counted form, at 66 or more matching lines, was smaller for 24 of 26. Both figures compare against Grep's content mode (one line per match); its default mode prints only file paths, which was not measured. A count that could be partial is never sent: a match set reaching the scan cap, or an index the file cap cut short, which holds only part of the tree. The Grep runs. The line threshold is 66, measured on four repositories (this one, express, fastapi and gin at pinned commits) by a rule fixed before the run: the smallest line count at which the answer was smaller than the Grep's output for at least 90% of the queries at or above it. No file count met that rule, so by default the number of matching files alone does not trigger an answer. `JCODEMUNCH_HOOK_GREP_ANSWER_MIN_LINES` and `..._MIN_FILES` override both; a value that is not a positive integer reads as the default, so a typo cannot switch the gate off. The hook stays off by default.
+
+Every answer opens by saying it came from the index, how many lines in how many files matched (case-insensitively, so a case-sensitive Grep can match fewer, and Grep's default mode lists files rather than lines), and that `JCODEMUNCH_HOOK_GREP_ANSWER=0` turns the answers off, so an agent or a person reading the transcript never takes it for the Grep's own output.
+
+The once-per-Grep memory was keyed on the session and the Grep's arguments only, so the same relative Grep sent from a second repo was taken for the escape-hatch retry of the first and ran unanswered. The search root is part of the key now.
+
+### Changed - the file cap limits what one call parses, not what the index keeps
+
+`max_folder_files` (default 2,000) exists because an agent's `index_folder` runs inside one tool call and has to finish before the client gives up. The command line has no such limit, but `init` and `jcodemunch-mcp index` used the same cap, so a large repository indexed from the command line held only its first 2,000 files. The command line now has its own cap, `cli_max_folder_files` (default 30,000), and uses the larger of the two. If you set `max_folder_files` and leave `cli_max_folder_files` at its default, the command line keeps your cap, as before. `refresh` discovers files under the same cap, so it can't mark a re-parse complete after covering only part of a larger index.
+
+Two caps are only safe if an agent's capped call never shrinks an index built past its cap, and before this one did. A full re-index compared the files it found with everything stored, so a file the cap left out counted as deleted. A forced rebuild (after a parser upgrade) replaced the whole index with the capped walk. Lowering `max_folder_files` and re-indexing had the same effect on any index. Now a capped call doesn't delete a file its cap skipped; a file that is gone from disk or newly ignored still leaves. `index_folder` applies that rule on every route it takes to a save: an incremental update, a forced rebuild, a watcher event that arrives while a parser upgrade is due, an agent indexing one subdirectory of a git-root index, and the one-off rebuild that marks an index as covering the whole root. When a save keeps files past this call's cap, it doesn't mark a due parser upgrade done, and it says to run `jcodemunch-mcp index` to re-parse every file. Its coverage record counts a kept file as present only if the file's modification time still matches the parse it was kept from. A kept file that changed on disk counts as cut, so the index reads as partial and a search refuses to call a name absent; the warning says how many changed. The rule also covers an agent call that lists paths (`paths=["."]` or a directory): the files its list reaches past the cap are kept, not read as deleted. Each cap message, in the index result, `resolve_repo`, a search's answer line, the command line's stderr and `init`'s summary line, names the key that set the cap, and over kept files it gives the step that re-reads them: run `jcodemunch-mcp index`, or first raise its cap to the number of files when that cap is smaller. To shrink an index on purpose, delete it with `invalidate_cache` and index again. The kept files stay as they were last parsed until the command line, the watcher or the edit hook re-reads them; the watcher and the hook re-parse a changed file past the cap, including while a parser upgrade is due. So a watcher save can parse more files than the cap, by the number of files its batch of events names; the watcher runs outside any agent's tool call, which is the only thing the cap protects. A re-index that finds no changed file still records new files past the cap, so the index is reported partial when it is. An index that can't be read is rebuilt under the call's cap, because nothing stored can be kept; the result reports it as truncated. Tests: `tests/test_the_file_cap_limits_a_call_not_the_index.py`.
+
+## [1.108.418] - 2026-11-05 - a search on a capped index says, in its answer, that the index is partial
+
+### Fixed - a search on a capped index says, in its answer, that the index is partial
+
+`max_folder_files` keeps that many files of a large repo and drops the rest at index time, so on a large repo most files are never read. The index result and `resolve_repo` say so, and a search that finds nothing refuses to call that proof of absence. A search that finds something reported the cap only as `_meta.index_truncated`, and the shipped default `meta_fields: []` strips `_meta`. The agent got hits from the indexed part and no sign that most of the repo was never searched.
+
+The dispatcher now puts one line in the answer body, `index_warning`, whenever a result carries that block: how many files the index holds out of how many it found, and the setting to raise. It is added before the display filter runs, and every compact encoder carries a key named for a warning, so it reaches a default install in both output formats. `get_ranked_context` now reports the cap too, on every answer it returns, so it gets the same line, and its no-match answer on a capped index can no longer be cited as proof of absence. An index under the cap gets nothing new. Tests: `tests/test_a_capped_index_says_so_in_the_answer.py`.
+
+## [1.108.417] - 2026-11-04 - a wrong call through order names a call that works
+
+### Changed - a wrong call through `order` names a call that works, and a turned-off tool says to ask the user
+
+On the default front door, an agent reaches every tool through `order`, and Codex, VS Code and Claude Code refuse a tool name the server did not list. A misspelled action (`serch_symbols`, `Get-File-Outline`) used to answer only "Unknown action" and send the agent to `menu`, which costs a round trip; it now names up to three close actions, each written as `order(action="...")`, from the same names `menu` searches. A name that starts more than three actions (`get_symbol`, `search`) gets no guess and points at `menu` with that query instead, and a far-off name gets no guess at all. A tool that `order` would refuse as turned off is never suggested, and one that still runs although it is listed (`set_tool_tier`) still is. A retired name's replacement is written as an `order` call too, and when that replacement is turned off the reply says so instead of offering it. A tool listed in `disabled_tools` used to answer that it was disabled in the project's `.jcodemunch.jsonc`, even when the global `config.jsonc` held the setting, and told the agent how to remove it. It now names the file that lists it, says when the package ships the tool turned off, and tells the agent to ask the user whether to turn it back on rather than edit the setting. On the counter surface it names the tool as an `order` call. Tests: `tests/test_order_replies.py`.
+
+## [1.108.416] - 2026-11-04 - a search credits the tokens it saved on a fresh install's index
+
+### Fixed - a search credits the tokens it saved on a fresh install's index
+
+`search_symbols`, `search_text`, `get_file_content`, `get_ranked_context`, `get_repo_map` and `get_symbol_importance` credit savings against the file sizes stored in the index. Since v1.10.23 a save stored a size only when it was handed the file's contents, and a full `index_folder` writes the contents to the index's content folder and hands the save none. So every file of a first index, and of every full re-index, stored no size, and those tools credited 0 tokens on every call: on the maintainer's own index of this repository, 1,471 of 1,510 files had none on 2026-11-04. An install that only searched never had a savings total to report. `get_file_outline` measures the cached file on disk and was not affected. A full save and a branch save now record a size for each file from the content folder (an incremental save already stored one from the contents it is handed), and an index built before this fix reads a missing size from its content copy the first time a tool asks, so no re-index is needed and nothing is written back from a read. The fallback survives the in-memory updates a hook or watcher save makes, a file with no copy is looked up once and remembered, and the path is confined by the same rule that placed the copy. An install with `cache_mode: metadata_only` keeps no content copies, so its files still store no size and credit nothing. Found while checking why a fresh install's searches credited nothing. Tests: `tests/test_savings_credit_file_sizes.py`.
+
+## [1.108.415] - 2026-11-04 - a search for library code ranks the library above its tutorial and example copies
+
+### Fixed - a search for library code ranks the library above its tutorial and example copies
+
+Example and tutorial directories repeat a library's names, and there are many of them, so a question about the library returned the copies. fastapi's `docs_src/` holds many `GzipRoute.get_route_handler` tutorials beside the one `APIRoute.get_route_handler` in `fastapi/routing.py`, and "router route handler" returned three tutorials. On express, "error exception" returned two template imports and a template from `examples/error-pages/`. Measured on the pinned corpora (fastapi a64dfbb, express 1faf228), "router route handler" now returns `fastapi/routing.py::APIRoute.get_route_handler` first, and express's "error exception" returns rows from `lib/response.js` and `lib/application.js`.
+
+Test files were already weighted down when the query was not about tests. Ranking now does the same for a symbol under an `examples`, `example`, `docs_src`, `samples`, `sample`, `demo`, `demos`, `tutorial` or `tutorials` directory. A query that asks for an example (any of "example", "sample", "demo", "tutorial", "snippet", "doc", "docs", "documentation" and their plurals) keeps the old weight. It is a ranking weight, not a filter: a demoted row still comes back when nothing else matches, and confidence and absence verdicts still read the unweighted score. With `debug=True` a demoted row's `score_breakdown` carries `rank_weight_reason: "example_file"`. Tests: `tests/test_rank_library_over_copies.py`.
+
+The right answers cost more tokens than the copies they replace. On the token benchmark (`benchmarks/harness/run_benchmark.py`, the pinned corpora) fastapi's "router route handler" now fetches `fastapi/routing.py::_IncludedRouter`, a 232-line class, where it fetched an 8-line tutorial method. With the class outline in `get_symbol_source` (#1326) on main, fastapi's jcm total measures 13,804 tokens against the published reference's 12,779 (+8.0%, inside the per-repo Floor `token.per_repo_rise_max`), express 4,816 against 4,948, and the mean reduction per lookup against grep is 94.44%.
+
+## [1.108.414] - 2026-11-03 - a class comes back as its outline, and an import finds the file in its own language
+
+### Fixed - an import without an extension resolves to the importer's own language first (#1316)
+
+@skibadubskiybadubs found it on OpenStudio while measuring #1315: `require_relative '../measure'` in three Ruby tests (the reporter's figure) resolved to `measure.py` while `measure.rb` sat in the same folder. The resolver adds every known extension in one fixed order, JavaScript, then `.py`, then `.rb`, and never asked what language the importing file is in, so the first file that existed won whatever its language. The same order sent a Python `import utils` to `utils.js` when both files sat at the root. A Ruby or Python importer now tries its own language's file first on every path the resolver reads: a relative specifier, the repo root, a Python package-relative (`from .utils import x`) or dotted (`import app.utils`) import, under a detected source root, and through an alias. The order lives in the one function that lists candidate files, which every path calls with the importer, so a new path inherits it. For Python that is `x.py`, then a package folder's `x/__init__.py`, which also lost to `x.js` before. Go is left alone: a Go import names a package folder, not a file. A file in another language is still found when no file in the importer's own language exists, and a specifier that names its extension is read as before. The shared per-specifier memo is keyed by the importer's language as well, so one importer's answer is never served to another language's importer.
+
+### Changed - `get_symbol_source` returns a class as an outline by default; `class_body="full"` returns the whole body
+
+⚠ **This changes the default reply of a 1.x tool.** Until now, fetching a `class` symbol returned its whole body, every method included. It now returns the class's own lines (its signature, docstring and fields) with each method, nested function and nested class collapsed to its signature. A caller that read a class fetch as the complete body gets less unless it passes `class_body="full"`, which returns exactly what it got before.
+
+A class body repeats every method body, and each method is a symbol of its own: its id is `<file>::<Class>.<name>#<kind>`, and its body is one fetch away. On the pinned fastapi corpus, `fastapi/routing.py::_IncludedRouter` is 232 lines; its reply drops from 2,603 tokens in full to 619 as an outline with 9 members collapsed. A class whose methods carry long signatures saves less: fastapi's `APIRouter` drops from 40,178 to 35,239. On the token benchmark (`benchmarks/harness/run_benchmark.py`, the pinned corpora, one Windows box) fastapi's jcm total is 12,379 tokens against the published reference's 12,779, where main measures 13,508 on the same box, and the mean reduction per lookup against grep moves from 94.34% to 94.47%. That is a measure of tokens served, not of whether the answer is still in them.
+
+An outlined entry says so: `source_outline: true`, `source_outline_members` (how many members were collapsed), `source_total_lines` (the full body's length), `source_is_bounded_view: true`, so the evidence receipt does not hash the outline as the class's bytes, and `source_outline_full_body: 'class_body="full"'`, the argument that returns the whole body. `verify` still hashes the full body. Nothing changes for a class with no members, for any other kind, or when a source bound (`source_start_line`, `max_source_lines` and the rest) is given. The members come from one read of the class's file; when that read fails the full body is served. The tool's description now says a class comes back as a method outline, at no more length than before. `class_body` is in the published schema (`benchmarks/schema_baseline.json`: +48 tokens on `core_full`, `standard_full` and `full_full`) and stripped from the compact schemas beside the other bounded-source arguments (`core_compact` unchanged). Tests: `tests/test_class_fetch_outline.py`.
+
+## [1.108.413] - 2026-11-03 - the license terms read the same in the terminal, the package and the site
+
+### Changed - the license lines in the terminal say what the site says, and `receipt` ends with one
+
+The CLI stated the terms in its own words: the one-time notice said "Work use needs a commercial license", the reminder "Using jCodeMunch for work needs a license", while jcodemunch.com answers "Can I use jCodeMunch at work?" with "Work use at a for-profit company, or for client or paid work, needs a license." The notice, both copies of the reminder and the plugin README's license line now use the site's sentence, and the README FAQ carries the site's answer. The plugin listing's description reads "Free for non-commercial use; commercial use needs a one-time license."
+
+The notice's link now carries a fixed source tag (`utm_medium=notice`), as the reminder's two copies already did, so a sale through it can be told from other sales; the plugin README keeps the bare link. The text report of `jcodemunch-mcp receipt` ends with one line on a machine with no license key: "Using it at a for-profit company, or for client or paid work? That needs a license, paid once", with its own tag (`utm_medium=receipt`). It has no clock and writes no state, and every switch that silences the reminder silences it: a license key, `config set license_reminder false`, `JCODEMUNCH_LICENSE_REMINDER=0` or `JCODEMUNCH_LICENSE_NOTICE=0`, and a CI or remote runner. `--export` does not carry it. SECURITY.md quotes all three lines as they now read. Nothing is sent anywhere. Tests: `tests/test_license_notice.py`, `tests/test_license_reminder.py`.
+
+### Changed - the package's own descriptions say commercial use needs a license
+
+None of the short descriptions said that commercial use is paid, and directories copy them: one listing now calls jCodeMunch "completely free". The MCP registry and marketplace line now reads "Gives AI agents the function they asked for, not the file. Commercial use needs a license." The registry allows 100 characters and the old line already used all 100, so "Runs locally, 70+ languages" made room for the license clause. The PyPI summary and the package docstring keep their line and add "Free for non-commercial use; commercial use needs a one-time license.", the README's own licensing terms. "Commercial" and not "work": the license leaves research and other non-commercial work free. The README's counter block no longer says "live": its heading dates the figures to 2026-08-17 and its caption calls them estimates.
+
+## [1.108.412] - 2026-11-03 - graph tools resolve each import once per loaded index, and a savings file holding the wrong type is refused, not frozen
+
+### Changed - graph tools resolve each import once per loaded index, not once per call (#1317)
+
+@skibadubskiybadubs profiled it on OpenStudio (4,507 files, 39,167 imports): every graph tool resolved every import of the repository again on every call, 2.3 to 5.2 s each on 1.108.386, while tools that do not touch the graph answered in 0.01 to 0.1 s. 1.108.396 (#1224) had memoized the part of `resolve_specifier` that does not read the importer; the parts that do (relative paths, C includes, Python script folders, Racket, XAML, ASPX) still ran on every call, so the builders kept paying for the whole graph.
+
+`resolve_specifier` is a pure function of its five arguments, so its whole answer is now remembered per file set, alias map and PSR-4 map, keyed by importer and specifier. Every graph builder that passes the index's own file set inherits it without a change, including any written later; a caller that passes a plain set is resolved as before. On an export of this repository (1,503 files) a third `get_dependency_graph` call went from 0.284 s to 0.011 s and `find_importers` from 0.548 s to 0.021 s. On a generated 4,500-file C++ tree with 42,750 `#include` lines, shaped like the reporter's, they went from 0.263 s to 0.053 s and from 0.534 s to 0.091 s. The first graph call on a loaded index still pays for the resolve. ⚠ The memo is found by the identity of the caller's file set first: each builder makes a new `frozenset` per call, and looking up an equal-but-different set compares every path. The memo is process memory only: one entry per import resolved, about 95 bytes each (1.5 MB for this repository's 15,986), for at most 4 file sets with up to 4 alias and PSR-4 map pairs each. It has no entry cap of its own, so its size follows the repositories it is asked about. `invalidate_cache` clears it; SECURITY.md lists it beside the embedding cache. The retired test `test_a_gleam_importer_is_resolved_every_time` counted the tail memo's skips; its replacement asserts that a Gleam answer is never served to an importer in another package.
+
+### Fixed - a savings file that parses but holds the wrong type is refused, not frozen
+
+Found checking a customer's frozen savings meter against the fix in #1309. That fix refuses a `_savings.json` that cannot be read, is not JSON, is not an object or whose total is not a non-negative number: a WARNING names the file, the counts stay in memory and the meter reads as not current. A file that passed those checks but held a string where the meter adds a number slipped past them. A `by_tool` value, `total_encoding_tokens_saved` or a day in `daily` was enough. The merge then raised TypeError: the batch was lost, the file never changed and the meter still read `current`, the symptom #1309 set out to end. The error was logged at DEBUG only, so a default install showed nothing. The same values also raised inside `add`, the step every tool call takes to record its savings, and so did a `basis_generation` that is not a number (a ValueError); a generation written as the string `"2"` raised nothing and was written back as it stood.
+
+The one reader both the loader and the merge use, `_read_ledger`, now refuses such a file with the same WARNING and the same recovery: nothing is written until it reads again, the counts are kept, and repairing the file or moving it aside lets the next write take them. The same goes for a value that still holds counts in the wrong shape (a list of numbers where `daily`, `by_tool` or `measured_days` belongs), a negative, infinite or null total, and a `measured_days` count that is a string, a fraction or negative: each of these used to be rebuilt or read as 0 and written back while the meter read `current`. Only a value that holds no count at all, a stray string or null, is still rebuilt, since nothing is lost. A whole-number float (`2.0`) reads as the number it is. Any other error in the merge is refused the same way with its traceback logged, worded so a defect in the merge is not read as damage to the user's file. SECURITY.md names the wrong-type case. LEDGER L-293.
+
+## [1.108.411] - 2026-11-03 - a C or C++ #include resolves where the compiler finds it, and Go callers in the same package are found
+
+### Fixed - a C or C++ `#include` resolves where the compiler finds it (#1315)
+
+@skibadubskiybadubs measured it on OpenStudio, a 4,507-file C++ repo: 12,291 file edges were missing. `resolve_specifier` had no C-family rule. Only a specifier starting with `.` was joined to the importer's folder, so `#include "X.hpp"` beside the importer, the most common C++ form, resolved only when the header sat at the repo root, and `#include <model/Model.hpp>` never resolved when the include root was `src/`. Every tool built on the import graph inherited the gap: `find_importers`, `get_blast_radius`, `get_dependency_graph`, the dead-code tools and the delete preflight saw a C++ header as imported by nobody.
+
+A C, C++, Objective-C or Arduino importer now tries its own folder first, then the repo root, then `include/` and `src/`. The name is matched exactly, and an include the rule cannot place resolves to nothing: the old lookup read it as another language would, so `#include <vector>` could land on a `vector.py` at the root, `<vector>` on `db/vector.sql` and `"config.h"` on `config/h.py`. A header beside the importer now wins over one of the same name at the root, which is the one the compiler picks, so such an edge moves. A `./` or `../` include reads as before. The stored edge does not keep the quotes or brackets, so an angle include is also tried in the importer's folder, which a compiler does only for a quoted one. Include roots named in the build files (`include_directories`, `-I`) are not read. The resolver change needs no re-index.
+
+The extractor read only an unindented `#include`. Objective-C's `#import`, the usual form there, `#include_next`, an indented `#include` and `# include` gave no edge at all; they do now. That changes `files.imports` on unchanged content, so `PARSER_GENERATION` is 28 and the next index re-parses. The Ruby finding in the same report is #1316.
+
+### Fixed - who calls a Go function finds callers in the same package
+
+Go files in one directory form one package and call each other with no import statement. `get_call_hierarchy`, `get_blast_radius` and `get_impact_preview` looked for callers only in files the import graph linked to the symbol's file, so a caller in the same package was never considered. On gin, who-calls found 1 of 4 callers and what-breaks found none, with `auth.go`, `recovery.go` and `routergroup.go` reported as `import_graph_did_not_reach`. Found by Benchmarking's relationship checks on 1.108.401 (LEDGER L-262).
+
+A Go file's package siblings (same directory, also Go) now count as files that may call it, in all three tools and at every call depth. Callers found that way are no longer reported as unreached, a same-package `_test.go` gives a function test reach, and blast radius counts a same-package caller as a dependent, two hops up as well as one. A same-named method on another type, an interface that only declares the method, and a function in another package with its own helper of the same name are not callers. Files in other languages in the same directory still need an import. Java packages and C# namespaces have the same shape and are not covered here.
+
+The compact encoding of `get_blast_radius` dropped two body-level disclosures, `incomplete` and `dynamic_imports_unfollowed`, as undeclared fields. It carries them now, as encoding `br4`; `br3` and `br2` still decode. The extra package scan costs time on a large package: measured in review on a synthetic 300-file Go package, a query took 16.5 ms against 2.6 ms before.
+
+## [1.108.410] - 2026-11-02 - a savings meter that stops measuring says so, and Rails views are indexed
 
 ### Fixed - `reflect --apply-weights` writes the tuning file the server reads
 

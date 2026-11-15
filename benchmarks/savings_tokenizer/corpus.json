@@ -1,0 +1,386 @@
+[
+ {
+  "language": "python",
+  "repo": "django/django",
+  "sha": "9600da0b98b98b00e310c66b964f259ad5932daa",
+  "bytes": 59802106
+ },
+ {
+  "language": "python",
+  "repo": "pallets/flask",
+  "sha": "49943b5a94413a530761350f04e896f76e8d620e",
+  "bytes": 2636797
+ },
+ {
+  "language": "python",
+  "repo": "psf/requests",
+  "sha": "3c7baaa05ab4aa49cc819ce3a819d260de19c157",
+  "bytes": 7654967
+ },
+ {
+  "language": "python",
+  "repo": "psf/black",
+  "sha": "b4f1fcae48826790b6f93ca9226d20003bce0eaa",
+  "bytes": 7943081
+ },
+ {
+  "language": "javascript",
+  "repo": "expressjs/express",
+  "sha": "43fca52d28a422c8be48fd489cbd4f2d6152bab6",
+  "bytes": 964701
+ },
+ {
+  "language": "javascript",
+  "repo": "lodash/lodash",
+  "sha": "2b5e6f7399a7b48005140b5d5c6bc6c0e62919a8",
+  "bytes": 5624485
+ },
+ {
+  "language": "javascript",
+  "repo": "webpack/webpack",
+  "sha": "27d9f2c4334a81ab9919d4a8627e8fba12b4e839",
+  "bytes": 110763127
+ },
+ {
+  "language": "javascript",
+  "repo": "mrdoob/three.js",
+  "sha": "054a1fa19be93fc4f729f89dd12438b55b96aeaa",
+  "bytes": 970860136
+ },
+ {
+  "language": "typescript",
+  "repo": "nestjs/nest",
+  "sha": "f5a84c2ca3a76d830b733c8307ceeea82be54c18",
+  "bytes": 11694231
+ },
+ {
+  "language": "typescript",
+  "repo": "vitejs/vite",
+  "sha": "39d63b8479c6314caab9b78a05d3aaaf36a86b2c",
+  "bytes": 31227931
+ },
+ {
+  "language": "typescript",
+  "repo": "colinhacks/zod",
+  "sha": "19c40d2072288b4cafec851e9d056a72a88e5973",
+  "bytes": 23311044
+ },
+ {
+  "language": "typescript",
+  "repo": "prisma/prisma",
+  "sha": "e1b4c8a1018c97aff71aaa3a14dba44335e6cf4a",
+  "bytes": 140492262
+ },
+ {
+  "language": "go",
+  "repo": "gin-gonic/gin",
+  "sha": "0f09c3a9b4626d9fe9979cf4d0521d6ae32ab646",
+  "bytes": 1158047
+ },
+ {
+  "language": "go",
+  "repo": "spf13/cobra",
+  "sha": "adbc8813901bba65827259daa8e22ff94ec1f30e",
+  "bytes": 966499
+ },
+ {
+  "language": "go",
+  "repo": "gohugoio/hugo",
+  "sha": "afb2d9ac7558afebe05bd2bcb399311f33d7fff1",
+  "bytes": 40626802
+ },
+ {
+  "language": "go",
+  "repo": "prometheus/prometheus",
+  "sha": "49c815a0ea46c7a6a6b723e4b634c4bf36f7022c",
+  "bytes": 38364547
+ },
+ {
+  "language": "rust",
+  "repo": "BurntSushi/ripgrep",
+  "sha": "178cc027e283fd965cb72d0a7395b219eada170c",
+  "bytes": 3959408
+ },
+ {
+  "language": "rust",
+  "repo": "tokio-rs/tokio",
+  "sha": "ab0814fc8c62b3d8be40aad068e2fed6562cfeb0",
+  "bytes": 8204798
+ },
+ {
+  "language": "rust",
+  "repo": "serde-rs/serde",
+  "sha": "aa7913ad0211fef960df68e7812a6211145a888c",
+  "bytes": 1663386
+ },
+ {
+  "language": "rust",
+  "repo": "clap-rs/clap",
+  "sha": "ec93e71255c0b833a34f50662a3fdb22f53f6ded",
+  "bytes": 4458868
+ },
+ {
+  "language": "java",
+  "repo": "google/guava",
+  "sha": "72a3f9060a600a795c6c9ccfcd907d2ad975753c",
+  "bytes": 41373741
+ },
+ {
+  "language": "java",
+  "repo": "FasterXML/jackson-databind",
+  "sha": "55cb6b4e2554d056431e2d8c76e46f1cb789329e",
+  "bytes": 17428037
+ },
+ {
+  "language": "java",
+  "repo": "junit-team/junit5",
+  "sha": "c22e1f87178f145356d780b71a66bc99045a3841",
+  "bytes": 13684975
+ },
+ {
+  "language": "java",
+  "repo": "square/retrofit",
+  "sha": "a7460117708b4c1c20a2dafb24eb540d388d0e85",
+  "bytes": 7805246
+ },
+ {
+  "language": "csharp",
+  "repo": "JamesNK/Newtonsoft.Json",
+  "sha": "52fa3aef1f2cadcd3a3f874251eddc98d3efbbaa",
+  "bytes": 20277874
+ },
+ {
+  "language": "csharp",
+  "repo": "DapperLib/Dapper",
+  "sha": "eb47546a408bbf6c178bda4f04dc205bc51ffbfe",
+  "bytes": 1773728
+ },
+ {
+  "language": "csharp",
+  "repo": "App-vNext/Polly",
+  "sha": "98eaf1220c5e4ab58e0b4170eed8827f81e12cc3",
+  "bytes": 12343620
+ },
+ {
+  "language": "csharp",
+  "repo": "AutoMapper/AutoMapper",
+  "sha": "9c31182a3eb99d5191ccc71ee90105846830917f",
+  "bytes": 8624290
+ },
+ {
+  "language": "c",
+  "repo": "redis/redis",
+  "sha": "0cfe837207b3236360ef57780f59843940f926d2",
+  "bytes": 31436888
+ },
+ {
+  "language": "c",
+  "repo": "curl/curl",
+  "sha": "69cbe2698393c38909e2eade2e8b505ccf244365",
+  "bytes": 24078937
+ },
+ {
+  "language": "c",
+  "repo": "jqlang/jq",
+  "sha": "5c001b18d7237cce1fdba63608732163f978dd23",
+  "bytes": 6285415
+ },
+ {
+  "language": "c",
+  "repo": "libuv/libuv",
+  "sha": "ac325226bd37e9ca978694dd01b7cf600f05a339",
+  "bytes": 6591381
+ },
+ {
+  "language": "cpp",
+  "repo": "fmtlib/fmt",
+  "sha": "4229eb5820af49bf797641168624c8a754a1a4eb",
+  "bytes": 4022286
+ },
+ {
+  "language": "cpp",
+  "repo": "nlohmann/json",
+  "sha": "017a3ce0011545104c319ae41be318ec61750553",
+  "bytes": 31081971
+ },
+ {
+  "language": "cpp",
+  "repo": "google/leveldb",
+  "sha": "bb74ef739973a70ca9f0d90788a1da89b788c0ad",
+  "bytes": 1341893
+ },
+ {
+  "language": "cpp",
+  "repo": "google/googletest",
+  "sha": "24990589481d2ed05602a304bee5ca716273762a",
+  "bytes": 5231461
+ },
+ {
+  "language": "ruby",
+  "repo": "rails/rails",
+  "sha": "fec707f56360ce14b1a3c24b4be5e8f3bc84e12f",
+  "bytes": 54374844
+ },
+ {
+  "language": "ruby",
+  "repo": "sinatra/sinatra",
+  "sha": "cb22afd7902b566b6eaba6c4ea89739494a65d12",
+  "bytes": 1331600
+ },
+ {
+  "language": "ruby",
+  "repo": "rubocop/rubocop",
+  "sha": "d8a705e76dae9b74ff8810eecf0d5d3a9cd16cd3",
+  "bytes": 21307100
+ },
+ {
+  "language": "ruby",
+  "repo": "jekyll/jekyll",
+  "sha": "97c3bdc822df9d5bea4c269b29a28de5a5e29d70",
+  "bytes": 5059681
+ },
+ {
+  "language": "php",
+  "repo": "laravel/framework",
+  "sha": "c33d357a57f1db1cb562104bd367a9ff3ebbe1d5",
+  "bytes": 36601733
+ },
+ {
+  "language": "php",
+  "repo": "symfony/console",
+  "sha": "dc3c284882e545b47f590c392e7be0da4184b6e2",
+  "bytes": 3138836
+ },
+ {
+  "language": "php",
+  "repo": "guzzle/guzzle",
+  "sha": "7d9b1f430bb65ac664e120af227bf9a795ad6333",
+  "bytes": 3722274
+ },
+ {
+  "language": "php",
+  "repo": "composer/composer",
+  "sha": "d9d851d93b71ba914200ccfdda2d03fc0f2c51aa",
+  "bytes": 9178169
+ },
+ {
+  "language": "kotlin",
+  "repo": "ktorio/ktor",
+  "sha": "591b8436592de21bf307f5e7b97a8e9fed54efe0",
+  "bytes": 100576039
+ },
+ {
+  "language": "kotlin",
+  "repo": "Kotlin/kotlinx.coroutines",
+  "sha": "ead082131ceb45b8e4fda027c74471103c1cd09f",
+  "bytes": 22529811
+ },
+ {
+  "language": "kotlin",
+  "repo": "detekt/detekt",
+  "sha": "f14dcd0bd312cd696648aa9e02810076ab03c411",
+  "bytes": 14964369
+ },
+ {
+  "language": "kotlin",
+  "repo": "square/okio",
+  "sha": "f0e3f479f83531332de076ed39bc001a5618d538",
+  "bytes": 5052442
+ },
+ {
+  "language": "swift",
+  "repo": "Alamofire/Alamofire",
+  "sha": "b3e74e8301cc53c8f82afb9db141d52952876e69",
+  "bytes": 24753434
+ },
+ {
+  "language": "swift",
+  "repo": "apple/swift-nio",
+  "sha": "b440f7bae8894b5ec42e0f1842fcd77483ab3984",
+  "bytes": 11062276
+ },
+ {
+  "language": "swift",
+  "repo": "onevcat/Kingfisher",
+  "sha": "503d8e875623dcc3c1482370c4cd54579b9fa5ce",
+  "bytes": 5775394
+ },
+ {
+  "language": "scala",
+  "repo": "typelevel/cats",
+  "sha": "e28985fe2a0d7123a8fb84cbb70c72b5e3d935ca",
+  "bytes": 6343749
+ },
+ {
+  "language": "scala",
+  "repo": "circe/circe",
+  "sha": "b38c17d9a9dd9b761a68319cff038d75bbf0cf8d",
+  "bytes": 2061140
+ },
+ {
+  "language": "scala",
+  "repo": "scalameta/scalafmt",
+  "sha": "e1f0c2dcdcc5649c424264ca5b88b6b0322ae30a",
+  "bytes": 9551444
+ },
+ {
+  "language": "scala",
+  "repo": "akka/akka",
+  "sha": "aeab8a909377696025e9dfa508abf1efca73342f",
+  "bytes": 55589127
+ },
+ {
+  "language": "dart",
+  "repo": "cfug/dio",
+  "sha": "f1bef462289b40992d625d4eb2a2f42321217573",
+  "bytes": 7605920
+ },
+ {
+  "language": "dart",
+  "repo": "rrousselGit/riverpod",
+  "sha": "fd076befac7b58ace8e8251bad076ac4cf5240ff",
+  "bytes": 49164874
+ },
+ {
+  "language": "dart",
+  "repo": "felangel/bloc",
+  "sha": "b9be1e252ee24ffbe9f2fb629edc7624b2cfbf05",
+  "bytes": 57715037
+ },
+ {
+  "language": "dart",
+  "repo": "dart-lang/http",
+  "sha": "2bac218a1115a58addd140d7a7eaabf803d57631",
+  "bytes": 6241252
+ },
+ {
+  "language": "elixir",
+  "repo": "phoenixframework/phoenix",
+  "sha": "789f851c3cda02f56702a16700ebba48d270cbd3",
+  "bytes": 5922443
+ },
+ {
+  "language": "elixir",
+  "repo": "elixir-ecto/ecto",
+  "sha": "0e31befcada8660dc622884199f4418494d73bac",
+  "bytes": 3329402
+ },
+ {
+  "language": "elixir",
+  "repo": "elixir-plug/plug",
+  "sha": "0d5b5eacb93b6de8f89454452cb232aa57672733",
+  "bytes": 1048947
+ },
+ {
+  "language": "elixir",
+  "repo": "elixir-lang/elixir",
+  "sha": "2d81cf3fc97cd5760170d3dc1552663e4cd32856",
+  "bytes": 19478582
+ },
+ {
+  "language": "swift",
+  "repo": "realm/SwiftLint",
+  "sha": "d9c55cdd401f57bdc1de965e620852ddb87fd175",
+  "bytes": 5644379
+ }
+]

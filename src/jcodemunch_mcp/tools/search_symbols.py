@@ -10,7 +10,7 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
-from ..storage import IndexStore, record_savings, estimate_savings, cost_avoided
+from ..storage import IndexStore, record_savings, cost_avoided
 from ..storage import result_cache_record_lookup
 from ..parser.imports import resolve_specifier
 from ..retrieval.query_shape import (
@@ -154,12 +154,129 @@ def _attach_index_truncation(meta: Optional[dict], index) -> None:
     if not isinstance(meta, dict):
         return
     from ..retrieval.verdict import index_truncation_meta as _itm
+    from ..retrieval.verdict import index_withheld_meta as _iwm
     block = _itm(getattr(index, "file_cap_status", None))
     if block:
         meta["index_truncated"] = block
+    withheld = _iwm(index)
+    if withheld:
+        meta["index_withheld"] = withheld
 
 
-def _attach_no_exact_match(
+def _filters_of(kind, file_pattern, language, decorator) -> dict:
+    """The filters a call narrowed its scan with, in a fixed order."""
+    pairs = (
+        ("language", language),
+        ("kind", kind),
+        ("file_pattern", file_pattern),
+        ("decorator", decorator),
+    )
+    return {k: v for k, v in pairs if v}
+
+
+def _attach_no_exact_match(result: dict, query: str, index, *, filters: dict) -> None:
+    """The exact-match marker, then the filter scope, at every exit.
+
+    Every exit calls this (lexical, semantic, fusion and fusion's empty-scope
+    return), and ``filters`` is a required keyword so a call cannot leave the
+    scope out. A new exit still has to call it; the tests drive each mode.
+    """
+    _mark_no_exact_match(result, query, index)
+    _scope_to_filters(result, query, index, filters)
+
+
+def _scope_to_filters(result: dict, query: str, index, filters: dict) -> None:
+    """Say that a filtered scan describes the filter, not the index.
+
+    ``search_symbols(query="index_folder", language="rust")`` said "No symbol
+    named 'index_folder' is in this index" while the index held it in
+    Python, and with no rows it minted a citable absence and "Do not claim
+    this feature exists", naming the filter nowhere. Every filter is named in
+    the verdict and every sentence about the index is scoped to it.
+
+    An attribute filter (``language``, ``kind``, ``decorator``) also refuses
+    an ``absent`` state: it selects symbols by a property of the symbol, so
+    nothing found is not absence of the name. A ``file_pattern`` alone keeps
+    a citable absence, as ``search_text`` does: it is a path scope, the
+    evidence record carries it (``producers`` declares it a scope argument),
+    and a citation is scoped to it.
+
+    The count of same-named symbols outside the filter is published only
+    when the scan found no exact match inside it, so the whole-index count is
+    exactly the outside count; otherwise nothing is claimed.
+    """
+    if not filters:
+        return
+    label = ", ".join(f"{k}={v}" for k, v in filters.items())
+    from ..retrieval.query_shape import exact_match_report as _exact_match_report
+    from ..retrieval.verdict import filters_refuse_absence as _filters_refuse
+    from ..retrieval.verdict import refuse_absence as _refuse_absence
+
+    _meta = result.get("_meta")
+    meta: dict = _meta if isinstance(_meta, dict) else {}
+    exact = meta.get("exact_match")
+    rows = result.get("results") or []
+    if isinstance(exact, dict):
+        inside_known_zero = not exact.get("exact")
+    else:
+        inside_known_zero = not rows
+    outside = 0
+    if inside_known_zero:
+        report = _exact_match_report(query, index.symbols)
+        outside = report["exact"] if report is not None and report["exact"] else 0
+    q = query.strip()[:80]
+    tail = (
+        f" {outside} symbol(s) named '{q}' exist in the index outside this filter."
+        if outside
+        else ""
+    )
+    old_exact_note = exact.get("note") if isinstance(exact, dict) else None
+    if isinstance(exact, dict) and not exact.get("found"):
+        exact["filters"] = dict(filters)
+        if outside:
+            exact["exact_outside_filters"] = outside
+        if old_exact_note:
+            exact["note"] = (
+                f"No symbol named '{q}' matches {label}.{tail} The results below "
+                f"share tokens with the query and are ranked guesses, not matches."
+            )
+    verdict = meta.get("verdict")
+    if isinstance(verdict, dict):
+        verdict["filters"] = dict(filters)
+        refused = _filters_refuse(filters) and _refuse_absence(
+            verdict,
+            f"Nothing matched within {label}. The filter narrowed the scan, so "
+            f"this is not evidence the symbol is absent from the index.{tail}",
+        )
+        if not refused and verdict.get("state") == "absent":
+            # A path scope stays citable, but only within the scope: the note
+            # names it, never "the index".
+            verdict["note"] = (
+                f"No match found after scanning the files matching {label}. Treat "
+                f"this as evidence the target is not present within that scope; it "
+                f"says nothing about files outside it.{tail}"
+            )
+        elif (
+            not refused
+            and isinstance(exact, dict)
+            and old_exact_note
+            and verdict.get("note") == old_exact_note
+        ):
+            verdict["note"] = exact["note"]
+    neg = result.get("negative_evidence")
+    if isinstance(neg, dict):
+        neg["filters"] = dict(filters)
+        if outside:
+            neg["exact_outside_filters"] = outside
+    warning = result.get("\u26a0 warning")
+    if isinstance(warning, str) and warning.startswith("No implementation found"):
+        result["\u26a0 warning"] = (
+            f"No implementation found for '{q}' within {label}. Do not read this "
+            f"as absence from the index.{tail}"
+        )
+
+
+def _mark_no_exact_match(
     result: dict,
     query: str,
     index,
@@ -336,6 +453,33 @@ def _compute_centrality(
     return {f: math.log(1 + c) * _CENTRALITY_WEIGHT for f, c in counts.items()}
 
 
+def _corpus_stats(index) -> tuple[dict[str, float], float, dict[str, list[int]], dict[str, float]]:
+    """(idf, avgdl, inverted, centrality) computed over ``index``."""
+    idf, avgdl, inverted = _compute_bm25(index.symbols)
+    centrality = _compute_centrality(
+        index.symbols, index.imports, index.alias_map,
+        getattr(index, "psr4_map", None),
+    )
+    return idf, avgdl, inverted, centrality
+
+
+def publish_corpus_stats(index, idf, avgdl, inverted, centrality) -> None:
+    """Fill an empty ``index._bm25_cache`` with precomputed corpus stats.
+
+    For a full save, which computes them before caching the index (#1343).
+    Takes the index's lock and leaves a cache that is already filled alone.
+    """
+    cache = index._bm25_cache
+    with getattr(index, "_bm25_lock", None) or _BM25_FALLBACK_LOCK:
+        if any(k in cache for k in _BM25_CORPUS_KEYS):
+            return
+        cache["avgdl"] = avgdl
+        cache["inverted"] = inverted
+        cache["centrality"] = centrality
+        # Sentinel last (#490).
+        cache["idf"] = idf
+
+
 # The four keys the lexical corpus cache publishes together. ``idf`` is the
 # readiness sentinel every historical call site checked, so it stays the last
 # one written; the fast path below checks all four anyway, so a future edit that
@@ -376,16 +520,38 @@ def ensure_bm25_cache(index) -> dict:
     with getattr(index, "_bm25_lock", None) or _BM25_FALLBACK_LOCK:
         if all(k in cache for k in _BM25_CORPUS_KEYS):
             return cache
-        idf, avgdl, inverted = _compute_bm25(index.symbols)
-        centrality = _compute_centrality(
-            index.symbols, index.imports, index.alias_map,
-            getattr(index, "psr4_map", None),
-        )
+
+        # #1343 (@tmhtech4): a fresh process reuses the statistics stored in
+        # the index's own .db when they describe exactly what it loaded
+        # (`storage/bm25_stats.py` says how that is decided).
+        from ..storage import bm25_stats
+        from ..storage.generation import describe
+
+        # A branch index is composed in memory and never stored, so a base
+        # row can only miss: skip the read and the digest.
+        db_path = None if getattr(index, "branch", "") else describe(index).db_path
+        digest = None
+        if db_path:
+            digest = bm25_stats.corpus_digest(index)
+            stored = bm25_stats.load(db_path, index, digest)
+            if stored is not None:
+                cache["avgdl"] = stored["avgdl"]
+                cache["inverted"] = stored["inverted"]
+                cache["centrality"] = stored["centrality"]
+                # Sentinel last: see the module note above.
+                cache["idf"] = stored["idf"]
+                return cache
+
+        idf, avgdl, inverted, centrality = _corpus_stats(index)
         cache["avgdl"] = avgdl
         cache["inverted"] = inverted
         cache["centrality"] = centrality
         # Sentinel last: see the module note above.
         cache["idf"] = idf
+        if digest is not None:
+            # Stored by the dispatcher after the response and while no call
+            # runs (server `_schedule_bm25_flush`), outside this lock.
+            bm25_stats.queue_write_back(index, digest, (idf, avgdl, inverted, centrality))
     return cache
 
 
@@ -675,6 +841,29 @@ def _declaration_rank(entry: dict, index, needles: Optional[tuple[str, str]]) ->
         if getter(f"{file_part}::{owner_path}#{kind}") is not None:
             return 1  # proven local
     return 2
+
+
+def _credit_served_rows(index, rows: list) -> tuple[int, str]:
+    """Tokens saved by serving ``rows`` instead of the files they came from.
+
+    Raw side: each distinct file a row came from, at its stored token count
+    (``storage/token_counts.py``). Response side: the rows as served,
+    serialized and counted. Both in the unit ``savings_tokenizer`` names, and
+    the second value says how they were counted. The response side used to be
+    ``byte_length``, the symbol's SOURCE size, which a compact or standard row
+    does not send and a full row sends plus its fields, so the credit did not
+    depend on what was served.
+    ⚠ The one rule for all three exits (lexical, semantic, fusion); a fourth
+    exit calls this rather than carrying a copy.
+    """
+    from ..savings_tokenizer import credit_files, served_text
+
+    langs = getattr(index, "file_languages", None) or {}
+    return credit_files(
+        index,
+        [entry.get("file") for entry in rows],
+        [(langs.get(entry.get("file")), served_text(entry)) for entry in rows],
+    )
 
 
 def search_symbols(
@@ -1251,16 +1440,8 @@ def search_symbols(
             scored_results.append(entry)
 
     # Token savings: files containing matches vs symbol byte_lengths of results
-    raw_bytes = 0
-    seen_files: set = set()
-    response_bytes = 0
-    for entry in scored_results:
-        f = entry["file"]
-        if f not in seen_files:
-            seen_files.add(f)
-            raw_bytes += index.file_sizes.get(f, 0)
-        response_bytes += entry["byte_length"]
-    tokens_saved = estimate_savings(raw_bytes, response_bytes)
+    seen_files: set = {entry["file"] for entry in scored_results}
+    tokens_saved, savings_basis = _credit_served_rows(index, scored_results)
     total_saved = record_savings(tokens_saved, tool_name="search_symbols")
 
     elapsed = (time.perf_counter() - start) * 1000
@@ -1280,6 +1461,7 @@ def search_symbols(
         "total_symbols": len(index.symbols),
         "truncated": candidates_scored > heap_count or budget_truncated,
         "tokens_saved": tokens_saved,
+        "tokens_saved_basis": savings_basis,
         "total_tokens_saved": total_saved,
         **cost_avoided(tokens_saved, total_saved),
     }
@@ -1425,7 +1607,10 @@ def search_symbols(
                 f"(best score: {negative_evidence['best_match_score']}). "
                 f"Verify before claiming this feature exists."
             )
-    _attach_no_exact_match(result, query, index)
+    _attach_no_exact_match(
+        result, query, index,
+        filters=_filters_of(kind, file_pattern, language, decorator),
+    )
 
     # Feature 5: Cache the result if cacheable
     if _cacheable and _cache_key is not None:
@@ -1792,16 +1977,8 @@ def _search_symbols_semantic(
         scored_results = packed
 
     # ── Meta ───────────────────────────────────────────────────────────────
-    raw_bytes = 0
-    seen_files: set = set()
-    response_bytes = 0
-    for entry in scored_results:
-        f = entry["file"]
-        if f not in seen_files:
-            seen_files.add(f)
-            raw_bytes += index.file_sizes.get(f, 0)
-        response_bytes += entry["byte_length"]
-    tokens_saved = estimate_savings(raw_bytes, response_bytes)
+    seen_files: set = {entry["file"] for entry in scored_results}
+    tokens_saved, savings_basis = _credit_served_rows(index, scored_results)
     total_saved = record_savings(tokens_saved, tool_name="search_symbols")
     elapsed = (time.perf_counter() - start) * 1000
 
@@ -1810,6 +1987,7 @@ def _search_symbols_semantic(
         "total_symbols": len(index.symbols),
         "truncated": len(scored) > len(scored_results),
         "tokens_saved": tokens_saved,
+        "tokens_saved_basis": savings_basis,
         "total_tokens_saved": total_saved,
         "search_mode": "semantic_only" if semantic_only else "hybrid",
         **cost_avoided(tokens_saved, total_saved),
@@ -1995,7 +2173,10 @@ def _search_symbols_semantic(
                 f"Verify before claiming this feature exists."
             )
     # A similarity ranking can leave the named symbol off the page: scan the index.
-    _attach_no_exact_match(result, query, index)
+    _attach_no_exact_match(
+        result, query, index,
+        filters=_filters_of(kind, file_pattern, language, decorator),
+    )
 
     _attach_index_truncation(result.get("_meta"), index)
     return result
@@ -2079,7 +2260,12 @@ def _search_symbols_fusion(
                 ),
             },
         )["verdict"]
-        return {"result_count": 0, "results": [], "_meta": _empty_meta}
+        _empty = {"result_count": 0, "results": [], "_meta": _empty_meta}
+        _attach_no_exact_match(
+            _empty, query, index,
+            filters=_filters_of(kind, file_pattern, language, decorator),
+        )
+        return _empty
 
     # Load config weights
     weights, smoothing = load_fusion_weights()
@@ -2252,16 +2438,8 @@ def _search_symbols_fusion(
         scored_results = packed
 
     # Token savings
-    raw_bytes = 0
-    seen_files: set = set()
-    response_bytes = 0
-    for entry in scored_results:
-        f = entry["file"]
-        if f not in seen_files:
-            seen_files.add(f)
-            raw_bytes += index.file_sizes.get(f, 0)
-        response_bytes += entry["byte_length"]
-    tokens_saved = estimate_savings(raw_bytes, response_bytes)
+    seen_files: set = {entry["file"] for entry in scored_results}
+    tokens_saved, savings_basis = _credit_served_rows(index, scored_results)
     total_saved = record_savings(tokens_saved, tool_name="search_symbols")
 
     elapsed = (time.perf_counter() - start) * 1000
@@ -2271,6 +2449,7 @@ def _search_symbols_fusion(
         "total_symbols": len(index.symbols),
         "truncated": len(fused) > len(scored_results) or budget_truncated,
         "tokens_saved": tokens_saved,
+        "tokens_saved_basis": savings_basis,
         "total_tokens_saved": total_saved,
         **cost_avoided(tokens_saved, total_saved),
         "fusion": True,
@@ -2424,7 +2603,10 @@ def _search_symbols_fusion(
                 f"Verify before claiming this feature exists."
             )
     # Before the cache put, so a replay carries the marker too.
-    _attach_no_exact_match(result, query, index)
+    _attach_no_exact_match(
+        result, query, index,
+        filters=_filters_of(kind, file_pattern, language, decorator),
+    )
 
     _attach_index_truncation(result.get("_meta"), index)
     # A failed channel is not cached: the key holds neither provider nor library

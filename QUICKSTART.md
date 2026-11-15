@@ -15,7 +15,7 @@ uvx jcodemunch-mcp
 
 # jCodeMunch Quick Start
 
-Get from zero to 95% token savings in one command.
+Get from zero to symbol-level code retrieval in one command. What it saves per lookup, measured, is in the [benchmark](benchmarks/README.md).
 
 ---
 
@@ -43,6 +43,8 @@ jcodemunch-mcp init --yes --claude-md global --hooks --index --audit
 Run `jcodemunch-mcp init --dry-run` to preview what it would do without changing anything. Or try `jcodemunch-mcp init --demo` — walks through the full process without making changes, then prints what *would* have happened.
 
 After `init` completes, restart your MCP client(s). Confirm with `/mcp` in Claude Code — you should see `jcodemunch` listed as connected.
+
+After an upgrade, restart again: a running server keeps serving the code it started with. [Upgrading a running server](USER_GUIDE.md#upgrading-a-running-server) shows how to check the serving version, and `jcodemunch-mcp install-status` lists the servers that need a restart.
 
 > **Recommended:** use `uvx` instead of `pip install`. It resolves the package on demand and avoids PATH issues where MCP clients can't find the executable.
 

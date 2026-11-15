@@ -3054,3 +3054,257 @@ The 1.108.406 entry, verbatim as it stood in `CLAUDE.md`:
 The `Tests:` line's 1.108.406 count, verbatim:
 
 - ⚠ Prior (1.108.406): 19550 passed, 24 skipped, **0 failed** (19574 total).
+
+## Current State rotation (2026-11-02, release 1.108.410)
+
+The 1.108.407 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.407):** **a stdio server exits when the process that started it is gone, and storage reports how much disk the index uses** (#1297-#1301): `serve` on stdio watches its parent (PID plus start time, past Windows launchers) and exits when it is gone, `JCODEMUNCH_PARENT_WATCH_SECONDS` sets the interval and 0 turns it off; `jcodemunch-mcp storage` reports the store by index without opening a database; a query that names a tool ranks that tool first. Full text: `CHANGELOG.md`.
+
+The `Tests:` line's 1.108.407 count, verbatim:
+
+- ⚠ Prior (1.108.407): 19613 passed, 24 skipped, **0 failed** (19637 total).
+
+## Current State rotation (2026-11-03, release 1.108.411)
+
+The 1.108.408 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.408):** **a rare work-license reminder, never shown to a license holder** (#1303): a machine is told work use needs a license 7 days after its first index is seen, then at most every 30 days, on stderr after a human-read command or in `license_notice`; never with a key, on CI, after `config set license_reminder false` or with `JCODEMUNCH_LICENSE_REMINDER=0`; the console script enters through `server.cli`. Full text: `CHANGELOG.md`.
+
+The `Tests:` line's 1.108.408 count, verbatim:
+
+- ⚠ Prior (1.108.408): 19660 passed, 24 skipped, **0 failed** (19684 total).
+
+## Current State rotation (2026-11-03, release 1.108.412)
+
+The 1.108.409 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.409):** **a search for a name nothing carries says so on a default install** (#1308, #1306): an identifier-shaped `search_symbols` query with no exact and no prefix match anywhere in the index carries `negative_evidence: no_exact_match` and a warning in the body, which `meta_fields: []` keeps; rows and ranking are unchanged and the verdict state is `low_confidence`, never `absent`. The work-license reminder's buy link names where it was shown. Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-03, release 1.108.413)
+
+The 1.108.410 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.410):** **a savings meter that stops measuring says so, and Rails views are indexed** (#1309, #1307, #1311): the savings meter records `last_flush_at` and `measured_days` on every write that carries a call, so a 0 is a measurement and a missing day is not, and `receipt`, `diagnose` and `get_session_stats` carry `lifetime_status` (`current`/`stale`/`unknown`); its write can no longer wipe or lose counts; `.erb` is a language; `tuning.jsonc` and the embedding-drift canary follow `CODE_INDEX_PATH` through the store's own root rule. Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-03, release 1.108.414)
+
+The 1.108.411 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.411):** **a C or C++ #include resolves where the compiler finds it, and Go callers in the same package are found** (#1315, #1313): a C-family include tries the importer's folder, the root, `include/`, `src/`; a miss resolves to nothing; who-calls, blast radius and impact preview count a Go file's same-directory siblings as callers. Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-04, release 1.108.415)
+
+The 1.108.412 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.412):** **graph tools resolve each import once per loaded index, and a savings file holding the wrong type is refused, not frozen** (#1317, #1320, #1322): `resolve_specifier` remembers its whole answer per file set, alias map and PSR-4 map, keyed by importer and specifier, so a graph tool after the first call on an index skips the resolve; `_read_ledger` refuses a `_savings.json` holding the wrong type wherever the merge adds a number, with #1309's warning and recovery. Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-04, release 1.108.416)
+
+The 1.108.413 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.413):** **the license terms read the same in the terminal, the package and the site** (#1321): the CLI's license lines and the package descriptions state the site's terms, `receipt` ends with a one-line license note on a machine with no key, and `license_reminder.switch_reason` is the one rule for when the lines stay quiet. Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-04, release 1.108.417)
+
+The 1.108.414 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.414):** **a class comes back as its outline, and an import finds the file in its own language** (#1326, #1327): `get_symbol_source` returns a class with each method collapsed to its signature by default (`class_body="full"` for the whole body, a 1.x default change); an extensionless Ruby or Python import tries the importer's own language's file first. Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-05, release 1.108.418)
+
+The 1.108.415 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.415):** **a search for library code ranks the library above its tutorial and example copies** (#1324): `search_symbols` weights a symbol under an example, tutorial, sample or demo directory down when the query isn't about examples, the way it already weighted tests; a served debug row names the weight under `score_breakdown`. Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-05, release 1.108.419)
+
+The 1.108.416 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.416):** **a search credits the tokens it saved on a fresh install's index** (#1330): a full save and a branch save store a size for every file from the content folder, and an index built before the fix reads a missing size from its content copy, so `search_symbols` and five other read tools credit savings without a re-index. Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-06, release 1.108.420)
+
+The 1.108.417 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.417):** **a wrong call through order names a call that works** (#1333): on the counter surface every action an `order` reply or a turned-off refusal names is written as `order(action="...")`, a typo gets up to three close actions, a turned-off tool is never suggested, and the refusal names the file that lists it and tells the agent to ask the user. Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-06, release 1.108.421)
+
+The 1.108.418 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.418):** **a search on a capped index says, in its answer, that the index is partial** (#1336): a tool answer drawn from an index the `max_folder_files` cap truncated carries one body line, `index_warning`, with the file counts and the setting to raise, attached before the display filter so a default `meta_fields: []` install still sees it; `get_ranked_context` reports the cap on every exit, so its no-match answer on a capped index is no longer citable as absence. Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-06, release 1.108.422)
+
+The 1.108.419 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.419):** **the file cap limits what one call parses, not what the index keeps** (#1338, #1339): an agent's `index_folder` call parses at most `max_folder_files` (2,000) and the command line uses `cli_max_folder_files` (30,000), and a capped call never drops the files past its cap from an index built past it, on any route including `paths=`; the opt-in Grep answer (`JCODEMUNCH_HOOK_GREP_ANSWER=1`, off by default) counts every match of a Grep at or over 66 matching lines and lets a smaller one, or any Grep on a capped index, run. Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-07, release 1.108.423)
+
+The 1.108.420 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.420):** **re-indexing one file by path keeps a partial index marked partial** (#1341): an `index_folder` call with `paths=[...]` keeps the stored `file_cap_status` on every save route, so a partial index stays marked partial; a whole-tree walk still writes the status it found. Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-07, release 1.108.424)
+
+The 1.108.421 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.421):** **a starter pack installs in a few megabytes, and a file tree costs a third of the characters** (#1346, #1342): `install-pack` streams the download to a temp file and copies each archive member in chunks, so peak memory no longer grows with the pack; `get_file_tree` has a compact encoding that decodes to the same tree. Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-08, release 1.108.425)
+
+The 1.108.422 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.422):** **the shared parse cache never serves what an older parser emitted** (#1347): the shared parse cache (`JCODEMUNCH_PARSE_CACHE`) keys entries by `PARSER_GENERATION` and the installed tree-sitter, language-pack and F# grammar versions, so a generation bump re-parses instead of stamping old symbols as new. Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-08, release 1.108.426)
+
+The 1.108.423 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.423):** **a file that fails to parse no longer lets a search claim a name is absent** (#1351, #1343): a file whose parse fails or runs past `JCODEMUNCH_PARSE_BUDGET_SECONDS` is withheld (`withheld.parse_failed`), so coverage reads incomplete and an absence answer is refused, on every local route but `index_repo` and a branch re-index; a fresh process reuses the BM25 corpus statistics stored in the index `.db` instead of rebuilding them (@tmhtech4). Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-08, release 1.108.427)
+
+The 1.108.424 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.424):** **a project config file can only tighten settings** (#1353): a project `.jcodemunch.jsonc` never sets `trusted_folders`; the summarizer, git-blame, LSP, redaction, reply-size and secret-exclusion settings apply from it only when no more permissive than the user's own; `disabled_tools` only adds; a provider or model needs the user's own `allow_paid_summaries` (and `allow_remote_summarizer` for a remote base). Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-08, release 1.108.428)
+
+The 1.108.425 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.425):** **the Grep answer reaches large repositories** (#1356, #1355, #1335): on a 23,186-file Home Assistant index the opt-in Grep answer replies in 2.0 s warm (was 6.2 s, over budget): an index load skips the tsconfig/jsconfig walk when a full-walk, uncapped file list names none (a skipped walk is never cached), freshness covers only the Grep's scope, one hook call reads the files table once; `upgrade`/`init --hooks` print the surface offer; `receipt` and `diagnose` read `_savings.json` through the meter's own reader. Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-09, release 1.108.429)
+
+The 1.108.426 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.426):** **a function assigned to a member is a JavaScript symbol** (#1312, #1357, #1359): `obj.name = function ...`, `exports.name = ...` and `Foo.prototype.name = ...` at module scope are symbols (`PARSER_GENERATION` 29), and a bound function's signature ends at its body; on Windows the trigram filter reads one listing per folder and a selective view decodes imports on first read (freshness keeps one stat per file); the steering-hint answer stays compact. Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-09, release 1.108.430)
+
+The 1.108.427 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.427):** **the Grep answer replies right after a large index is built** (#1363, #1361): on a just-indexed Home Assistant copy the first Grep answer replies in 1.3 s at worst (1.108.426 ran out its 4 s budget): `search_text` reads candidates ahead on up to 32 daemon threads and the freshness stats run on 8, verdicts exact; the token benchmark counts the served response. Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-09, release 1.108.431)
+
+The 1.108.428 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.428):** **the published benchmark counts the answer an agent receives** (#1367, #1364): the token benchmark is re-measured on the served text of a default install (96.2% fewer tokens per lookup than grep-and-read over 15 lookups; express's fifth query is now `param bind`, so every lookup returns symbols); DoD row 8 counts a changed value on an existing rate key as a change, not a new key. Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-10, release 1.108.432)
+
+The 1.108.429 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.429):** **a hook answers in about a second** (#1369): a bare `jcodemunch-mcp hook-<name>` runs its handler without importing the server (the console entry point is `jcodemunch_mcp.cli_entry:cli`), so an answered Grep takes 1.07 to 1.21 s for the whole hook process (5.1 s before); once freshness proves the scope unchanged the Grep answer reads the source tree, not the cached copy. Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-10, release 1.108.433)
+
+The 1.108.430 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.430):** **a Java or Kotlin import is an edge to the file that declares it** (#1374, #1380): a JVM import resolves to the `.java`/`.kt` file declaring the class (`PARSER_GENERATION` 30), so a JVM repo's import graph has edges; a no-change re-index reads no symbol rows. Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-10, release 1.108.434)
+
+The 1.108.431 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.431):** **a read re-indexes the files that changed since the index was built** (#1381, #1382): a read tool asks git what changed since the indexed commit and re-indexes it first (2 s ceiling, `refresh_on_read: false` turns it off); `get_call_hierarchy` rows carry `call_lines`. Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-11, release 1.108.435)
+
+The 1.108.432 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.432):** **a Java or Kotlin wildcard import is an edge to each class the file uses** (#1375): `import a.b.*` becomes one `a.b.Name` edge per type name the file uses, marked `wildcard`, and only names the package declares resolve (`PARSER_GENERATION` 31). Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-11, release 1.108.436)
+
+The 1.108.433 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.433):** **the bundled local encoder no longer pays for padding** (#1388, #1389, @tmhtech4): `encode_batch` sorts by real length and trims each run of 16 to its longest text (`_plan_runs`); an empty batch returns `[]` before numpy or the session; `JCODEMUNCH_LOCAL_EMBED_THREADS` sets ONNX threads (default 2). Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-11, release 1.108.437)
+
+The 1.108.434 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.434):** **the full tool surface no longer loads six schemas into every request** (#1393): `_apply_always_load` marks `anthropic/alwaysLoad` on `counter` only, so on `full` all 91 tools are deferred and an agent pays one ToolSearch call before its first core-tool call. Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-11, release 1.108.438)
+
+The 1.108.435 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.435):** **a Kotlin import of a top-level declaration reaches the file that declares it** (#1376, @randyhbh): an import naming no file resolves through its package directory to the `.kt`/`.java` file declaring the last segment, as a derived `declared_by` edge added at `CodeIndex` construction and never stored (`written_imports`); Java's `<Stem>Kt` facade reaches the `.kt` file. Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-11, release 1.108.439)
+
+The 1.108.436 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.436):** **a call that names `paths=` never replaces the rest of the index** (#1397, @dkiaulakis): `_paths_forced` turns `incremental=False` into an incremental, force-reparse run, and the full save keeps every stored file no listed entry covers (`_paths_keep`, one mapping `_listed_in_index_terms`/`_covered_by_listed` shared with the #333 deletion rescope and the branch delta). Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-11, release 1.108.440)
+
+The 1.108.437 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.437):** **a file the index withheld is not answered as a missing file** (#1396, @dkiaulakis): coverage names the files withheld for size (`withheld_files`, capped, with total and truncated), so a listed path answers `too_large`, not missing; a Bearer token in a quoted `Authorization` header is redacted (#1402). Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-12, release 1.108.441)
+
+The 1.108.438 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.438):** **an index that holds a small part of the tree reads incomplete, not fresh** (#1395): `get_watch_status` reports `index_completeness` with indexed and tracked counts; an uncountable repo reads `unknown`, never complete (`any_completeness_unknown`). Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-12, release 1.108.442)
+
+The 1.108.439 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.439):** **tokens_saved is a token count, not bytes divided by 4**: each indexed file is counted with tiktoken cl100k_base at save (`token_counts`), scaled per language to Claude; the encoding is fetched once on first use (`tokenizer_download`), the table is the fallback, `_meta.tokens_saved_basis` names the path. Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-13, release 1.108.443)
+
+The 1.108.440 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.440):** **a project's own ignore negation wins over a framework profile's default** (#1398, @dkiaulakis): `get_extra_ignore_patterns` builds profile + config + call, so a profile pattern has the lowest precedence on the walk and in `index_file`, whose refusal names the `!<pattern>` negation. Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-13, release 1.108.444)
+
+The 1.108.441 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.441):** **a framework profile's ignore patterns hold on every route that walks into an index** (#1421, the #1398 follow-up): the watcher fast path, `refresh` discovery and `index_file` ask `profile_ignore_patterns_for(root)`; a `paths=` directory is handed the full walk's own profile and the call's patterns, matched against the index root. Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-13, release 1.108.445)
+
+The 1.108.442 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.442):** **a Java or Kotlin class used only by its own package is not reported dead** (#1377, @randyhbh): a file's own package is an implicit wildcard through the #1375 path (`same_package` edges); the JVM resolver never drops segments onto a name that is also a package, and `augment_jvm_declaration_edges` asks the resolver instead of copying its rule. `PARSER_GENERATION` 32. Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-14, release 1.108.446)
+
+The 1.108.443 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.443):** **a built-in default names a model the provider still serves** (#1428, #1429): the OpenAI defaults move to `gpt-6-luna`/`gpt-6-sol`, and the agent selector's Anthropic and Google orders and the Gemini summarizer to current ids, with two scans over `src/` keeping the retired ids out; a project-file `license_key` warns instead of vanishing (#1427). Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-14, release 1.108.447)
+
+The 1.108.444 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.444):** **a local OpenAI-compatible endpoint is sent a model it serves** (#1431): `openai_default_model(base_url)` is the one rule, read by the summarizer factory and `config --check`; no base or an `api.openai.com` host gets `gpt-6-luna`, any other base `qwen3-coder`. Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-15, release 1.108.448)
+
+The 1.108.445 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.445):** **a write that changes no symbol leaves other processes' indexes in place** (#1433): every `symbols`/`files` writer stamps a random `content_generation` into `meta` (a test fails on one that does not), and `_revalidate_cached` keeps a cached index only when the meta table equals what its load read; a branch view or a missing token reloads. Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-15, release 1.108.449)
+
+The 1.108.446 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.446):** **a running server that serves older code than is installed is named** (#1435, @dkiaulakis): `install-status` lists the running servers on this index store with `restart_required` true/false/null; each registry row records its `package_dir`, and `restart_verdict` takes the install layout explicitly (a copied install compares versions, a source install the source mtime; another install, a pre-record row or an unreadable mtime is UNKNOWN). Report only; `get_session_stats` never carries the path. Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-15, release 1.108.450)
+
+The 1.108.447 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.447):** **on macOS, a process is identified by its creation time** (#1441): `process_locks._darwin_process_start` reads libproc `PROC_PIDTBSDINFO` (short record, other PID or zero start: UNKNOWN); `runtime_identity` asks the same reader. Full text: `CHANGELOG.md`.

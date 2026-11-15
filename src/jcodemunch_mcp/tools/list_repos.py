@@ -75,7 +75,8 @@ def repos_report(storage_path: Optional[str] = None) -> list[dict]:
     repos = store.list_repos()
     try:
         from .get_watch_status import get_watch_status
-        ws = get_watch_status(storage_path)
+        # Completeness is not part of this report, so it is not paid for.
+        ws = get_watch_status(storage_path, check_completeness=False)
         ws_by_root = {r.get("source_root"): r for r in ws.get("repos", [])}
     except Exception:
         ws_by_root = {}

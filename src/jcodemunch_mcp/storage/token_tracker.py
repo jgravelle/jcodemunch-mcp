@@ -27,6 +27,7 @@ time rather than per-call to avoid spawning a new thread on every tool use.
 
 import atexit
 import json
+import math
 import logging
 import os
 import queue
@@ -40,7 +41,7 @@ from collections import OrderedDict, deque
 from contextvars import ContextVar, Token
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 from .. import config as _config
 from . import savings_meter as _meter
@@ -87,7 +88,10 @@ _TMP_NAME = re.compile(r"_savings\.json\.\d+\.tmp")
 # selected from it; both over-counted, so pre-2 counts read HIGH. Nothing is
 # rewritten — a recomputed history would be a guess wearing a measurement's
 # clothes — the mixed basis is disclosed instead.
-SAVINGS_BASIS_GENERATION = 2
+# Generation 3 (2026-11-11) divides by the measured tokenizer table
+# (``savings_tokenizer.py``) instead of 4. On Claude's tokenizer bytes/4
+# undercounted, so generation-2 counts read LOW; nothing recorded is rescaled.
+SAVINGS_BASIS_GENERATION = 3
 
 # Days of per-day savings history kept in _savings.json's "daily" map. Two years
 # covers every window a dashboard offers ("this year", year-over-year) while
@@ -96,7 +100,17 @@ _DAILY_MAX_DAYS = 750
 _SESSION_STATS_FILE = "session_stats.json"
 _PULSE_FILE = "_pulse.json"
 _PERF_DB_FILE = "telemetry.db"
-_BYTES_PER_TOKEN = 4  # ~4 bytes per token (rough but consistent)
+_BYTES_PER_TOKEN = 4  # session budget only; tokens_saved reads savings_tokenizer.py
+
+
+def _savings_tokenizer_name() -> str:
+    try:
+        from ..savings_tokenizer import active
+
+        return active()
+    except Exception:
+        logger.debug("savings tokenizer name unavailable", exc_info=True)
+        return "unknown"
 _TELEMETRY_URL = "https://j.gravelle.us/APIs/savings/post.php"
 _FLUSH_INTERVAL = 3  # flush to disk every N calls
 _RESULT_CACHE_MAXSIZE = 256  # max tool-result cache entries per session
@@ -280,6 +294,11 @@ class _State:
         self._session_tool_calls: dict = {}
         # Session-level tool-result cache (LRU, evicted at _RESULT_CACHE_MAXSIZE)
         self._result_cache: OrderedDict = OrderedDict()  # (tool, repo, key) -> result
+        # Counts every eviction. A caller that reads it before a tool runs and
+        # again after can tell whether an index was written DURING the call:
+        # the tool may then have read the old index and `cache_put` the answer
+        # after the eviction, so the answer must go too (`cache_evict_if_written_since`).
+        self._cache_write_epoch: int = 0
         self._cache_hits: dict = {}    # tool_name -> hit count
         self._cache_misses: dict = {}  # tool_name -> miss count
         # A hit is key-presence, which is NOT the same as a hit that still
@@ -454,6 +473,7 @@ class _State:
     def cache_invalidate(self, repo: Optional[str] = None) -> int:
         """Evict all entries (repo=None) or entries for a specific repo. Returns evicted count."""
         with self._lock:
+            self._cache_write_epoch += 1
             if repo is None:
                 count = len(self._result_cache)
                 self._result_cache.clear()
@@ -462,6 +482,28 @@ class _State:
             for k in to_delete:
                 del self._result_cache[k]
             return len(to_delete)
+
+    def cache_write_epoch(self) -> int:
+        """The eviction count so far; compare two readings to see a write between them."""
+        with self._lock:
+            return self._cache_write_epoch
+
+    def cache_evict_if_written_since(self, epoch: int) -> int:
+        """Evict everything when an index write evicted the cache since ``epoch``.
+
+        The gap it closes: a tool loads the index, a writer in another thread
+        commits and evicts, then the tool ``cache_put``s the answer it computed
+        from the old index. That entry survives the eviction, so the caller
+        that framed the tool call evicts again when it sees the epoch moved.
+        Everything goes, not one repository: the frame does not know the
+        tool's cache key. Returns the number of entries evicted.
+        """
+        with self._lock:
+            if self._cache_write_epoch == epoch:
+                return 0
+            count = len(self._result_cache)
+            self._result_cache.clear()
+            return count
 
     def cache_lookup_recorded(self, tool_name: str, hit: bool) -> None:
         """Count one lookup a consumer's PRIVATE cache answered (#864).
@@ -808,6 +850,8 @@ class _State:
                 "generation": SAVINGS_BASIS_GENERATION,
                 "first_generation": self._basis_first,
                 "mixed_basis": self._basis_first != SAVINGS_BASIS_GENERATION,
+                # Which table new calls divide by; earlier calls are as recorded.
+                "tokenizer": _savings_tokenizer_name(),
             },
             # Lifetime per-tool attribution, and the honest complement: what the
             # meter earned before it could attribute anything. A caller that sees
@@ -1587,6 +1631,75 @@ class _State:
         self._flush(lock_wait=wait, state_wait=state_wait)
 
 
+def _merge_into(data: dict, batch: dict) -> "tuple[str, datetime]":
+    """Add *batch* to the parsed ledger *data* in place; return the anon id and the stamp.
+
+    ⚠ May raise on a ledger that parses but holds the wrong type; `_merge_batch`
+    refuses the file then, as it refuses one it cannot read.
+    """
+    anon_id = batch["anon_id"]
+    if anon_id is None:
+        anon_id = data.get("anon_id") or str(uuid.uuid4())
+    data["anon_id"] = anon_id
+    data["total_tokens_saved"] = data.get("total_tokens_saved", 0) + batch["saved"]
+    # Record the first generation this file was ever written under, and the
+    # current one. Equal => the lifetime total is one consistent basis.
+    data.setdefault("basis_generation_first", data.get("basis_generation", SAVINGS_BASIS_GENERATION))
+    data["basis_generation"] = SAVINGS_BASIS_GENERATION
+    # Per-tool attribution. ⚠⚠ It starts EMPTY and can never be backfilled —
+    # the meter only ever stored a scalar — so sum(by_tool) is less than
+    # total_tokens_saved by however much was earned before this shipped.
+    # `by_tool_since` dates the start so that gap reads as unattributed
+    # history rather than as loss; session_stats reports it as a number.
+    if batch["by_tool"]:
+        merged = data.get("by_tool")
+        merged = dict(merged) if isinstance(merged, dict) else {}
+        for tool, amount in batch["by_tool"].items():
+            merged[tool] = merged.get(tool, 0) + amount
+        data["by_tool"] = merged
+        data.setdefault("by_tool_since", batch["by_tool_since"] or datetime.now().date().isoformat())
+    # Daily rollup alongside the lifetime total, so windowed views ("today",
+    # "this month") can come from THIS meter — the authoritative record —
+    # instead of transcript scans, which miss cleared history and model
+    # savings conservatively (observed 4 orders of magnitude under the
+    # meter on a heavy install). Flush batches are small (_FLUSH_INTERVAL
+    # calls), so crediting the whole batch to the flush day mis-dates at
+    # most one batch across midnight. Local date: "today" means today
+    # where the user sits. Capped so the file stays small.
+    day = datetime.now().date().isoformat()
+    if batch["saved"]:
+        daily = data.get("daily")
+        if not isinstance(daily, dict):
+            daily = {}
+        daily[day] = daily.get(day, 0) + batch["saved"]
+        if len(daily) > _DAILY_MAX_DAYS:
+            for stale in sorted(daily)[: len(daily) - _DAILY_MAX_DAYS]:
+                del daily[stale]
+        data["daily"] = daily
+    # ⚠⚠ The heartbeat. `daily` gains a day only when something was
+    # EARNED, so a meter that measured 0 and a meter that had stopped
+    # left the same file, and every reader showed a frozen total as
+    # current. Every flush that carries a call stamps the time and the
+    # day: a 0 in `measured_days` is a measurement, a missing day is not.
+    now = datetime.now(timezone.utc)
+    data[_meter.LAST_FLUSH_AT] = now.isoformat(timespec="seconds")
+    measured = data.get(_meter.MEASURED_DAYS)
+    measured = dict(measured) if isinstance(measured, dict) else {}
+    prior = measured.get(day)
+    prior = prior if isinstance(prior, dict) else {}
+    measured[day] = {
+        "calls": _as_count(prior.get("calls")) + batch["calls"],
+        "saved": _as_count(prior.get("saved")) + batch["saved"],
+    }
+    if len(measured) > _DAILY_MAX_DAYS:
+        for stale in sorted(measured)[: len(measured) - _DAILY_MAX_DAYS]:
+            del measured[stale]
+    data[_meter.MEASURED_DAYS] = measured
+    if batch["encoding"]:
+        data["total_encoding_tokens_saved"] = data.get("total_encoding_tokens_saved", 0) + batch["encoding"]
+    return anon_id, now
+
+
 def _merge_batch(root: Path, batch: dict, lock_wait: float) -> dict:
     """Merge *batch* into `<root>/_savings.json` under `_savings.lock`. Touches no `_State`.
 
@@ -1621,66 +1734,22 @@ def _merge_batch(root: Path, batch: dict, lock_wait: float) -> dict:
                 "a new one. %d tokens saved over %d calls are kept in memory for the next write",
                 path, problem, batch["saved"], batch["calls"],
             )
-        anon_id = batch["anon_id"]
-        if anon_id is None:
-            anon_id = data.get("anon_id") or str(uuid.uuid4())
-        data["anon_id"] = anon_id
-        data["total_tokens_saved"] = data.get("total_tokens_saved", 0) + batch["saved"]
-        # Record the first generation this file was ever written under, and the
-        # current one. Equal => the lifetime total is one consistent basis.
-        data.setdefault("basis_generation_first", data.get("basis_generation", SAVINGS_BASIS_GENERATION))
-        data["basis_generation"] = SAVINGS_BASIS_GENERATION
-        # Per-tool attribution. ⚠⚠ It starts EMPTY and can never be backfilled —
-        # the meter only ever stored a scalar — so sum(by_tool) is less than
-        # total_tokens_saved by however much was earned before this shipped.
-        # `by_tool_since` dates the start so that gap reads as unattributed
-        # history rather than as loss; session_stats reports it as a number.
-        if batch["by_tool"]:
-            merged = data.get("by_tool")
-            merged = dict(merged) if isinstance(merged, dict) else {}
-            for tool, amount in batch["by_tool"].items():
-                merged[tool] = merged.get(tool, 0) + amount
-            data["by_tool"] = merged
-            data.setdefault("by_tool_since", batch["by_tool_since"] or datetime.now().date().isoformat())
-        # Daily rollup alongside the lifetime total, so windowed views ("today",
-        # "this month") can come from THIS meter — the authoritative record —
-        # instead of transcript scans, which miss cleared history and model
-        # savings conservatively (observed 4 orders of magnitude under the
-        # meter on a heavy install). Flush batches are small (_FLUSH_INTERVAL
-        # calls), so crediting the whole batch to the flush day mis-dates at
-        # most one batch across midnight. Local date: "today" means today
-        # where the user sits. Capped so the file stays small.
-        day = datetime.now().date().isoformat()
-        if batch["saved"]:
-            daily = data.get("daily")
-            if not isinstance(daily, dict):
-                daily = {}
-            daily[day] = daily.get(day, 0) + batch["saved"]
-            if len(daily) > _DAILY_MAX_DAYS:
-                for stale in sorted(daily)[: len(daily) - _DAILY_MAX_DAYS]:
-                    del daily[stale]
-            data["daily"] = daily
-        # ⚠⚠ The heartbeat. `daily` gains a day only when something was
-        # EARNED, so a meter that measured 0 and a meter that had stopped
-        # left the same file, and every reader showed a frozen total as
-        # current. Every flush that carries a call stamps the time and the
-        # day: a 0 in `measured_days` is a measurement, a missing day is not.
-        now = datetime.now(timezone.utc)
-        data[_meter.LAST_FLUSH_AT] = now.isoformat(timespec="seconds")
-        measured = data.get(_meter.MEASURED_DAYS)
-        measured = dict(measured) if isinstance(measured, dict) else {}
-        prior = measured.get(day)
-        prior = prior if isinstance(prior, dict) else {}
-        measured[day] = {
-            "calls": _as_count(prior.get("calls")) + batch["calls"],
-            "saved": _as_count(prior.get("saved")) + batch["saved"],
-        }
-        if len(measured) > _DAILY_MAX_DAYS:
-            for stale in sorted(measured)[: len(measured) - _DAILY_MAX_DAYS]:
-                del measured[stale]
-        data[_meter.MEASURED_DAYS] = measured
-        if batch["encoding"]:
-            data["total_encoding_tokens_saved"] = data.get("total_encoding_tokens_saved", 0) + batch["encoding"]
+        try:
+            anon_id, now = _merge_into(data, batch)
+        except Exception as exc:
+            # ⚠ `_read_ledger` refuses every mistyped field the merge adds to,
+            # so this is reached only by a shape it does not know yet, or by a
+            # defect in the merge itself. Either way the batch is kept and the
+            # file left whole, and the traceback is logged: the message must
+            # not leave a bug in our code looking like damage in the user's file.
+            return failed(
+                "warning",
+                "Savings file %s could not be merged (%s: %s). Nothing is written to it "
+                "(and nothing is sent to the community meter) until a write succeeds. "
+                "%d tokens saved over %d calls are kept in memory for the next write",
+                path, type(exc).__name__, exc, batch["saved"], batch["calls"],
+                exc_info=True,
+            )
         # Through a temp file named for this process and os.replace, so a
         # reader never sees a half-written file and a failed write leaves
         # the old one whole.
@@ -1766,8 +1835,8 @@ for _sig in (signal.SIGTERM, signal.SIGINT):
 # Public API (unchanged signatures)
 # ---------------------------------------------------------------------------
 
-def _as_count(value: object) -> int:
-    return value if isinstance(value, int) and not isinstance(value, bool) and value >= 0 else 0
+def _as_count(value: Any) -> int:
+    return int(value) if _is_whole_count(value) else 0
 
 
 def _read_ledger(path: Path) -> "tuple[Optional[dict], Optional[str]]":
@@ -1784,11 +1853,82 @@ def _read_ledger(path: Path) -> "tuple[Optional[dict], Optional[str]]":
         return None, "is not valid JSON"
     if not isinstance(data, dict):
         return None, "does not hold a JSON object"
-    # A non-negative number, the rule `receipt.lifetime_meter` reads by.
+    # A finite non-negative number. `receipt` and `diagnose` read through here too (L-297).
     total = data.get("total_tokens_saved", 0)
-    if not isinstance(total, (int, float)) or isinstance(total, bool) or not total >= 0:
+    if not _is_amount(total):
         return None, "holds a total that is not a non-negative number"
+    # ⚠ Every field the meter does arithmetic on, read by the loader AND the
+    # merge: a string there raised TypeError inside a tool call's savings step
+    # (`add`) and inside the merge, which lost the batch and left the file
+    # frozen while the meter read `current`.
+    if "total_encoding_tokens_saved" in data and not _is_amount(data["total_encoding_tokens_saved"]):
+        return None, "holds an encoding total that is not a non-negative number"
+    # A table the merge adds to is history. One that IS a table but holds a
+    # mistyped value is refused for the user to repair rather than
+    # overwritten, and so is a value of the wrong kind that still holds
+    # counts (a list of numbers where a table belongs). Only a value that
+    # holds no count at all, a stray string or null, is rebuilt by the merge,
+    # as before (`test_corrupt_daily_shape_is_replaced_not_fatal`).
+    for key in ("by_tool", "daily", _meter.MEASURED_DAYS):
+        table = data.get(key)
+        if table is None or isinstance(table, dict):
+            continue
+        if _holds_a_count(table):
+            return None, f"holds a `{key}` that is not a table but holds counts"
+    for key in ("by_tool", "daily"):
+        table = data.get(key)
+        if isinstance(table, dict) and not all(_is_amount(v) for v in table.values()):
+            return None, f"holds a `{key}` table whose values are not all non-negative numbers"
+    measured = data.get(_meter.MEASURED_DAYS)
+    if isinstance(measured, dict):
+        for day in measured.values():
+            if not isinstance(day, dict) or not all(
+                _is_whole_count(day[k]) for k in ("calls", "saved") if k in day
+            ):
+                return None, (
+                    f"holds a `{_meter.MEASURED_DAYS}` day that is not a table of "
+                    "non-negative whole counts"
+                )
+    for key in ("basis_generation", "basis_generation_first"):
+        if key in data and not _is_whole_count(data[key]):
+            return None, f"holds a `{key}` that is not a whole number"
     return data, None
+
+
+def _is_whole_count(value: object) -> bool:
+    """A non-negative whole number; ``2.0`` counts, ``2.5``, ``"2"`` and ``True`` do not."""
+    if isinstance(value, bool):
+        return False
+    if isinstance(value, int):
+        return value >= 0
+    return isinstance(value, float) and math.isfinite(value) and value >= 0 and value.is_integer()
+
+
+def _holds_a_count(value: object) -> bool:
+    """True when *value*, of any shape, contains a number anywhere."""
+    if isinstance(value, bool):
+        return False
+    if isinstance(value, (int, float)):
+        return True
+    if isinstance(value, dict):
+        return any(_holds_a_count(v) for v in value.values())
+    if isinstance(value, (list, tuple)):
+        return any(_holds_a_count(v) for v in value)
+    return False
+
+
+def _is_amount(value: object) -> bool:
+    """A finite non-negative number: how `_read_ledger` reads a total, for the meter, `receipt` and `diagnose`.
+
+    ``json.loads`` accepts ``Infinity`` and ``NaN``; neither is a count, and
+    writing one back produces a file other JSON readers refuse.
+    """
+    return (
+        isinstance(value, (int, float))
+        and not isinstance(value, bool)
+        and math.isfinite(value)
+        and value >= 0
+    )
 
 
 def _savings_path(base_path: Optional[str] = None) -> Path:
@@ -2066,6 +2206,21 @@ def result_cache_put(tool_name: str, repo: str, specific_key: tuple, result: dic
 def result_cache_invalidate(repo: Optional[str] = None) -> int:
     """Evict cached results — all repos (default) or a specific repo. Returns evicted count."""
     return _state.cache_invalidate(repo)
+
+
+def result_cache_write_epoch() -> int:
+    """How many evictions so far. Read before a tool runs; pass to the next function after."""
+    return _state.cache_write_epoch()
+
+
+def result_cache_evict_if_written_since(epoch: int) -> int:
+    """Evict everything if an index write evicted the cache since ``epoch`` was read.
+
+    Closes the window where a tool's ``cache_put`` lands AFTER the eviction a
+    concurrent index write ran, with an answer computed from the index before
+    that write. See ``_TokenState.cache_evict_if_written_since``.
+    """
+    return _state.cache_evict_if_written_since(epoch)
 
 
 def result_cache_record_lookup(tool_name: str, hit: bool) -> None:
@@ -2369,9 +2524,16 @@ def note_call_signature(tool_name: str, args_hash: str) -> None:
     _state.note_call_signature(tool_name, args_hash)
 
 
-def estimate_savings(raw_bytes: int, response_bytes: int) -> int:
-    """Estimate tokens saved: (raw - response) / bytes_per_token."""
-    return max(0, (raw_bytes - response_bytes) // _BYTES_PER_TOKEN)
+def estimate_savings(raw_bytes: int, response_bytes: int, language: Optional[str] = None) -> int:
+    """Tokens saved: (raw - response) / the measured bytes-per-token figure.
+
+    The divisor comes from ``savings_tokenizer`` (the configured tokenizer's
+    table): ``language``'s row where it was measured, else the table's overall
+    figure. It was a flat 4, which undercounted on Claude's tokenizer.
+    """
+    from ..savings_tokenizer import bytes_per_token
+
+    return max(0, int((raw_bytes - response_bytes) / bytes_per_token(language)))
 
 
 def cost_avoided(tokens_saved: int, total_tokens_saved: int) -> dict:

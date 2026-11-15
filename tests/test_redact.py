@@ -134,3 +134,39 @@ class TestMetaScanning:
         out, count = redact_dict(payload)
         assert count >= 1
         assert aws_key not in repr(out)
+
+
+class TestBearerTokenQuotedForms:
+    """A quoted key or value (JSON, dict literal, shell, Markdown) is redacted."""
+
+    TOKEN = "abcdefghijklmnopqrstuvwxyz12345"
+
+    def test_quoted_header_forms_redacted(self):
+        t = self.TOKEN
+        for line in (
+            f'"Authorization": "Bearer {t}"',
+            f"'Authorization': 'Bearer {t}'",
+            f'headers = {{"Authorization": "Bearer {t}"}}',
+            f'authorization="Bearer {t}"',
+            f'Authorization = "Bearer {t}"',
+            f'{{"Authorization":\n    "Bearer {t}", "x": 1}}',
+            f"`Authorization`: `Bearer {t}`",
+            r'{\"Authorization\": \"Bearer ' + t + r'\"}',
+            f'"Authorization": "bearer {t}"',
+            f'"Proxy-Authorization": "BEARER {t}"',
+        ):
+            out, count = _redact_string(line)
+            assert count == 1, line
+            assert t not in out, line
+            assert "[REDACTED:bearer_token]" in out, line
+
+    def test_quoted_non_secrets_preserved(self):
+        for line in (
+            'The "Authorization" header takes "Bearer" then a short token.',
+            f'"Authorization": "Bearer {self.TOKEN[:19]}"',
+            '"Authorization": "Basic dXNlcjpwYXNzd29yZA=="',
+            '"Authorization": "Bearer "',
+        ):
+            out, count = _redact_string(line)
+            assert count == 0, line
+            assert out == line

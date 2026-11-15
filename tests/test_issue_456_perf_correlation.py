@@ -207,7 +207,7 @@ async def test_issue_456_reentrant_dispatch_restores_context_on_success_and_fail
     scenario = {"failure": failure}
 
     monkeypatch.setattr(server, "_catalog_names", lambda: ["inner"])
-    monkeypatch.setattr(server._counter, "order_gate", lambda *args: None)
+    monkeypatch.setattr(server._counter, "order_gate", lambda *args, **kwargs: None)
     monkeypatch.setattr(
         server._counter,
         "classify_intent",

@@ -59,7 +59,7 @@ write is not a cache (#557).
 Metric: (a) property: no read path answers `fresh` for a comparison it could not make, and no absence claim is served over incomplete coverage; (b) wall-clock of `index_file` for one edited file on the self corpus; (c) wall-clock of a cold `index_folder` of the self corpus.
 Method: (a) `PYTHONPATH=src python -m pytest tests/test_freshness*.py tests/test_v1_108_178.py tests/test_v1_108_179.py tests/test_v1_108_180.py tests/test_v1_108_181.py tests/test_result_cache_isolation.py tests/test_dead_code_corpus_adequacy.py tests/test_absence_wiring_guard.py -q` (file list to be pinned by the enforcement plan). (b)(c) the script in `DISCOVERY.md` §3 against a scratch `CODE_INDEX_PATH`.
 Current: (a) green in the 9,161-pass suite of 1.108.316. (b) 738.1 ms for one appended line in `storage/token_tracker.py`; 338.7 ms to establish "unchanged" in a fresh process. (c) 13.88 s for 950 files / 18,046 symbols. All 2026-09-03 on the box in `DISCOVERY.md` §0.
-Floor: (a) the property tests pass. (b) [`index.one_file_reindex_ms`] and (c) [`index.cold_self_seconds`]: 2x the median of three consecutive runs of `benchmarks/self_latency/measure.py` on the src-only self corpus (275 files), set 2026-09-03; the runs are committed in `harness/results/self_latency_three_runs.json`. The 13.9 s / 0.74 s figures above were the FULL repo in a warm process and are not comparable.
+Floor: (a) the property tests pass. (b) [`index.one_file_reindex_ms`] and (c) [`index.cold_self_seconds`]: 2x the median of three consecutive runs of `benchmarks/self_latency/measure.py` on the src-only self corpus (275 files), set 2026-09-03; the runs are committed in `harness/results/self_latency_three_runs.json`. (d) [`index.cold_over_one_file_ratio`]: the cold time over the one-file reindex time from the same run, set 2026-11-06 from the 22 CI readings in `harness/results/self_latency_ci_runs_2026-11-06.json` (LEDGER L-314). It judges the cold index on CI, because a runner's speed moves (c) by about 2x and divides out of (d); (c) stays as a looser backstop for a change that slows both timings alike. The 13.9 s / 0.74 s figures above were the FULL repo in a warm process and are not comparable.
 Target: (b) under 1 s p95 for a single edited file on the self corpus, measured in CI on ubuntu; (c) under 20 s cold on the self corpus in CI.
 Status: MEASURED (`python -m harness bench` writes the artifact and compares it to the threshold file).
 Gap: the floors are set from one box; a CI runner must produce its own three runs before they tighten (DESIGN s5).
@@ -144,8 +144,8 @@ Why it matters: table stakes past the top ten languages; ~12 of 140 issues were
 parser coverage. Fidelity (criterion 1) matters more than the count.
 Metric: `len(LANGUAGE_REGISTRY)` and `len(LANGUAGE_EXTENSIONS)`.
 Method: `PYTHONPATH=src python -c "from jcodemunch_mcp.parser.languages import LANGUAGE_REGISTRY, LANGUAGE_EXTENSIONS; print(len(LANGUAGE_REGISTRY), len(LANGUAGE_EXTENSIONS))"`.
-Current: 79 languages, 164 extensions (2026-09-03, `63a621d`).
-Floor: neither count decreases [`languages.registry_min`, `languages.extensions_min`] without a CHANGELOG entry naming the removal and a tightened-history threshold entry.
+Current: 81 languages, 181 extensions (2026-11-12, `f7e9140`).
+Floor: neither count decreases [`languages.registry_min`, `languages.extensions_min`] without a CHANGELOG entry naming the removal and a tightened-history threshold entry. Since 2026-11-12 each Floor EQUALS its shipped count: a PR that adds a language or an extension raises the Floor in the same PR (old setting to `history`), and a language addition also updates `JCM_LANGUAGES` in the jcodemunch.com `_facts.php`, which cannot read the registry.
 Target: fidelity oracles (criterion 1) for the ten languages most represented in indexed repos.
 Status: MEASURED (count, `tests/test_standard_invariants.py`); fidelity UNMEASURED beyond Rust and Racket.
 Gap: the oracles are criterion 1's gap.
@@ -211,10 +211,10 @@ Gap: none; rotation is Practice 5.
 ### N7. CI skip count
 Metric: `skipped` on each CI leg.
 Method: read the pytest summary line of the `pr-gate.yml` full-tier job.
-Current: ubuntu 26, windows 19, local 13 (`CLAUDE.md`); the 2026-08-28 incident was 105 skipped at exit 0.
-Floor: ubuntu at or under 30, windows at or under 25.
+Current: ubuntu 26, windows 19, local 13 (`CLAUDE.md`), macOS 31 (2026-11-14, a full tier on a Mac; no CI leg); the 2026-08-28 incident was 105 skipped at exit 0.
+Floor: ubuntu at or under 30, windows at or under 25, macOS at or under [`ci.skips_macos`].
 Target: a step that fails the job when `skipped` exceeds the floor.
-Status: MEASURED and enforced (`pr-gate.yml` fails a leg over [`ci.skips_ubuntu`] / [`ci.skips_windows`]; the full tier applies the same ceiling locally).
+Status: MEASURED and enforced (`pr-gate.yml` fails a leg over [`ci.skips_ubuntu`] / [`ci.skips_windows`]; the full tier applies the same ceiling locally, and [`ci.skips_macos`] on a Mac).
 Gap: reconcile the 19-vs-13 local delta (FINDINGS F-05).
 
 ### N8. Release latency

@@ -13,7 +13,8 @@ is a thin pass-through to ``parse_file`` — zero behavior change.
 Correctness:
 * The key includes ``content_hash`` + ``language`` + ``filename`` (symbol ids
   embed the path), so a hit is byte-identical to a fresh parse.
-* The key includes ``INDEX_VERSION``, so a parser/schema bump invalidates the
+* The key includes ``INDEX_VERSION``, ``PARSER_GENERATION`` and the installed
+  grammar versions, so a schema, extractor or grammar change invalidates the
   cache (the index-version cache-key rule).
 * Any read/deserialize failure falls back to a live parse — the cache can never
   produce wrong symbols, only a slower miss.
@@ -32,6 +33,7 @@ from __future__ import annotations
 
 import dataclasses
 import datetime
+import functools
 import hashlib
 import json
 import logging
@@ -106,13 +108,46 @@ def _connect(d: str) -> sqlite3.Connection:
     return conn
 
 
+# What emits the symbols for identical bytes. A release bumps
+# PARSER_GENERATION when the extractor's output changes, and a grammar package
+# can change it inside its allowed range, so an entry written by any other
+# parser is a different entry. Without this, the re-index a generation bump
+# forces read the old symbols back from the cache and stamped the new
+# generation over them.
+_GRAMMAR_DISTRIBUTIONS = ("tree-sitter", "tree-sitter-language-pack", "tree-sitter-fsharp")
+
+
+def _installed_version(name: str) -> str:
+    try:
+        from importlib.metadata import version
+        return version(name)
+    except Exception:
+        logger.debug("no installed version for %s", name, exc_info=True)
+        return ""
+
+
+@functools.lru_cache(maxsize=1)
+def _grammar_identity() -> str:
+    """Installed grammar versions; read once, since a process cannot swap them."""
+    return ",".join(_installed_version(d) for d in _GRAMMAR_DISTRIBUTIONS)
+
+
+def _parser_identity() -> str:
+    try:
+        from ..storage.index_store import PARSER_GENERATION
+        gen = int(PARSER_GENERATION)
+    except Exception:
+        logger.debug("parser generation unavailable for parse cache", exc_info=True)
+        gen = 0
+    return f"g{gen}:{_grammar_identity()}"
+
+
 def _key(content: str, filename: str, language: str, repo: Optional[str] = None) -> str:
     h = hashlib.sha256(content.encode("utf-8", "surrogatepass")).hexdigest()
-    key = f"v{_index_version()}:{language}:{h}:{filename}"
+    key = f"v{_index_version()}:{_parser_identity()}:{language}:{h}:{filename}"
     if language == "racket":
-        # The reader generation first: the key carries INDEX_VERSION, not
-        # PARSER_GENERATION, so without it a `.rkt` parsed by tree-sitter
-        # would be served after the reader replaced it.
+        # Racket's own generation: the reader replaced tree-sitter for `.rkt`
+        # without a PARSER_GENERATION bump.
         from .racket_reader import READER_GENERATION
         key = f"{key}:rr{READER_GENERATION}"
         # `racket_definition_forms` / `racket_langs` change what the parser

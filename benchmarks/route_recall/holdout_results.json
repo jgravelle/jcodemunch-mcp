@@ -75,7 +75,7 @@
     ],
     "leakage": {
       "mean_name_overlap": 0.057,
-      "mean_desc_overlap": 0.322,
+      "mean_desc_overlap": 0.319,
       "queries_containing_target_name_token": 7,
       "high_leak_queries": [
         "clone and analyse a repo from github"
@@ -369,7 +369,7 @@
         "get_symbol_source"
       ],
       "leak_name": 0.0,
-      "leak_desc": 0.625
+      "leak_desc": 0.5
     },
     {
       "query": "nothing seems to call this, can it go",

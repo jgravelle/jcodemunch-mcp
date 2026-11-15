@@ -50,14 +50,28 @@ _TAG = "?utm_source=cli&utm_medium={medium}&utm_campaign=license-reminder"
 CLI_BUY_URL = BUY_URL + _TAG.format(medium="reminder")
 TOOL_BUY_URL = BUY_URL + _TAG.format(medium="tool")
 SILENCE_COMMAND = "jcodemunch-mcp config set license_reminder false"
+#: The terms, in the words of the plugin README and the site (item 725).
+WORK_TERMS = (
+    "Work use at a for-profit company, or for client or paid work, needs a license, "
+    "paid once, that includes every 1.x update"
+)
 CLI_TEXT = (
-    f"Personal use stays free. Using jCodeMunch for work needs a license: {CLI_BUY_URL} "
+    f"Personal use stays free. {WORK_TERMS}: {CLI_BUY_URL} "
     f"(silence: {SILENCE_COMMAND})"
 )
 # The URL ends the text, so no period follows it into the link's campaign value.
 TOOL_TEXT = (
     f"Personal use stays free. A person can turn these reminders off with: {SILENCE_COMMAND}. "
-    f"Using jCodeMunch for work needs a license: {TOOL_BUY_URL}"
+    f"{WORK_TERMS}: {TOOL_BUY_URL}"
+)
+#: The line `receipt` ends with on a machine with no license key. Its own
+#: campaign, so a sale from the savings receipt can be told from the reminder's.
+RECEIPT_BUY_URL = (
+    BUY_URL + "?utm_source=cli&utm_medium=receipt&utm_campaign=savings-receipt"
+)
+RECEIPT_TEXT = (
+    "Using it at a for-profit company, or for client or paid work? "
+    f"That needs a license, paid once: {RECEIPT_BUY_URL}"
 )
 ENV_VAR = "JCODEMUNCH_LICENSE_REMINDER"
 NOTICE_ENV_VAR = "JCODEMUNCH_LICENSE_NOTICE"
@@ -157,16 +171,13 @@ def _parse(value: object) -> Optional[datetime]:
         return None
 
 
-def skip_reason(
-    env: Optional[Mapping[str, str]] = None, now: Optional[datetime] = None
-) -> Optional[str]:
-    """Why the reminder is not due here, or None when it is. Cheapest checks first.
+def switch_reason(env: Optional[Mapping[str, str]] = None) -> Optional[str]:
+    """Which off switch applies here, or None. No clock and no state.
 
-    The first sighting of an index records `first_index_at` and returns
-    `too_early`, so the 7 days count from the first time an index was seen.
+    The one list of switches: `skip_reason` (the reminder) and `receipt_line`
+    both read it, so a switch added here silences both.
     """
     env = os.environ if env is None else env
-    now = now or _now()
     for name in (ENV_VAR, NOTICE_ENV_VAR):
         if (env.get(name) or "").strip().lower() in _OFF:
             return "disabled"
@@ -176,6 +187,21 @@ def skip_reason(
         return "silenced"
     if _licence_key_configured():
         return "licensed"
+    return None
+
+
+def skip_reason(
+    env: Optional[Mapping[str, str]] = None, now: Optional[datetime] = None
+) -> Optional[str]:
+    """Why the reminder is not due here, or None when it is. Cheapest checks first.
+
+    The first sighting of an index records `first_index_at` and returns
+    `too_early`, so the 7 days count from the first time an index was seen.
+    """
+    now = now or _now()
+    reason = switch_reason(env)
+    if reason is not None:
+        return reason
     state = _load_state()
     first = _parse(state.get("first_index_at"))
     if first is None:
@@ -190,6 +216,24 @@ def skip_reason(
     if last is not None and now - last < INTERVAL:
         return "recent"
     return None
+
+
+def receipt_line(env: Optional[Mapping[str, str]] = None) -> Optional[str]:
+    """The license line for the end of `receipt`, or None.
+
+    Every receipt carries it, with no 7/30-day clock: the receipt is the page
+    where a person reads what the tool saved them. The reminder's off switches
+    all apply (both environment variables, `config set license_reminder false`,
+    a CI or remote runner) and a configured license key silences it. A check
+    that fails says nothing.
+    """
+    try:
+        if switch_reason(env) is not None:
+            return None
+        return RECEIPT_TEXT
+    except Exception:
+        logger.debug("receipt license line skipped", exc_info=True)
+        return None
 
 
 def mark_shown(now: Optional[datetime] = None) -> None:

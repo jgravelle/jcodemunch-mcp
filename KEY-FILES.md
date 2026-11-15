@@ -57,7 +57,7 @@ src/jcodemunch_mcp/
     batch_summarize.py # 3-tier: Anthropic > Gemini > OpenAI-compat > signature fallback
   tools/
     index_repo.py      # GitHub indexer (async, httpx)
-    get_symbol.py      # get_symbol_source: shape-follows-input (id→flat, ids[]→{symbols,errors}). v1.108.70 bounded-source mode: optional source_start_line/source_end_line/max_source_lines/max_source_bytes/max_total_source_bytes return an explicitly-labeled slice (source_truncated + range/total metadata, source_is_bounded_view); verify stays full-body; context_lines+bound rejected. Pure helpers _utf8_safe_truncate + _bound_source
+    get_symbol.py      # get_symbol_source: shape-follows-input (id→flat, ids[]→{symbols,errors}). v1.108.70 bounded-source mode: optional source_start_line/source_end_line/max_source_lines/max_source_bytes/max_total_source_bytes return an explicitly-labeled slice (source_truncated + range/total metadata, source_is_bounded_view); verify stays full-body; context_lines+bound rejected. Pure helpers _utf8_safe_truncate + _bound_source. Class outline (default `class_body="outline"`): a `class` fetch collapses each method to its signature (`_class_outline`, members from one `open_selective(files=)` read via `_direct_members`, never `index.symbols`), labeled `source_outline` + `source_is_bounded_view`; `class_body="full"` or any bound returns the whole body
     search_columns.py  # Column search across dbt/SQLMesh models
     get_context_bundle.py   # Symbol + imports bundle; token_budget/budget_strategy
     get_ranked_context.py   # Query-driven budgeted context (BM25 + PageRank)

@@ -59,6 +59,14 @@ UNIVERSAL_META_JSON = frozenset({
     # keeps `_meta.total_tokens_saved` and presents a frozen total as current.
     # Present only when the meter is NOT current (`server._label_lifetime_total`).
     "lifetime_meter",
+    # What `tokens_saved` was divided by (`server._label_savings_basis`). A
+    # figure without its unit reads as the old bytes/4 count.
+    "tokens_saved_basis",
+    # The once-per-session steering hint (`server._steer_hint_due`). Its own
+    # key, so a tool's ordinary `_meta.hint` stays off the wire as before.
+    # Carried here so the response that holds it keeps its compact encoding;
+    # it used to force JSON for that one response instead.
+    "steer_hint",
 })
 
 
@@ -71,6 +79,9 @@ UNIVERSAL_META_JSON = frozenset({
 # a warning a tool adds later needs no schema edit.
 UNIVERSAL_BODY_JSON = frozenset({
     "negative_evidence",  # search_symbols: the weak-match or no-match verdict
+    # refresh_on_read: the answer came from a stale index that was not repaired
+    # (or was repaired just now). Without it a stale answer reads as current.
+    "index_refresh",
 })
 
 

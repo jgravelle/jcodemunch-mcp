@@ -27,12 +27,13 @@ IDS = [
     "latency.get_file_outline_warm_p95_ms",
     "index.cold_self_seconds",
     "index.one_file_reindex_ms",
+    "index.cold_over_one_file_ratio",
 ]
 
 
 @pytest.fixture
 def six_verdict_step(tmp_path, monkeypatch):
-    """A step that prints six verdict lines, then two lines that are not verdicts."""
+    """A step that prints one verdict line per id, then two lines that are not verdicts."""
     script = tmp_path / "measure.py"
     lines = [f"print({tid!r} + '  crit 5  floor <= 27  observed 3.1  PASS')" for tid in IDS]
     lines += ["print('wrote nothing')", "print('done')"]
@@ -68,7 +69,7 @@ def test_the_record_keeps_the_three_line_tail(six_verdict_step):
 
 
 def test_the_shipped_step_declares_every_floor_measure_prints():
-    """The six ids the summary must carry are the step's own declaration, not this file's."""
+    """The ids the summary must carry are the step's own declaration, not this file's."""
     import json
 
     tiers = json.loads((REPO / "harness" / "tiers.json").read_text(encoding="utf-8"))

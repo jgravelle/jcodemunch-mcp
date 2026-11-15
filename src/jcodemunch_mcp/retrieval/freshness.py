@@ -28,6 +28,7 @@ classifying many symbols in one tool call is cheap.
 from __future__ import annotations
 
 import logging
+import os
 import subprocess
 import time
 from datetime import datetime, timezone
@@ -35,6 +36,10 @@ from pathlib import Path
 from typing import Optional
 
 logger = logging.getLogger(__name__)
+
+# prime_mtimes: below this many files a serial stat is already quick.
+_PRIME_MIN_FILES = 256
+_PRIME_WORKERS = 8
 
 
 _FRESH = "fresh"
@@ -299,12 +304,50 @@ class FreshnessProbe:
             self._mtime_cache[file_rel] = None
             return None
         try:
-            p = self._source_root / file_rel
-            mtime = p.stat().st_mtime if p.exists() else None
+            # One stat: a missing file raises, which reads the same as absent.
+            mtime = (self._source_root / file_rel).stat().st_mtime
         except OSError:
             mtime = None
         self._mtime_cache[file_rel] = mtime
         return mtime
+
+    def prime_mtimes(self, files) -> None:
+        """Stat every file not yet cached, on a few threads, before classify() runs.
+
+        Each file gets the same single ``stat`` that ``_file_mtime`` makes, with
+        the same missing-reads-as-absent rule, so ``classify`` returns exactly
+        what it would have; only the waiting overlaps, and the per-file path
+        object is skipped. The stats run in chunks on ``read_ahead``'s daemon
+        threads, so a caller abandoned at its budget doesn't keep the process
+        alive. A scope that is mostly cached, or a probe with no source root,
+        costs nothing here.
+        """
+        if not self._source_root:
+            return
+        todo = [f for f in dict.fromkeys(files) if f and f not in self._mtime_cache]
+        if len(todo) < _PRIME_MIN_FILES:
+            return
+        root = str(self._source_root)
+        # Enough chunks to keep every thread busy, none smaller than 32 files.
+        size = max(32, -(-len(todo) // (_PRIME_WORKERS * 4)))
+        chunks = [todo[i:i + size] for i in range(0, len(todo), size)]
+
+        def stat_chunk(chunk: list) -> list:
+            out = []
+            for rel in chunk:
+                try:
+                    out.append(os.stat(os.path.join(root, rel)).st_mtime)
+                except OSError:
+                    out.append(None)
+            return out
+
+        from ..storage.read_ahead import read_ahead
+
+        for chunk, mtimes, _err in read_ahead(chunks, stat_chunk, workers=_PRIME_WORKERS, window=_PRIME_WORKERS * 2):
+            # stat_chunk catches every OSError itself, so a chunk always has
+            # one mtime (or None) per file.
+            for rel, mtime in zip(chunk, mtimes or ()):
+                self._mtime_cache[rel] = mtime
 
     def classify(self, file_rel: str) -> str:
         """Return one of fresh / edited_uncommitted / stale_index / unknown.

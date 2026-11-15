@@ -19,7 +19,6 @@ import pytest
 
 from jcodemunch_mcp.cli.hooks import grep_answer
 from jcodemunch_mcp.storage import sqlite_store
-from jcodemunch_mcp.storage.selective import SelectiveIndexView
 from jcodemunch_mcp.tools.index_folder import index_folder
 from jcodemunch_mcp.tools.search_text import search_text
 
@@ -74,16 +73,22 @@ def full_loads(monkeypatch):
 
 @pytest.fixture
 def narrow_reads(monkeypatch):
-    """Count selective reads that ask for named files' symbols."""
+    """Count reads that ask for named files' symbols, by either route."""
     calls: list = []
     real = sqlite_store.SQLiteIndexStore.open_selective
+    real_files = sqlite_store.SQLiteIndexStore.read_file_symbols
 
     def counting(self, owner, name, **kwargs):
         if kwargs.get("files"):
             calls.append(list(kwargs["files"]))
         return real(self, owner, name, **kwargs)
 
+    def counting_files(self, owner, name, files):
+        calls.append(list(files))
+        return real_files(self, owner, name, files)
+
     monkeypatch.setattr(sqlite_store.SQLiteIndexStore, "open_selective", counting)
+    monkeypatch.setattr(sqlite_store.SQLiteIndexStore, "read_file_symbols", counting_files)
     return calls
 
 
@@ -168,31 +173,28 @@ def test_a_narrow_read_from_another_index_falls_back_to_the_full_index(
     # different indexed_at, or a different database mtime. Its rows must not be
     # used; the full index answers instead.
     repo, store, _ = indexed
-    real = sqlite_store.SQLiteIndexStore.open_selective
-    used: list = []
+    real = sqlite_store.SQLiteIndexStore.read_file_symbols
+    calls: list = []
 
-    # SelectiveIndexView has __slots__, so the method is wrapped on the class.
-    real_method = SelectiveIndexView.selected_symbols
+    def drifting(self, owner, name, files):
+        out = real(self, owner, name, files)
+        calls.append(True)
+        if out is None:
+            return out
+        generation, mtime_ns, symbols = out
+        # Rows from the other read are marked, so using them shows in the names.
+        symbols = [{**s, "name": "DRIFTED_" + s.get("name", "")} for s in symbols]
+        if moved == "generation":
+            return "2000-01-01T00:00:00", mtime_ns, symbols
+        return generation, mtime_ns + 1, symbols
 
-    def recording(self):
-        used.append(True)
-        return real_method(self)
-
-    monkeypatch.setattr(SelectiveIndexView, "selected_symbols", recording)
-
-    def drifting_slots(self, owner, name, **kwargs):
-        view = real(self, owner, name, **kwargs)
-        if kwargs.get("files") and isinstance(view, SelectiveIndexView):
-            if moved == "generation":
-                object.__setattr__(view, "_generation", "2000-01-01T00:00:00")
-            else:
-                object.__setattr__(view, "_loaded_mtime_ns", (view._loaded_mtime_ns or 0) + 1)
-        return view
-
-    monkeypatch.setattr(sqlite_store.SQLiteIndexStore, "open_selective", drifting_slots)
+    monkeypatch.setattr(sqlite_store.SQLiteIndexStore, "read_file_symbols", drifting)
     _cold()
     res = search_text(repo, "beacon", storage_path=store, selective_load=True)
-    assert used == [], f"rows from a read with a different {moved} were used"
+    assert calls, "the narrow read was not reached, so the drift was not tested"
+    assert not any(n.startswith("DRIFTED_") for n in _enclosing_names(res)), (
+        f"rows from a read with a different {moved} were used"
+    )
     assert len(full_loads) == 1, full_loads
     assert {"start", "stop", "helper"} <= _enclosing_names(res)
 
@@ -207,6 +209,8 @@ def test_the_hook_freshness_check_does_not_load_the_full_index(indexed, full_loa
 def test_the_hook_answer_does_not_load_the_full_index(indexed, full_loads, monkeypatch):
     _, _, src = indexed
     monkeypatch.setenv("JCODEMUNCH_HOOK_GREP_ANSWER", "1")
+    # The hook answers only at or over its size gate; this repo is small.
+    monkeypatch.setenv("JCODEMUNCH_HOOK_GREP_ANSWER_MIN_LINES", "1")
     _cold()
     assert grep_answer.answer_grep({"pattern": "beacon"}, str(src), "s-cold")
     assert full_loads == []
@@ -215,6 +219,8 @@ def test_the_hook_answer_does_not_load_the_full_index(indexed, full_loads, monke
 def test_the_hook_logs_each_stage_at_debug(indexed, monkeypatch, caplog):
     _, _, src = indexed
     monkeypatch.setenv("JCODEMUNCH_HOOK_GREP_ANSWER", "1")
+    # The hook answers only at or over its size gate; this repo is small.
+    monkeypatch.setenv("JCODEMUNCH_HOOK_GREP_ANSWER_MIN_LINES", "1")
     _cold()
     with caplog.at_level(logging.DEBUG, logger=grep_answer.logger.name):
         out = grep_answer.answer_grep({"pattern": "beacon"}, str(src), "s-stage")

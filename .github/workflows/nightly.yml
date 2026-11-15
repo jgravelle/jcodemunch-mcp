@@ -64,7 +64,7 @@ jobs:
   full:
     name: "nightly: full tier (${{ matrix.os }}, ${{ matrix.python-version }})"
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 20
+    timeout-minutes: 32   # ci.test_job_timeout_minutes; room for the windows wall Floor plus setup
     permissions:
       contents: read
       issues: write

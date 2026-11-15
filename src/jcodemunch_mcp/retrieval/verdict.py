@@ -32,20 +32,122 @@ def index_truncation_meta(cap: Optional[dict]) -> Optional[dict]:
     """
     if not cap or not cap.get("truncated"):
         return None
-    return {
+    from ..security import cap_label, cap_remedy
+
+    remedy = cap_remedy(cap)
+    block = {
         "truncated": True,
         "files_discovered": cap.get("files_discovered"),
         "files_indexed": cap.get("files_indexed"),
         "files_skipped_cap": cap.get("files_skipped_cap"),
         "max_folder_files": cap.get("max_folder_files"),
         "note": (
-            "This index is incomplete: the max_folder_files cap dropped "
+            f"This index is incomplete: the {cap_label(cap)} cap dropped "
             f"{cap.get('files_skipped_cap')} file(s) at index time, so entire files "
             "are absent from search. A missing or thin result may be truncation, not "
-            "absence. Raise max_folder_files in config.jsonc (or set "
-            "JCODEMUNCH_MAX_FOLDER_FILES) and re-index."
+            "absence. "
+            + (
+                remedy
+                or "Raise max_folder_files in config.jsonc (or set "
+                "JCODEMUNCH_MAX_FOLDER_FILES) and re-index."
+            )
         ),
     }
+    if remedy:
+        # Not the plain agent-cap case: the answer line names this step instead.
+        block["remedy"] = remedy
+    return block
+
+
+def index_truncation_warning(block: Optional[dict]) -> Optional[str]:
+    """The answer-body line for a result drawn from a capped index, or None.
+
+    ``block`` is the ``_meta.index_truncated`` dict from :func:`index_truncation_meta`.
+    The dispatcher puts this line in the BODY because ``meta_fields: []``, the
+    shipped default, strips ``_meta``: without it a search that finds something
+    on a capped index reads as a search of the whole repo.
+    """
+    if not isinstance(block, dict) or not block.get("truncated"):
+        return None
+    indexed, discovered = block.get("files_indexed"), block.get("files_discovered")
+    held = (
+        f"{indexed:,} of {discovered:,} files"
+        if isinstance(indexed, int) and isinstance(discovered, int)
+        else "only part of the repo's files"
+    )
+    remedy = block.get("remedy")
+    if isinstance(remedy, str) and remedy:
+        return (
+            f"This index holds {held} as current, so these results come only from "
+            f"those files. {remedy}"
+        )
+    return (
+        f"This index holds {held} (the max_folder_files cap), so these results come "
+        "only from those files. Raise max_folder_files in config.jsonc, or set "
+        "JCODEMUNCH_MAX_FOLDER_FILES, and re-index to search the rest."
+    )
+
+
+def index_withheld_meta(index) -> Optional[dict]:
+    """Query-time ``_meta.index_withheld`` block: files left out for size.
+
+    A file over ``max_file_size`` is counted in the index's coverage
+    (``withheld.too_large``). Before this block the count reached an answer only
+    inside ``_meta.verdict`` on an absent or degraded answer, so a search that
+    found something over a corpus missing a large source file read as complete.
+    Returns None when nothing was withheld for size, or the index predates
+    coverage recording. The count is the index's withheld set
+    (``withheld_files_total``), the same reading :func:`withheld_file_info`
+    makes: ``withheld.too_large`` is only the latest walk's count, so after a
+    subdir walk it can be lower than what the index still withholds. The limit
+    is the one the walk used, read off the per-file record when the index
+    carries it.
+    """
+    cov = getattr(index, "coverage", None)
+    if not isinstance(cov, dict):
+        return None
+    total = cov.get("withheld_files_total")
+    if total is None:
+        total = (cov.get("withheld") or {}).get("too_large")
+    try:
+        n = int(total or 0)
+    except (TypeError, ValueError):
+        return None
+    if n <= 0:
+        return None
+    block: dict = {"files_over_size_limit": n}
+    limits = set()
+    for entry in (cov.get(WITHHELD_FILES_KEY) or {}).values():
+        if isinstance(entry, dict) and isinstance(entry.get("limit"), int) and entry["limit"] > 0:
+            limits.add(entry["limit"])
+    if len(limits) == 1:
+        block["max_file_size"] = next(iter(limits))
+    return block
+
+
+def index_withheld_warning(block: Optional[dict]) -> Optional[str]:
+    """The answer-body line for a result drawn from an index that withheld
+    files for size, or None.
+
+    Separate from :func:`index_truncation_warning`: the file-count cap and the
+    per-file size limit are different settings with different remedies.
+    """
+    if not isinstance(block, dict):
+        return None
+    n = block.get("files_over_size_limit")
+    if not isinstance(n, int) or n <= 0:
+        return None
+    limit = block.get("max_file_size")
+    over = (
+        f"the per-file size limit (max_file_size, {limit:,} bytes)"
+        if isinstance(limit, int)
+        else "the per-file size limit (max_file_size)"
+    )
+    files = "1 file" if n == 1 else f"{n} files"
+    return (
+        f"This index left out {files} over {over}, so these results do not "
+        f"include them. {_TOO_LARGE_REMEDY}"
+    )
 
 
 # Version pin for the confidence/score heuristics the verdict reports.
@@ -126,6 +228,146 @@ def _attach_coverage(verdict: dict, coverage: Optional[dict]) -> None:
         verdict["coverage"] = coverage
 
 
+#: Coverage key naming the files a walk withheld for size, as
+#: ``{stored_path: {"size": bytes, "limit": max_file_size}}`` (#1396). Before
+#: it, coverage kept only the COUNT (``withheld.too_large``), so the file tools
+#: could not tell a withheld path from one that never existed and answered both
+#: "strong evidence the target is not present". Capped at
+#: ``WITHHELD_FILES_MAX`` entries, with the total and a ``truncated`` flag beside
+#: it from the first release that carries it (a list that ships unbounded on
+#: 1.x cannot be bounded later).
+#:
+#: A file reaches the size check only after the skip-directory, gitignore,
+#: secret and extension checks (``_should_index_file``), so the record never
+#: names a file the index excludes on purpose.
+WITHHELD_FILES_KEY = "withheld_files"
+WITHHELD_FILES_MAX = 200
+
+
+def withheld_files_record(files: dict) -> dict:
+    """The coverage keys for ``files`` (``{path: (size, limit)}``); ``{}`` when none.
+
+    Sorted by path so the stored record is deterministic, and cut at
+    ``WITHHELD_FILES_MAX``. Each entry keeps the limit of the walk that
+    withheld it, because a later subdir walk may run under another one.
+    """
+    if not files:
+        return {}
+    names = sorted(files)
+    kept = names[:WITHHELD_FILES_MAX]
+    return {
+        WITHHELD_FILES_KEY: {
+            n: {"size": int(files[n][0]), "limit": int(files[n][1] or 0)} for n in kept
+        },
+        "withheld_files_total": len(names),
+        "withheld_files_truncated": len(names) > len(kept),
+    }
+
+
+_TOO_LARGE_REMEDY = (
+    "Raise max_file_size (config, the project's .jcodemunch.jsonc, or "
+    "JCODEMUNCH_MAX_FILE_SIZE) and re-index, or read the file directly."
+)
+_UNNAMED_REMEDY = (
+    "Run a full index_folder (without paths=) to record which files were "
+    "withheld, or raise max_file_size and re-index."
+)
+
+
+def _listed_file_on_disk(index, rel: str) -> Optional[bool]:
+    """Is a path the record lists still a file under the index's root?
+
+    Tri-state: None when the root is unknown or cannot be read, so a moved
+    tree is not read as a deleted file. Only paths the record names reach
+    this, and the resolved path must stay under the root.
+    """
+    root = getattr(index, "source_root", "") or ""
+    if not root:
+        return None
+    try:
+        from pathlib import Path
+
+        base = Path(root).resolve()
+        if not base.is_dir():
+            return None
+        target = (base / rel).resolve()
+        target.relative_to(base)
+        return target.is_file()
+    except ValueError:
+        return False
+    except OSError:
+        return None
+
+
+def _leaves_root(rel: str) -> bool:
+    """Is ``rel`` absolute or does it climb above the root? Lexical only."""
+    import posixpath
+    import re
+
+    if rel.startswith("/") or re.match(r"^[A-Za-z]:", rel):
+        return True
+    norm = posixpath.normpath(rel)
+    return norm == ".." or norm.startswith("../")
+
+
+def withheld_file_info(index, requested_path: Optional[str]) -> Optional[dict]:
+    """What the index knows about a path it does not hold, or None (#1396).
+
+    * A path the coverage record lists, still a file under the root: withheld
+      for size, with its size and the limit it was over. A listed file gone
+      from disk returns None, so it reads ``absent`` like any missing path.
+    * A path the record does not list, in an index that withheld files it does
+      not name (the record is capped, or the index was built before it):
+      ``withheld_unnamed``. Absence is not proven, and nothing about the path
+      itself is looked up, so this never confirms that any file exists.
+    * Otherwise None, and the caller keeps its ``absent`` answer.
+    """
+    if not requested_path:
+        return None
+    rel = str(requested_path).replace("\\", "/")
+    cov = getattr(index, "coverage", None) or {}
+    listed = cov.get(WITHHELD_FILES_KEY)
+    if not isinstance(listed, dict):
+        listed = {}
+    entry = listed.get(rel)
+    if isinstance(entry, dict):
+        if _listed_file_on_disk(index, rel) is False:
+            return None
+        size, limit = int(entry.get("size") or 0), int(entry.get("limit") or 0)
+        info = {
+            "reason": "too_large",
+            "size": size,
+            "summary": (
+                f"The file is in the tree but over max_file_size ({size} > {limit} bytes), "
+                "so its symbols are not in the index."
+                if limit else
+                "The file is in the tree but over max_file_size, so its symbols are not in the index."
+            ),
+            "remedy": _TOO_LARGE_REMEDY,
+        }
+        if limit:
+            info["limit"] = limit
+        return info
+    if _leaves_root(rel):
+        # No withheld file can sit outside the root, so this stays absent.
+        return None
+    total = cov.get("withheld_files_total")
+    if total is None:
+        total = (cov.get("withheld") or {}).get("too_large", 0)
+    unnamed = int(total or 0) - len(listed)
+    if unnamed > 0:
+        return {
+            "reason": "withheld_unnamed",
+            "withheld_unnamed": unnamed,
+            "summary": (
+                f"This index withheld {unnamed} file(s) over max_file_size that it does "
+                "not name, so it cannot tell whether this path is one of them."
+            ),
+            "remedy": _UNNAMED_REMEDY,
+        }
+    return None
+
+
 # Emitted as verdict["state"].
 STATE_OK = "ok"
 STATE_LOW_CONFIDENCE = "low_confidence"
@@ -146,6 +388,41 @@ _NOTES = {
         "Results are partial and absence is NOT proven."
     ),
 }
+
+
+def filters_refuse_absence(filters) -> bool:
+    """Whether a search's filters make its absence uncitable.
+
+    An attribute filter (language, kind, decorator) narrows the scan to a
+    slice nothing records as a scope, so nothing found says nothing about the
+    index. A ``file_pattern`` alone is a path scope the evidence carries, so the
+    absence stays citable within it. The one rule for every reader.
+    """
+    return bool(filters) and set(filters) != {"file_pattern"}
+
+
+#: How to restore a file's missing cached copy, in every message that reports
+#: one (get_symbol_source's reason and verdict note, get_file_content,
+#: get_context_bundle). ``refresh`` needs ``--reset`` once a campaign has
+#: finished, or it re-parses nothing; ``index_file`` needs a local tree, so an
+#: ``index_repo`` snapshot is named apart, with ``incremental=False``: a default
+#: incremental ``index_repo`` answers "No changes detected" from the tree SHA
+#: and never looks at the cached copies.
+CONTENT_COPY_REPAIR = (
+    "For an index of a local folder, run index_file on the file, or index_folder "
+    "with paths=[file], to restore it, or `jcodemunch-mcp refresh <folder> --reset` "
+    "to restore every missing copy. An index_repo snapshot is restored by "
+    "index_repo with incremental=False."
+)
+
+
+def content_copy_missing_reason(file_path: str, content_dir=None) -> str:
+    """The reason given for a file whose cached text could not be read."""
+    where = f" under {content_dir}" if content_dir else ""
+    return (
+        f"The cached copy of {file_path} is missing{where}. The index row "
+        f"resolves; only the file's cached text is gone. {CONTENT_COPY_REPAIR}"
+    )
 
 
 def refuse_absence(verdict: dict, note: str) -> bool:
@@ -734,6 +1011,7 @@ def build_file_verdict(
     empty_symbols: bool = False,
     index_changed: bool = False,
     freshness: Optional[str] = None,
+    withheld: Optional[dict] = None,
 ) -> dict:
     """`_meta.verdict` for the file-read tools.
 
@@ -744,7 +1022,21 @@ def build_file_verdict(
       ``absent`` with no suggestions, so the agent does not retry the outline.
     * otherwise — ``ok``.
     """
-    if not present:
+    if not present and withheld:
+        # #1396: the index withheld this file, or withheld files it does not
+        # name, so absence is not proven and the note must not say "not
+        # present". An unnamed hedge keeps its near-miss suggestions: the
+        # path may as well be a typo.
+        state = STATE_DEGRADED
+        note = (
+            f"Path is not in the index. {withheld.get('summary', '')} "
+            f"Absence is NOT proven. {withheld.get('remedy', '')}"
+        ).strip()
+        suggestions = (
+            suggest_paths(requested_path, source_files)
+            if withheld.get("reason") == "withheld_unnamed" else []
+        )
+    elif not present:
         state = STATE_ABSENT
         note = "Path is not in the index. " + _NOTES[STATE_ABSENT]
         suggestions = suggest_paths(requested_path, source_files)
@@ -782,6 +1074,8 @@ def build_file_verdict(
     }
     if suggestions:
         verdict["did_you_mean"] = suggestions
+    if not present and withheld:
+        verdict["withheld"] = dict(withheld)
     return verdict
 
 
@@ -920,8 +1214,14 @@ def file_verdict_for_index(
     present: bool,
     requested_path: Optional[str] = None,
     empty_symbols: bool = False,
+    withheld: Optional[dict] = None,
 ) -> dict:
-    """Index-aware wrapper over :func:`build_file_verdict` for the file tools."""
+    """Index-aware wrapper over :func:`build_file_verdict` for the file tools.
+
+    ``withheld`` is :func:`withheld_file_info` for a path the index lacks; the
+    tools put the same dict in the response body, because the default
+    ``meta_fields: []`` strips ``_meta`` and the verdict with it.
+    """
     verdict = build_file_verdict(
         present=present,
         requested_path=requested_path,
@@ -930,6 +1230,7 @@ def file_verdict_for_index(
         empty_symbols=empty_symbols,
         index_changed=index_changed_since_load(index),
         freshness=_index_freshness(index),
+        withheld=withheld,
     )
     _attach_coverage(verdict, index_coverage_meta(index))
     return verdict
@@ -977,8 +1278,7 @@ def build_symbol_verdict(
             f"{unavailable_source_count} symbol{plural} resolved but the body could not "
             "be read: the cached file content is missing for that path. Signatures, "
             "docstrings and line ranges are accurate; `source` is empty because it is "
-            "unavailable, NOT because the symbol is empty. Re-index the repo to "
-            "rebuild the content cache."
+            "unavailable, NOT because the symbol is empty. " + CONTENT_COPY_REPAIR
         )
         suggestions = []
     else:

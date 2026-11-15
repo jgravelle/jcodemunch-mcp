@@ -6,6 +6,10 @@ and puts the page in the refusal, once per session and Grep arguments. The same
 Grep sent again runs normally. No index, no match, an argument with no index
 translation, a search over its time budget, or the switch turned off all let
 the Grep run untouched.
+
+The hook answers only a Grep at or over its size thresholds; these fixtures set
+the line threshold to 1 so the answer path is tested on a two-line repo. The
+gate itself is tested in test_grep_answer_size_gate.py.
 """
 
 from __future__ import annotations
@@ -64,6 +68,7 @@ def indexed(tmp_path, monkeypatch):
     monkeypatch.setenv("JCODEMUNCH_TRUSTED_FOLDERS", str(tmp_path))
     monkeypatch.delenv("JCODEMUNCH_ENFORCE", raising=False)
     monkeypatch.setenv("JCODEMUNCH_HOOK_GREP_ANSWER", "1")
+    monkeypatch.setenv("JCODEMUNCH_HOOK_GREP_ANSWER_MIN_LINES", "1")
     from jcodemunch_mcp.tools.index_folder import index_folder
 
     assert index_folder(str(proj), use_ai_summaries=False)["success"]
@@ -228,6 +233,7 @@ def test_a_secret_on_a_matched_line_is_redacted(tmp_path, monkeypatch):
     monkeypatch.setenv("JCODEMUNCH_TRUSTED_FOLDERS", str(tmp_path))
     monkeypatch.delenv("JCODEMUNCH_ENFORCE", raising=False)
     monkeypatch.setenv("JCODEMUNCH_HOOK_GREP_ANSWER", "1")
+    monkeypatch.setenv("JCODEMUNCH_HOOK_GREP_ANSWER_MIN_LINES", "1")
     from jcodemunch_mcp.tools.index_folder import index_folder
 
     assert index_folder(str(proj), use_ai_summaries=False)["success"]

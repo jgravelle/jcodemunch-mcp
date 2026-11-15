@@ -28,7 +28,7 @@ out of one of them. Values that could not be established are marked UNKNOWN.
 | Version scheme | `1.108.N`, N increments per release; five pin sites (`pyproject.toml`, `server.json` x2, `plugin.json`, `uv.lock` name-scoped line) plus regenerated `whatsnew.json` | `tests/test_server_json_sync.py`, `test_plugin_manifest_sync.py`, `test_lockfile_version_sync.py` |
 | Python | >=3.10; CI matrix 3.10-3.13 | `pyproject.toml`, `.github/workflows/test.yml` |
 | Build | hatchling; wheel packages `src/jcodemunch_mcp` + `munch-bench/munch_bench` | `pyproject.toml:89-98` |
-| Entry point | `jcodemunch-mcp = jcodemunch_mcp.server:main` | `pyproject.toml:85` |
+| Entry point | `jcodemunch-mcp = jcodemunch_mcp.cli_entry:cli` | `pyproject.toml:105` |
 | Extras | anthropic, gemini, openai, minimax, zhipu, dbt, http, watch, semantic, groq, keyring, bench, local-embed, groq-voice, groq-explain, all | `pyproject.toml:63-81` |
 | Dev group | pytest, pytest-asyncio, pytest-cov, pytest-xdist, hypothesis, ruff, tiktoken (PEP 735, no `test` extra) | `pyproject.toml:173-201` |
 | sdist excludes | `.claude/`, `.jcodemunch.jsonc`, `.gitattributes`, `index.php`, `vscode-extension/node_modules/`, `vscode-extension/out/`, `*.vsix`, `scripts/repair-munch-installs.ps1` | `pyproject.toml:100-128` |

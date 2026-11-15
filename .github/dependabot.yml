@@ -1,41 +1,24 @@
 version: 2
-# Security-only, batched. We do NOT run version updates (open-pull-requests-limit: 0
-# suppresses them); Dependabot still opens PRs for actual vulnerability alerts, and the
-# `groups` directive collapses those into a single combined PR instead of one-per-alert.
+# One entry per ecosystem and directory: GitHub rejects the file when two
+# entries share 'package-ecosystem', 'directory' and 'target-branch'. Each entry
+# therefore carries both postures:
+#   - Security updates: opened when a vulnerability alert fires, not on the
+#     schedule, and collapsed by an `applies-to: security-updates` group into
+#     one combined PR. `open-pull-requests-limit` does not cap them.
+#   - Version updates: monthly, minor and patch only, one PR (limit 1). Majors
+#     stay manual. Every PR runs the full PR gate (docs/cicd/DESIGN.md
+#     section 4), which is the point of letting them in.
 updates:
-  - package-ecosystem: "uv"
-    directory: "/"
-    schedule:
-      interval: "weekly"
-    open-pull-requests-limit: 0
-    groups:
-      security-updates:
-        applies-to: security-updates
-        patterns:
-          - "*"
-  # GitHub Actions are SHA-pinned in .github/workflows/*.yml; this keeps them
-  # covered by vulnerability alerts (same security-only posture as `uv` above —
-  # version-update noise suppressed, security PRs grouped).
-  - package-ecosystem: "github-actions"
-    directory: "/"
-    schedule:
-      interval: "weekly"
-    open-pull-requests-limit: 0
-    groups:
-      security-updates:
-        applies-to: security-updates
-        patterns:
-          - "*"
-
-  # docs/cicd/DESIGN.md section 4: MONTHLY version updates in two groups, one
-  # PR each, minor and patch only. Majors stay manual. Every PR runs the full
-  # PR gate, which is the point of letting them in.
   - package-ecosystem: "uv"
     directory: "/"
     schedule:
       interval: "monthly"
     open-pull-requests-limit: 1
     groups:
+      security-updates:
+        applies-to: security-updates
+        patterns:
+          - "*"
       python-minor-patch:
         applies-to: version-updates
         patterns:
@@ -46,13 +29,43 @@ updates:
     ignore:
       - dependency-name: "*"
         update-types: ["version-update:semver-major"]
+
+  # GitHub Actions are SHA-pinned in .github/workflows/*.yml; Dependabot bumps
+  # the pins (monthly, one PR, majors included as before) and covers them with vulnerability alerts.
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
       interval: "monthly"
     open-pull-requests-limit: 1
     groups:
+      security-updates:
+        applies-to: security-updates
+        patterns:
+          - "*"
       actions:
         applies-to: version-updates
         patterns:
           - "*"
+
+  # vscode-extension/ (npm): the same two postures as uv above. Its PRs run
+  # vscode-extension.yml, which builds and packages the extension.
+  - package-ecosystem: "npm"
+    directory: "/vscode-extension"
+    schedule:
+      interval: "monthly"
+    open-pull-requests-limit: 1
+    groups:
+      npm-security-updates:
+        applies-to: security-updates
+        patterns:
+          - "*"
+      npm-minor-patch:
+        applies-to: version-updates
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]

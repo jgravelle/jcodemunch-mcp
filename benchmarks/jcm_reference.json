@@ -1,23 +1,33 @@
 {
   "schema": "jcm-benchmark-reference/v2",
-  "captured_at": "2026-10-22T11:31:40+0000",
-  "jcodemunch_version": "1.108.391",
+  "captured_at": "2026-11-08T21:33:46+0000",
+  "jcodemunch_version": "1.108.426",
   "tokenizer": "cl100k_base",
   "workflow": "search_symbols(max_results=5) + get_symbol_source x3",
+  "method": "served",
+  "served_session_costs": {
+    "license_notice_tokens": 160,
+    "steering_hint_tokens": 66,
+    "one_session_extra_tokens": {
+      "expressjs/express": 475,
+      "fastapi/fastapi": 324,
+      "gin-gonic/gin": 0
+    }
+  },
   "baseline_definition": "all indexed source files concatenated",
   "grand": {
     "baseline_tokens": 5658685,
-    "jmunch_tokens": 25132,
+    "jmunch_tokens": 17581,
     "task_runs": 15
   },
   "repos": {
     "expressjs/express": {
-      "avg_tokens_per_query": 990,
-      "jmunch_total_tokens": 4948,
+      "avg_tokens_per_query": 743,
+      "jmunch_total_tokens": 3716,
       "queries": 5,
       "baseline_tokens": 154569,
       "file_count": 186,
-      "symbol_count": 989,
+      "symbol_count": 1085,
       "corpus": {
         "git_head": "1faf228935aa0a13111f92c28ee795be64ce3f0f",
         "pinned_sha": "1faf228935aa0a13111f92c28ee795be64ce3f0f",
@@ -27,8 +37,8 @@
       }
     },
     "fastapi/fastapi": {
-      "avg_tokens_per_query": 2556,
-      "jmunch_total_tokens": 12779,
+      "avg_tokens_per_query": 1779,
+      "jmunch_total_tokens": 8896,
       "queries": 5,
       "baseline_tokens": 825326,
       "file_count": 1186,
@@ -42,8 +52,8 @@
       }
     },
     "gin-gonic/gin": {
-      "avg_tokens_per_query": 1481,
-      "jmunch_total_tokens": 7405,
+      "avg_tokens_per_query": 994,
+      "jmunch_total_tokens": 4969,
       "queries": 5,
       "baseline_tokens": 151842,
       "file_count": 98,
