@@ -689,8 +689,9 @@ def get_symbol_source(
             if source is None and "source_status" not in entry:
                 entry["source_status"] = "content_cache_missing"
                 entry["source_unavailable_reason"] = (
-                    f"No cached content for {symbol['file']} under {content_dir}. "
-                    "Re-index the repo to rebuild it."
+                    f"The cached copy of {symbol['file']} is missing under {content_dir}; "
+                    "the index row is intact, so this is not a stale index. "
+                    "Run index_file on this file, or index_folder with paths=[file], to restore it; `jcodemunch-mcp refresh <folder>` restores every missing copy."
                 )
                 unavailable_source_ids.append(symbol["id"])
         if context_before:

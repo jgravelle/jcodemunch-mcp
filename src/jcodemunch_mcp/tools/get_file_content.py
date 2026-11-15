@@ -70,7 +70,15 @@ def get_file_content(
                 }
         except Exception:
             pass
-        return {"error": f"File content not found: {file_path}"}
+        return {
+            "error": (
+                f"File content not found: {file_path}. The file is indexed, but its "
+                "cached copy is missing, so this is not a stale index. "
+                "Run index_file on this file, or index_folder with paths=[file], to restore it; `jcodemunch-mcp refresh <folder>` restores every missing copy."
+            ),
+            "file": file_path,
+            "source_status": "content_cache_missing",
+        }
 
     lines = content.splitlines()
     line_count = len(lines)

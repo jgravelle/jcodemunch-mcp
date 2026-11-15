@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed - a file whose cached copy is missing says so, and re-indexing that one file repairs it
+
+A buyer on 1.108.417 got empty source with `source_status: content_cache_missing`, and a reason telling them to re-index the whole repo. jcodemunch keeps an index and, beside it, a cached copy of each file's text; source is served from the copy. When a copy is gone (a pruned cache, an index copied without its content folder), the index row is intact and the file is not stale, yet `index_file`, an incremental `index_folder` and `index_folder(paths=[file])` all said the file was unchanged and repaired nothing, because the unchanged check compared hashes and never asked whether the copy existed. Now `index_file <path>` and `index_folder` with `paths=` re-parse a listed file whose copy is missing, and `get_symbol_source` and `get_file_content` name the missing copy and that one-file repair (with `jcodemunch-mcp refresh <folder>` for many). The existence check costs one file stat; on this repo's 1,564-file index one check per file took 0.1574 s in all, so a full incremental run does not make it, and an unchanged re-index costs what it did. Under `cache_mode: metadata_only`, which keeps no copies, nothing is re-parsed.
+
 ## [1.108.447] - 2026-11-14 - on macOS, a process is identified by its creation time
 
 ### Fixed - on macOS, a process is identified by its creation time, not by its PID alone

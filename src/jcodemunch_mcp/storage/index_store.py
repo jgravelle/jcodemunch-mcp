@@ -1487,6 +1487,10 @@ class IndexStore:
         """A file's text from the content cache (path-contained); None if absent."""
         return self._sqlite.read_cached_source(owner, name, file_path)
 
+    def missing_cached_copies(self, owner: str, name: str, file_paths) -> list[str]:
+        """The listed files whose cached text is absent."""
+        return self._sqlite.missing_cached_copies(owner, name, file_paths)
+
     def detect_changes(
         self,
         owner: str,

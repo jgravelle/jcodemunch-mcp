@@ -3801,6 +3801,32 @@ class SQLiteIndexStore:
             return None
         return self._read_cached_text(content_path)
 
+    def missing_cached_copies(self, owner: str, name: str, file_paths) -> list[str]:
+        """The listed files whose cached text is absent.
+
+        The "unchanged" checks compare a file's hash with its index row and
+        never asked whether the cached copy exists, so a targeted re-index of
+        a file whose copy was pruned or never copied said "unchanged" and
+        repaired nothing. One existence check per listed file, so only the
+        targeted routes call this; a full incremental run would pay it for
+        every file. Empty under ``cache_mode: metadata_only``, which keeps no
+        copy by design, and when the content folder cannot be named (UNKNOWN
+        forces nothing).
+        """
+        from .text_filter import _bodies_written
+
+        if not _bodies_written():
+            return []
+        content_dir = self._content_dir_or_none(owner, name)
+        if content_dir is None:
+            return []
+        missing = []
+        for fp in file_paths:
+            path = self._safe_content_path(content_dir, fp)
+            if path is not None and not path.exists():
+                missing.append(fp)
+        return missing
+
     # ── Content cache helpers (reused from IndexStore) ──────────────
 
     def _content_dir_or_none(self, owner: str, name: str) -> Optional[Path]:
