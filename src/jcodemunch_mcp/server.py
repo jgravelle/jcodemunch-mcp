@@ -6079,6 +6079,18 @@ def _label_savings_basis(result: dict) -> None:
         logger.debug("tokens_saved basis not labeled", exc_info=True)
 
 
+def _is_absence_answer(result: dict) -> bool:
+    """True when the answer says nothing in the index matched.
+
+    The verdict set is `session_journal._ABSENCE_VERDICTS`, the one place an
+    absence claim is named; a second list here would drift from it.
+    """
+    from .tools.session_journal import _ABSENCE_VERDICTS
+
+    evidence = result.get("negative_evidence")
+    return isinstance(evidence, dict) and evidence.get("verdict") in _ABSENCE_VERDICTS
+
+
 def _count_tool_call(
     name: str,
     result: "list[TextContent] | CallToolResult | None",
@@ -6096,11 +6108,13 @@ def _count_tool_call(
     the default surface was mirrored under `order` (review, 2026-10-13).
     ⚠ A dispatch that raised is a call with no answer: *result* is None and
     it adds a call and no tokens, so `calls` agrees with the latency rows.
-    ⚠ *no_match* says the answer carried `negative_evidence` (#1308). It is
-    read from the result DICT, before encoding, because a compact encoding
-    cannot be parsed back here; `_call_tool_impl` marks it on this frame
-    (BACKLOG 74). A relayed call's marker stays with the tool that answered,
-    the same as its size.
+    ⚠ *no_match* says the answer's `negative_evidence` carried an absence
+    verdict (`_is_absence_answer`), never merely the field: #1308 sets it on
+    answers that returned rows too. It is read from the result DICT, before
+    encoding, because a compact encoding cannot be parsed back here;
+    `_call_tool_impl` marks it on this frame. A relayed call's marker stays
+    with the tool that answered, the same as its size, and a refused or failed
+    answer clears it.
     ⚠ *name* is the client's string: only a name this server publishes is
     counted, so nothing else can be written into a file the user may hand to
     someone. ⚠ It never touches the disk (the counters module hands a due
@@ -6244,7 +6258,8 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent] | CallToolR
             name,
             _counted_result,
             relayed=_count_frame["inner"],
-            no_match=bool(_count_frame.get("no_match")),
+            # A refused or failed answer is not a no-match the client saw.
+            no_match=_dispatch_ok and bool(_count_frame.get("no_match")),
         )
         if _count_parent is not None:
             _count_parent["inner"] = True
@@ -8167,10 +8182,13 @@ async def _call_tool_impl(name: str, arguments: dict) -> list[TextContent] | Cal
             except Exception:
                 logger.debug("Secret redaction failed", exc_info=True)
 
-        # The tool counters' no-match count (BACKLOG 74): read the marker while
-        # the answer is still a dict; after encoding it is text in a format
-        # the counter cannot parse.
-        if isinstance(result, dict) and result.get("negative_evidence"):
+        # The tool counters' no-match count: read the marker while the answer
+        # is still a dict; after encoding it is text in a format the counter
+        # cannot parse. ⚠ Only an ABSENCE verdict counts, the one set
+        # `session_journal` already keys on: `no_exact_match` and
+        # `low_confidence_matches` carry the same field on answers that
+        # returned rows.
+        if isinstance(result, dict) and _is_absence_answer(result):
             _frame = _COUNT_FRAME.get()
             if _frame is not None:
                 _frame["no_match"] = True

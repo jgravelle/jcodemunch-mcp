@@ -1,4 +1,4 @@
-"""The tool counters say how many calls found nothing (BACKLOG 74).
+"""The tool counters say how many calls found nothing.
 
 Reported by a long-time customer (item 5 of their report): `_tool_counters.json`
 counted a search for a name nothing carries as one more ordinary call, so the
@@ -6,6 +6,10 @@ usage figures `diagnose` reports overstated the calls that answered anything.
 1.108.409 (#1308) marks such an answer in its body with `negative_evidence`,
 the channel a default install keeps. The counters now read that marker and
 keep a third per-tool count, `no_match`, beside `calls` and `tokens_returned`.
+
+⚠ The marker is not the test: #1308 also sets it on answers that RETURNED rows
+(`no_exact_match`, `low_confidence_matches`), so only an absence verdict counts
+(review, 2026-11-15).
 """
 
 from __future__ import annotations
@@ -77,25 +81,82 @@ def repo(store, tmp_path):
     _result_cache.clear()
 
 
-def _search(repo: str, query: str) -> dict:
+ABSENT = "qqqqzzzzxxxx"  # no row at all: `no_implementation_found`
+FUZZY = "zzqqxxNotARealSymbolAtAll"  # rows returned, none exact: `no_exact_match`
+
+
+def _search(repo: str, query: str, fmt: str = "json", clear: bool = True) -> dict:
+    from jcodemunch_mcp import server
+    from jcodemunch_mcp.tools.search_symbols import _result_cache
+
+    if clear:
+        _result_cache.clear()
+    out = asyncio.run(server.call_tool("search_symbols", {"repo": repo, "query": query, "format": fmt}))
+    text = out[0].text
+    return json.loads(text) if fmt == "json" else {"text": text}
+
+
+def test_only_an_answer_that_found_nothing_counts(store, repo):
+    found = _search(repo, "symbol_table")
+    fuzzy = _search(repo, FUZZY)
+    nothing = _search(repo, ABSENT)
+    assert "negative_evidence" not in found
+    # The fixture must hold both shapes, or the test cannot tell them apart.
+    assert fuzzy["negative_evidence"]["verdict"] == "no_exact_match" and fuzzy["results"]
+    assert nothing["negative_evidence"]["verdict"] == "no_implementation_found" and not nothing["results"]
+    row = _counters(store)["tools"]["search_symbols"]
+    assert row["calls"] == 3
+    assert row["no_match"] == 1
+
+
+@pytest.mark.parametrize(
+    "evidence, counts",
+    [
+        ({"verdict": "no_implementation_found"}, True),
+        ({"verdict": "no_exact_match"}, False),
+        ({"verdict": "low_confidence_matches"}, False),
+        ({}, False),
+        (None, False),
+        ("no_implementation_found", False),
+    ],
+)
+def test_the_rule_is_the_absence_verdict(evidence, counts):
+    from jcodemunch_mcp import server
+
+    assert server._is_absence_answer({"negative_evidence": evidence}) is counts
+
+
+def test_a_compact_answer_is_counted_like_a_json_one(store, repo):
+    out = _search(repo, ABSENT, fmt="compact")
+    assert out["text"]
+    assert _counters(store)["tools"]["search_symbols"]["no_match"] == 1
+
+
+def test_a_cached_answer_is_counted_again(store, repo):
+    _search(repo, ABSENT)
+    _search(repo, ABSENT, clear=False)
+    row = _counters(store)["tools"]["search_symbols"]
+    assert row["calls"] == 2 and row["no_match"] == 2
+
+
+def test_a_relayed_call_counts_its_no_match_under_the_tool_that_answered(store, repo):
     from jcodemunch_mcp import server
     from jcodemunch_mcp.tools.search_symbols import _result_cache
 
     _result_cache.clear()
-    out = asyncio.run(server.call_tool("search_symbols", {"repo": repo, "query": query, "format": "json"}))
-    return json.loads(out[0].text)
+    asyncio.run(server.call_tool("order", {"action": "search_symbols", "args": {"repo": repo, "query": ABSENT}}))
+    tools = _counters(store)["tools"]
+    assert tools["search_symbols"]["no_match"] == 1
+    assert tools["order"]["no_match"] == 0
 
 
-def test_the_dispatcher_counts_an_answer_that_carries_the_marker(store, repo):
-    found = _search(repo, "symbol_table")
-    missed = _search(repo, "zzqqxxNotARealSymbolAtAll")
-    nothing = _search(repo, "qqqqzzzzxxxx")
-    assert "negative_evidence" not in found
-    assert missed.get("negative_evidence"), "the query must carry #1308's marker for this test to mean anything"
-    assert nothing.get("negative_evidence")
-    row = _counters(store)["tools"]["search_symbols"]
-    assert row["calls"] == 3
-    assert row["no_match"] == 2
+def test_a_refused_answer_is_not_a_no_match(store, repo, monkeypatch):
+    from jcodemunch_mcp import server
+
+    monkeypatch.setattr(server, "_enforce_response_cap", lambda name, result: server._error_call_result("refused"))
+    _search_raw = asyncio.run(server.call_tool("search_symbols", {"repo": repo, "query": ABSENT, "format": "json"}))
+    assert getattr(_search_raw, "isError", False)
+    assert _counters(store)["tools"]["search_symbols"]["no_match"] == 0
 
 
 def test_a_tool_whose_answer_has_no_marker_counts_none(store):
@@ -108,7 +169,7 @@ def test_a_tool_whose_answer_has_no_marker_counts_none(store):
 def test_diagnose_reports_the_count_and_its_list_allows_it(store, repo):
     from jcodemunch_mcp import diagnose
 
-    _search(repo, "zzqqxxNotARealSymbolAtAll")
+    _search(repo, ABSENT)
     tool_counters.flush()
     report = diagnose.build_report(storage_path=str(store), policy_paths={}, known_tools=("search_symbols",))
     diagnose.check_allowed(report, known_tools=("search_symbols",))

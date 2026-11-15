@@ -31,9 +31,10 @@ there cost about 15 ms on every twentieth call, which is where a p95 sits.
 ⚠ `tokens_returned` is bytes/4, the dispatcher's own scale, and the file names
 that estimator: a count with no basis beside it reads as a tokenizer count.
 
-⚠ `no_match` counts calls whose answer carried `negative_evidence`, the
-marker a default install keeps (#1308). The dispatcher reads it; this module
-only adds. A file written before the count existed reads it as 0 (BACKLOG 74).
+⚠ `no_match` counts calls whose answer said nothing in the index matched:
+its `negative_evidence` verdict (#1308) was an absence verdict, never merely
+present. The dispatcher decides (`server._is_absence_answer`); this module
+only adds. A file written before the count existed reads it as 0.
 
 ⚠ The caller decides WHICH names are counted (the dispatcher passes only
 catalog names). A tool name arrives from the client, so writing it unchecked
