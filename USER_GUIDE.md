@@ -651,7 +651,7 @@ Upgrading the package (`pip install -U`, `uv tool upgrade`, `pipx upgrade`) chan
 2. Restart the server.
 3. Ask the running server for its version. Each of these needs no index, no model call and no tool-tier change:
    - `serverInfo.version` in the MCP `initialize` response.
-   - The `munch://runtime/identity` resource: `version`, plus `instance_id` and `process_start`, which change on every restart.
+   - The `munch://runtime/identity` resource: `version`, plus `instance_id` and `process_start`, which change on every restart, and `build`, a digest of the installed files that differs between two installs of the same version built from different code (`null` with `build_reason` on a source or editable install).
    - The `jcodemunch_guide` tool, field `version`. It is visible at every tool tier.
 4. Compare. The served version must equal the installed version, and `instance_id` must differ from the value you read before the restart. To tie an instance to one deploy, set `JCODEMUNCH_LAUNCH_ID` in the service's environment; the resource echoes it as `launch_id`.
 
@@ -661,7 +661,7 @@ On the machine that runs the servers, `jcodemunch-mcp install-status` lists ever
 - `[ok]`: the server serves the installed version (on a source install: it started after the last source change).
 - `[?]`: unknown. The server runs from a different install (another virtual environment, a `uvx` cache), or an older release started it and did not record its install directory. Unknown is never reported as current.
 
-It reports only and stops nothing. It sees only servers registered under the same index store on the same machine; a service that runs under another account or another `CODE_INDEX_PATH` is not listed, so check that one through its own `serverInfo.version` or identity resource. `install-status --json` carries the same data under `servers`, with `restart_required` set to `true`, `false` or `null` per server. A deploy check that exits 0 only when at least one server is listed and every listed server is current, so an unreadable block, an empty list and an unknown all fail:
+It reports only and stops nothing. It sees only servers registered under the same index store on the same machine; a service that runs under another account or another `CODE_INDEX_PATH` is not listed, so check that one through its own `serverInfo.version` or identity resource. `install-status --json` carries the same data under `servers`, with `restart_required` set to `true`, `false` or `null` per server, and `build` per server when that server recorded one (beside `installed_build` for this install). A deploy check that exits 0 only when at least one server is listed and every listed server is current, so an unreadable block, an empty list and an unknown all fail:
 
 ```bash
 jcodemunch-mcp install-status --json | python -c "import json,sys; s=json.load(sys.stdin).get('servers'); sys.exit(0 if s and s.get('servers') and not s.get('restart_required') and not s.get('unknown') else 1)"

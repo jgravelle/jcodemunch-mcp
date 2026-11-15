@@ -5207,7 +5207,8 @@ async def list_resources() -> list[Resource]:
                 "Process provenance for this server instance "
                 f"({runtime_identity.IDENTITY_SCHEMA}): product, version, "
                 "transport, pid, OS-derived process_start, per-process "
-                "instance_id, optional launch_id echo. Read-only, no side effects."
+                "instance_id, build digest (null with a reason on a source install), "
+                "optional launch_id echo. Read-only, no side effects."
             ),
             mimeType="application/json",
         )

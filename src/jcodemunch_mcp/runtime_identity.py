@@ -13,10 +13,19 @@ Contract notes:
 - ``instance_id`` is a uuid4 minted once per process lifetime (lazily).
 - ``launch_id`` is an opaque host-supplied echo from the environment;
   omitted when unset.
+- ``build`` (#1435) tells apart two servers that report the same version but
+  were installed from different files: ``sha256:`` plus 16 hex digits over the
+  installed distribution's ``RECORD``, which lists every installed file with
+  its own hash. Computed once per process, from one local file; no index, no
+  network. ``null`` with ``build_reason`` when no RECORD describes the loaded
+  code (a source or editable install, or a process that imported a different
+  copy than the installed distribution). It describes the files as they were
+  installed: a file edited in place afterwards does not change it.
 - Deliberately OUT of the payload: command lines, env, cwd, hostnames,
   repo paths, task data.
 """
 
+import hashlib
 import json
 import logging
 import os
@@ -25,6 +34,7 @@ import threading
 import time
 import uuid
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import Any, Dict, Optional
 
 logger = logging.getLogger(__name__)
@@ -39,6 +49,7 @@ LAUNCH_ID_ENV_VARS = ("JCODEMUNCH_LAUNCH_ID", "MUNCH_LAUNCH_ID")
 _lock = threading.Lock()
 _instance_id: Optional[str] = None
 _process_start: Optional[Dict[str, str]] = None
+_build: Optional[Dict[str, Optional[str]]] = None
 _transport: str = "stdio"
 
 
@@ -188,6 +199,42 @@ def _version() -> str:
         return "unknown"
 
 
+def _probe_build(module_file: Optional[Path] = None, dist: Any = None) -> Dict[str, Optional[str]]:
+    """``{"build": "sha256:<16 hex>"}``, or ``{"build": None, "build_reason": ...}``."""
+    module_file = Path(module_file or Path(__file__).parent / "__init__.py")
+    try:
+        from .install_layout import is_source_layout
+
+        if is_source_layout(module_file):
+            return {"build": None, "build_reason": "source install: no RECORD describes the loaded code"}
+        if dist is None:
+            from importlib.metadata import distribution
+
+            dist = distribution(PRODUCT)
+        installed = Path(str(dist.locate_file("jcodemunch_mcp/__init__.py")))
+        if os.path.normcase(os.path.realpath(installed)) != os.path.normcase(os.path.realpath(module_file)):
+            return {"build": None, "build_reason": "this process loaded a different copy than the installed distribution"}
+        record = dist.read_text("RECORD")
+        if not record:
+            return {"build": None, "build_reason": "the installed distribution has no RECORD"}
+        if "jcodemunch_mcp/__init__.py," not in record.replace("\\", "/"):
+            return {"build": None, "build_reason": "the RECORD does not list the package files (an editable install)"}
+        return {"build": "sha256:" + hashlib.sha256(record.encode("utf-8")).hexdigest()[:16]}
+    except Exception as e:
+        logger.debug("build digest unavailable", exc_info=True)
+        return {"build": None, "build_reason": f"could not read the installed RECORD ({type(e).__name__})"}
+
+
+def get_build() -> Dict[str, Optional[str]]:
+    """This process's build block, computed once and cached."""
+    global _build
+    if _build is None:
+        with _lock:
+            if _build is None:
+                _build = _probe_build()
+    return dict(_build)
+
+
 def identity_payload() -> Dict[str, Any]:
     """The munch.runtime.identity/v1 document as a dict."""
     payload: Dict[str, Any] = {
@@ -198,6 +245,7 @@ def identity_payload() -> Dict[str, Any]:
         "pid": os.getpid(),
         "process_start": get_process_start(),
         "instance_id": get_instance_id(),
+        **get_build(),
     }
     launch_id = _launch_id()
     if launch_id is not None:

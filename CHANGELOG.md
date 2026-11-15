@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added - two servers on the same version can be told apart by build (#1435)
+
+@dkiaulakis asked for a serving identity that automation can compare with what is installed. `version` is the recorded metadata number, so two installs of one release built from different files report the same string. The `munch://runtime/identity` resource now carries `build`: `sha256:` and 16 hex digits over the installed distribution's `RECORD`, the file pip and uv write listing every installed file with its own hash. It is read once per process from that one local file, with no index and no network. Where no RECORD describes the loaded code, `build` is `null` and `build_reason` says why: a source or editable install, or a process that loaded another copy than the installed distribution. It describes the files as installed, so a file edited in place afterwards does not change it. Each server records its build in its presence file, and `install-status` prints it beside the installed one, for example `installed 1.108.448, build sha256:...` over `pid 4242 (svc, streamable-http, recorded 1.108.448, build sha256:...)`. A server started by a release before this one has no recorded build, and none is printed for it.
+
 ## [1.108.447] - 2026-11-14 - on macOS, a process is identified by its creation time
 
 ### Fixed - on macOS, a process is identified by its creation time, not by its PID alone
