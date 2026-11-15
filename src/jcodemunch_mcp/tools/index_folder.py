@@ -650,6 +650,33 @@ def _is_shallow_windows_git_root(path: Path) -> bool:
     )
 
 
+def _resolved_entry(entry) -> Optional[Path]:
+    """A trusted_folders entry as the folder it names; as written if that fails.
+
+    ⚠ A relative entry (``""``, ``.``, ``src``, Windows ``C:rel``) names no
+    folder: resolving it would read it against the SERVER's working directory,
+    which can be ``/`` or ``~``. It matches nothing, which is what it matched
+    before entries were resolved. The config file refuses one at load; the env
+    vars (``JCODEMUNCH_TRUSTED_FOLDERS``, ``JCODEMUNCH_TRUSTED_FOLDERS_ENV``)
+    are not validated there, so the comparison must not trust them.
+    """
+    try:
+        path = Path(entry).expanduser()
+    except (OSError, RuntimeError, ValueError):
+        # POSIX raises for a `~name` naming no user: no folder, so no match.
+        # The entry is not logged: it is a path from the environment.
+        logger.warning("a trusted_folders entry names no home directory and matches nothing")
+        return None
+    if not path.is_absolute():
+        logger.warning("a trusted_folders entry is not an absolute path and matches nothing")
+        return None
+    try:
+        return path.resolve()
+    except (OSError, RuntimeError, ValueError):
+        logger.debug("a trusted_folders entry is not resolvable; compared as written", exc_info=True)
+        return path
+
+
 @lru_cache(maxsize=512)
 def _is_trusted(
     folder_path: Path, trusted_folders: tuple, whitelist_mode: bool = True
@@ -661,15 +688,22 @@ def _is_trusted(
 
     Empty list returns False (nothing explicitly trusted) for backward compatibility.
     The trust check is skipped for empty list, but the broad check uses this value.
+
+    ⚠ ``folder_path`` arrives resolved, so each absolute entry is resolved the
+    same way before comparing, and a relative one matches nothing. The cache
+    keeps the first answer, so a symlinked entry retargeted later is read as
+    its old target until the process restarts. Compared as written, an entry that names the folder
+    through a symlink (macOS's ``/var`` is ``/private/var``) or a ``..``
+    segment never matched: a trusted folder was refused, and in blacklist mode
+    a listed folder was not refused.
     """
     if not trusted_folders:
         # Empty list: nothing explicitly trusted (backward compatible)
         return False
 
     is_in_list = any(
-        folder_path == Path(trusted_folder)
-        or Path(trusted_folder) in folder_path.parents
-        for trusted_folder in trusted_folders
+        entry is not None and (folder_path == entry or entry in folder_path.parents)
+        for entry in map(_resolved_entry, trusted_folders)
     )
 
     return is_in_list if whitelist_mode else not is_in_list

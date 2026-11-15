@@ -1,6 +1,18 @@
 {
-  "current": "1.108.448",
+  "current": "1.108.450",
   "entries": [
+    {
+      "version": "1.108.450",
+      "date": "2026-11-15",
+      "title": "a trusted folder is matched by the folder it names",
+      "summary": "A trusted_folders entry set through JCODEMUNCH_TRUSTED_FOLDERS is resolved before it is compared, so an entry that reaches the folder through a symlink or a .. segment (every macOS temp folder is under the /var link) matches it, in whitelist and blacklist mode. A relative entry, or one whose ~name names no user, still matches nothing and is logged."
+    },
+    {
+      "version": "1.108.449",
+      "date": "2026-11-15",
+      "title": "an index that is missing something says so",
+      "summary": "A search over an index that left files out for size says how many. An agent working in a second copy of an indexed repo is told why the index is silent there and how to index it. The runtime identity resource and install-status carry a build digest, so two installs of one version can be told apart."
+    },
     {
       "version": "1.108.448",
       "date": "2026-11-15",

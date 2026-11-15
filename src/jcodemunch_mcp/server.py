@@ -364,7 +364,7 @@ def _tool_search_query(surface: str, prefix: str = _MCP_TOOL_PREFIX) -> str:
     return "select:" + ",".join(prefix + n for n in names)
 
 
-def _indexed_here(timeout: float = 1.5) -> "Optional[int]":
+def _indexed_here(timeout: float = 1.5, looked=None) -> "Optional[int]":
     """File count of the index covering the working directory, or None.
 
     Used for the stdio transport only, where the working directory is the
@@ -380,32 +380,11 @@ def _indexed_here(timeout: float = 1.5) -> "Optional[int]":
     indexed" there would point the agent at the other tree. So the answer
     counts only when its `source_root` contains the working directory; a
     missing `source_root` is unknown, not a match.
+    `looked` is a `_startup_lookup()` result already in hand; without it this
+    makes the lookup itself.
     """
-    import threading
-
-    box: dict = {}
-    try:
-        cwd = Path.cwd().resolve()
-    except OSError:  # e.g. the working directory was deleted
-        logger.debug("startup index lookup: no usable working directory", exc_info=True)
-        return None
-
-    def _look() -> None:
-        try:
-            from .tools.resolve_repo import resolve_repo
-
-            box["r"] = resolve_repo(str(cwd))
-        except Exception:
-            logger.debug("startup index lookup failed", exc_info=True)
-
-    t = threading.Thread(target=_look, name="jcm-startup-index-lookup", daemon=True)
-    t.start()
-    t.join(timeout)
-    if t.is_alive():
-        logger.debug("startup index lookup exceeded %.1fs; not claiming an index", timeout)
-        return None
-    r = box.get("r")
-    if not isinstance(r, dict) or r.get("indexed") is not True or r.get("working_tree_mismatch"):
+    cwd, r = looked if looked is not None else _startup_lookup(timeout)
+    if cwd is None or not isinstance(r, dict) or r.get("indexed") is not True or r.get("working_tree_mismatch"):
         return None
     root = r.get("source_root")
     if not root:
@@ -422,16 +401,73 @@ def _indexed_here(timeout: float = 1.5) -> "Optional[int]":
     return n
 
 
+def _separate_copy_here(looked) -> bool:
+    """True when the working directory is a separate copy of a repo indexed from
+    another folder (`resolve_repo`'s `working_tree_mismatch`, read through
+    `separate_copy`). Logs the folder the index reads at WARNING, because the
+    instructions line it unlocks names no path (a path has no length bound and
+    the instructions do)."""
+    try:
+        from .tools.resolve_repo import separate_copy, separate_copy_sentence
+
+        found = separate_copy(looked[1]) if looked else None
+        if found is None:
+            return False
+        logger.warning("%s", separate_copy_sentence(*found))
+        return True
+    except Exception:  # startup must never fail on a note
+        logger.debug("separate-copy startup check failed", exc_info=True)
+        return False
+
+
+def _startup_lookup(timeout: float = 1.5):
+    """`(cwd, resolve_repo(cwd))` for the startup checks, or `(None, None)`.
+
+    The answer is None when the lookup failed or ran past `timeout`; it runs
+    on a daemon thread so a stuck one cannot hold the process open.
+    """
+    import threading
+
+    box: dict = {}
+    try:
+        cwd = Path.cwd().resolve()
+    except OSError:  # e.g. the working directory was deleted
+        logger.debug("startup index lookup: no usable working directory", exc_info=True)
+        return None, None
+
+    def _look() -> None:
+        try:
+            from .tools.resolve_repo import resolve_repo
+
+            box["r"] = resolve_repo(str(cwd))
+        except Exception:
+            logger.debug("startup index lookup failed", exc_info=True)
+
+    t = threading.Thread(target=_look, name="jcm-startup-index-lookup", daemon=True)
+    t.start()
+    t.join(timeout)
+    if t.is_alive():
+        logger.debug("startup index lookup exceeded %.1fs; not claiming an index", timeout)
+        return cwd, None
+    return cwd, box.get("r")
+
+
 def _mcp_instructions(
     surface: "Optional[str]" = None,
     prefix: str = _MCP_TOOL_PREFIX,
     indexed_files: "Optional[int]" = None,
+    separate_copy: bool = False,
 ) -> str:
     """The `instructions` string for the initialize response, surface-aware.
 
     `indexed_files` is the working directory's index size when the caller has
     established it (`_indexed_here`); the opening then says the repo IS indexed
     and how big it is. None keeps the "can be indexed" wording.
+
+    `separate_copy` (`_separate_copy_here`) says the working directory is a
+    copy of a repo indexed from another folder. On `counter` the opening says
+    so and gives the call that indexes this folder; `full` is at its budget,
+    so it keeps its text and the server log carries the sentence.
     """
     surface = surface or _effective_surface()
     rows = _INSTRUCTION_TOOLS_COUNTER if surface == "counter" else _INSTRUCTION_TOOLS_FULL
@@ -445,6 +481,11 @@ def _mcp_instructions(
         subject = f"This repo is indexed by jcodemunch ({indexed_files:,} {unit})"
     else:
         subject = "This repo can be indexed by jcodemunch"
+    if separate_copy and indexed_files is None and surface == "counter":
+        subject = (
+            "Repo indexed elsewhere; index this copy with "
+            'order("index_folder", {"path":".","identity_mode":"local"}, allow_state_change=true)'
+        )
     if surface == "counter":
         opening = f"{subject}. Its whole tool catalog sits behind a 3-verb front door: route, menu and order."
     else:
@@ -479,10 +520,11 @@ def _mcp_instructions(
     return "\n".join(lines)
 
 
-def _initialization_options(indexed_files: "Optional[int]" = None):
+def _initialization_options(indexed_files: "Optional[int]" = None, separate_copy: bool = False):
     """`create_initialization_options()` carrying our `instructions` string.
 
-    `indexed_files` is passed by the stdio transport only (see `_indexed_here`).
+    `indexed_files` and `separate_copy` are passed by the stdio transport only
+    (see `_indexed_here` and `_separate_copy_here`).
 
     ⚠ Built per run() rather than passed to `Server(...)` at import: the surface
     is resolved from env + config, and neither is settled when this module is
@@ -494,7 +536,9 @@ def _initialization_options(indexed_files: "Optional[int]" = None):
         # nowhere to say it.
         logger.debug("InitializationOptions has no `instructions` field; skipping")
         return opts
-    return opts.model_copy(update={"instructions": _mcp_instructions(indexed_files=indexed_files)})
+    return opts.model_copy(
+        update={"instructions": _mcp_instructions(indexed_files=indexed_files, separate_copy=separate_copy)}
+    )
 
 
 def _counter_front_door_tools() -> list:
@@ -5207,7 +5251,8 @@ async def list_resources() -> list[Resource]:
                 "Process provenance for this server instance "
                 f"({runtime_identity.IDENTITY_SCHEMA}): product, version, "
                 "transport, pid, OS-derived process_start, per-process "
-                "instance_id, optional launch_id echo. Read-only, no side effects."
+                "instance_id, build digest (null with a reason on a source install), "
+                "optional launch_id echo. Read-only, no side effects."
             ),
             mimeType="application/json",
         )
@@ -7897,13 +7942,24 @@ async def _call_tool_impl(name: str, arguments: dict) -> list[TextContent] | Cal
         # search of the whole repo. `index_warning` is a key every compact
         # encoder carries (`schema_driven.is_universal_body_key`). A new dict,
         # because `result` may be an object a cache still holds.
+        # The same holds for files the per-file size limit left out: a separate
+        # sentence, because it is a separate setting with its own remedy.
         try:
             if isinstance(result, dict) and "index_warning" not in result:
                 from .retrieval.verdict import index_truncation_warning as _itw
+                from .retrieval.verdict import index_withheld_warning as _iww
 
-                _cap_line = _itw((result.get("_meta") or {}).get("index_truncated"))
-                if _cap_line:
-                    result = {**result, "index_warning": _cap_line}
+                _m = result.get("_meta") or {}
+                _lines = [
+                    _l
+                    for _l in (
+                        _itw(_m.get("index_truncated")),
+                        _iww(_m.get("index_withheld")),
+                    )
+                    if _l
+                ]
+                if _lines:
+                    result = {**result, "index_warning": " ".join(_lines)}
         except Exception:
             logger.debug("index-cap warning attach failed", exc_info=True)
 
@@ -8480,11 +8536,15 @@ async def run_stdio_server():
         _stdout_arg = (
             anyio.wrap_file(_private_stdout) if _private_stdout is not None else None
         )
+        _looked = _startup_lookup()  # one resolve_repo call feeds both startup readers
         async with stdio_server(stdout=_stdout_arg) as (read_stream, write_stream):
             await server.run(
                 read_stream,
                 write_stream,
-                _initialization_options(indexed_files=_indexed_here()),
+                _initialization_options(
+                    indexed_files=_indexed_here(looked=_looked),
+                    separate_copy=_separate_copy_here(_looked),
+                ),
             )
     except asyncio.CancelledError:
         if not _parent_gone.is_set():
@@ -12291,6 +12351,16 @@ def main(argv: Optional[list[str]] = None):
                     install,
                 )
                 watcher_enabled = False
+
+        # (#1435) Read the build now, while the RECORD still describes the code
+        # this process loaded. Read lazily, an in-place upgrade before the first
+        # identity read would make an old process report the new build.
+        try:
+            from .runtime_identity import get_build as _get_build
+
+            _get_build()
+        except Exception:
+            logger.debug("build digest: startup read failed", exc_info=True)
 
         # Presence registry (jcm#375 follow-up): record that this server process
         # exists so `get_session_stats` can report how many jcodemunch servers

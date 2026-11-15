@@ -63,6 +63,9 @@ class ProcessEntry:
     # Directory the server imported `jcodemunch_mcp` from (#1435). None for rows
     # written before it was recorded; a reader treats that as UNKNOWN.
     package_dir: Optional[str] = None
+    # The server's build digest (#1435, runtime_identity.get_build). None for
+    # rows written before it was recorded, or for a server that had none.
+    build: Optional[str] = None
 
     def age_seconds(self) -> Optional[float]:
         try:
@@ -124,6 +127,8 @@ class ProcessEntry:
         # carry. `install-status`, a local CLI, asks for it.
         if include_package_dir and self.package_dir is not None:
             out["package_dir"] = self.package_dir
+        if include_package_dir and self.build is not None:
+            out["build"] = self.build
         return out
 
 
@@ -144,6 +149,7 @@ def register(transport: str, version: str, storage_path: Optional[str] = None) -
             "create_time": _process_create_time(os.getpid()),
             # Which install this process serves (#1435).
             "package_dir": _package_dir(),
+            "build": _build(),
         }
         tmp = path.with_suffix(f".tmp.{os.getpid()}")
         tmp.write_text(json.dumps(payload), encoding="utf-8")
@@ -211,6 +217,7 @@ def live_processes(storage_path: Optional[str] = None, prune: bool = True) -> li
 
         raw_ct = data.get("create_time")
         raw_dir = data.get("package_dir")
+        raw_build = data.get("build")
         entries.append(
             ProcessEntry(
                 pid=pid,
@@ -220,6 +227,7 @@ def live_processes(storage_path: Optional[str] = None, prune: bool = True) -> li
                 started_at=str(data.get("started_at") or ""),
                 create_time=float(raw_ct) if isinstance(raw_ct, (int, float)) else None,
                 package_dir=raw_dir if isinstance(raw_dir, str) and raw_dir else None,
+                build=raw_build if isinstance(raw_build, str) and raw_build else None,
             )
         )
 
@@ -235,6 +243,17 @@ def _package_dir() -> Optional[str]:
         return str(Path(jcodemunch_mcp.__file__).parent)
     except Exception:
         logger.debug("process registry: package dir unreadable", exc_info=True)
+        return None
+
+
+def _build() -> Optional[str]:
+    """This process's build digest, or None (#1435)."""
+    try:
+        from ..runtime_identity import get_build
+
+        return get_build().get("build")
+    except Exception:
+        logger.debug("process registry: build unreadable", exc_info=True)
         return None
 
 
@@ -379,6 +398,7 @@ def serving_report(storage_path: Optional[str] = None) -> dict:
     verdicts = [s["restart_required"] for s in servers]
     return {
         "installed_version": installed,
+        "installed_build": _build(),
         "package_dir": here,
         "scope": "servers registered under this index store on this machine",
         "servers": servers,
