@@ -12,6 +12,7 @@ the file-count cap line (#1336).
 from __future__ import annotations
 
 import json
+import subprocess
 
 import pytest
 
@@ -112,12 +113,21 @@ def test_a_subfolder_walk_does_not_lower_the_count(tmp_path):
     big = "".join(f"def big_{i}():\n    return {i}\n" for i in range(4000))
     (src / "big.py").write_text(big, encoding="utf-8")
     (src / "sub" / "big2.py").write_text(big, encoding="utf-8")
+    # A git root, so the walk of `sub` merges into this index instead of making
+    # a second one, which would leave the first index's count untouched and the
+    # test unable to fail.
+    git = ["git", "-c", "user.email=t@t", "-c", "user.name=t"]
+    subprocess.run(["git", "init", "-q"], cwd=src, check=True)
+    subprocess.run(git + ["add", "."], cwd=src, check=True)
+    subprocess.run(git + ["commit", "-qm", "init"], cwd=src, check=True)
     store = tmp_path / "store"
     r = index_folder(str(src), use_ai_summaries=False, storage_path=str(store), max_size=20000)
     assert r.get("success"), r
     out = search_symbols(repo=r["repo"], query="alpha_beta", storage_path=str(store))
     assert out["_meta"]["index_withheld"]["files_over_size_limit"] == 2
-    index_folder(str(src / "sub"), use_ai_summaries=False, storage_path=str(store), max_size=20000)
+    sub = index_folder(str(src / "sub"), use_ai_summaries=False, storage_path=str(store), max_size=20000)
+    assert sub.get("success"), sub
+    assert sub["repo"] == r["repo"], "the subdir walk made a second index"
     out = search_symbols(repo=r["repo"], query="alpha_beta", storage_path=str(store))
     assert out["_meta"]["index_withheld"]["files_over_size_limit"] == 2
 
