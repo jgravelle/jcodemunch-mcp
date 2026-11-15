@@ -601,18 +601,69 @@ def test_a_queued_entry_that_cannot_be_read_is_left_for_the_next_take(
 ):
     key = "store|repo"
     assert slots.queue(key, "a.py") and slots.queue(key, "b.py")
-    real = Path.read_text
+    real = slots._read_entry
     refused = []
 
-    def read_text(self, *a, **k):
-        if self.suffix == ".path" and not refused:
-            refused.append(self.name)
+    def read_entry(f):
+        if not refused:
+            refused.append(f.name)
             raise PermissionError(13, "denied")
-        return real(self, *a, **k)
+        return real(f)
 
-    monkeypatch.setattr(Path, "read_text", read_text)
+    monkeypatch.setattr(slots, "_read_entry", read_entry)
     assert slots.take_pending(key) == ["b.py"]
-    monkeypatch.setattr(Path, "read_text", real)
+    monkeypatch.setattr(slots, "_read_entry", real)
     assert slots.take_pending(key) == ["a.py"], (
         "the unreadable entry was lost, not left"
     )
+
+
+def test_entries_queued_within_one_clock_tick_keep_their_order(slot_dir, monkeypatch):
+    """time.time_ns() repeats within a tick on Windows before Python 3.13; the
+    per-process sequence keeps one process's entries in the order queued."""
+    monkeypatch.setattr(slots.time, "time_ns", lambda: 1_700_000_000_000_000_000)
+    names = [f"f{i}.py" for i in range(12)]
+    for n in names:
+        assert slots.queue("store|repo", n)
+    assert slots.take_pending("store|repo") == names
+
+
+def test_an_entry_that_is_read_but_cannot_be_removed_is_not_returned(
+    slot_dir, monkeypatch
+):
+    """Returned and left in place, it would be indexed again on every round."""
+    key = "store|repo"
+    assert slots.queue(key, "a.py")
+    real = Path.unlink
+
+    def unlink(self, *a, **k):
+        if self.suffix == ".path":
+            raise PermissionError(32, "being used by another process")
+        return real(self, *a, **k)
+
+    monkeypatch.setattr(Path, "unlink", unlink)
+    assert slots.take_pending(key) == []
+    monkeypatch.setattr(Path, "unlink", real)
+    assert slots.take_pending(key) == ["a.py"]
+
+
+def test_a_failed_queue_write_leaves_no_temporary_file(slot_dir, monkeypatch):
+    def replace(src, dst):
+        raise PermissionError(32, "being used by another process")
+
+    monkeypatch.setattr(slots.os, "replace", replace)
+    assert slots.queue("store|repo", "a.py") is False
+    assert list(slot_dir.glob("_pending_*")) == []
+
+
+def test_a_temporary_file_a_dead_writer_left_is_swept_by_the_next_take(slot_dir):
+    key = "store|repo"
+    assert slots.queue(key, "a.py")
+    stale = slot_dir / f"{slots._pending_prefix(key)}{'1' * 20}_00000000_1_deadbeef.tmp"
+    fresh = slot_dir / f"{slots._pending_prefix(key)}{'2' * 20}_00000000_1_cafecafe.tmp"
+    stale.write_text("x.py")
+    fresh.write_text("y.py")
+    old = time.time() - slots.STALE_TMP_SECONDS - 5
+    os.utime(stale, (old, old))
+    assert slots.take_pending(key) == ["a.py"]
+    assert not stale.exists() and fresh.exists()

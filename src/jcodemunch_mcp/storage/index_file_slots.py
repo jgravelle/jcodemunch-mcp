@@ -61,6 +61,7 @@ an index.
 from __future__ import annotations
 
 import hashlib
+import itertools
 import logging
 import os
 import stat
@@ -88,6 +89,12 @@ MAX_PENDING = 500
 AFTER_RELEASE_TRIES = 3
 #: How many times one claim re-reads the pending list before giving the locks back.
 DRAIN_ROUNDS = 20
+#: A ``.tmp`` entry older than this was left by a writer that died mid-write,
+#: and the next take removes it.
+STALE_TMP_SECONDS = 60
+#: Orders one process's entries when the clock does not move between them
+#: (``time.time_ns()`` repeats within a tick on Windows before Python 3.13).
+_sequence = itertools.count()
 
 
 def slot_dir() -> Path:
@@ -220,9 +227,10 @@ def _pending_files(key: str) -> list[Path]:
 class Claim:
     index_target: Optional[str]
     slot: Optional[str]
-    #: Set when a lock could not be read or written and the run went ahead
-    #: without it. UNKNOWN runs the work: reporting it as busy would turn off
-    #: every re-index with a reason that is not true.
+    #: Set when the slot folder or the lock layer raised and the run went ahead
+    #: without a lock. A lock file the lock layer cannot create is not an
+    #: error here: ``process_locks.acquire`` reads it as held, so it reports
+    #: busy.
     lock_error: Optional[str] = None
 
 
@@ -295,8 +303,15 @@ def queue(key: str, path: str) -> bool:
         d = _private_dir()
         if len(_pending_files(key)) >= MAX_PENDING:
             return False
-        name = f"{_pending_prefix(key)}{time.time_ns():020d}_{os.getpid()}_{uuid.uuid4().hex[:8]}"
+        name = (
+            f"{_pending_prefix(key)}{time.time_ns():020d}_{next(_sequence):08d}"
+            f"_{os.getpid()}_{uuid.uuid4().hex[:8]}"
+        )
         tmp = d / f"{name}.tmp"
+    except OSError:
+        logger.debug("could not queue %s", path, exc_info=True)
+        return False
+    try:
         flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
         fd = os.open(tmp, flags, 0o600)
         with os.fdopen(fd, "w", encoding="utf-8") as f:
@@ -305,6 +320,10 @@ def queue(key: str, path: str) -> bool:
         return True
     except OSError:
         logger.debug("could not queue %s", path, exc_info=True)
+        try:
+            tmp.unlink()
+        except OSError:
+            pass
         return False
 
 
@@ -317,12 +336,32 @@ def has_pending(key: str) -> bool:
         return False
 
 
+def _sweep_stale_tmp(key: str) -> None:
+    """Remove ``.tmp`` entries a writer that died mid-write left behind."""
+    now = time.time()
+    for f in _private_dir().glob(f"{_pending_prefix(key)}*.tmp"):
+        try:
+            if now - f.stat().st_mtime > STALE_TMP_SECONDS:
+                f.unlink()
+        except OSError:
+            logger.debug("could not sweep %s", f, exc_info=True)
+
+
+def _read_entry(f: Path) -> str:
+    fd = os.open(f, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+    with os.fdopen(fd, "r", encoding="utf-8") as fh:
+        return fh.read().strip()
+
+
 def take_pending(key: str) -> list[str]:
     """Read and remove this key's queued paths; each path once, oldest first.
 
-    An entry that cannot be read is left in place for the next take.
+    An entry is opened without following a symlink. One that cannot be read, or
+    read but not removed, is left in place for a later take and not returned:
+    returning an entry that stays would index it again on every round.
     """
     try:
+        _sweep_stale_tmp(key)
         files = _pending_files(key)
     except OSError:
         logger.debug("no private slot directory for %s", key, exc_info=True)
@@ -330,14 +369,15 @@ def take_pending(key: str) -> list[str]:
     seen: dict[str, None] = {}
     for f in files[:MAX_PENDING]:
         try:
-            text = f.read_text(encoding="utf-8").strip()
+            text = _read_entry(f)
         except OSError:
             logger.debug("could not read %s; left for the next take", f, exc_info=True)
             continue
         try:
             f.unlink()
         except OSError:
-            logger.debug("could not remove %s", f, exc_info=True)
+            logger.debug("could not remove %s; left for a later take", f, exc_info=True)
+            continue
         if text:
             seen.setdefault(text, None)
     return list(seen)
