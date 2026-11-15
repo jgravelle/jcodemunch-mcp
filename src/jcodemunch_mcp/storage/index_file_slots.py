@@ -3,7 +3,7 @@
 The PostToolUse hook starts one detached ``jcodemunch-mcp index-file <path>``
 for every Edit or Write, and nothing waited for or counted them. Each run loads
 the repository's index: about 250 MB and 2.5 s on a 50,000-symbol index, so
-eight edits in a row held eight of them and 800 MB at once. An agent session
+eight edits in a row held eight of them and about 800 MB at once. An agent session
 that edits 47 times against an index that takes minutes to build starts runs
 faster than they finish, memory pressure slows each one, and the pile grows.
 A host that ends the session by killing only the agent leaves the pile running.
@@ -21,9 +21,11 @@ Two rules, both checked before an index is loaded:
    slot taken does no work and exits.
 
 After the live run gives its locks back it looks at the pending list once more
-(``drain_after_release``), so a path queued between its last read of the list
-and its release is not stranded. A path is still left over when every machine
-slot is taken at that moment, or when the run itself failed. Such a path, like a
+(``drain_after_release``, up to ``AFTER_RELEASE_TRIES`` times), so a path
+queued between its last read of the list and its release is not stranded. A
+path is still left over when every machine slot is taken at that moment, when
+the run itself failed, when the list stays held open through every retry, or
+when it arrives during the last try's own release. Such a path, like a
 run turned away as busy, is re-indexed only by a running watcher, by
 ``refresh_on_read`` on the next read of a git repository (at most once per
 30 s per server, and not while another write holds the index), or by the next
@@ -36,7 +38,9 @@ index store: a host may give every session its own ``CODE_INDEX_PATH``, and a
 bound kept inside each store would bound nothing across them. On POSIX the
 directory is created ``0700`` and refused if it is a symlink, is owned by
 another user, or is open to others (``_check_private``), because the system
-temp directory is shared there. A refused directory makes the run go ahead
+temp directory is shared there. On Windows the check is only that it is a
+directory: the temp directory is per user unless ``TMP``/``TEMP`` was pointed
+at a shared folder. A refused directory makes the run go ahead
 unbounded and say so, as any lock error does.
 
 The bound lives in the command, so every caller of ``index-file`` inherits it.
@@ -52,6 +56,7 @@ import logging
 import os
 import stat
 import tempfile
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Optional
@@ -73,6 +78,10 @@ MAX_PENDING = 500
 AFTER_RELEASE_TRIES = 3
 #: How many times one claim re-reads the pending list before giving the locks back.
 DRAIN_ROUNDS = 20
+#: A pending list another process has open (a sharing violation on Windows) is
+#: retried this many times, TAKE_WAIT_SECONDS apart, before it is left in place.
+TAKE_TRIES = 5
+TAKE_WAIT_SECONDS = 0.05
 
 
 def slot_dir() -> Path:
@@ -117,6 +126,17 @@ def _targets() -> list[str]:
     return [f"slot{i}" for i in range(MAX_CONCURRENT)]
 
 
+def _digest(key: str) -> str:
+    return hashlib.sha256(key.lower().encode("utf-8")).hexdigest()[:16]
+
+
+def _lock_target(name: str) -> str:
+    """An absolute lock target. ``process_locks`` resolves a target as a path,
+    so a bare name like ``slot0`` would name a different lock in every working
+    directory, and runs started from two folders would never see each other."""
+    return str(slot_dir() / name)
+
+
 def index_key(path: str, storage_path: Optional[str]) -> str:
     """The run's key: its index store plus the file's git root, or its folder outside git."""
     store = os.path.abspath(storage_path) if storage_path else "<default>"
@@ -131,8 +151,7 @@ def index_key(path: str, storage_path: Optional[str]) -> str:
 
 
 def _pending_file(key: str) -> Path:
-    digest = hashlib.sha256(key.lower().encode("utf-8")).hexdigest()[:12]
-    return _private_dir() / f"_pending_{digest}.txt"
+    return _private_dir() / f"_pending_{_digest(key)}.txt"
 
 
 @dataclass
@@ -153,7 +172,8 @@ def claim(key: str) -> tuple[Optional[Claim], Optional[str]]:
     """
     try:
         d = str(_private_dir())
-        got_index = process_locks.acquire(INDEX_SCOPE, key, d)
+        index_target = _lock_target(f"key-{_digest(key)}")
+        got_index = process_locks.acquire(INDEX_SCOPE, index_target, d)
     except Exception as e:
         logger.warning(
             "index-file runs unbounded: the index lock failed (%s)", e, exc_info=True
@@ -161,10 +181,11 @@ def claim(key: str) -> tuple[Optional[Claim], Optional[str]]:
         return Claim(index_target=None, slot=None, lock_error=f"index lock: {e}"), None
     if not got_index:
         return None, "same_index_busy"
-    for target in _targets():
+    for name in _targets():
+        target = _lock_target(name)
         try:
             if process_locks.acquire(SCOPE, target, d):
-                return Claim(index_target=key, slot=target), None
+                return Claim(index_target=index_target, slot=target), None
         except Exception as e:
             logger.warning(
                 "index-file runs unbounded: slot %s in %s failed (%s)",
@@ -173,8 +194,10 @@ def claim(key: str) -> tuple[Optional[Claim], Optional[str]]:
                 e,
                 exc_info=True,
             )
-            return Claim(index_target=key, slot=None, lock_error=f"{target}: {e}"), None
-    process_locks.release(INDEX_SCOPE, key, d)
+            return Claim(
+                index_target=index_target, slot=None, lock_error=f"{name}: {e}"
+            ), None
+    process_locks.release(INDEX_SCOPE, index_target, d)
     return None, "busy"
 
 
@@ -213,21 +236,33 @@ def has_pending(key: str) -> bool:
         return False
 
 
-def take_pending(key: str) -> list[str]:
-    """Read and clear this key's pending list; each path once, in order."""
+def take_pending(key: str) -> Optional[list[str]]:
+    """Read and clear this key's pending list; each path once, in order.
+
+    ``[]`` means there is no list. ``None`` means the list is there and could
+    not be taken: another process held it open through every retry.
+    """
     try:
         p = _pending_file(key)
     except OSError:
         logger.debug("no private slot directory for %s", key, exc_info=True)
         return []
     taken = p.with_suffix(f".{os.getpid()}.taking")
-    try:
-        os.replace(p, taken)
-    except FileNotFoundError:
-        return []
-    except OSError:
-        logger.debug("could not take the pending list %s", p, exc_info=True)
-        return []
+    for attempt in range(TAKE_TRIES):
+        try:
+            os.replace(p, taken)
+            break
+        except FileNotFoundError:
+            return []
+        except OSError:
+            if attempt == TAKE_TRIES - 1:
+                logger.warning(
+                    "index-file: could not take the pending list %s; its paths are left in it",
+                    p,
+                    exc_info=True,
+                )
+                return None
+            time.sleep(TAKE_WAIT_SECONDS)
     try:
         lines = taken.read_text(encoding="utf-8").splitlines()
     except OSError:
@@ -248,8 +283,10 @@ def take_pending(key: str) -> list[str]:
 def drain(key: str, index_one: Callable[[str], object]) -> tuple[int, int]:
     """Index every pending path of ``key`` while holding its claim.
 
-    Returns ``(indexed, failed)``. One path's failure is logged and counted and
-    never stops the rest.
+    Returns ``(indexed, failed)``. A path fails when ``index_one`` raises or
+    returns a result whose ``success`` is false, which is how ``index_file``
+    reports a missing, unreadable or rejected file. One path's failure is
+    logged and counted and never stops the rest.
     """
     indexed = failed = 0
     for _round in range(DRAIN_ROUNDS):
@@ -258,8 +295,16 @@ def drain(key: str, index_one: Callable[[str], object]) -> tuple[int, int]:
             break
         for path in pending:
             try:
-                index_one(path)
-                indexed += 1
+                r = index_one(path)
+                if isinstance(r, dict) and not r.get("success"):
+                    failed += 1
+                    logger.warning(
+                        "index-file: the queued path %s was not indexed: %s",
+                        path,
+                        r.get("error"),
+                    )
+                else:
+                    indexed += 1
             except Exception:
                 failed += 1
                 logger.warning(

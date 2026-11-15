@@ -1,7 +1,7 @@
-"""`index-file` runs are bounded: one per index, `MAX_CONCURRENT` per machine.
+"""`index-file` runs are bounded: one per checkout, `MAX_CONCURRENT` per machine.
 
 The PostToolUse hook starts a detached `index-file` for every Edit or Write and
-nothing counted them. Eight edits in a row held eight runs and 800 MB at once on
+nothing counted them. Eight edits in a row held eight runs and about 800 MB at once on
 a 50,000-symbol index. An agent session that edited 47 times against an index
 taking minutes to build stalled the development laptop overnight (2026-11-15),
 and its host ended the session by killing only the agent, so the runs outlived
@@ -57,11 +57,18 @@ def _hold_in_child(d, scope: str, target: str) -> subprocess.Popen:
 
 @pytest.fixture
 def every_slot_held(slot_dir):
-    children = [_hold_in_child(slot_dir, slots.SCOPE, t) for t in slots._targets()]
+    children = [
+        _hold_in_child(slot_dir, slots.SCOPE, slots._lock_target(t))
+        for t in slots._targets()
+    ]
     yield children
     for c in children:
         c.kill()
         c.wait()
+
+
+def _index_lock(key):
+    return slots._lock_target(f"key-{slots._digest(key)}")
 
 
 def _file(tmp_path, name="a.py"):
@@ -96,12 +103,12 @@ def test_a_slot_whose_holder_died_is_free_again(slot_dir, every_slot_held):
     every_slot_held[0].kill()
     every_slot_held[0].wait()
     c, why = slots.claim("store|repo-a")
-    assert why is None and c.slot == slots._targets()[0]
+    assert why is None and c.slot == slots._lock_target(slots._targets()[0])
     slots.release(c)
 
 
 def test_a_second_run_for_the_same_index_is_turned_away(slot_dir):
-    child = _hold_in_child(slot_dir, slots.INDEX_SCOPE, "store|repo-a")
+    child = _hold_in_child(slot_dir, slots.INDEX_SCOPE, _index_lock("store|repo-a"))
     try:
         c, why = slots.claim("store|repo-a")
         assert c is None and why == "same_index_busy"
@@ -141,7 +148,7 @@ def test_index_file_for_an_index_with_a_live_run_queues_and_does_no_work(
 
     target = _file(tmp_path)
     key = slots.index_key(str(target), store)
-    child = _hold_in_child(slot_dir, slots.INDEX_SCOPE, key)
+    child = _hold_in_child(slot_dir, slots.INDEX_SCOPE, _index_lock(key))
     try:
         with mock.patch("jcodemunch_mcp.tools.index_file.index_file") as work:
             server.main(["index-file", str(target)])
@@ -417,3 +424,103 @@ def test_a_refused_slot_directory_runs_the_work_and_says_so(
     assert m.call_count == 1
     assert "is a symlink" in json.loads(capsys.readouterr().out)["slot_error"]
     assert slots.queue("k", "p") is False  # nothing is written into a refused directory
+
+
+def _claim_in_child(d, key, cwd) -> subprocess.Popen:
+    """A separate process, started in ``cwd``, that takes a real claim for ``key`` and holds it."""
+    code = textwrap.dedent(
+        f"""
+        import time
+        from pathlib import Path
+        from jcodemunch_mcp.storage import index_file_slots as slots
+        slots.slot_dir = lambda: Path({str(d)!r})
+        c, why = slots.claim({key!r})
+        assert c is not None and c.lock_error is None, why
+        print("held", flush=True)
+        time.sleep(120)
+        """
+    )
+    child = subprocess.Popen(
+        [sys.executable, "-c", code], stdout=subprocess.PIPE, text=True, cwd=str(cwd)
+    )
+    assert child.stdout.readline().strip() == "held"
+    return child
+
+
+def test_runs_started_in_different_folders_share_the_same_locks(
+    slot_dir, tmp_path, monkeypatch
+):
+    """process_locks resolves a target as a path, so a relative target names a
+    different lock in every working directory. The hook spawns without cwd=,
+    so runs for one checkout start wherever the agent's shell was."""
+    here, there = tmp_path / "here", tmp_path / "there"
+    here.mkdir()
+    there.mkdir()
+    same = _claim_in_child(slot_dir, "<default>|C:/repo", there)
+    other = _claim_in_child(slot_dir, "<default>|C:/other", there)
+    try:
+        monkeypatch.chdir(here)
+        assert slots.claim("<default>|C:/repo") == (None, "same_index_busy")
+        assert slots.claim("<default>|C:/third") == (None, "busy")
+    finally:
+        for c in (same, other):
+            c.kill()
+            c.wait()
+
+
+def test_a_queued_path_that_index_file_rejects_is_counted_as_failed(
+    slot_dir, store, tmp_path, capsys
+):
+    """index_file reports a missing or unreadable file by returning success false, not by raising."""
+    from jcodemunch_mcp import server
+
+    target = _file(tmp_path)
+    gone = tmp_path / "repo" / "gone.py"
+    key = slots.index_key(str(target), store)
+    assert slots.queue(key, str(gone))
+
+    def fake_index_file(path, **kwargs):
+        if path == str(gone):
+            return {"success": False, "error": "File not found"}
+        return {"success": True}
+
+    with mock.patch(
+        "jcodemunch_mcp.tools.index_file.index_file", side_effect=fake_index_file
+    ):
+        server.main(["index-file", str(target)])
+    out = json.loads(capsys.readouterr().out)
+    assert out["coalesced_failures"] == 1 and "coalesced_paths" not in out
+
+
+def test_a_pending_list_held_open_briefly_is_taken_after_a_retry(slot_dir, monkeypatch):
+    key = "store|repo"
+    assert slots.queue(key, "a.py")
+    real = slots.os.replace
+    refused = []
+
+    def replace(src, dst):
+        if str(src).endswith(".txt") and len(refused) < 2:
+            refused.append(src)
+            raise PermissionError(32, "being used by another process")
+        return real(src, dst)
+
+    monkeypatch.setattr(slots.os, "replace", replace)
+    monkeypatch.setattr(slots, "TAKE_WAIT_SECONDS", 0)
+    assert slots.take_pending(key) == ["a.py"] and len(refused) == 2
+
+
+def test_a_pending_list_held_open_through_every_retry_is_left_in_place(
+    slot_dir, monkeypatch
+):
+    key = "store|repo"
+    assert slots.queue(key, "a.py")
+
+    def replace(src, dst):
+        raise PermissionError(32, "being used by another process")
+
+    real = slots.os.replace
+    monkeypatch.setattr(slots.os, "replace", replace)
+    monkeypatch.setattr(slots, "TAKE_WAIT_SECONDS", 0)
+    assert slots.take_pending(key) is None
+    monkeypatch.setattr(slots.os, "replace", real)
+    assert slots.take_pending(key) == ["a.py"], "the paths were lost, not left"

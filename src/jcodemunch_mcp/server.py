@@ -12024,7 +12024,7 @@ def main(argv: Optional[list[str]] = None):
         from .storage import index_file_slots as _slots
         import json as _json
 
-        # One run per index and a bounded number per machine: the PostToolUse
+        # One run per checkout and a bounded number per machine: the PostToolUse
         # hook starts one per edit and never waits (index_file_slots.py).
         _store = os.environ.get("CODE_INDEX_PATH")
         _key = _slots.index_key(args.path, _store)
@@ -12041,7 +12041,7 @@ def main(argv: Optional[list[str]] = None):
                 "max_concurrent": _slots.MAX_CONCURRENT,
                 "path": args.path,
                 "note": "no index was loaded. A queued path is indexed by the live run "
-                        "for this index. Otherwise the file is re-indexed by a running "
+                        "for this checkout. Otherwise the file is re-indexed by a running "
                         "watcher, by refresh_on_read on the next read of a git "
                         "repository (at most once per 30 s per server, and not while "
                         "another write holds the index), or by the next edit",
