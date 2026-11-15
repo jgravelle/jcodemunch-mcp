@@ -288,6 +288,41 @@
       "replacement": "tests/test_refresh_campaign.py::test_an_unforced_subset_keeps_the_upgrade_due",
       "commit": "fix/1397-paths-full-reindex",
       "date": "2026-11-11"
+    },
+    {
+      "path": "tests/test_bm25_stats_live_in_the_index.py::test_the_save_time_publish_writes_idf_last",
+      "lesson": "It pinned the order in which a full save published precomputed BM25 statistics into the warm index (#490's idf-last rule). A full save no longer computes them: that cost made every full index slower (v1.108.423) for an index that may never be searched, so the save-time publish path and its function are gone. The idf-last rule still holds on the path that reads a stored row.",
+      "replacement": "tests/test_bm25_stats_live_in_the_index.py::test_the_stored_hit_publishes_idf_last",
+      "commit": "fix/cold-index-lazy-stats",
+      "date": "2026-11-15"
+    },
+    {
+      "path": "tests/test_savings_tokenizer_table.py::test_a_full_index_stores_a_count_for_every_file",
+      "lesson": "It required a full save to store a count for every file. A full save no longer counts files: counting every file while the index was written made a full index slower (v1.108.439, #1414) to pay for files no response credits. A file is counted the first time a response credits it, after the call, and its next credit uses the count.",
+      "replacement": "tests/test_savings_tokenizer_table.py::test_a_full_index_counts_nothing_and_a_credit_counts_its_file",
+      "commit": "fix/cold-index-lazy-stats",
+      "date": "2026-11-15"
+    },
+    {
+      "path": "tests/test_savings_tokenizer_table.py::test_a_reindex_counts_the_changed_file_and_drops_the_old_count",
+      "lesson": "It required a re-index to count the changed file. A full save no longer counts files: counting every file while the index was written made a full index slower (v1.108.439, #1414) to pay for files no response credits. A file is counted the first time a response credits it, after the call, and its next credit uses the count. Pruning the old count at save is kept.",
+      "replacement": "tests/test_savings_tokenizer_table.py::test_a_reindex_drops_the_count_of_content_no_file_holds",
+      "commit": "fix/cold-index-lazy-stats",
+      "date": "2026-11-15"
+    },
+    {
+      "path": "tests/test_savings_tokenizer_table.py::test_an_index_saved_before_counts_existed_gets_them_on_its_next_save",
+      "lesson": "It required an index without counts to gain them at its next save. A full save no longer counts files: counting every file while the index was written made a full index slower (v1.108.439, #1414) to pay for files no response credits. A file is counted the first time a response credits it, after the call, and its next credit uses the count. An old index now gains each count at that file's first credit.",
+      "replacement": "tests/test_savings_tokenizer_table.py::test_a_second_process_credits_a_counted_file_by_its_count",
+      "commit": "fix/cold-index-lazy-stats",
+      "date": "2026-11-15"
+    },
+    {
+      "path": "tests/test_savings_tokenizer_table.py::test_a_save_without_the_encoding_reads_no_indexed_copies",
+      "lesson": "It guarded the save from reading every copy when no encoding could count them. The save reads none now by construction; the same guard holds on the write-back.",
+      "replacement": "tests/test_savings_tokenizer_table.py::test_a_write_back_without_the_encoding_reads_no_indexed_copies",
+      "commit": "fix/cold-index-lazy-stats",
+      "date": "2026-11-15"
     }
   ]
 }

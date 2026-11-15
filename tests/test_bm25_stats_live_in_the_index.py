@@ -3,9 +3,10 @@
 A fresh process used to re-tokenize every symbol before its first search,
 because the corpus statistics (idf, avgdl, the inverted lists and file
 centrality) lived only in memory. On a 1,040,596-symbol index that was most of
-a cold search. The statistics are now written into the index's own .db: by a
-full save, in the same transaction as the symbols; and after a search on an
-index that has none, once the call returns.
+a cold search. The statistics are now written into the index's own .db after
+the first search on an index that has none, once the call returns. A full save
+does not compute them: that made every full index slower (v1.108.423) for an
+index that may never be searched, so a save only clears the row.
 
 They are reused only when they describe exactly the symbols the process
 loaded, in the order it loaded them, under the same tokenizer and resolver
@@ -62,7 +63,16 @@ def _no_write_back_carries_over():
 
 
 @pytest.fixture
-def indexed(tmp_path):
+def indexed(indexed_cold):
+    """``indexed_cold`` after one search has stored its statistics."""
+    repo, store, _src = indexed_cold
+    _warm(repo, store)
+    assert _row(_db(store)), "the first search stored no statistics"
+    return indexed_cold
+
+
+@pytest.fixture
+def indexed_cold(tmp_path):
     """A small real repo indexed into its own store: (repo_id, store, src)."""
     src = tmp_path / "src"
     src.mkdir()
@@ -171,12 +181,20 @@ def _ranked(repo, store, query):
     return [(r["id"], r.get("score")) for r in out["results"]]
 
 
-def test_a_full_index_writes_the_stats_with_the_symbols(indexed):
-    repo, store, _src = indexed
-    blob = _row(_db(store))
-    assert blob, "a full save wrote no corpus statistics"
+def test_a_full_index_stores_no_stats_and_the_first_search_does(indexed_cold, monkeypatch):
+    """The save pays nothing; the first search computes and stores; a new process reuses."""
+    repo, store, _src = indexed_cold
+    assert not _row(_db(store)), "a full save computed the corpus statistics"
+    calls = _spy(monkeypatch)
+    _fresh(repo, store)
+    first = _ranked(repo, store, "alpha")
+    assert calls["n"] == 1, "the first search did not compute the statistics"
+    assert _stats().flush_pending() == 1
+    assert _row(_db(store)), "the first search's statistics were not stored"
     index = _fresh(repo, store)
-    assert _stats().load(_db(store), index) is not None, "the stats a save wrote do not match a fresh load"
+    assert _stats().load(_db(store), index) is not None, "the stored stats do not match a fresh load"
+    assert _ranked(repo, store, "alpha") == first
+    assert calls["n"] == 1, "a second process recomputed instead of reading the stored row"
 
 
 def test_a_hit_returns_the_same_answer_without_recomputing(indexed, monkeypatch):
@@ -423,17 +441,6 @@ def test_the_stored_hit_publishes_idf_last(indexed):
     ss.ensure_bm25_cache(index)
     keys = [k for k in index._bm25_cache.order if k in ss._BM25_CORPUS_KEYS]
     assert set(keys) == set(ss._BM25_CORPUS_KEYS) and keys[-1] == "idf", keys
-
-
-def test_the_save_time_publish_writes_idf_last():
-    """#490's readiness rule holds on the path a full save fills."""
-    from types import SimpleNamespace
-
-    index = SimpleNamespace(_bm25_cache=_RecordingDict(), _bm25_lock=None)
-    ss.publish_corpus_stats(index, {"a": 1.0}, 1.0, {"a": [0]}, {})
-    assert index._bm25_cache.order == ["avgdl", "inverted", "centrality", "idf"]
-    ss.publish_corpus_stats(index, {"b": 2.0}, 2.0, {"b": [0]}, {})
-    assert index._bm25_cache["idf"] == {"a": 1.0}, "a filled cache was overwritten"
 
 
 @pytest.mark.parametrize("key, attr", [
