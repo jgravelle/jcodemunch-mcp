@@ -485,16 +485,28 @@ def credit_files(
     counts from ``storage.token_counts`` (one read-only query). ``served``:
     ``(language, text)`` pieces of the response.
     """
-    from .storage.token_counts import lookup
+    from .storage.token_counts import lookup, queue
 
     files = list(dict.fromkeys(files))
     hashes = getattr(index, "file_hashes", None) or {}
     langs = getattr(index, "file_languages", None) or {}
-    sizes = getattr(index, "file_sizes", None) or {}
+    # Not ``or {}``: a size map with no stored sizes is empty but still reads
+    # a size from the indexed copy (storage/file_sizes.ContentSizes).
+    sizes = getattr(index, "file_sizes", None)
+    if sizes is None:
+        sizes = {}
     wanted = [h for h in (hashes.get(f) for f in files) if isinstance(h, str) and h]
     counts = lookup(getattr(index, "_db_path", None), wanted)
     raw = [
         (langs.get(f), sizes.get(f, 0) or 0, counts.get(hashes.get(f) or ""))
         for f in files
     ]
+    # A file credited for the first time has no count yet: it is credited by
+    # the table now and counted after the call (storage/token_counts.py).
+    missing = {
+        h: f for f in files
+        if isinstance((h := hashes.get(f)), str) and h and h not in counts
+    }
+    if missing:
+        queue(index, missing)
     return credit(raw, served)
