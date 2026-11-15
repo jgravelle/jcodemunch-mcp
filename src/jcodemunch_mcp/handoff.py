@@ -200,6 +200,18 @@ def absence_refusal(record: Optional[dict]) -> Optional[str]:
             f"this result was replayed from cache and {_reval.get('reason')}, so it "
             "describes a state that no longer holds"
         )
+    _filters = record.get("filters") or {}
+    from .retrieval.verdict import filters_refuse_absence as _filters_refuse
+
+    if _filters_refuse(_filters):
+        # Named before the generic state rule: an attribute filter narrowed the
+        # scan, which "the verdict was degraded" does not say. A path scope
+        # alone is carried in `scope` and stays citable within it.
+        _label = ", ".join(f"{k}={v}" for k, v in _filters.items())
+        return (
+            f"the scan was narrowed by {_label}, so it says nothing about the "
+            "rest of the index; search again without the filter to test absence"
+        )
     _ignored = record.get("ignored_arguments") or []
     if _ignored:
         # (#872) Named before the generic state rule: the scan was a different
@@ -297,6 +309,7 @@ def note_absence(tool: str, repo, query, verdict, arguments=None, truncated=Fals
         "working_tree": verdict.get("working_tree"),
         "absence_unprovable": verdict.get("absence_unprovable"),
         "ignored_arguments": verdict.get("ignored_arguments"),
+        "filters": verdict.get("filters"),
         "truncated": bool(truncated),
         "scorer": verdict.get("scorer"),
     }

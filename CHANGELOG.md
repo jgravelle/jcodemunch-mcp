@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+### Fixed - a filtered `search_symbols` describes its filter, never the whole index
+
+`search_symbols(query="index_folder", language="rust")` answered "No symbol named 'index_folder' is in this index" while the index held it in Python, and with no rows the same call on a complete index minted a citable absence and the warning "Do not claim this feature exists". The filter appeared nowhere in the answer. Now every filtered call names its filters in the verdict and scopes every sentence about the index to them, in every exit (lexical, semantic, fusion and fusion's empty-scope return). An attribute filter (`language`, `kind`, `decorator`) selects symbols by a property of the symbol, so finding nothing inside it is not absence of the name: its `absent` state is refused, with the filter named as the reason. A `file_pattern` alone is a path scope and keeps a citable absence within it, as `search_text` does. When the scan found no exact match inside the filter and the index has some outside it, `exact_outside_filters` gives their count. `search_text` takes no `language` argument; it still reports one under `ignored_arguments`, which already refuses its absence.
+
+### Fixed - `get_file_outline(file=...)` is not reported as ignored, and a missing file argument is the caller's error
+
+`get_file_outline` reads `file` as another spelling of `file_path`, yet the argument contract (since 1.108.175) listed `file` under `ignored_arguments`, which also refused any absence the call could prove. Aliases the dispatcher honors are now declared beside the contract, and a test reads every key each tool's `if name == ...` dispatch branch reads as `arguments.get(...)` or `arguments[...]`, and fails on one the contract would call ignored. A call with neither `file_path` nor `file_paths` (for example `path=`) came back as "Internal error processing get_file_outline", which reads as our bug. It is now an argument error naming `file_path` and `file_paths`, with the key that was sent listed under `ignored_arguments`. The same applies to `find_importers`, `find_references` and `check_references`, which share the neither-or-both check.
+
 ### Fixed - one `index-file` run per checkout, and at most two on the machine
 
 The PostToolUse hook starts a detached `jcodemunch-mcp index-file <path>` for every Edit or Write of a code file, and nothing counted them. Each run loads the repository's index: about 250 MB and 2.5 s on a 50,000-symbol index, and eight edits in a row held eight runs and about 800 MB at once. An overnight benchmark run left the development laptop unresponsive with many python.exe processes. The evidence points at these runs, though it does not prove it: the only two sessions that ever stalled out of 433 edited 43 and 47 times against an index that takes 634 s to build, a session with 66 edits on a small index never stalled, and the host ended each session by killing only the agent, so its runs outlived it.
