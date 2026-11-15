@@ -667,3 +667,65 @@ def test_a_temporary_file_a_dead_writer_left_is_swept_by_the_next_take(slot_dir)
     os.utime(stale, (old, old))
     assert slots.take_pending(key) == ["a.py"]
     assert not stale.exists() and fresh.exists()
+
+
+def test_a_path_queued_after_the_live_run_released_is_indexed_by_the_queuer(
+    slot_dir, store, tmp_path, capsys
+):
+    """The interleaving is pinned: the run is turned away while the live run
+    holds the checkout, and the live run finishes and releases before the
+    turned-away run's queue write appears. Write-then-recheck indexes it."""
+    from jcodemunch_mcp import server
+
+    target = _file(tmp_path)
+    key = slots.index_key(str(target), store)
+    child = _hold_in_child(slot_dir, slots.INDEX_SCOPE, _index_lock(key))
+    real_queue = slots.queue
+    done = []
+
+    def queue_after_the_holder_left(k, path):
+        child.kill()  # the live run releases between our claim and our write
+        child.wait()
+        return real_queue(k, path)
+
+    def fake_index_file(path, **kwargs):
+        done.append(path)
+        return {"success": True}
+
+    try:
+        with (
+            mock.patch.object(slots, "queue", side_effect=queue_after_the_holder_left),
+            mock.patch(
+                "jcodemunch_mcp.tools.index_file.index_file",
+                side_effect=fake_index_file,
+            ),
+        ):
+            server.main(["index-file", str(target)])
+    finally:
+        if child.poll() is None:
+            child.kill()
+            child.wait()
+    assert done == [str(target)], "the queued path was stranded"
+    out = json.loads(capsys.readouterr().out)
+    assert out["queued_for_live_run"] is True and out["coalesced_paths"] == 1
+    assert out["indexed"] is True and out["success"] is True
+    assert not slots.has_pending(key) and _locks_left(slot_dir) == []
+
+
+def test_an_entry_that_is_not_text_is_left_and_never_stops_the_rest(slot_dir):
+    key = "store|repo"
+    assert slots.queue(key, "a.py")
+    bad = slot_dir / f"{slots._pending_prefix(key)}{'0' * 20}_00000000_1_badbadba.path"
+    bad.write_bytes(b"\xff\xfe\xfa not utf-8")
+    assert slots.take_pending(key) == ["a.py"]
+    assert bad.exists(), "an entry this module did not write is left, not deleted"
+    assert slots.drain(key, lambda p: {"success": True}) == (0, 0)
+
+
+def test_a_path_that_is_not_valid_utf8_is_queued_and_read_back_unchanged(slot_dir):
+    """POSIX hands such a name over with lone surrogates (surrogateescape)."""
+    odd = "src/caf\udce9.py"
+    key = slots.index_key(odd, None)
+    assert slots.queue(key, odd)
+    assert slots.take_pending(key) == [odd]
+    assert list(slot_dir.glob("_pending_*")) == []

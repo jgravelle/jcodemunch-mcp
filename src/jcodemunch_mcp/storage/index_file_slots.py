@@ -25,8 +25,12 @@ Two rules, both checked before an index is loaded:
 After the live run gives its locks back it looks at the pending list once more
 (``drain_after_release``, up to ``AFTER_RELEASE_TRIES`` times), so a path
 queued between its last read of the list and its release is not stranded. A
-path is still left over when every machine slot is taken at that moment, when
-the run itself failed, or when it arrives during the last try's own release. Such a path, like a
+run whose path went to the list checks the list once more after writing it,
+because the live run may have taken its last look and released in between.
+A path is still left over when every machine slot is taken at that moment,
+when the run itself failed, when it arrives during the last try's own
+release, or when the run holding the checkout's lock was one that found no
+machine slot and gave the lock straight back. Such a path, like a
 run turned away as busy, is re-indexed only by a running watcher, by
 ``refresh_on_read`` on the next read of a git repository (at most once per
 30 s per server, and not while another write holds the index), or by the next
@@ -191,7 +195,9 @@ def _targets() -> list[str]:
 
 
 def _digest(key: str) -> str:
-    return hashlib.sha256(key.lower().encode("utf-8")).hexdigest()[:16]
+    # surrogatepass: a POSIX path that is not valid UTF-8 arrives with lone
+    # surrogates (surrogateescape), and a Windows name can carry one too.
+    return hashlib.sha256(key.lower().encode("utf-8", "surrogatepass")).hexdigest()[:16]
 
 
 def _lock_target(name: str) -> str:
@@ -228,9 +234,10 @@ class Claim:
     index_target: Optional[str]
     slot: Optional[str]
     #: Set when the slot folder or the lock layer raised and the run went ahead
-    #: without a lock. A lock file the lock layer cannot create is not an
-    #: error here: ``process_locks.acquire`` reads it as held, so it reports
-    #: busy.
+    #: without the lock it was taking (without both, or with this checkout's
+    #: lock and no machine slot). A lock file the lock layer cannot create is
+    #: not an error here: ``process_locks.acquire`` reads it as held, so it
+    #: reports busy.
     lock_error: Optional[str] = None
 
 
@@ -314,12 +321,13 @@ def queue(key: str, path: str) -> bool:
     try:
         flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
         fd = os.open(tmp, flags, 0o600)
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
+        with os.fdopen(fd, "w", encoding="utf-8", errors="surrogatepass") as f:
             f.write(path)
         os.replace(tmp, d / f"{name}.path")
         return True
-    except OSError:
-        logger.debug("could not queue %s", path, exc_info=True)
+    except (OSError, ValueError):
+        # ValueError: a path that cannot be encoded even with surrogatepass.
+        logger.debug("could not queue %r", path, exc_info=True)
         try:
             tmp.unlink()
         except OSError:
@@ -349,7 +357,7 @@ def _sweep_stale_tmp(key: str) -> None:
 
 def _read_entry(f: Path) -> str:
     fd = os.open(f, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
-    with os.fdopen(fd, "r", encoding="utf-8") as fh:
+    with os.fdopen(fd, "r", encoding="utf-8", errors="surrogatepass") as fh:
         return fh.read().strip()
 
 
@@ -370,7 +378,10 @@ def take_pending(key: str) -> list[str]:
     for f in files[:MAX_PENDING]:
         try:
             text = _read_entry(f)
-        except OSError:
+        except (OSError, ValueError):
+            # ValueError: bytes that are not text (an entry this module did not
+            # write). Raising here would stop every later run's drain for this
+            # checkout; one bad entry is left and the rest are taken.
             logger.debug("could not read %s; left for the next take", f, exc_info=True)
             continue
         try:

@@ -12028,14 +12028,33 @@ def main(argv: Optional[list[str]] = None):
         # hook starts one per edit and never waits (index_file_slots.py).
         _store = os.environ.get("CODE_INDEX_PATH")
         _key = _slots.index_key(args.path, _store)
+        _use_ai: list = []
+
+        def _index_one(_q):
+            # Imported and configured on first use: a run turned away never pays
+            # for either.
+            from .tools import index_file as _index_file_mod
+
+            if not _use_ai:
+                _use_ai.append(not args.no_ai_summaries and _default_use_ai_summaries())
+            return _index_file_mod.index_file(
+                path=_q, use_ai_summaries=_use_ai[0], storage_path=_store,
+            )
+
         _claim, _why = _slots.claim(_key)
         if _claim is None:
             _queued = _why == "same_index_busy" and _slots.queue(_key, args.path)
-            # Exit 0 (the hook reads no status), but `success` is false: nothing
-            # was indexed by THIS run, as with index_file's own skips.
-            print(_json.dumps({
-                "success": False,
-                "indexed": False,
+            _late = _late_failed = 0
+            if _queued:
+                # Write, then check again. The live run may have taken its last
+                # look at the list and given its locks back between this run's
+                # claim and its write; then nothing else would index the path.
+                _late, _late_failed = _slots.drain_after_release(_key, _index_one)
+            # Exit 0 (the hook reads no status). `success` is false unless this
+            # run found the checkout free after queuing and indexed the list.
+            _out = {
+                "success": bool(_late) and not _late_failed,
+                "indexed": bool(_late),
                 "skipped": _why,
                 "queued_for_live_run": bool(_queued),
                 "max_concurrent": _slots.MAX_CONCURRENT,
@@ -12045,21 +12064,19 @@ def main(argv: Optional[list[str]] = None):
                         "watcher, by refresh_on_read on the next read of a git "
                         "repository (at most once per 30 s per server, and not while "
                         "another write holds the index), or by the next edit",
-            }, indent=2))
+            }
+            if _late or _late_failed:
+                _out["note"] = (
+                    "the live run for this checkout had finished by the time this "
+                    "path was queued, so this run indexed the pending list itself"
+                )
+                _out["coalesced_paths"] = _late
+                if _late_failed:
+                    _out["coalesced_failures"] = _late_failed
+            print(_json.dumps(_out, indent=2))
             return
         try:
-            from .tools import index_file as _index_file_mod
-
-            use_ai = not args.no_ai_summaries and _default_use_ai_summaries()
-            result = _index_file_mod.index_file(
-                path=args.path,
-                use_ai_summaries=use_ai,
-                storage_path=_store,
-            )
-            def _index_one(_q):
-                return _index_file_mod.index_file(
-                    path=_q, use_ai_summaries=use_ai, storage_path=_store,
-                )
+            result = _index_one(args.path)
 
             # Paths other runs queued for this checkout while this run held it.
             _coalesced, _failed = _slots.drain(_key, _index_one)
