@@ -205,6 +205,7 @@ def _scope_to_filters(result: dict, query: str, index, filters: dict) -> None:
         return
     label = ", ".join(f"{k}={v}" for k, v in filters.items())
     from ..retrieval.query_shape import exact_match_report as _exact_match_report
+    from ..retrieval.verdict import filters_refuse_absence as _filters_refuse
     from ..retrieval.verdict import refuse_absence as _refuse_absence
 
     meta = result.get("_meta") if isinstance(result.get("_meta"), dict) else {}
@@ -237,12 +238,20 @@ def _scope_to_filters(result: dict, query: str, index, filters: dict) -> None:
     verdict = meta.get("verdict")
     if isinstance(verdict, dict):
         verdict["filters"] = dict(filters)
-        refused = set(filters) != {"file_pattern"} and _refuse_absence(
+        refused = _filters_refuse(filters) and _refuse_absence(
             verdict,
             f"Nothing matched within {label}. The filter narrowed the scan, so "
             f"this is not evidence the symbol is absent from the index.{tail}",
         )
-        if not refused and old_exact_note and verdict.get("note") == old_exact_note:
+        if not refused and verdict.get("state") == "absent":
+            # A path scope stays citable, but only within the scope: the note
+            # names it, never "the index".
+            verdict["note"] = (
+                f"No match found after scanning the files matching {label}. Treat "
+                f"this as evidence the target is not present within that scope; it "
+                f"says nothing about files outside it.{tail}"
+            )
+        elif not refused and old_exact_note and verdict.get("note") == old_exact_note:
             verdict["note"] = exact["note"]
     neg = result.get("negative_evidence")
     if isinstance(neg, dict):

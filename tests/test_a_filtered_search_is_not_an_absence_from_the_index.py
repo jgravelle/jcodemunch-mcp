@@ -159,3 +159,25 @@ async def test_search_text_with_language_reports_it_ignored_and_refuses_absence(
     body = json.loads(content[0].text)
     assert body["_meta"]["ignored_arguments"] == ["language"]
     assert body["_meta"]["absence_evidence"]["citable"] is False
+
+
+def test_a_path_scoped_absence_names_its_scope_not_the_index(repo):
+    """The name exists outside the path scope: the citable note must say so."""
+    repo_id, store = repo
+    r = search_symbols(
+        repo=repo_id, query="alpha_beta", file_pattern="*.go", storage_path=store
+    )
+    v = r["_meta"]["verdict"]
+    assert v["state"] == "absent" and not v.get("absence_refused")
+    assert "after scanning the index" not in v["note"]
+    assert "file_pattern=*.go" in v["note"]
+    assert "1 symbol(s) named 'alpha_beta'" in v["note"]
+
+
+def test_one_rule_decides_which_filters_refuse_absence():
+    from jcodemunch_mcp.retrieval.verdict import filters_refuse_absence
+
+    assert filters_refuse_absence({"language": "go"})
+    assert filters_refuse_absence({"file_pattern": "*.py", "kind": "function"})
+    assert not filters_refuse_absence({"file_pattern": "*.py"})
+    assert not filters_refuse_absence({})

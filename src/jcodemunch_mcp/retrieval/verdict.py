@@ -328,6 +328,17 @@ _NOTES = {
 }
 
 
+def filters_refuse_absence(filters) -> bool:
+    """Whether a search's filters make its absence uncitable.
+
+    An attribute filter (language, kind, decorator) narrows the scan to a
+    slice nothing records as a scope, so nothing found says nothing about the
+    index. A ``file_pattern`` alone is a path scope the evidence carries, so the
+    absence stays citable within it. The one rule for every reader.
+    """
+    return bool(filters) and set(filters) != {"file_pattern"}
+
+
 def refuse_absence(verdict: dict, note: str) -> bool:
     """Downgrade an ``absent`` verdict whose claim a later check refused.
 

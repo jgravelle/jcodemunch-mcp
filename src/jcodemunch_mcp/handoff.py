@@ -201,7 +201,9 @@ def absence_refusal(record: Optional[dict]) -> Optional[str]:
             "describes a state that no longer holds"
         )
     _filters = record.get("filters") or {}
-    if _filters and set(_filters) != {"file_pattern"}:
+    from .retrieval.verdict import filters_refuse_absence as _filters_refuse
+
+    if _filters_refuse(_filters):
         # Named before the generic state rule: an attribute filter narrowed the
         # scan, which "the verdict was degraded" does not say. A path scope
         # alone is carried in `scope` and stays citable within it.
