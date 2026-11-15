@@ -1,6 +1,12 @@
 {
-  "current": "1.108.449",
+  "current": "1.108.450",
   "entries": [
+    {
+      "version": "1.108.450",
+      "date": "2026-11-15",
+      "title": "a trusted folder is matched by the folder it names",
+      "summary": "A trusted_folders entry set through JCODEMUNCH_TRUSTED_FOLDERS is resolved before it is compared, so an entry that reaches the folder through a symlink or a .. segment (every macOS temp folder is under the /var link) matches it, in whitelist and blacklist mode. A relative entry, or one whose ~name names no user, still matches nothing and is logged."
+    },
     {
       "version": "1.108.449",
       "date": "2026-11-15",

@@ -3302,3 +3302,9 @@ The 1.108.445 entry, verbatim as it stood in `CLAUDE.md`:
 The 1.108.446 entry, verbatim as it stood in `CLAUDE.md`:
 
 - **Prior (1.108.446):** **a running server that serves older code than is installed is named** (#1435, @dkiaulakis): `install-status` lists the running servers on this index store with `restart_required` true/false/null; each registry row records its `package_dir`, and `restart_verdict` takes the install layout explicitly (a copied install compares versions, a source install the source mtime; another install, a pre-record row or an unreadable mtime is UNKNOWN). Report only; `get_session_stats` never carries the path. Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-15, release 1.108.450)
+
+The 1.108.447 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.447):** **on macOS, a process is identified by its creation time** (#1441): `process_locks._darwin_process_start` reads libproc `PROC_PIDTBSDINFO` (short record, other PID or zero start: UNKNOWN); `runtime_identity` asks the same reader. Full text: `CHANGELOG.md`.
