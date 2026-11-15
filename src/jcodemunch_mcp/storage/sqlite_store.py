@@ -879,6 +879,11 @@ def _restamp_after_bm25_write(index, db_path: Path, loaded_mtime_ns: int) -> Non
                 _index_cache.pop(key, None)
     if same:
         index._loaded_mtime_ns = mtime_ns
+        # The write changed no symbol and no gated meta, so an answer cached
+        # before it still describes this index (retrieval/subject_state.changed).
+        from .generation import note_benign_rewrite
+
+        note_benign_rewrite(db_path, loaded_mtime_ns, mtime_ns)
 
 
 def _db_mtime_ns(db_path: Path) -> int:

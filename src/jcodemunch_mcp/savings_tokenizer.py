@@ -490,7 +490,11 @@ def credit_files(
     files = list(dict.fromkeys(files))
     hashes = getattr(index, "file_hashes", None) or {}
     langs = getattr(index, "file_languages", None) or {}
-    sizes = getattr(index, "file_sizes", None) or {}
+    # Not ``or {}``: a size map with no stored sizes is empty but still reads
+    # a size from the indexed copy (storage/file_sizes.ContentSizes).
+    sizes = getattr(index, "file_sizes", None)
+    if sizes is None:
+        sizes = {}
     wanted = [h for h in (hashes.get(f) for f in files) if isinstance(h, str) and h]
     counts = lookup(getattr(index, "_db_path", None), wanted)
     raw = [
