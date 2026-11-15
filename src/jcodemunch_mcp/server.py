@@ -5207,7 +5207,8 @@ async def list_resources() -> list[Resource]:
                 "Process provenance for this server instance "
                 f"({runtime_identity.IDENTITY_SCHEMA}): product, version, "
                 "transport, pid, OS-derived process_start, per-process "
-                "instance_id, optional launch_id echo. Read-only, no side effects."
+                "instance_id, build digest (null with a reason on a source install), "
+                "optional launch_id echo. Read-only, no side effects."
             ),
             mimeType="application/json",
         )
@@ -12257,6 +12258,16 @@ def main(argv: Optional[list[str]] = None):
                     install,
                 )
                 watcher_enabled = False
+
+        # (#1435) Read the build now, while the RECORD still describes the code
+        # this process loaded. Read lazily, an in-place upgrade before the first
+        # identity read would make an old process report the new build.
+        try:
+            from .runtime_identity import get_build as _get_build
+
+            _get_build()
+        except Exception:
+            logger.debug("build digest: startup read failed", exc_info=True)
 
         # Presence registry (jcm#375 follow-up): record that this server process
         # exists so `get_session_stats` can report how many jcodemunch servers

@@ -2775,11 +2775,15 @@ def print_status(report: Optional[dict[str, Any]] = None, *, as_json: bool = Fal
 
 def _print_servers(block: dict[str, Any]) -> None:
     """Running servers and whether each needs a restart (#1435). Report only."""
-    print(f"\nRunning servers (installed {block.get('installed_version')}):")
+    build = block.get("installed_build")
+    built = f", build {build}" if build else ""
+    print(f"\nRunning servers (installed {block.get('installed_version')}{built}):")
     for s in block.get("servers") or []:
         who = (
             f"pid {s.get('pid')} ({s.get('client_id')}, {s.get('transport')}, "
-            f"recorded {s.get('version')})"
+            f"recorded {s.get('version')}"
+            + (f", build {s['build']}" if s.get("build") else "")
+            + ")"
         )
         verdict = s.get("restart_required")
         if verdict is True:
