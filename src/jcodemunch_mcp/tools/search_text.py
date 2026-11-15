@@ -614,6 +614,11 @@ def search_text(
     _cap = getattr(index, "file_cap_status", None)
     if _cap and _cap.get("truncated"):
         _meta["index_truncated"] = _index_truncation_meta(_cap)
+    from ..retrieval.verdict import index_withheld_meta as _index_withheld_meta
+
+    _withheld = _index_withheld_meta(index)
+    if _withheld:
+        _meta["index_withheld"] = _withheld
     # In the body, not only _meta: _meta is stripped on a default install,
     # and a list cut short read as complete sends the agent searching again.
     # `truncated` is the max_results cut; `timed_out` is the regex time budget.
