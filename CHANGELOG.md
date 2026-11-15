@@ -2,6 +2,48 @@
 
 ## [Unreleased]
 
+### Added - two servers on the same version can be told apart by build (#1435)
+
+@dkiaulakis asked for a serving identity that automation can compare with what is installed. `version` is the recorded metadata number, so two installs of one release built from different files report the same string. The `munch://runtime/identity` resource now carries `build`: `sha256:` and 16 hex digits over the installed distribution's `RECORD`, the file pip and uv write listing every installed file with its own hash. Only the rows for the package's own source files count: launcher scripts, the installer's name, `REQUESTED` and compiled `.pyc` files differ between two installs of one wheel, so hashing them would give identical code two builds. It is read once, when the server starts, from that one local file, with no index and no network; read later, an upgrade in place before the first read would make an old process report the new build. Where no RECORD describes the loaded code, `build` is `null` and `build_reason` says why: a source or editable install, or a process that loaded another copy than the installed distribution. It describes the files as installed, so a file edited in place afterwards does not change it. Each server records its build in its presence file, and `install-status` prints it beside the installed one, for example `installed X.Y.Z, build sha256:...` over `pid N (svc, streamable-http, recorded X.Y.Z, build sha256:...)`. A server started by a release before this one has no recorded build, and none is printed for it.
+
+### Fixed - a search answer says how many files the per-file size limit left out
+
+A file over `max_file_size` (512,000 bytes by default) is counted in the index's coverage, but the count reached an answer only inside `_meta.verdict`, and only on an absent or degraded answer. `meta_fields: []`, the shipped default, strips `_meta`, so a `search_symbols` or `search_text` call that found something over a corpus missing a large source file read as a search of the whole repo. A user's audit found current source files missing from their indexes with nothing said. Now `search_symbols`, `search_text` and `get_ranked_context` (which shares `search_symbols`' attach) carry `_meta.index_withheld` (the count of files the index still withholds, and the limit the walk used when the index records one), and the answer body's `index_warning` names the count and the setting that moves it: `max_file_size` in the config, the project's `.jcodemunch.jsonc`, or `JCODEMUNCH_MAX_FILE_SIZE`. The count is the index's withheld set, so a later walk of one subfolder does not lower it. It is its own sentence beside the file-count cap line (#1336), because the two are different settings with different remedies. An index that withheld nothing carries neither.
+
+### Fixed - a separate copy of an indexed repo says why the index is silent
+
+When an agent's working folder was a second checkout of a repo indexed from
+another folder, `resolve_repo` already flagged it (`working_tree_mismatch`).
+The server's startup text and the PreToolUse hook both read that answer as
+"not indexed here", which is right, and then said nothing. The agent saw no
+index and no reason, and searched with Grep for the whole session.
+
+Both now read the flag through `resolve_repo.separate_copy`, so only
+`resolve_repo` decides that a folder is a separate copy. The hook still skips
+the question for a folder inside or above an indexed root, which can only
+leave a note out:
+
+- On the default `counter` surface, the startup text says this folder copies a
+  repo indexed elsewhere and gives the `order("index_folder", ...)` call that
+  indexes it. The `full` surface's text is too close to its 1,000-character
+  limit for the sentence, so it is unchanged there. On both, the server logs
+  one WARNING naming the folder the index was built from, because a path has
+  no length limit.
+- The PreToolUse hook (installed by `init --guidance`) says the same, naming
+  the folder, once per session and folder. That one call gets the note
+  instead of the usual advice, so under `JCODEMUNCH_ENFORCE=strict` a Read or
+  Grep from such a folder into an indexed root passes once without a deny.
+  To check each folder only once,
+  the hook writes an empty marker file under
+  `~/.code-index/hook_state/separate_copy/` on its first call in every session
+  and folder, indexed or not, and later tool calls skip the check. Markers
+  older than a week are deleted when a new one is written.
+
+One `resolve_repo` call at startup now feeds both the file count and this
+check. A copy whose repo identity does not match the index, such as a copy
+with no `.git` under another folder name, is not flagged by `resolve_repo`,
+so it still gets no note.
+
 ## [1.108.448] - 2026-11-15 - an edit no longer starts an unbounded pile of index runs
 
 ### Fixed - a filtered `search_symbols` describes its filter, never the whole index
