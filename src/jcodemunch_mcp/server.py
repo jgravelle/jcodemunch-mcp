@@ -7909,13 +7909,24 @@ async def _call_tool_impl(name: str, arguments: dict) -> list[TextContent] | Cal
         # search of the whole repo. `index_warning` is a key every compact
         # encoder carries (`schema_driven.is_universal_body_key`). A new dict,
         # because `result` may be an object a cache still holds.
+        # The same holds for files the per-file size limit left out: a separate
+        # sentence, because it is a separate setting with its own remedy.
         try:
             if isinstance(result, dict) and "index_warning" not in result:
                 from .retrieval.verdict import index_truncation_warning as _itw
+                from .retrieval.verdict import index_withheld_warning as _iww
 
-                _cap_line = _itw((result.get("_meta") or {}).get("index_truncated"))
-                if _cap_line:
-                    result = {**result, "index_warning": _cap_line}
+                _m = result.get("_meta") or {}
+                _lines = [
+                    _l
+                    for _l in (
+                        _itw(_m.get("index_truncated")),
+                        _iww(_m.get("index_withheld")),
+                    )
+                    if _l
+                ]
+                if _lines:
+                    result = {**result, "index_warning": " ".join(_lines)}
         except Exception:
             logger.debug("index-cap warning attach failed", exc_info=True)
 

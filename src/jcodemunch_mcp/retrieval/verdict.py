@@ -88,6 +88,68 @@ def index_truncation_warning(block: Optional[dict]) -> Optional[str]:
     )
 
 
+def index_withheld_meta(index) -> Optional[dict]:
+    """Query-time ``_meta.index_withheld`` block: files left out for size.
+
+    A file over ``max_file_size`` is counted in the index's coverage
+    (``withheld.too_large``). Before this block the count reached an answer only
+    inside ``_meta.verdict`` on an absent or degraded answer, so a search that
+    found something over a corpus missing a large source file read as complete.
+    Returns None when nothing was withheld for size, or the index predates
+    coverage recording. The count is the index's withheld set
+    (``withheld_files_total``), the same reading :func:`withheld_file_info`
+    makes: ``withheld.too_large`` is only the latest walk's count, so after a
+    subdir walk it can be lower than what the index still withholds. The limit
+    is the one the walk used, read off the per-file record when the index
+    carries it.
+    """
+    cov = getattr(index, "coverage", None)
+    if not isinstance(cov, dict):
+        return None
+    total = cov.get("withheld_files_total")
+    if total is None:
+        total = (cov.get("withheld") or {}).get("too_large")
+    try:
+        n = int(total or 0)
+    except (TypeError, ValueError):
+        return None
+    if n <= 0:
+        return None
+    block: dict = {"files_over_size_limit": n}
+    limits = set()
+    for entry in (cov.get(WITHHELD_FILES_KEY) or {}).values():
+        if isinstance(entry, dict) and isinstance(entry.get("limit"), int) and entry["limit"] > 0:
+            limits.add(entry["limit"])
+    if len(limits) == 1:
+        block["max_file_size"] = next(iter(limits))
+    return block
+
+
+def index_withheld_warning(block: Optional[dict]) -> Optional[str]:
+    """The answer-body line for a result drawn from an index that withheld
+    files for size, or None.
+
+    Separate from :func:`index_truncation_warning`: the file-count cap and the
+    per-file size limit are different settings with different remedies.
+    """
+    if not isinstance(block, dict):
+        return None
+    n = block.get("files_over_size_limit")
+    if not isinstance(n, int) or n <= 0:
+        return None
+    limit = block.get("max_file_size")
+    over = (
+        f"the per-file size limit (max_file_size, {limit:,} bytes)"
+        if isinstance(limit, int)
+        else "the per-file size limit (max_file_size)"
+    )
+    files = "1 file" if n == 1 else f"{n} files"
+    return (
+        f"This index left out {files} over {over}, so these results do not "
+        f"include them. {_TOO_LARGE_REMEDY}"
+    )
+
+
 # Version pin for the confidence/score heuristics the verdict reports.
 # Bump whenever the scoring formula (BM25 blending, thresholds, seeding
 # floors) changes, so calibration claims tie to the scorer that produced
