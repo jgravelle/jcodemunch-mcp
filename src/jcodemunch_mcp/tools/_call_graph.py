@@ -851,8 +851,8 @@ def _dispatch_callers(index: "CodeIndex", sym: dict, symbols_by_file: dict[str, 
     return results
 
 
-_C_SOURCE_SUFFIXES = (".c", ".cc", ".cpp", ".cxx", ".c++")
-_C_HEADER_SUFFIXES = (".h", ".hh", ".hpp", ".hxx", ".h++")
+_C_SOURCE_SUFFIXES = (".c", ".cc", ".cpp", ".cxx")
+_C_HEADER_SUFFIXES = (".h", ".hh", ".hpp", ".hxx")
 
 
 def _declaring_headers(
@@ -902,10 +902,18 @@ def _is_file_local(sym: dict) -> bool:
     name = sym.get("name") or ""
     match = re.search(word_pattern(name) + r"\s*\(", signature) if name else None
     head = signature[: match.start()] if match else signature.split("(", 1)[0]
+    # A word inside a string or a parenthesised argument (``MACRO(static)``,
+    # ``__attribute__((section("static")))``) is not the storage class.
+    head = re.sub(r'"(?:[^"\\]|\\.)*"', " ", head)
+    while True:
+        stripped = re.sub(r"\([^()]*\)", " ", head)
+        if stripped == head:
+            break
+        head = stripped
     return "static" in re.findall(r"[A-Za-z_]\w*", head)
 
 
-def _defines_own(file_path: str, symbols: list[dict], name: str) -> bool:
+def _defines_own(symbols: list[dict], name: str) -> bool:
     """A C source defines a function of *name* itself (not a ``;`` prototype).
 
     C has no overloads or namespaces, so its calls to *name* reach its own
@@ -914,10 +922,9 @@ def _defines_own(file_path: str, symbols: list[dict], name: str) -> bool:
     anonymous-namespace function of that name can sit beside a real call to
     the header's.
     """
-    if not file_path.lower().endswith(".c"):
-        return False
     return any(
         s.get("name") == name
+        and s.get("language") == "c"
         and s.get("kind") == "function"
         and not (s.get("signature") or "").rstrip().endswith(";")
         for s in symbols
@@ -982,7 +989,7 @@ def find_direct_callers(
             if (
                 f != sym_file
                 and f not in scan_files
-                and not _defines_own(f, symbols_by_file.get(f, []), sym_name)
+                and not _defines_own(symbols_by_file.get(f, []), sym_name)
             ):
                 scan_files.append(f)
     # Lines where a symbol of the same name is DECLARED, per file (L-262).

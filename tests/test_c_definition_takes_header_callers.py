@@ -128,3 +128,11 @@ def test_a_cpp_file_with_its_own_overload_is_still_a_caller(tmp_path):
     )
     h = _callers(repo, store, "a.cpp::f#function")
     assert ("b.cpp", "g") in [(c["file"], c["name"]) for c in h["callers"]], h
+
+
+def test_a_word_inside_a_macro_argument_is_not_static(tmp_path):
+    # MACRO(static) is an argument, not the storage class: a.c's f is public.
+    macro = DEFINES.replace("int f(int x) {", "EXPORT(static) int f(int x) {")
+    repo, store = _index(tmp_path, {"a.h": HEADER, "a.c": macro, "b.c": CALLS})
+    h = _callers(repo, store, "a.c::f#function")
+    assert [(c["file"], c["name"]) for c in h["callers"]] == [("b.c", "g")], h
