@@ -406,13 +406,16 @@ def index_file(
         return refusal
 
     try:
+        # The mtime is taken BEFORE the read: taken after, an edit landing
+        # between the two stores the old content under the new edit's mtime,
+        # and refresh_on_read (which compares mtimes) never repairs it.
+        file_mtime = os.stat(file_path).st_mtime_ns
         with open(file_path, "r", encoding="utf-8", errors="replace", newline="") as f:
             content = f.read()
     except Exception as e:
         return {"success": False, "error": f"Failed to read file: {e}"}
 
     file_hash = _file_hash(content)
-    file_mtime = os.stat(file_path).st_mtime_ns
 
     # Load existing index to check if file has changed
     # Detect branch for branch-aware indexing
