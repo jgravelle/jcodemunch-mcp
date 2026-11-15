@@ -660,7 +660,12 @@ def _resolved_entry(entry) -> Optional[Path]:
     vars (``JCODEMUNCH_TRUSTED_FOLDERS``, ``JCODEMUNCH_TRUSTED_FOLDERS_ENV``)
     are not validated there, so the comparison must not trust them.
     """
-    path = Path(entry).expanduser()
+    try:
+        path = Path(entry).expanduser()
+    except (OSError, RuntimeError, ValueError):
+        # POSIX raises for a `~name` naming no user: no folder, so no match.
+        logger.warning("trusted_folders entry names no home directory and matches nothing: %r", str(entry))
+        return None
     if not path.is_absolute():
         logger.warning("trusted_folders entry is not an absolute path and matches nothing: %r", str(entry))
         return None

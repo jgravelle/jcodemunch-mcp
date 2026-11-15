@@ -81,6 +81,14 @@ def test_a_relative_entry_trusts_nothing(tmp_path, monkeypatch, entry):
     assert _is_trusted(proj.resolve(), (entry,), False)
 
 
+@pytest.mark.skipif(os.name == "nt", reason="Windows maps an unknown ~name to a sibling profile")
+def test_an_entry_naming_no_home_directory_trusts_nothing(tmp_path):
+    proj = _project(tmp_path)
+    entry = "~no-such-user-jcm-test/proj"
+    assert not _is_trusted(proj.resolve(), (entry,), True)
+    assert _is_trusted(proj.resolve(), (entry,), False)
+
+
 def test_env_entries_reach_the_comparison_as_written(tmp_path, monkeypatch):
     # The file path resolves entries at load; the env path does not, which is
     # why the comparison has to.
