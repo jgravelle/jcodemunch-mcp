@@ -688,9 +688,10 @@ def get_symbol_source(
             # reads as the symbol's actual source under a confident verdict.
             if source is None and "source_status" not in entry:
                 entry["source_status"] = "content_cache_missing"
-                entry["source_unavailable_reason"] = (
-                    f"No cached content for {symbol['file']} under {content_dir}. "
-                    "Re-index the repo to rebuild it."
+                from ..retrieval.verdict import content_copy_missing_reason
+
+                entry["source_unavailable_reason"] = content_copy_missing_reason(
+                    symbol["file"], content_dir
                 )
                 unavailable_source_ids.append(symbol["id"])
         if context_before:

@@ -339,6 +339,30 @@ def filters_refuse_absence(filters) -> bool:
     return bool(filters) and set(filters) != {"file_pattern"}
 
 
+#: How to restore a file's missing cached copy, in every message that reports
+#: one (get_symbol_source's reason and verdict note, get_file_content,
+#: get_context_bundle). ``refresh`` needs ``--reset`` once a campaign has
+#: finished, or it re-parses nothing; ``index_file`` needs a local tree, so an
+#: ``index_repo`` snapshot is named apart, with ``incremental=False``: a default
+#: incremental ``index_repo`` answers "No changes detected" from the tree SHA
+#: and never looks at the cached copies.
+CONTENT_COPY_REPAIR = (
+    "For an index of a local folder, run index_file on the file, or index_folder "
+    "with paths=[file], to restore it, or `jcodemunch-mcp refresh <folder> --reset` "
+    "to restore every missing copy. An index_repo snapshot is restored by "
+    "index_repo with incremental=False."
+)
+
+
+def content_copy_missing_reason(file_path: str, content_dir=None) -> str:
+    """The reason given for a file whose cached text could not be read."""
+    where = f" under {content_dir}" if content_dir else ""
+    return (
+        f"The cached copy of {file_path} is missing{where}. The index row "
+        f"resolves; only the file's cached text is gone. {CONTENT_COPY_REPAIR}"
+    )
+
+
 def refuse_absence(verdict: dict, note: str) -> bool:
     """Downgrade an ``absent`` verdict whose claim a later check refused.
 
@@ -1192,8 +1216,7 @@ def build_symbol_verdict(
             f"{unavailable_source_count} symbol{plural} resolved but the body could not "
             "be read: the cached file content is missing for that path. Signatures, "
             "docstrings and line ranges are accurate; `source` is empty because it is "
-            "unavailable, NOT because the symbol is empty. Re-index the repo to "
-            "rebuild the content cache."
+            "unavailable, NOT because the symbol is empty. " + CONTENT_COPY_REPAIR
         )
         suggestions = []
     else:

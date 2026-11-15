@@ -70,7 +70,13 @@ def get_file_content(
                 }
         except Exception:
             pass
-        return {"error": f"File content not found: {file_path}"}
+        from ..retrieval.verdict import content_copy_missing_reason
+
+        return {
+            "error": f"File content not found: {file_path}. " + content_copy_missing_reason(file_path),
+            "file": file_path,
+            "source_status": "content_cache_missing",
+        }
 
     lines = content.splitlines()
     line_count = len(lines)
