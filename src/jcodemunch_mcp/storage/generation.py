@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import logging
 import sqlite3
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional, Union
@@ -223,3 +224,47 @@ def describe(index) -> IndexGeneration:
     except Exception:
         logger.debug("Generation describe failed", exc_info=True)
         return IndexGeneration()
+
+
+# --- our own write-backs -----------------------------------------------------
+
+#: db path -> {mtime after: mtime before} for write-backs this process made
+#: that changed no symbol and no meta a reader gates on (the BM25 statistics
+#: and per-file token counts, after ``sqlite_store._restamp_after_bm25_write``
+#: confirmed nothing else moved). Bounded per path.
+_BENIGN_MOVES: "dict[str, dict[int, int]]" = {}
+_BENIGN_MAX = 64
+_BENIGN_LOCK = threading.Lock()
+
+
+def note_benign_rewrite(db_path: PathLike, before_ns: int, after_ns: int) -> None:
+    """Record that this process moved the .db from ``before_ns`` to ``after_ns``
+    by a write that leaves every answer the same. Never raises."""
+    try:
+        if before_ns == after_ns:
+            return
+        key = str(db_path)
+        with _BENIGN_LOCK:
+            moves = _BENIGN_MOVES.setdefault(key, {})
+            moves[int(after_ns)] = int(before_ns)
+            while len(moves) > _BENIGN_MAX:
+                moves.pop(next(iter(moves)))
+    except Exception:
+        logger.debug("benign rewrite not recorded", exc_info=True)
+
+
+def only_benign_rewrites(db_path: Optional[PathLike], before_ns: int, after_ns: int) -> bool:
+    """True when every move from ``before_ns`` to ``after_ns`` was one of our
+    own write-backs (``note_benign_rewrite``). Unknown is False."""
+    if not db_path:
+        return False
+    with _BENIGN_LOCK:
+        moves = dict(_BENIGN_MOVES.get(str(db_path)) or {})
+    seen = 0
+    cur = int(after_ns)
+    while cur != int(before_ns):
+        prev = moves.get(cur)
+        if prev is None or seen > _BENIGN_MAX:
+            return False
+        cur, seen = prev, seen + 1
+    return True

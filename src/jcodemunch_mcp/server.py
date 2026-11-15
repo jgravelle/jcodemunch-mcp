@@ -6303,17 +6303,28 @@ def _schedule_bm25_flush() -> None:
     """Start the write-back in the background if anything is queued. Never raises."""
     try:
         from .storage import bm25_stats as _bm25_stats
+        from .storage import token_counts as _token_counts
 
-        if not _bm25_stats.pending_count():
+        if not (_bm25_stats.pending_count() or _token_counts.pending_count()):
             return
         task = _bm25_flush_task[0]
         if task is not None and not task.done() and not task.get_loop().is_closed():
             return  # what is queued now is stored by the next one
         _bm25_flush_task[0] = asyncio.get_running_loop().create_task(
-            asyncio.to_thread(_bm25_stats.flush_pending)
+            asyncio.to_thread(_flush_write_backs)
         )
     except Exception:
         logger.debug("BM25 statistics write-back not scheduled", exc_info=True)
+
+
+def _flush_write_backs() -> None:
+    """Store what calls computed or queued: BM25 statistics, then per-file
+    token counts (storage/token_counts.py). Each half never raises."""
+    from .storage import bm25_stats as _bm25_stats
+    from .storage import token_counts as _token_counts
+
+    _bm25_stats.flush_pending()
+    _token_counts.flush_pending()
 
 
 async def _await_bm25_flush() -> None:
