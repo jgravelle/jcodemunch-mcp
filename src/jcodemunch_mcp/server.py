@@ -12066,9 +12066,15 @@ def main(argv: Optional[list[str]] = None):
                         "another write holds the index), or by the next edit",
             }
             if _late or _late_failed:
+                # `skipped` still names why the first claim failed.
                 _out["note"] = (
                     "the live run for this checkout had finished by the time this "
-                    "path was queued, so this run indexed the pending list itself"
+                    "path was queued, so this run "
+                    + (
+                        "indexed the pending list itself"
+                        if _late
+                        else "tried the pending list itself and every path failed"
+                    )
                 )
                 _out["coalesced_paths"] = _late
                 if _late_failed:

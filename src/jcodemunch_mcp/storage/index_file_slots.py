@@ -154,7 +154,12 @@ def _close(fd: int) -> None:
 def _check_posix_dir(d: Path, uid: int) -> Optional[str]:
     """Check ``d`` through a descriptor opened without following a symlink, and
     tighten it there when it is ``uid``'s own: the path is looked up once, so
-    nothing can be swapped in between the check and the change."""
+    nothing can be swapped in between the check and the change.
+
+    Later lock and queue operations use the path, so they assume the temp
+    directory holding ``d`` is sticky or private (as ``/tmp`` is): in a
+    world-writable folder without the sticky bit another user could rename
+    ``d`` after this check."""
     try:
         fd = _open_dir_nofollow(d)
     except OSError as e:
