@@ -323,6 +323,13 @@
       "replacement": "tests/test_savings_tokenizer_table.py::test_a_write_back_without_the_encoding_reads_no_indexed_copies",
       "commit": "fix/cold-index-lazy-stats",
       "date": "2026-11-15"
+    },
+    {
+      "path": "tests/test_bm25_stats_live_in_the_index.py::test_a_full_index_writes_the_stats_with_the_symbols",
+      "lesson": "It required a full save to write the BM25 corpus statistics in the symbols' own transaction (#1343). That cost made every full index slower (v1.108.423) for an index that may never be searched. A full save now clears the row, and the first search computes the statistics and has them written back, so a second process still reads them instead of computing them.",
+      "replacement": "tests/test_bm25_stats_live_in_the_index.py::test_a_full_index_stores_no_stats_and_the_first_search_does",
+      "commit": "fix/cold-index-lazy-stats",
+      "date": "2026-11-15"
     }
   ]
 }
