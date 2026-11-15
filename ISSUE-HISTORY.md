@@ -3308,3 +3308,9 @@ The 1.108.446 entry, verbatim as it stood in `CLAUDE.md`:
 The 1.108.447 entry, verbatim as it stood in `CLAUDE.md`:
 
 - **Prior (1.108.447):** **on macOS, a process is identified by its creation time** (#1441): `process_locks._darwin_process_start` reads libproc `PROC_PIDTBSDINFO` (short record, other PID or zero start: UNKNOWN); `runtime_identity` asks the same reader. Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-15, release 1.108.451)
+
+The 1.108.448 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.448):** **an edit no longer starts an unbounded pile of index runs** (#1444): `storage/index_file_slots.py` gives `index-file` one lock per checkout and two machine slots, with a pending list the live run drains; a filtered `search_symbols` scopes its verdict to the filter (#1446); a missing content copy is repaired by re-indexing that file (#1445). Full text: `CHANGELOG.md`.
