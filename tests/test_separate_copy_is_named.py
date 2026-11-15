@@ -1,4 +1,4 @@
-"""A separate copy of an indexed repo says why the index is silent (backlog 27).
+"""A separate copy of an indexed repo says why the index is silent.
 
 When the working folder is a second checkout of a repo indexed from another
 folder, `resolve_repo` flags `working_tree_mismatch`. The server's startup

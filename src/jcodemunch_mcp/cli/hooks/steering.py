@@ -106,7 +106,7 @@ def _indexed_source_roots() -> list[str]:
         return []
 
 
-# A separate copy of an indexed repo (backlog 27): said once per session and
+# A separate copy of an indexed repo: said once per session and
 # folder, from a marker file under the index store, and the lookup behind it
 # runs at most once per marker. Markers older than a week are removed when a
 # new one is written.
@@ -448,7 +448,7 @@ def run_pretooluse() -> int:
         return 0
 
     # Once per session and folder: a separate copy of an indexed repo would
-    # otherwise get silence below, with no reason given (backlog 27). This
+    # otherwise get silence below, with no reason given. This
     # returns before the steering below, so that one call gets the note instead
     # of advice; under strict mode a Grep or Read aimed into an indexed root
     # from such a folder passes un-denied once. The note is allow-only and
