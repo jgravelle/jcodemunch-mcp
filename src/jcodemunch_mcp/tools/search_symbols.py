@@ -154,9 +154,13 @@ def _attach_index_truncation(meta: Optional[dict], index) -> None:
     if not isinstance(meta, dict):
         return
     from ..retrieval.verdict import index_truncation_meta as _itm
+    from ..retrieval.verdict import index_withheld_meta as _iwm
     block = _itm(getattr(index, "file_cap_status", None))
     if block:
         meta["index_truncated"] = block
+    withheld = _iwm(index)
+    if withheld:
+        meta["index_withheld"] = withheld
 
 
 def _attach_no_exact_match(

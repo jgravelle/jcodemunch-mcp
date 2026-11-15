@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed - a search answer says how many files the per-file size limit left out
+
+A file over `max_file_size` (512,000 bytes by default) is counted in the index's coverage, but the count reached an answer only inside `_meta.verdict`, and only on an absent or degraded answer. `meta_fields: []`, the shipped default, strips `_meta`, so a `search_symbols` or `search_text` call that found something over a corpus missing a large source file read as a search of the whole repo. A user's audit found current source files missing from their indexes with nothing said. Now both tools carry `_meta.index_withheld` (the count, and the limit the walk used when the index records one), and the answer body's `index_warning` names the count and the setting that moves it, `max_file_size` in config.jsonc or `JCODEMUNCH_MAX_FILE_SIZE`. It is its own sentence beside the file-count cap line (#1336), because the two are different settings with different remedies. An index that withheld nothing carries neither.
+
 ## [1.108.447] - 2026-11-14 - on macOS, a process is identified by its creation time
 
 ### Fixed - on macOS, a process is identified by its creation time, not by its PID alone
