@@ -12024,18 +12024,27 @@ def main(argv: Optional[list[str]] = None):
         from .storage import index_file_slots as _slots
         import json as _json
 
-        # A bounded number of these work at once on a machine: the PostToolUse
+        # One run per index and a bounded number per machine: the PostToolUse
         # hook starts one per edit and never waits (index_file_slots.py).
         _store = os.environ.get("CODE_INDEX_PATH")
-        _slot = _slots.claim(_store)
-        if _slot is None:
+        _key = _slots.index_key(args.path, _store)
+        _claim, _why = _slots.claim(_key)
+        if _claim is None:
+            _queued = _why == "same_index_busy" and _slots.queue(_key, args.path)
+            # Exit 0 (the hook reads no status), but `success` is false: nothing
+            # was indexed by THIS run, as with index_file's own skips.
             print(_json.dumps({
-                "success": True,
-                "skipped": "busy",
+                "success": False,
+                "indexed": False,
+                "skipped": _why,
+                "queued_for_live_run": bool(_queued),
                 "max_concurrent": _slots.MAX_CONCURRENT,
                 "path": args.path,
-                "note": "every index-file slot is taken; the next read re-indexes "
-                        "this file when refresh_on_read is on, as does a running watcher",
+                "note": "no index was loaded. A queued path is indexed by the live run "
+                        "for this index. Otherwise the file is re-indexed by a running "
+                        "watcher, by refresh_on_read on the next read of a git "
+                        "repository (at most once per 30 s per server, and not while "
+                        "another write holds the index), or by the next edit",
             }, indent=2))
             return
         try:
@@ -12047,8 +12056,24 @@ def main(argv: Optional[list[str]] = None):
                 use_ai_summaries=use_ai,
                 storage_path=_store,
             )
+            # Paths other runs queued for this index while it was loaded.
+            _coalesced = 0
+            for _round in range(20):
+                _pending = _slots.take_pending(_key)
+                if not _pending:
+                    break
+                for _q in _pending:
+                    _index_file_mod.index_file(
+                        path=_q, use_ai_summaries=use_ai, storage_path=_store,
+                    )
+                    _coalesced += 1
+            if isinstance(result, dict):
+                if _coalesced:
+                    result["coalesced_paths"] = _coalesced
+                if _claim.lock_error:
+                    result["slot_error"] = _claim.lock_error
         finally:
-            _slots.release(_slot, _store)
+            _slots.release(_claim)
         print(_json.dumps(result, indent=2))
         if not result.get("success"):
             sys.exit(1)
