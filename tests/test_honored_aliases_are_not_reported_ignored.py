@@ -22,25 +22,45 @@ from jcodemunch_mcp.tools import _arg_contract
 SERVER = Path(server.__file__)
 
 
-def _dispatcher_aliases() -> set[tuple[str, str]]:
-    """(tool, key) for every ``arguments.get("a") or arguments.get("b")`` in a
-    tool's dispatch branch, where "b" is the second spelling."""
-    tree = ast.parse(SERVER.read_text(encoding="utf-8"))
+#: Keys read in a tool's branch that are rightly reported as ignored when the
+#: schema omits them. ``open_in_viewer`` is declared only while
+#: ``render_diagram_viewer_enabled`` is on, and the tool does nothing with it
+#: while that is off.
+NOT_HONORED_WHEN_UNDECLARED = {("render_diagram", "open_in_viewer")}
+
+
+def _read_key(node):
+    """The constant key of ``arguments.get("k", ...)`` or ``arguments["k"]``."""
+    if (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "get"
+        and isinstance(node.func.value, ast.Name)
+        and node.func.value.id == "arguments"
+        and node.args
+        and isinstance(node.args[0], ast.Constant)
+        and isinstance(node.args[0].value, str)
+    ):
+        return node.args[0].value
+    if (
+        isinstance(node, ast.Subscript)
+        and isinstance(node.value, ast.Name)
+        and node.value.id == "arguments"
+        and isinstance(node.slice, ast.Constant)
+        and isinstance(node.slice.value, str)
+    ):
+        return node.slice.value
+    return None
+
+
+def _dispatched_keys(source: str) -> set[tuple[str, str]]:
+    """(tool, key) for every key read inside an ``if/elif name == "<tool>"``
+    branch, in any spelling: ``get``, a subscript, a second ``or`` spelling, a
+    default that is itself a ``get``. Branches over a SET of names (``name in
+    {...}``) are bookkeeping shared by several tools, not one tool's call, so
+    they are not this tool's parameters."""
+    tree = ast.parse(source)
     found: set[tuple[str, str]] = set()
-
-    def get_key(node):
-        if (
-            isinstance(node, ast.Call)
-            and isinstance(node.func, ast.Attribute)
-            and node.func.attr == "get"
-            and isinstance(node.func.value, ast.Name)
-            and node.func.value.id == "arguments"
-            and node.args
-            and isinstance(node.args[0], ast.Constant)
-        ):
-            return node.args[0].value
-        return None
-
     for node in ast.walk(tree):
         if not isinstance(node, ast.If):
             continue
@@ -49,38 +69,64 @@ def _dispatcher_aliases() -> set[tuple[str, str]]:
             isinstance(t, ast.Compare)
             and isinstance(t.left, ast.Name)
             and t.left.id == "name"
-            and len(t.comparators) == 1
+            and len(t.ops) == 1
+            and isinstance(t.ops[0], ast.Eq)
             and isinstance(t.comparators[0], ast.Constant)
         ):
             continue
         tool = t.comparators[0].value
         for sub in node.body:
             for n in ast.walk(sub):
-                if isinstance(n, ast.BoolOp) and isinstance(n.op, ast.Or):
-                    keys = [get_key(v) for v in n.values]
-                    if len(keys) >= 2 and all(keys):
-                        for k in keys[1:]:
-                            found.add((tool, k))
+                k = _read_key(n)
+                if k:
+                    found.add((tool, k))
     return found
+
+
+def _undeclared(found):
+    out = []
+    for tool, key in sorted(found):
+        declared = server._declared_arg_keys(tool)
+        if not declared or (tool, key) in NOT_HONORED_WHEN_UNDECLARED:
+            continue
+        known = (
+            set(declared)
+            | _arg_contract.PROTOCOL_KEYS
+            | _arg_contract.DISPATCH_ALIASES.get(tool, frozenset())
+        )
+        if key not in known:
+            out.append(f"{tool}:{key}")
+    return out
 
 
 def test_the_scan_sees_the_known_alias():
     """Non-vacuity: the scanner finds the alias this file was written for."""
-    assert ("get_file_outline", "file") in _dispatcher_aliases()
+    assert ("get_file_outline", "file") in _dispatched_keys(
+        SERVER.read_text(encoding="utf-8")
+    )
 
 
-def test_every_dispatcher_alias_is_declared_or_listed():
-    missing = []
-    for tool, key in sorted(_dispatcher_aliases()):
-        declared = set(server._declared_arg_keys(tool) or ())
-        if key not in declared and key not in _arg_contract.DISPATCH_ALIASES.get(
-            tool, ()
-        ):
-            missing.append(f"{tool}:{key}")
+def test_every_key_a_tool_branch_reads_is_declared_or_listed():
+    missing = _undeclared(_dispatched_keys(SERVER.read_text(encoding="utf-8")))
     assert not missing, (
         "the dispatcher honors these keys but the argument contract would report "
-        f"them as ignored; add them to _arg_contract.DISPATCH_ALIASES: {missing}"
+        f"them as ignored; declare them or add them to _arg_contract.DISPATCH_ALIASES: {missing}"
     )
+
+
+@pytest.mark.parametrize(
+    "spelling",
+    [
+        'file_path = arguments.get("file_path") or arguments.get("filez")',
+        'file_path = arguments.get("filez") or arguments.get("file_path")',
+        'file_path = arguments.get("file_path", arguments.get("filez"))',
+        'file_path = arguments["filez"]',
+    ],
+)
+def test_the_ratchet_fails_on_an_unlisted_alias_in_any_spelling(spelling):
+    """Run against the reintroduced defect, not only the fixed tree."""
+    src = f'if name == "get_file_outline":\n    {spelling}\n'
+    assert _undeclared(_dispatched_keys(src)) == ["get_file_outline:filez"]
 
 
 def test_an_alias_is_honored_only_for_its_own_tool():

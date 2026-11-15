@@ -1,4 +1,4 @@
-"""A filtered search describes the filter, never the whole index (row 81).
+"""A filtered search describes the filter, never the whole index.
 
 ``search_symbols(query="index_folder", language="rust")`` answered "No symbol
 named 'index_folder' is in this index" while the index held it in Python. With
@@ -97,3 +97,65 @@ def test_a_name_absent_everywhere_is_still_reported_with_its_filter(repo):
     v = r["_meta"]["verdict"]
     assert v["filters"] == {"kind": "class"} and v["state"] != "absent"
     assert "outside this filter" not in v.get("note", "")
+
+
+def test_a_name_inside_and_outside_the_filter_claims_no_outside_count(
+    tmp_path, monkeypatch
+):
+    """The count is whole-index; published only when nothing inside matched."""
+    from jcodemunch_mcp.tools.index_folder import index_folder
+
+    src = tmp_path / "p2"
+    src.mkdir()
+    (src / "a.py").write_text("def alpha_beta():\n    return 1\n", encoding="utf-8")
+    (src / "b.js").write_text("function alpha_beta() { return 2; }\n", encoding="utf-8")
+    store = tmp_path / "s2"
+    r = index_folder(str(src), use_ai_summaries=False, storage_path=str(store))
+    out = search_symbols(
+        repo=r["repo"],
+        query="alpha_beta",
+        language="python",
+        token_budget=1,
+        storage_path=str(store),
+    )
+    assert "exact_outside_filters" not in (out["_meta"].get("exact_match") or {})
+    assert "exact_outside_filters" not in (out.get("negative_evidence") or {})
+    assert "outside this filter" not in out["_meta"]["verdict"].get("note", "")
+
+
+@pytest.mark.parametrize("language", ["go", "javascript"])
+def test_the_fusion_exits_name_their_filters(repo, language):
+    repo_id, store = repo
+    r = search_symbols(
+        repo=repo_id,
+        query="alpha_beta",
+        language=language,
+        fusion=True,
+        storage_path=store,
+    )
+    v = r["_meta"]["verdict"]
+    assert v["filters"] == {"language": language}
+    assert v["state"] != "absent"
+
+
+def test_a_path_scope_alone_stays_a_citable_scoped_absence(repo):
+    """As in search_text: a file_pattern is a path scope the evidence carries."""
+    repo_id, store = repo
+    r = search_symbols(
+        repo=repo_id, query="zeta_omega", file_pattern="*.py", storage_path=store
+    )
+    v = r["_meta"]["verdict"]
+    assert v["filters"] == {"file_pattern": "*.py"}
+    assert v["state"] == "absent" and not v.get("absence_refused")
+    assert "within file_pattern=*.py" in r["⚠ warning"]
+
+
+async def test_search_text_with_language_reports_it_ignored_and_refuses_absence(repo):
+    repo_id, _ = repo
+    out = await server.call_tool(
+        "search_text", {"repo": repo_id, "query": "zeta_omega", "language": "go"}
+    )
+    content = out.content if hasattr(out, "content") else out
+    body = json.loads(content[0].text)
+    assert body["_meta"]["ignored_arguments"] == ["language"]
+    assert body["_meta"]["absence_evidence"]["citable"] is False

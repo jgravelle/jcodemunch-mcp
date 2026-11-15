@@ -7611,7 +7611,9 @@ async def _call_tool_impl(name: str, arguments: dict) -> list[TextContent] | Cal
                         if name == "get_file_content" and "content" in result:
                             journal.record_read(arguments.get("file_path", ""), name)
                         elif name == "get_file_outline" and "symbols" in result:
-                            journal.record_read(arguments.get("file_path", ""), name)
+                            journal.record_read(
+                                arguments.get("file_path") or arguments.get("file") or "", name
+                            )
                         elif name == "get_symbol_source":
                             # Single symbol_id → flat result with "source"
                             sym_id = arguments.get("symbol_id", "")

@@ -171,10 +171,11 @@ def _filters_of(kind, file_pattern, language, decorator) -> dict:
 
 
 def _attach_no_exact_match(result: dict, query: str, index, *, filters: dict) -> None:
-    """The exact-match marker, then the filter scope, for every exit.
+    """The exact-match marker, then the filter scope, at every exit.
 
-    ``filters`` is required so an exit cannot finish without saying what
-    narrowed its scan.
+    Every exit calls this (lexical, semantic, fusion and fusion's empty-scope
+    return), and ``filters`` is a required keyword so a call cannot leave the
+    scope out. A new exit still has to call it; the tests drive each mode.
     """
     _mark_no_exact_match(result, query, index)
     _scope_to_filters(result, query, index, filters)
@@ -183,14 +184,22 @@ def _attach_no_exact_match(result: dict, query: str, index, *, filters: dict) ->
 def _scope_to_filters(result: dict, query: str, index, filters: dict) -> None:
     """Say that a filtered scan describes the filter, not the index.
 
-    Row 81: ``search_symbols(query="index_folder", language="rust")`` said
-    "No symbol named 'index_folder' is in this index" while the index held it
-    in Python, and with no rows it minted a citable absence and "Do not claim
-    this feature exists", naming the filter nowhere. A filter narrows what was
-    scanned, so nothing found inside it is not absence from the index: the
-    verdict names the filters, an ``absent`` state is refused, and every
-    sentence about the index is scoped to them. When the name exists outside
-    the filter, the count says so.
+    ``search_symbols(query="index_folder", language="rust")`` said "No symbol
+    named 'index_folder' is in this index" while the index held it in
+    Python, and with no rows it minted a citable absence and "Do not claim
+    this feature exists", naming the filter nowhere. Every filter is named in
+    the verdict and every sentence about the index is scoped to it.
+
+    An attribute filter (``language``, ``kind``, ``decorator``) also refuses
+    an ``absent`` state: it selects symbols by a property of the symbol, so
+    nothing found is not absence of the name. A ``file_pattern`` alone keeps
+    a citable absence, as ``search_text`` does: it is a path scope, the
+    evidence record carries it (``producers`` declares it a scope argument),
+    and a citation is scoped to it.
+
+    The count of same-named symbols outside the filter is published only
+    when the scan found no exact match inside it, so the whole-index count is
+    exactly the outside count; otherwise nothing is claimed.
     """
     if not filters:
         return
@@ -198,16 +207,23 @@ def _scope_to_filters(result: dict, query: str, index, filters: dict) -> None:
     from ..retrieval.query_shape import exact_match_report as _exact_match_report
     from ..retrieval.verdict import refuse_absence as _refuse_absence
 
-    report = _exact_match_report(query, index.symbols)
-    outside = report["exact"] if report is not None and report["exact"] else 0
+    meta = result.get("_meta") if isinstance(result.get("_meta"), dict) else {}
+    exact = meta.get("exact_match")
+    rows = result.get("results") or []
+    if isinstance(exact, dict):
+        inside_known_zero = not exact.get("exact")
+    else:
+        inside_known_zero = not rows
+    outside = 0
+    if inside_known_zero:
+        report = _exact_match_report(query, index.symbols)
+        outside = report["exact"] if report is not None and report["exact"] else 0
     q = query.strip()[:80]
     tail = (
         f" {outside} symbol(s) named '{q}' exist in the index outside this filter."
         if outside
         else ""
     )
-    meta = result.get("_meta") if isinstance(result.get("_meta"), dict) else {}
-    exact = meta.get("exact_match")
     old_exact_note = exact.get("note") if isinstance(exact, dict) else None
     if isinstance(exact, dict) and not exact.get("found"):
         exact["filters"] = dict(filters)
@@ -221,7 +237,7 @@ def _scope_to_filters(result: dict, query: str, index, filters: dict) -> None:
     verdict = meta.get("verdict")
     if isinstance(verdict, dict):
         verdict["filters"] = dict(filters)
-        refused = _refuse_absence(
+        refused = set(filters) != {"file_pattern"} and _refuse_absence(
             verdict,
             f"Nothing matched within {label}. The filter narrowed the scan, so "
             f"this is not evidence the symbol is absent from the index.{tail}",
@@ -2225,7 +2241,12 @@ def _search_symbols_fusion(
                 ),
             },
         )["verdict"]
-        return {"result_count": 0, "results": [], "_meta": _empty_meta}
+        _empty = {"result_count": 0, "results": [], "_meta": _empty_meta}
+        _attach_no_exact_match(
+            _empty, query, index,
+            filters=_filters_of(kind, file_pattern, language, decorator),
+        )
+        return _empty
 
     # Load config weights
     weights, smoothing = load_fusion_weights()

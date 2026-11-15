@@ -201,9 +201,10 @@ def absence_refusal(record: Optional[dict]) -> Optional[str]:
             "describes a state that no longer holds"
         )
     _filters = record.get("filters") or {}
-    if _filters:
-        # Row 81. Named before the generic state rule: a filter narrowed the
-        # scan, which "the verdict was degraded" does not say.
+    if _filters and set(_filters) != {"file_pattern"}:
+        # Named before the generic state rule: an attribute filter narrowed the
+        # scan, which "the verdict was degraded" does not say. A path scope
+        # alone is carried in `scope` and stays citable within it.
         _label = ", ".join(f"{k}={v}" for k, v in _filters.items())
         return (
             f"the scan was narrowed by {_label}, so it says nothing about the "
