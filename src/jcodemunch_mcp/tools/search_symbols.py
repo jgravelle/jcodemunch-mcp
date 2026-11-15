@@ -159,7 +159,120 @@ def _attach_index_truncation(meta: Optional[dict], index) -> None:
         meta["index_truncated"] = block
 
 
-def _attach_no_exact_match(
+def _filters_of(kind, file_pattern, language, decorator) -> dict:
+    """The filters a call narrowed its scan with, in a fixed order."""
+    pairs = (
+        ("language", language),
+        ("kind", kind),
+        ("file_pattern", file_pattern),
+        ("decorator", decorator),
+    )
+    return {k: v for k, v in pairs if v}
+
+
+def _attach_no_exact_match(result: dict, query: str, index, *, filters: dict) -> None:
+    """The exact-match marker, then the filter scope, at every exit.
+
+    Every exit calls this (lexical, semantic, fusion and fusion's empty-scope
+    return), and ``filters`` is a required keyword so a call cannot leave the
+    scope out. A new exit still has to call it; the tests drive each mode.
+    """
+    _mark_no_exact_match(result, query, index)
+    _scope_to_filters(result, query, index, filters)
+
+
+def _scope_to_filters(result: dict, query: str, index, filters: dict) -> None:
+    """Say that a filtered scan describes the filter, not the index.
+
+    ``search_symbols(query="index_folder", language="rust")`` said "No symbol
+    named 'index_folder' is in this index" while the index held it in
+    Python, and with no rows it minted a citable absence and "Do not claim
+    this feature exists", naming the filter nowhere. Every filter is named in
+    the verdict and every sentence about the index is scoped to it.
+
+    An attribute filter (``language``, ``kind``, ``decorator``) also refuses
+    an ``absent`` state: it selects symbols by a property of the symbol, so
+    nothing found is not absence of the name. A ``file_pattern`` alone keeps
+    a citable absence, as ``search_text`` does: it is a path scope, the
+    evidence record carries it (``producers`` declares it a scope argument),
+    and a citation is scoped to it.
+
+    The count of same-named symbols outside the filter is published only
+    when the scan found no exact match inside it, so the whole-index count is
+    exactly the outside count; otherwise nothing is claimed.
+    """
+    if not filters:
+        return
+    label = ", ".join(f"{k}={v}" for k, v in filters.items())
+    from ..retrieval.query_shape import exact_match_report as _exact_match_report
+    from ..retrieval.verdict import filters_refuse_absence as _filters_refuse
+    from ..retrieval.verdict import refuse_absence as _refuse_absence
+
+    _meta = result.get("_meta")
+    meta: dict = _meta if isinstance(_meta, dict) else {}
+    exact = meta.get("exact_match")
+    rows = result.get("results") or []
+    if isinstance(exact, dict):
+        inside_known_zero = not exact.get("exact")
+    else:
+        inside_known_zero = not rows
+    outside = 0
+    if inside_known_zero:
+        report = _exact_match_report(query, index.symbols)
+        outside = report["exact"] if report is not None and report["exact"] else 0
+    q = query.strip()[:80]
+    tail = (
+        f" {outside} symbol(s) named '{q}' exist in the index outside this filter."
+        if outside
+        else ""
+    )
+    old_exact_note = exact.get("note") if isinstance(exact, dict) else None
+    if isinstance(exact, dict) and not exact.get("found"):
+        exact["filters"] = dict(filters)
+        if outside:
+            exact["exact_outside_filters"] = outside
+        if old_exact_note:
+            exact["note"] = (
+                f"No symbol named '{q}' matches {label}.{tail} The results below "
+                f"share tokens with the query and are ranked guesses, not matches."
+            )
+    verdict = meta.get("verdict")
+    if isinstance(verdict, dict):
+        verdict["filters"] = dict(filters)
+        refused = _filters_refuse(filters) and _refuse_absence(
+            verdict,
+            f"Nothing matched within {label}. The filter narrowed the scan, so "
+            f"this is not evidence the symbol is absent from the index.{tail}",
+        )
+        if not refused and verdict.get("state") == "absent":
+            # A path scope stays citable, but only within the scope: the note
+            # names it, never "the index".
+            verdict["note"] = (
+                f"No match found after scanning the files matching {label}. Treat "
+                f"this as evidence the target is not present within that scope; it "
+                f"says nothing about files outside it.{tail}"
+            )
+        elif (
+            not refused
+            and isinstance(exact, dict)
+            and old_exact_note
+            and verdict.get("note") == old_exact_note
+        ):
+            verdict["note"] = exact["note"]
+    neg = result.get("negative_evidence")
+    if isinstance(neg, dict):
+        neg["filters"] = dict(filters)
+        if outside:
+            neg["exact_outside_filters"] = outside
+    warning = result.get("\u26a0 warning")
+    if isinstance(warning, str) and warning.startswith("No implementation found"):
+        result["\u26a0 warning"] = (
+            f"No implementation found for '{q}' within {label}. Do not read this "
+            f"as absence from the index.{tail}"
+        )
+
+
+def _mark_no_exact_match(
     result: dict,
     query: str,
     index,
@@ -1490,7 +1603,10 @@ def search_symbols(
                 f"(best score: {negative_evidence['best_match_score']}). "
                 f"Verify before claiming this feature exists."
             )
-    _attach_no_exact_match(result, query, index)
+    _attach_no_exact_match(
+        result, query, index,
+        filters=_filters_of(kind, file_pattern, language, decorator),
+    )
 
     # Feature 5: Cache the result if cacheable
     if _cacheable and _cache_key is not None:
@@ -2053,7 +2169,10 @@ def _search_symbols_semantic(
                 f"Verify before claiming this feature exists."
             )
     # A similarity ranking can leave the named symbol off the page: scan the index.
-    _attach_no_exact_match(result, query, index)
+    _attach_no_exact_match(
+        result, query, index,
+        filters=_filters_of(kind, file_pattern, language, decorator),
+    )
 
     _attach_index_truncation(result.get("_meta"), index)
     return result
@@ -2137,7 +2256,12 @@ def _search_symbols_fusion(
                 ),
             },
         )["verdict"]
-        return {"result_count": 0, "results": [], "_meta": _empty_meta}
+        _empty = {"result_count": 0, "results": [], "_meta": _empty_meta}
+        _attach_no_exact_match(
+            _empty, query, index,
+            filters=_filters_of(kind, file_pattern, language, decorator),
+        )
+        return _empty
 
     # Load config weights
     weights, smoothing = load_fusion_weights()
@@ -2475,7 +2599,10 @@ def _search_symbols_fusion(
                 f"Verify before claiming this feature exists."
             )
     # Before the cache put, so a replay carries the marker too.
-    _attach_no_exact_match(result, query, index)
+    _attach_no_exact_match(
+        result, query, index,
+        filters=_filters_of(kind, file_pattern, language, decorator),
+    )
 
     _attach_index_truncation(result.get("_meta"), index)
     # A failed channel is not cached: the key holds neither provider nor library

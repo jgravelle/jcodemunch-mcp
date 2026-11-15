@@ -301,7 +301,9 @@ def test_get_file_content_reports_missing_cached_file(tmp_path):
 
     result = get_file_content("retrieval/demo", "src/main.py", storage_path=str(tmp_path))
 
-    assert result["error"] == "File content not found: src/main.py"
+    assert result["error"].startswith("File content not found: src/main.py")
+    # The missing copy is named, apart from a stale index.
+    assert result["source_status"] == "content_cache_missing"
 
 
 def test_get_file_outline_batch(tmp_path):
