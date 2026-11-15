@@ -332,12 +332,14 @@ _NOTES = {
 #: one (get_symbol_source's reason and verdict note, get_file_content,
 #: get_context_bundle). ``refresh`` needs ``--reset`` once a campaign has
 #: finished, or it re-parses nothing; ``index_file`` needs a local tree, so an
-#: ``index_repo`` snapshot is named apart.
+#: ``index_repo`` snapshot is named apart, with ``incremental=False``: a default
+#: incremental ``index_repo`` answers "No changes detected" from the tree SHA
+#: and never looks at the cached copies.
 CONTENT_COPY_REPAIR = (
     "For an index of a local folder, run index_file on the file, or index_folder "
     "with paths=[file], to restore it, or `jcodemunch-mcp refresh <folder> --reset` "
     "to restore every missing copy. An index_repo snapshot is restored by "
-    "index_repo."
+    "index_repo with incremental=False."
 )
 
 

@@ -168,3 +168,13 @@ def test_a_check_that_raises_forces_nothing(repo, monkeypatch):
     assert (
         IndexStore(base_path=store).missing_cached_copies(owner, name, ["m0.py"]) == []
     )
+
+
+def test_the_printed_remedy_names_the_flags_that_make_it_work():
+    """Each remedy restores nothing without its flag: refresh without --reset
+    after a finished campaign, index_repo without incremental=False on an
+    unchanged tree. The text must carry both."""
+    from jcodemunch_mcp.retrieval.verdict import CONTENT_COPY_REPAIR
+
+    assert "refresh <folder> --reset" in CONTENT_COPY_REPAIR
+    assert "index_repo with incremental=False" in CONTENT_COPY_REPAIR
