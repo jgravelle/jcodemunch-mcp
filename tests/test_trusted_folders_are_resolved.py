@@ -81,12 +81,18 @@ def test_a_relative_entry_trusts_nothing(tmp_path, monkeypatch, entry):
     assert _is_trusted(proj.resolve(), (entry,), False)
 
 
-@pytest.mark.skipif(os.name == "nt", reason="Windows maps an unknown ~name to a sibling profile")
-def test_an_entry_naming_no_home_directory_trusts_nothing(tmp_path):
-    proj = _project(tmp_path)
+def test_an_entry_naming_no_home_directory_trusts_nothing(tmp_path, monkeypatch):
+    # POSIX raises RuntimeError for a `~name` naming no user; Windows maps it to
+    # a sibling profile instead, so the raise is forced here to run everywhere.
+    proj = _project(tmp_path).resolve()
+
+    def no_home(self):
+        raise RuntimeError("Could not determine home directory.")
+
+    monkeypatch.setattr(index_folder_module.Path, "expanduser", no_home)
     entry = "~no-such-user-jcm-test/proj"
-    assert not _is_trusted(proj.resolve(), (entry,), True)
-    assert _is_trusted(proj.resolve(), (entry,), False)
+    assert not _is_trusted(proj, (entry,), True)
+    assert _is_trusted(proj, (entry,), False)
 
 
 def test_env_entries_reach_the_comparison_as_written(tmp_path, monkeypatch):
