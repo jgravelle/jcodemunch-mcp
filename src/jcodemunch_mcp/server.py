@@ -10480,6 +10480,13 @@ def main(argv: Optional[list[str]] = None):
         help="Write .github/hooks/hooks.json so GitHub Copilot CLI / cloud agent auto-reindex on edit",
     )
     init_parser.add_argument(
+        "--cursor-hooks",
+        action="store_true",
+        dest="cursor_hooks",
+        help="Add hooks to ~/.cursor/hooks.json that count Cursor's agent reads of indexed code "
+        "beside jCodeMunch lookups (see `direct-reads`); reads are always allowed",
+    )
+    init_parser.add_argument(
         "--index",
         action="store_true",
         help="Index the current working directory after setup",
@@ -10758,6 +10765,10 @@ def main(argv: Optional[list[str]] = None):
         help="Preserve the jcodemunch block in this repository's git post-checkout hook",
     )
     uninstall_parser.add_argument(
+        "--keep-cursor-hooks", action="store_true", dest="keep_cursor_hooks",
+        help="Leave the jcodemunch hooks in ~/.cursor/hooks.json",
+    )
+    uninstall_parser.add_argument(
         "--keep-copilot-hooks", action="store_true", dest="keep_copilot_hooks",
         help="Preserve the Copilot postToolUse hook in .github/hooks/hooks.json",
     )
@@ -10807,6 +10818,19 @@ def main(argv: Optional[list[str]] = None):
         "hook-copilot-posttooluse",
         help="GitHub Copilot postToolUse hook: auto-reindex files after Edit/Write (reads stdin)",
     )
+
+    # --- hook-cursor ---
+    subparsers.add_parser(
+        "hook-cursor",
+        help="Cursor beforeReadFile/afterMCPExecution hook: count reads of indexed code beside lookups (reads stdin)",
+    )
+
+    # --- direct-reads ---
+    direct_reads_parser = subparsers.add_parser(
+        "direct-reads",
+        help="Show how often Cursor's agent read indexed code itself, beside jCodeMunch lookups",
+    )
+    direct_reads_parser.add_argument("--json", action="store_true", help="Print the counts as JSON")
 
     # --- upgrade ---
     upgrade_parser = subparsers.add_parser(
@@ -11209,7 +11233,7 @@ def main(argv: Optional[list[str]] = None):
     if any(arg in top_level_flags for arg in raw_argv):
         args = parser.parse_args(raw_argv)
     else:
-        known_commands = {"serve", "watch", "hook-event", "hook-pretooluse", "hook-posttooluse", "hook-copilot-posttooluse", "hook-precompact", "hook-taskcomplete", "hook-subagent-start", "hook-sessionstart", "hook-post-checkout", "watch-claude", "watch-all", "watch-install", "watch-uninstall", "watch-status", "config", "list-repos", "delete-index", "org-report", "org-rollup", "license", "index", "index-file", "import-trace", "import-scip", "claude-md", "init", "install", "install-status", "uninstall", "install-pack", "download-model", "upgrade", "whatsnew", "receipt", "digest", "reflect", "delivery", "parity", "refresh", "health", "file-risk", "observatory", "keyring", "surface", "diagnose", "storage"}
+        known_commands = {"serve", "watch", "hook-event", "hook-pretooluse", "hook-posttooluse", "hook-copilot-posttooluse", "hook-cursor", "direct-reads", "hook-precompact", "hook-taskcomplete", "hook-subagent-start", "hook-sessionstart", "hook-post-checkout", "watch-claude", "watch-all", "watch-install", "watch-uninstall", "watch-status", "config", "list-repos", "delete-index", "org-report", "org-rollup", "license", "index", "index-file", "import-trace", "import-scip", "claude-md", "init", "install", "install-status", "uninstall", "install-pack", "download-model", "upgrade", "whatsnew", "receipt", "digest", "reflect", "delivery", "parity", "refresh", "health", "file-risk", "observatory", "keyring", "surface", "diagnose", "storage"}
         # MCP-tool-name typos: route to the right CLI verb with a friendly hint.
         # `index_repo` and `index_folder` are MCP tools, not CLI subcommands.
         _CLI_ALIASES = {
@@ -11469,6 +11493,7 @@ def main(argv: Optional[list[str]] = None):
             # typed it. That is what survives `--minimal` (#397).
             hooks_explicit=(args.hooks is True),
             copilot_hooks=getattr(args, "copilot_hooks", False),
+            cursor_hooks=getattr(args, "cursor_hooks", False),
             index=args.index,
             audit=args.audit,
             dry_run=args.dry_run,
@@ -11579,6 +11604,7 @@ def main(argv: Optional[list[str]] = None):
             agents_md=not getattr(args, "keep_agents_md", False),
             hooks=not getattr(args, "keep_hooks", False),
             copilot_hooks=not getattr(args, "keep_copilot_hooks", False),
+            cursor_hooks=not getattr(args, "keep_cursor_hooks", False),
             skills=not getattr(args, "keep_skills", False),
             dry_run=getattr(args, "dry_run", False),
             no_backup=getattr(args, "no_backup", False),
@@ -11675,6 +11701,14 @@ def main(argv: Optional[list[str]] = None):
     if args.command == "hook-copilot-posttooluse":
         from .cli.hooks import run_copilot_posttooluse
         sys.exit(run_copilot_posttooluse())
+
+    if args.command == "hook-cursor":
+        from .cli.hooks import run_cursor_hook
+        sys.exit(run_cursor_hook())
+
+    if args.command == "direct-reads":
+        from .cli.direct_reads import run_direct_reads
+        sys.exit(run_direct_reads(as_json=args.json))
 
     if args.command == "upgrade":
         from .cli.upgrade import run_upgrade

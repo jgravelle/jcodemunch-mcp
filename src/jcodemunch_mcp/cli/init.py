@@ -1122,6 +1122,113 @@ def install_copilot_hooks(*, dry_run: bool = False, backup: bool = True) -> str:
     return f"  wrote {hooks_path} with jcodemunch postToolUse hook"
 
 
+_CURSOR_HOOK_EVENTS = ("beforeReadFile", "afterMCPExecution")
+
+
+def _cursor_hooks_path() -> Path:
+    return Path.home() / ".cursor" / "hooks.json"
+
+
+def _is_cursor_rule(rule) -> bool:
+    """Whether a Cursor hooks.json entry is OUR ``hook-cursor`` entry."""
+    return isinstance(rule, dict) and _extract_jcm_subcommand(
+        rule.get("command", "") or ""
+    ) == "hook-cursor"
+
+
+def _cursor_hook_command() -> str:
+    exe = _hook_invocation()
+    # The desktop app runs a hook through PowerShell on Windows, where a quoted
+    # path followed by an argument is a parse error without the call operator.
+    if platform.system() == "Windows" and exe.startswith('"'):
+        exe = "& " + exe
+    return f"{exe} hook-cursor"
+
+
+def install_cursor_hooks(*, dry_run: bool = False, backup: bool = True) -> str:
+    """Merge the two counting hooks into ``~/.cursor/hooks.json``.
+
+    ``beforeReadFile`` and ``afterMCPExecution`` both run
+    ``jcodemunch-mcp hook-cursor``, which counts the agent's reads of indexed
+    code beside its jcodemunch calls and always allows the read. Other hooks in
+    the file are kept; our entry is updated in place, never duplicated. The
+    user file only: a project ``.cursor/hooks.json`` would be committed.
+    """
+    path = _cursor_hooks_path()
+    if not path.parent.exists():
+        return f"  Cursor not found ({path.parent} does not exist); skipped"
+    command = _cursor_hook_command()
+    raw = None
+    if path.exists():
+        try:
+            raw = path.read_text(encoding="utf-8")
+            data = json.loads(raw)
+        except (json.JSONDecodeError, ValueError, OSError):
+            return f"  failed to parse existing {path}; skipping"
+        if not isinstance(data, dict) or not isinstance(data.get("hooks", {}), dict):
+            return f"  unexpected shape in {path}; skipping"
+    else:
+        data = {}
+    data.setdefault("version", 1)
+    hooks = data.setdefault("hooks", {})
+    changed = False
+    for event in _CURSOR_HOOK_EVENTS:
+        rules = hooks.setdefault(event, [])
+        if not isinstance(rules, list):
+            return f"  unexpected shape for {event} in {path}; skipping"
+        ours = [r for r in rules if _is_cursor_rule(r)]
+        if len(ours) == 1 and ours[0].get("command") == command:
+            continue
+        rules[:] = [r for r in rules if not _is_cursor_rule(r)]
+        rules.append({"command": command, "timeout": 10})
+        changed = True
+    if not changed:
+        return f"  Cursor hooks already present in {path}"
+    if dry_run:
+        return f"  would write the jcodemunch Cursor hooks to {path}"
+    if backup and raw is not None:
+        _backup_path(path).write_text(raw, encoding="utf-8")
+    path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    return f"  wrote the jcodemunch Cursor hooks (beforeReadFile, afterMCPExecution) to {path}"
+
+
+def uninstall_cursor_hooks(*, dry_run: bool = False, backup: bool = True) -> str:
+    path = _cursor_hooks_path()
+    if not path.exists():
+        return f"  no hooks file at {path}"
+    try:
+        raw = path.read_text(encoding="utf-8")
+        data = json.loads(raw)
+    except (json.JSONDecodeError, ValueError, OSError):
+        return f"  failed to parse {path}; skipped"
+    hooks = data.get("hooks") if isinstance(data, dict) else None
+    if not isinstance(hooks, dict):
+        return f"  unexpected shape in {path}; skipped"
+    removed = False
+    for event in list(hooks):
+        rules = hooks[event]
+        if not isinstance(rules, list):
+            continue
+        kept = [r for r in rules if not _is_cursor_rule(r)]
+        if len(kept) != len(rules):
+            removed = True
+            if kept:
+                hooks[event] = kept
+            else:
+                del hooks[event]
+    if not removed:
+        return f"  no jcodemunch Cursor hook in {path}"
+    if dry_run:
+        return f"  would remove the jcodemunch Cursor hooks from {path}"
+    if backup:
+        _backup_path(path).write_text(raw, encoding="utf-8")
+    if not hooks and set(data) <= {"version", "hooks"}:
+        path.unlink()
+        return f"  removed empty {path}"
+    path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    return f"  removed the jcodemunch Cursor hooks from {path}"
+
+
 def _installed_jcm_subcommands(data: dict[str, Any]) -> "set[str]":
     """Every jcm subcommand a settings.json hook rule already runs."""
     found: set[str] = set()
@@ -1422,6 +1529,7 @@ def run_init(
     # ``hooks=True`` the two cases are indistinguishable here.
     hooks_explicit: bool = False,
     copilot_hooks: bool = False,
+    cursor_hooks: bool = False,
     index: bool = False,
     audit: bool = False,
     dry_run: bool = False,
@@ -1488,6 +1596,7 @@ def run_init(
         interactive = False
         claude_md = "skip"
         copilot_hooks = False
+        cursor_hooks = False
         index = False
         audit = False
         skills = False
@@ -1733,6 +1842,17 @@ def run_init(
                 "Write .github/hooks/hooks.json with a jcodemunch postToolUse rule",
                 "GitHub Copilot CLI / cloud-agent runs would auto-reindex edited files, "
                 "keeping jCodemunch fresh without any manual `index-file` calls",
+            ))
+
+    # ----- Step 3d: Cursor counting hooks (~/.cursor/hooks.json) -----
+    if cursor_hooks:
+        msg = install_cursor_hooks(dry_run=dry_run, backup=backup)
+        print(f"  Cursor hooks:{msg}")
+        if demo and "would" in msg:
+            _demo_actions.append((
+                "Add jcodemunch's beforeReadFile and afterMCPExecution hooks to ~/.cursor/hooks.json",
+                "Cursor's agent reads of indexed code would be counted beside its jCodeMunch "
+                "lookups (`jcodemunch-mcp direct-reads`); every read is still allowed",
             ))
 
     # ----- Step 4: Index -----
@@ -2277,6 +2397,7 @@ def run_uninstall(
     agents_md: bool = True,
     hooks: bool = True,
     copilot_hooks: bool = True,
+    cursor_hooks: bool = True,
     skills: bool = True,
     claude_md_scope: str = "global",
     dry_run: bool = False,
@@ -2344,6 +2465,10 @@ def run_uninstall(
     if copilot_hooks and not scoped_to_one:
         msg = uninstall_copilot_hooks(dry_run=dry_run, backup=backup)
         print(f"  Copilot hooks:{msg}")
+
+    if cursor_hooks and not scoped_to_one:
+        msg = uninstall_cursor_hooks(dry_run=dry_run, backup=backup)
+        print(f"  Cursor hooks:{msg}")
 
     if git_hook and not scoped_to_one:
         from . import git_hook as _git_hook

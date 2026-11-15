@@ -50,6 +50,8 @@ split and is not resolved by it.
 | `install-pack [id]` | Download and install a Starter Pack pre-built index; `--list` for catalog, `--license KEY` for premium |
 | `hook-pretooluse` | PreToolUse hook: steer Read/Grep/Glob/leading-Bash-search toward jCodemunch inside indexed repos (reads JSON stdin) |
 | `hook-posttooluse` | PostToolUse hook: auto-reindex files after Edit/Write (reads JSON stdin) |
+| `hook-cursor` | Cursor `beforeReadFile` / `afterMCPExecution` hook (written by `init --cursor-hooks`): counts the agent's reads of indexed code beside its jcodemunch calls; always answers allow (reads JSON stdin) |
+| `direct-reads` | Print the Cursor direct-read counts (today, last 7 days, all time) beside jcodemunch lookups; `--json` |
 | `hook-taskcomplete` | TaskCompleted hook: post-task diagnostics — dead code, untested symbols, dangling refs (reads JSON stdin) |
 | `hook-post-checkout <old> <new> [flag]` | git post-checkout hook, written by `init --git-hook`: on a branch checkout (flag 1), re-index only the files `git diff --no-renames` lists between the two commits. Does nothing on a folder with no index, so it never builds a first index from a partial list; always exits 0 |
 | `hook-subagent-start` | SubagentStart hook: inject condensed repo orientation for spawned agents (reads JSON stdin) |

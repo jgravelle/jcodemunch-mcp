@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+### Added - Cursor's agent reads of indexed code are counted beside its jCodeMunch lookups
+
+A licensed buyer asked to see how often Cursor's agent opens indexed code files itself instead of asking jCodeMunch. Nothing could say: the server sees only the calls it is sent, and a read that never asked leaves no trace on our side.
+
+`init --cursor-hooks` adds two entries to `~/.cursor/hooks.json`, both running `jcodemunch-mcp hook-cursor`, for the hooks Cursor documents at https://cursor.com/docs/hooks (read 2026-11-15; the page carries no date and Cursor's changelog publishes no version numbers, so each payload's own `cursor_version` is recorded and the report names it). On `beforeReadFile` the hook counts a read of a code file under an indexed source root. On `afterMCPExecution` it counts a finished call to the server named `jcodemunch` and remembers hashes of the files the answer named, so a later read of one of them in the same conversation is counted as `reads_after_lookup`, beside `direct_reads` and never added to it. `jcodemunch-mcp direct-reads` (with `--json`) prints today, the last seven days and all time, and `get_session_stats` carries the same `direct_reads` block once a count exists; no other client's response changes.
+
+`beforeReadFile` is a permission hook, and Cursor blocks a read whose hook reply is not valid JSON of the right shape. So every path through the hook prints `{"permission": "allow"}`: an unreadable payload, one without the documented fields, and a count that could not be written all still allow, and count nothing. A Cursor without these hooks never runs the command. The counts are a floor and say so (`floor: true`, `coverage: "cursor_ide"`): the Cursor CLI and cloud agents are outside them, and a read the hook missed is not counted. There is no token or savings figure. The counts file holds numbers and path hashes, never a path or file text, and nothing is sent; SECURITY.md lists it under background behavior. `uninstall` removes both hooks, and `--keep-cursor-hooks` keeps them.
+
 ## [1.108.448] - 2026-11-15 - an edit no longer starts an unbounded pile of index runs
 
 ### Fixed - a filtered `search_symbols` describes its filter, never the whole index
