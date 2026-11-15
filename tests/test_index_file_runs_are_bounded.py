@@ -496,17 +496,22 @@ def test_a_slot_directory_that_cannot_be_opened_without_following_a_link_is_refu
         slots._private_dir()
 
 
-@pytest.mark.skipif(
-    os.name == "nt",
-    reason="POSIX modes and symlinks; Windows checks the folder type only",
-)
-def test_on_posix_a_real_0500_folder_becomes_0700_and_a_symlink_is_refused(
-    slot_dir, tmp_path
-):
-    # Any mode other than 0700 is tightened; 0500 (owner only) shows it with
-    # no group or other bit in the test.
+def test_a_real_folder_is_kept_and_a_non_folder_is_refused(slot_dir, tmp_path):
+    """On POSIX a 0500 folder becomes 0700 and a symlink is refused; Windows
+    checks the folder type only, so there a file in its place is refused.
+    One test for both, so neither platform counts a skip."""
     import stat
 
+    if os.name == "nt":
+        slot_dir.mkdir()
+        assert slots._private_dir() == slot_dir
+        os.rmdir(slot_dir)
+        slot_dir.write_text("not a folder", encoding="utf-8")
+        with pytest.raises(slots.SlotDirRefused):
+            slots._private_dir()
+        return
+    # Any mode other than 0700 is tightened; 0500 (owner only) shows it with
+    # no group or other bit in the test.
     slot_dir.mkdir(mode=0o700)
     os.chmod(slot_dir, 0o500)
     assert stat.S_IMODE(os.stat(slot_dir).st_mode) == 0o500, "non-vacuity"
