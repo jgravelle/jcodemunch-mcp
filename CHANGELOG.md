@@ -10,16 +10,22 @@ The server's startup text and the PreToolUse hook both read that answer as
 "not indexed here", which is right, and then said nothing. The agent saw no
 index and no reason, and searched with Grep for the whole session.
 
-Both now read the flag through `resolve_repo.separate_copy`, so the decision
-stays with `resolve_repo` and nothing applies a second path rule:
+Both now read the flag through `resolve_repo.separate_copy`, so only
+`resolve_repo` decides that a folder is a separate copy. The hook still skips
+the question for a folder inside or above an indexed root, which can only
+leave a note out:
 
 - On the default `counter` surface, the startup text says this folder copies a
   repo indexed elsewhere and gives the `order("index_folder", ...)` call that
   indexes it. The `full` surface's text is too close to its 1,000-character
-  limit for the sentence, so it is unchanged there. On both, the server logs one WARNING naming the folder
-  the index was built from, because a path has no length limit.
+  limit for the sentence, so it is unchanged there. On both, the server logs
+  one WARNING naming the folder the index was built from, because a path has
+  no length limit.
 - The PreToolUse hook (installed by `init --guidance`) says the same, naming
-  the folder, once per session and folder. To check each folder only once,
+  the folder, once per session and folder. That one call gets the note
+  instead of the usual advice, so under `JCODEMUNCH_ENFORCE=strict` a Read or
+  Grep from such a folder into an indexed root passes once without a deny.
+  To check each folder only once,
   the hook writes an empty marker file under
   `~/.code-index/hook_state/separate_copy/` on its first call in every session
   and folder, indexed or not, and later tool calls skip the check. Markers
