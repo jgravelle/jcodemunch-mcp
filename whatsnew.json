@@ -1,6 +1,12 @@
 {
-  "current": "1.108.447",
+  "current": "1.108.448",
   "entries": [
+    {
+      "version": "1.108.448",
+      "date": "2026-11-15",
+      "title": "an edit no longer starts an unbounded pile of index runs",
+      "summary": "The edit hook runs at most one index-file per checkout and two on the machine; queued paths are indexed by the live run. A filtered search_symbols names its filter instead of claiming the whole index lacks the symbol. get_file_outline accepts file= without calling it ignored. A file whose cached copy is missing says so, and re-indexing that one file repairs it."
+    },
     {
       "version": "1.108.447",
       "date": "2026-11-14",

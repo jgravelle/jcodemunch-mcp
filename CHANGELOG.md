@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.448] - 2026-11-15 - an edit no longer starts an unbounded pile of index runs
+
 ### Fixed - a filtered `search_symbols` describes its filter, never the whole index
 
 `search_symbols(query="index_folder", language="rust")` answered "No symbol named 'index_folder' is in this index" while the index held it in Python, and with no rows the same call on a complete index minted a citable absence and the warning "Do not claim this feature exists". The filter appeared nowhere in the answer. Now every filtered call names its filters in the verdict and scopes every sentence about the index to them, in every exit (lexical, semantic, fusion and fusion's empty-scope return). An attribute filter (`language`, `kind`, `decorator`) selects symbols by a property of the symbol, so finding nothing inside it is not absence of the name: its `absent` state is refused, with the filter named as the reason. A `file_pattern` alone is a path scope and keeps a citable absence within it, as `search_text` does. When the scan found no exact match inside the filter and the index has some outside it, `exact_outside_filters` gives their count. `search_text` takes no `language` argument; it still reports one under `ignored_arguments`, which already refuses its absence.
