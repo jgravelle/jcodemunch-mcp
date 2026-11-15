@@ -863,11 +863,14 @@ def _declaring_headers(
     A caller includes the header, never the source, so the import graph links
     it to the declaration and the definition shows no callers. The definition
     takes the callers of a same-named declaration in a header its OWN file
-    includes; a source that does not include the header takes nothing.
+    includes; a source that does not include the header takes nothing, and
+    neither does a ``static`` definition, which no other file can call.
     """
     sym_file: str = sym.get("file", "")
     sym_name: str = sym.get("name", "")
     if not sym_file.lower().endswith(_C_SOURCE_SUFFIXES) or not sym_name:
+        return []
+    if _is_file_local(sym):
         return []
     from ..parser.imports import resolve_specifier
 
@@ -886,6 +889,26 @@ def _declaring_headers(
         ):
             headers.append(target)
     return headers
+
+
+def _is_file_local(sym: dict) -> bool:
+    """A C/C++ function whose signature declares it ``static``."""
+    head = (sym.get("signature") or "").split("(", 1)[0]
+    return "static" in head.split()
+
+
+def _defines_own(symbols: list[dict], name: str) -> bool:
+    """The file defines a function of *name* itself (not a ``;`` declaration).
+
+    Its calls to *name* reach its own definition, so it is not a caller of
+    the one a header declares.
+    """
+    return any(
+        s.get("name") == name
+        and s.get("kind") == "function"
+        and not (s.get("signature") or "").rstrip().endswith(";")
+        for s in symbols
+    )
 
 
 def find_direct_callers(
@@ -943,7 +966,11 @@ def find_direct_callers(
     scan_files: list[str] = list(reverse_adj.get(sym_file, []))
     for header in _declaring_headers(index, sym, symbols_by_file):
         for f in reverse_adj.get(header, []):
-            if f != sym_file and f not in scan_files:
+            if (
+                f != sym_file
+                and f not in scan_files
+                and not _defines_own(symbols_by_file.get(f, []), sym_name)
+            ):
                 scan_files.append(f)
     # Lines where a symbol of the same name is DECLARED, per file (L-262).
     decl_lines: dict[str, set[int]] = {}

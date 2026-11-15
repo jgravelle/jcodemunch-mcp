@@ -4,9 +4,11 @@
 
 ### Fixed - a C or C++ function shows the callers that reach it through its header
 
-`b.c` includes `a.h` and calls `f`; `a.c` defines `f`. The import graph links `b.c` to `a.h`, never to `a.c`, so `get_call_hierarchy` filed the caller under the header's declaration and the definition, the symbol a reader asks about, came back with no callers.
+`b.c` includes `a.h` and calls `f`; `a.c` defines `f`. The import graph links `b.c` to `a.h`, never to `a.c`, so `get_call_hierarchy` filed the caller under the header's declaration and the definition, the symbol a reader asks about, came back with no callers. `get_impact_preview` and `get_blast_radius` (with `call_depth` above 0) read the same callers and showed none either.
 
-A definition in a `.c`/`.cc`/`.cpp`/`.cxx` file now takes the callers found for a same-named declaration in a header its own file includes. A same-named function in a source that does not include that header takes nothing. No new edges are stored and nothing is re-parsed; the callers are found on the existing text path, so they stay `text_matched`.
+A definition in a `.c`/`.cc`/`.cpp`/`.cxx`/`.c++` file now takes the callers found for a same-named declaration in a header its own file includes. All three tools now list that caller; `get_blast_radius` can report a caller with no importer, because the caller imports the header, not the source. A source that does not include the header takes nothing, a `static` definition takes nothing, and a file that defines its own function of that name is not counted as calling this one. No new edges are stored and nothing is re-parsed; the callers stay `text_matched`.
+
+Not covered: matching is by name, so a C++ overload in the header is treated as the same function; an include reached through another header is not followed; Objective-C sources are not included; and the callees direction still points at the header's declaration.
 
 ## [1.108.450] - 2026-11-15 - a trusted folder is matched by the folder it names
 

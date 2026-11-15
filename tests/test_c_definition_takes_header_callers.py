@@ -76,3 +76,24 @@ def test_a_source_that_does_not_include_the_header_takes_nothing(tmp_path):
     )
     h = _callers(repo, store, "c.c::f#function")
     assert h["callers"] == [], h
+
+
+STATIC_INCLUDES = '#include "a.h"\n\nstatic int f(int x) {\n    return x - 1;\n}\n\nint h(void) {\n    return f(1);\n}\n'
+
+
+def test_a_static_definition_that_includes_the_header_takes_nothing(tmp_path):
+    # A file-local f is not the f the header declares; b.c cannot reach it.
+    repo, store = _index(
+        tmp_path, {"a.h": HEADER, "a.c": DEFINES, "b.c": CALLS, "c.c": STATIC_INCLUDES}
+    )
+    h = _callers(repo, store, "c.c::f#function")
+    assert h["callers"] == [], h
+
+
+def test_a_file_with_its_own_f_is_not_a_caller_of_the_definition(tmp_path):
+    # c.c's h calls c.c's own static f, not the one a.c defines.
+    repo, store = _index(
+        tmp_path, {"a.h": HEADER, "a.c": DEFINES, "b.c": CALLS, "c.c": STATIC_INCLUDES}
+    )
+    h = _callers(repo, store, "a.c::f#function")
+    assert [(c["file"], c["name"]) for c in h["callers"]] == [("b.c", "g")], h
