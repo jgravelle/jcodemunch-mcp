@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.455] - 2026-11-16 - a C function shows the callers that reach it through its header
+
 ### Fixed - a C or C++ function shows the callers that reach it through its header
 
 `b.c` includes `a.h` and calls `f`; `a.c` defines `f`. The import graph links `b.c` to `a.h`, never to `a.c`, so `get_call_hierarchy` filed the caller under the header's declaration and the definition, the symbol a reader asks about, came back with no callers. `get_impact_preview` and `get_blast_radius` (with `call_depth` above 0) read the same callers and showed none either.
