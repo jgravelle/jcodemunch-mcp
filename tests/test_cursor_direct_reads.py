@@ -310,6 +310,60 @@ def test_a_pending_count_it_cannot_remove_is_not_folded_in_twice(store, monkeypa
     assert _all_time(store) == 3
 
 
+def test_a_failed_counts_write_keeps_every_count_it_carried(store, monkeypatch):
+    # One count in the file and two pending. The next write folds the two in,
+    # then its replace fails, as it does on Windows while a reader has the
+    # file open. All four counts survive, and a later write folds them in.
+    direct_reads.record_read(storage_path=str(store), today=TODAY)
+    monkeypatch.setattr(direct_reads, "_LOCK_WAIT_SECONDS", 0.05)
+    lock = _hold_lock(store)
+    direct_reads.record_read(storage_path=str(store), today=TODAY)
+    direct_reads.record_read(storage_path=str(store), today=TODAY)
+    lock.unlink()
+    assert len(_pending(store)) == 2
+    tally = store / direct_reads.FILE_NAME
+    real_replace = os.replace
+    failed = []
+
+    def replace_fails_on_the_counts(src, dst):
+        if Path(dst) == tally and not failed:
+            failed.append(dst)
+            raise PermissionError(13, "in use", str(dst))
+        return real_replace(src, dst)
+
+    monkeypatch.setattr(direct_reads.os, "replace", replace_fails_on_the_counts)
+    assert direct_reads.record_read(storage_path=str(store), today=TODAY) is True
+    assert failed, "the injected replace failure never fired"
+    assert _all_time(store) == 4
+    assert direct_reads.record_read(storage_path=str(store), today=TODAY) is True
+    assert _pending(store) == []
+    assert _all_time(store) == 5
+
+
+def test_a_fold_between_the_reports_two_reads_never_counts_twice(store, monkeypatch):
+    # Pinned interleaving: a writer folds the pending count in at the moment
+    # the report reads the counts file. The report shows the true total.
+    monkeypatch.setattr(direct_reads, "_LOCK_WAIT_SECONDS", 0.05)
+    lock = _hold_lock(store)
+    direct_reads.record_read(storage_path=str(store), today=TODAY)
+    lock.unlink()
+    assert len(_pending(store)) == 1
+    real_load = direct_reads._load
+    fired = []
+
+    def load_after_a_fold(path):
+        if not fired:
+            fired.append(path)
+            assert direct_reads.record_read(storage_path=str(store), today=TODAY) is True
+        return real_load(path)
+
+    monkeypatch.setattr(direct_reads, "_load", load_after_a_fold)
+    s = direct_reads.summary(str(store), today=TODAY)
+    assert fired, "the fold never ran"
+    assert _pending(store) == []
+    assert s["all_time"]["direct_reads"] == 2
+
+
 def test_a_pending_file_it_cannot_read_counts_nothing_and_is_left(store):
     junk = store / (direct_reads.FILE_NAME + ".x.pending")
     junk.write_text("not a count", encoding="utf-8")

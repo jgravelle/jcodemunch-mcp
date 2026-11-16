@@ -12,8 +12,9 @@ that timed out) is not counted.
 pending file of its own (``<file>.<uuid>.pending``, created whole by a rename),
 shown by ``summary`` at once, and folded into the counts by the next writer
 that takes the lock. A pending file is folded in only after it is removed, so
-a count is never added twice. Until 1.108.454 such a count was dropped without
-notice (a Windows CI run of ten writers kept 8 of 10).
+a count is never added twice; if the write after a fold fails, every count it
+held goes back to a pending file. ``summary`` reads the counts file BEFORE it
+looks for pending files, so a fold between the two can only under-count.
 ⚠ An unreadable file is UNKNOWN, never zero: ``summary`` says it could not
 read the counts, and a write never replaces a file it could not read, because
 that would turn one transient read error into lost history.
@@ -141,6 +142,7 @@ def _record(
         data = _load(path)
         if data is None:
             return False
+        folded: list = []
         for pending in _pending_paths(path):
             rec = _read_pending(pending)
             if rec is None:
@@ -152,15 +154,28 @@ def _record(
             except OSError:
                 logger.debug("direct-read pending count left", exc_info=True)
                 continue
+            folded.append(rec)
             _add(data, rec[0], rec[1])
-            if rec[2]:
+            if rec[2] and not data.get("cursor_version"):
                 data["cursor_version"] = rec[2]
         _add(data, day, counter)
         if isinstance(cursor_version, str) and cursor_version:
             data["cursor_version"] = cursor_version
         tmp = path.with_name(f"{path.name}.{os.getpid()}.tmp")
-        tmp.write_text(json.dumps(data, separators=(",", ":")), encoding="utf-8")
-        os.replace(tmp, path)
+        try:
+            tmp.write_text(json.dumps(data, separators=(",", ":")), encoding="utf-8")
+            os.replace(tmp, path)
+        except OSError:
+            # ⚠ The folded files are already removed. On Windows a reader
+            # holding the counts file open makes the replace fail, so every
+            # count this write carried goes back to a pending file.
+            logger.debug("direct-read counts not written; kept as pending", exc_info=True)
+            try:
+                tmp.unlink()
+            except OSError:
+                pass
+            kept = [_write_pending(path, c, v, d) for d, c, v in folded]
+            return _write_pending(path, counter, cursor_version, day) and all(kept)
         return True
     finally:
         try:
@@ -201,11 +216,15 @@ def summary(
 ) -> Optional[dict]:
     """Today, the last seven days and all time; None when nothing was counted."""
     path = tally_path(storage_path)
+    # ⚠ The counts file FIRST, the pending files after. A fold removes a
+    # pending file before it replaces the counts, so in this order a fold
+    # between the two reads can only under-count; the other order counted
+    # one record twice.
+    data = _load(path)
     pending = [r for r in map(_read_pending, _pending_paths(path)) if r]
-    if not path.exists() and not pending:
+    if not pending and not path.exists():
         return None
     out: dict = {"coverage": "cursor_ide", "floor": True}
-    data = _load(path)
     if data is None:
         out["unreadable"] = f"{path.name} could not be read, so no count is shown"
         return out
