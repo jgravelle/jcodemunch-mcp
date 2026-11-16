@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed - a tool count is kept when servers stop together
+
+Each server writes its per-tool counts (`_tool_counters.json`, read by `diagnose`) when it stops, waiting up to 3 seconds for the file's lock. A write that failed there, because the wait ran out or Windows refused the read or the replace while another process held the file, put the counts back in memory, and the process then exited with them. Windows CI lost three of eight servers' counts this way when they stopped at the same moment. The Cursor read counter had the same defect and was fixed in 1.108.454. A stopping server now writes counts it can't add to the file into a `.pending` file beside it. The next write removes each pending file and then adds its counts, so a file it can't remove is left for a later write and never counted twice. A write that fails after adding them puts them back in a pending file. `diagnose` reads pending files too, so a count shows before it is folded in. A server that is still running keeps an unwritten count in memory and retries it on its next write, as before.
+
 ## [1.108.455] - 2026-11-16 - a C function shows the callers that reach it through its header
 
 ### Fixed - a C or C++ function shows the callers that reach it through its header

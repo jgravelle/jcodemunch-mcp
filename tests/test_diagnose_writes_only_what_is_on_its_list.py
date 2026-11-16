@@ -247,10 +247,19 @@ def test_processes_that_stop_together_lose_no_count(store):
     go = str(time.time() + 4.0)  # every process exits at the same moment
     procs = [subprocess.Popen([sys.executable, "-c", code, str(store), go], env=env) for _ in range(8)]
     assert [p.wait(timeout=60) for p in procs] == [0] * 8
-    data = json.loads((store / tool_counters.FILE).read_text(encoding="utf-8"))
+    # Read as `diagnose` reads it: an exit flush that could not write left its
+    # counts in a `.pending` file, folded in by the next write (CI on Windows
+    # lost three processes' counts here before those files existed).
+    data = tool_counters.read(str(store))
     assert data["tools"]["list_repos"] == {"calls": 1040, "tokens_returned": 5 + 40 * 100, "no_match": 0}
     assert data["since"] == "2026-01-01", "history is kept, with its start date"
     assert not list(store.glob("*.tmp")) and not (store / tool_counters.LOCK_FILE).exists()
+    assert not list(store.glob("*.ptmp"))
+    tool_counters.record("list_repos", 400, str(store))
+    tool_counters.flush()
+    on_disk = json.loads((store / tool_counters.FILE).read_text(encoding="utf-8"))
+    assert on_disk["tools"]["list_repos"]["calls"] == 1041, "the next write folds every pending count in"
+    assert not list(store.glob(f"*{tool_counters.PENDING_SUFFIX}"))
 
 
 def _join_writers():
