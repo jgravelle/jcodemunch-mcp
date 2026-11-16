@@ -18,10 +18,11 @@ from __future__ import annotations
 import json
 import logging
 import os
-import time
 from datetime import date, timedelta
 from pathlib import Path
 from typing import Optional
+
+from .tool_counters import acquire_lock
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +30,6 @@ FILE_NAME = "_direct_reads.json"
 SCHEMA = 1
 COUNTERS = ("direct_reads", "lookups")
 _LOCK_WAIT_SECONDS = 1.0
-_LOCK_STALE_SECONDS = 10.0
 
 
 def _today() -> str:
@@ -75,21 +75,12 @@ def _record(
     path = tally_path(storage_path)
     path.parent.mkdir(parents=True, exist_ok=True)
     lock = path.with_name(path.name + ".lock")
-    deadline = time.monotonic() + _LOCK_WAIT_SECONDS
-    while True:
-        try:
-            os.close(os.open(str(lock), os.O_CREAT | os.O_EXCL | os.O_WRONLY))
-            break
-        except FileExistsError:
-            try:
-                if time.time() - lock.stat().st_mtime > _LOCK_STALE_SECONDS:
-                    lock.unlink()
-                    continue
-            except OSError:
-                pass
-            if time.monotonic() >= deadline:
-                return False
-            time.sleep(0.02)
+    # ⚠ The per-call stores' one lock rule. On Windows, creating a lock its
+    # holder is deleting this instant raises PermissionError, not
+    # FileExistsError; a hand-rolled copy that caught only the latter lost a
+    # count to parallel writers (9 of 10, Windows CI).
+    if not acquire_lock(lock, _LOCK_WAIT_SECONDS):
+        return False
     try:
         data = _load(path)
         if data is None:

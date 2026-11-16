@@ -210,6 +210,25 @@ def test_parallel_writers_lose_no_count(store):
     )
 
 
+def test_a_lock_being_released_is_waited_for_not_lost(store, monkeypatch):
+    # On Windows, creating a lock its holder is deleting this instant raises
+    # PermissionError, not FileExistsError. That is a held lock: the writer
+    # waits and counts, on every platform this test runs on.
+    real_open = os.open
+    raised = []
+
+    def flaky_open(path, flags, *args, **kwargs):
+        if str(path).endswith(".lock") and flags & os.O_EXCL and not raised:
+            raised.append(path)
+            raise PermissionError(13, "Permission denied", str(path))
+        return real_open(path, flags, *args, **kwargs)
+
+    monkeypatch.setattr(os, "open", flaky_open)
+    assert direct_reads.record_read(storage_path=str(store), today=TODAY) is True
+    assert raised, "the injected PermissionError never fired"
+    assert direct_reads.summary(str(store), today=TODAY)["all_time"]["direct_reads"] == 1
+
+
 def test_summary_windows_and_labels(store):
     direct_reads.record_read(
         cursor_version="2.1.0", storage_path=str(store), today="2026-11-01"
