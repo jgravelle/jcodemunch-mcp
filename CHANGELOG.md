@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.451] - 2026-11-15 - a full index no longer pays for work nobody has asked for yet
+
 ### Fixed - a full index no longer pays for search statistics and token counts nobody has asked for yet
 
 Building a full index got slower in two steps. From 1.108.423 (#1343) every full save computed the BM25 corpus statistics over all symbols, so a later process could reuse them; from 1.108.439 (#1414) the indexer counted every file's tokens with the cl100k tokenizer as it wrote the file's cached copy, so `tokens_saved` could credit a file by its count. Both were paid at every full save, for an index that might never be searched and for files no response would ever credit.

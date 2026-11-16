@@ -1,6 +1,12 @@
 {
-  "current": "1.108.450",
+  "current": "1.108.451",
   "entries": [
+    {
+      "version": "1.108.451",
+      "date": "2026-11-15",
+      "title": "a full index no longer pays for work nobody has asked for yet",
+      "summary": "A full index no longer computes search statistics or counts every file's tokens while it saves. The first search computes the statistics and stores them for the next process, and a file's token count is taken the first time a response credits that file."
+    },
     {
       "version": "1.108.450",
       "date": "2026-11-15",
