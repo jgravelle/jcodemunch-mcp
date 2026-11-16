@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+### Added - Cursor's agent reads of indexed code are counted beside its jCodeMunch lookups
+
+A licensed buyer asked to see how often Cursor's agent opens indexed code files itself instead of asking jCodeMunch. Nothing could say: the server sees only the calls it is sent, and a read that never asked leaves no trace on our side.
+
+`init --cursor-hooks` adds two entries to `~/.cursor/hooks.json`, both running `jcodemunch-mcp hook-cursor`, for hooks Cursor documents at https://cursor.com/docs/hooks (read 2026-11-15; the page carries no date and Cursor's changelog publishes no version numbers, so each payload's own `cursor_version` is recorded and the report prints the last one). On `beforeReadFile` the hook counts a read of a code file under an indexed source root, by the same path rule the Read advice uses, so a separate checkout nested inside an indexed one is not counted. On `afterMCPExecution` it counts a finished call to the server named `jcodemunch`, the name `init` writes into Cursor's `mcp.json`; a server registered by hand under another name counts no lookups. `jcodemunch-mcp direct-reads` (with `--json`) prints today, the last seven days and all time, and `get_session_stats` carries the same `direct_reads` block once a count exists; no other client's response changes.
+
+`beforeReadFile` is a permission hook, and Cursor blocks a read whose hook reply is not valid JSON of the right shape. So the handler always prints `{"permission": "allow"}`: an unreadable payload, one without the documented fields, and a count that could not be written all still allow, and count nothing. A failure before the handler runs exits non-zero, which Cursor lets the read through on. A Cursor without these hooks never runs the command. Every hooked read waits for one start of the `jcodemunch-mcp` process; that time is not measured yet. The counts are a floor and say so (`floor: true`, `coverage: "cursor_ide"`): the Cursor CLI and cloud agents are outside them, and a read the hook missed is not counted. A counts file that cannot be read is reported as unreadable, never as zero, and is never overwritten. There is no token or savings figure. The file holds daily numbers and the last Cursor version, never a path, a conversation id or file text, and nothing is sent; SECURITY.md lists it under background behavior. `uninstall` removes both hooks, and `--keep-cursor-hooks` keeps them.
+
 ## [1.108.452] - 2026-11-15 - the tool counters say how many calls found nothing
 
 ### Fixed - the tool counters say how many calls found nothing
