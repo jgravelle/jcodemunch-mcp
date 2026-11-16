@@ -1,6 +1,12 @@
 {
-  "current": "1.108.453",
+  "current": "1.108.454",
   "entries": [
+    {
+      "version": "1.108.454",
+      "date": "2026-11-16",
+      "title": "a Cursor read count whose lock wait runs out is kept, not dropped",
+      "summary": "A Cursor read count whose lock wait runs out goes to a pending file and is folded in by the next count, instead of being dropped. This fixes the known issue named in 1.108.453."
+    },
     {
       "version": "1.108.453",
       "date": "2026-11-15",
