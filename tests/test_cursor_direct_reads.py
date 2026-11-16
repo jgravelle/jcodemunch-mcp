@@ -15,6 +15,7 @@ import os
 import subprocess
 import sys
 import threading
+import time
 from pathlib import Path
 
 import pytest
@@ -227,6 +228,104 @@ def test_a_lock_being_released_is_waited_for_not_lost(store, monkeypatch):
     assert direct_reads.record_read(storage_path=str(store), today=TODAY) is True
     assert raised, "the injected PermissionError never fired"
     assert direct_reads.summary(str(store), today=TODAY)["all_time"]["direct_reads"] == 1
+
+
+def _pending(store):
+    return sorted(store.glob(direct_reads.FILE_NAME + ".*.pending"))
+
+
+def _hold_lock(store):
+    lock = store / (direct_reads.FILE_NAME + ".lock")
+    lock.write_text("", encoding="utf-8")
+    return lock
+
+
+def _all_time(store):
+    return direct_reads.summary(str(store), today=TODAY)["all_time"]["direct_reads"]
+
+
+def test_a_count_whose_lock_wait_runs_out_is_kept_not_dropped(store, monkeypatch):
+    # The lock is held past the wait. The count goes to a pending file of its
+    # own, is shown at once, and the next writer that takes the lock folds it in.
+    monkeypatch.setattr(direct_reads, "_LOCK_WAIT_SECONDS", 0.05)
+    lock = _hold_lock(store)
+    assert direct_reads.record_read(storage_path=str(store), today=TODAY) is True
+    assert len(_pending(store)) == 1
+    assert _all_time(store) == 1
+    lock.unlink()
+    assert direct_reads.record_read(storage_path=str(store), today=TODAY) is True
+    assert _pending(store) == []
+    data = json.loads((store / direct_reads.FILE_NAME).read_text(encoding="utf-8"))
+    assert data["days"][TODAY]["direct_reads"] == 2
+    assert _all_time(store) == 2
+
+
+def test_slow_parallel_writers_whose_waits_run_out_lose_no_count(store, monkeypatch):
+    # A slow runner: each write takes 30 ms and each wait is 50 ms, so with ten
+    # writers several waits run out. Every count is still there.
+    monkeypatch.setattr(direct_reads, "_LOCK_WAIT_SECONDS", 0.05)
+    real_dumps = json.dumps
+
+    def slow_dumps(*args, **kwargs):
+        time.sleep(0.03)
+        return real_dumps(*args, **kwargs)
+
+    monkeypatch.setattr(direct_reads.json, "dumps", slow_dumps)
+    results = []
+
+    def one():
+        results.append(direct_reads.record_read(storage_path=str(store), today=TODAY))
+
+    threads = [threading.Thread(target=one) for _ in range(10)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert results == [True] * 10
+    assert _all_time(store) == 10
+
+
+def test_a_pending_count_it_cannot_remove_is_not_folded_in_twice(store, monkeypatch):
+    # A pending count is folded in only once its file is removed. One that
+    # cannot be removed stays pending and is counted once, never twice.
+    monkeypatch.setattr(direct_reads, "_LOCK_WAIT_SECONDS", 0.05)
+    lock = _hold_lock(store)
+    direct_reads.record_read(storage_path=str(store), today=TODAY)
+    lock.unlink()
+    (pending,) = _pending(store)
+    real_unlink = Path.unlink
+
+    def stuck(self, *args, **kwargs):
+        if self.name.endswith(".pending"):
+            raise PermissionError(13, "in use", str(self))
+        return real_unlink(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "unlink", stuck)
+    assert direct_reads.record_read(storage_path=str(store), today=TODAY) is True
+    assert pending.exists()
+    assert _all_time(store) == 2
+    monkeypatch.setattr(Path, "unlink", real_unlink)
+    assert direct_reads.record_read(storage_path=str(store), today=TODAY) is True
+    assert _pending(store) == []
+    assert _all_time(store) == 3
+
+
+def test_a_pending_file_it_cannot_read_counts_nothing_and_is_left(store):
+    junk = store / (direct_reads.FILE_NAME + ".x.pending")
+    junk.write_text("not a count", encoding="utf-8")
+    assert direct_reads.record_read(storage_path=str(store), today=TODAY) is True
+    assert _all_time(store) == 1
+    assert junk.read_text(encoding="utf-8") == "not a count"
+
+
+def test_a_pending_count_shows_before_any_counts_file_exists(store, monkeypatch):
+    monkeypatch.setattr(direct_reads, "_LOCK_WAIT_SECONDS", 0.05)
+    _hold_lock(store)
+    direct_reads.record_lookup(cursor_version="2.1.0", storage_path=str(store), today=TODAY)
+    assert not (store / direct_reads.FILE_NAME).exists()
+    s = direct_reads.summary(str(store), today=TODAY)
+    assert s["all_time"]["lookups"] == 1
+    assert s["cursor_version"] == "2.1.0"
 
 
 def test_summary_windows_and_labels(store):
