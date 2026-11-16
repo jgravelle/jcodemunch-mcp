@@ -199,11 +199,11 @@ class TestEnsureIndexedConcurrent:
 
         ⚠ The interleaving is PINNED: the first reindex is held until the second
         caller is waiting on the manager's condition. Without the hold, the test
-        relied on the reindex suspending before the second call ran; a reindex
-        that completed without yielding let the second call start after the
-        first had finished, and a second, sequential reindex is correct, so the
-        test failed `2 == 1` on a box where that happened (the Mac fast tier,
-        2026-11-15) while the product was right.
+        relied on the reindex suspending before the second call ran. It failed
+        `2 == 1` once in a fast tier and passed on rerun; the cause there was not
+        identified. The one shape found that reproduces it is a reindex that
+        completes without yielding: the second call then starts after the first
+        has finished, and a second, sequential reindex is correct behavior.
         """
         folder = _make_folder(tmp_path)
         mgr = WatcherManager(storage_path=str(tmp_path / "storage"), quiet=True)
@@ -224,15 +224,19 @@ class TestEnsureIndexedConcurrent:
         mgr._do_reindex = counting_reindex
 
         first = asyncio.ensure_future(mgr.ensure_indexed(str(folder)))
-        await asyncio.wait_for(started.wait(), timeout=10)
-        second = asyncio.ensure_future(mgr.ensure_indexed(str(folder)))
-        # Let the second caller reach the condition while the first is held.
-        for _ in range(1000):
-            if mgr._condition._waiters:
-                break
-            await asyncio.sleep(0)
-        assert mgr._condition._waiters, "the second caller never waited on the reindex in flight"
-        release.set()
+        second = None
+        try:
+            await asyncio.wait_for(started.wait(), timeout=10)
+            second = asyncio.ensure_future(mgr.ensure_indexed(str(folder)))
+            # Let the second caller reach the condition while the first is held.
+            for _ in range(1000):
+                if mgr._condition._waiters:
+                    break
+                await asyncio.sleep(0)
+            assert mgr._condition._waiters, "the second caller never waited on the reindex in flight"
+        finally:
+            # Never leave a held reindex behind a failed assertion.
+            release.set()
         results = await asyncio.wait_for(asyncio.gather(first, second), timeout=60)
 
         # Both callers should get the real reindex result, not a placeholder
