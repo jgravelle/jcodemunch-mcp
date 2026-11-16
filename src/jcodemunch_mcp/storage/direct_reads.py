@@ -30,6 +30,7 @@ from datetime import date, timedelta
 from pathlib import Path
 from typing import Optional
 
+from . import pending_files
 from .tool_counters import acquire_lock
 
 logger = logging.getLogger(__name__)
@@ -38,7 +39,7 @@ FILE_NAME = "_direct_reads.json"
 SCHEMA = 1
 COUNTERS = ("direct_reads", "lookups")
 _LOCK_WAIT_SECONDS = 1.0
-PENDING_SUFFIX = ".pending"
+PENDING_SUFFIX = pending_files.SUFFIX
 
 
 def _today() -> str:
@@ -79,16 +80,13 @@ def _load(path: Path) -> Optional[dict]:
 
 
 def _pending_paths(path: Path) -> list:
-    return sorted(path.parent.glob(f"{path.name}.*{PENDING_SUFFIX}"))
+    return pending_files.paths(path)
 
 
 def _read_pending(p: Path) -> Optional[tuple]:
     """(day, counter, cursor_version or None), or None for a file that is not a count."""
-    try:
-        rec = json.loads(p.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return None
-    if not isinstance(rec, dict):
+    rec = pending_files.read(p)
+    if rec is None:
         return None
     day, counter, version = rec.get("day"), rec.get("counter"), rec.get("cursor_version")
     if not isinstance(day, str) or counter not in COUNTERS:
@@ -98,24 +96,10 @@ def _read_pending(p: Path) -> Optional[tuple]:
 
 def _write_pending(path: Path, counter: str, cursor_version, day: str) -> bool:
     """Keep one count the lock could not be taken for. False when it could not be written."""
-    # ⚠ A uuid, never pid + clock: two counts from one process inside the
-    # clock's resolution would share a name and the rename would drop one.
-    name = f"{path.name}.{uuid.uuid4().hex}"
-    tmp = path.with_name(name + ".ptmp")
     rec = {"day": day, "counter": counter}
     if isinstance(cursor_version, str) and cursor_version:
         rec["cursor_version"] = cursor_version
-    try:
-        tmp.write_text(json.dumps(rec, separators=(",", ":")), encoding="utf-8")
-        os.replace(tmp, path.with_name(name + PENDING_SUFFIX))
-        return True
-    except OSError:
-        logger.debug("direct-read pending count not written", exc_info=True)
-        try:
-            tmp.unlink()
-        except OSError:
-            pass
-        return False
+    return pending_files.write(path, rec)
 
 
 def _add(data: dict, day: str, counter: str) -> None:
@@ -142,17 +126,13 @@ def _record(
         data = _load(path)
         if data is None:
             return False
+        pending_files.sweep_stale_temps(path)
         folded: list = []
         for pending in _pending_paths(path):
             rec = _read_pending(pending)
-            if rec is None:
-                continue
             # ⚠ Removed BEFORE it is added: one that cannot be removed stays
             # pending and is counted there, so it is never counted twice.
-            try:
-                pending.unlink()
-            except OSError:
-                logger.debug("direct-read pending count left", exc_info=True)
+            if rec is None or not pending_files.claim(pending):
                 continue
             folded.append(rec)
             _add(data, rec[0], rec[1])

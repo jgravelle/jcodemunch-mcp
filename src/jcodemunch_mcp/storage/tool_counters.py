@@ -27,14 +27,13 @@ are an ordinary shape here (#375).
 ⚠⚠ **The exit flush has no later chance, so what it cannot write goes to a
 `.pending` sibling** (`_tool_counters.json.<uuid>.pending`). Put back in
 memory, those counts died with the process: CI on Windows lost three of eight
-processes' counts at a shared exit (2026-11-16), through a lock wait running
-out or a `PermissionError` on the read or the replace. The next write folds
-every pending file in, removing each one BEFORE adding it, so a file it
-cannot remove is left for a later write and never counted twice; a write that
-fails after folding writes the folded counts back as a pending file. `read`
-adds pending files to what it reports. The Cursor read counter's lock-timeout
-fix (1.108.454) is the same shape. A serving flush still keeps its counts in
-memory: the next write retries them.
+processes' counts at a shared exit (run 43971776048, 2026-11-16), through a
+lock wait running out or a `PermissionError` on the read or the replace. The
+protocol (claim before adding, read the main file first, sweep stale temps)
+is `pending_files`, shared with the Cursor read counter. A write that fails
+after folding writes the folded counts back as a pending file, and keeps them
+in memory if even that fails. `read` adds pending files to what it reports. A
+serving flush still keeps its own counts in memory: the next write retries them.
 
 ⚠ **The dispatcher never waits for the disk.** `record` only adds to a dict;
 when a write is due it is handed to a short-lived thread. A synchronous write
@@ -64,16 +63,17 @@ import logging
 import os
 import threading
 import time
-import uuid
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
+
+from . import pending_files
 
 logger = logging.getLogger(__name__)
 
 FILE = "_tool_counters.json"
 LOCK_FILE = "_tool_counters.lock"
-PENDING_SUFFIX = ".pending"
+PENDING_SUFFIX = pending_files.SUFFIX
 ESTIMATOR = "bytes/4"
 _VERSION = 1
 # A write is due after this many calls, or on the first call after this many
@@ -183,16 +183,13 @@ _acquire = acquire_lock
 
 
 def _pending_paths(base: Path) -> list:
-    return sorted(base.glob(f"{FILE}.*{PENDING_SUFFIX}"))
+    return pending_files.paths(base / FILE)
 
 
 def _read_pending(p: Path) -> Optional[dict]:
     """`{name: [calls, tokens, misses]}`, or None for a file that is not a count."""
-    try:
-        rec = json.loads(p.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return None
-    tools = rec.get("tools") if isinstance(rec, dict) else None
+    rec = pending_files.read(p)
+    tools = rec.get("tools") if rec is not None else None
     if not isinstance(tools, dict):
         return None
     rows = {}
@@ -209,22 +206,7 @@ def _write_pending(base: Path, rows: dict) -> bool:
     """Keep *rows* on disk for the next write. False when they could not be written."""
     if not rows:
         return True
-    # A uuid, never pid + clock: two pending files from one process inside the
-    # clock's resolution would share a name and the rename would drop one.
-    name = f"{FILE}.{uuid.uuid4().hex}"
-    tmp = base / f"{name}.ptmp"
-    try:
-        tmp.write_text(json.dumps({"tools": {k: list(v) for k, v in rows.items()}}, separators=(",", ":")),
-                       encoding="utf-8")
-        os.replace(tmp, base / f"{name}{PENDING_SUFFIX}")
-        return True
-    except OSError:
-        logger.debug("tool counters pending file not written", exc_info=True)
-        try:
-            tmp.unlink()
-        except OSError:
-            pass
-        return False
+    return pending_files.write(base / FILE, {"tools": {k: list(v) for k, v in rows.items()}})
 
 
 def _add_rows(into: dict, rows: dict) -> None:
@@ -235,8 +217,13 @@ def _add_rows(into: dict, rows: dict) -> None:
         row[2] += misses
 
 
-def _merge_into_file(root: str, rows: dict, wait: float) -> bool:
-    """Add *rows*, and every pending file, to the file under *root*. False when *rows* were not written."""
+def _merge_into_file(root: str, rows: dict, wait: float, unkept: Optional[dict] = None) -> bool:
+    """Add *rows*, and every pending file, to the file under *root*. False when *rows* were not written.
+
+    Folded counts from other processes' pending files that could be neither
+    written nor written back as a pending file are added to *unkept*, for the
+    caller to keep with its own.
+    """
     base = Path(root)
     if not base.is_dir():
         return True  # the storage directory is gone; there is no file to add a count to
@@ -250,15 +237,11 @@ def _merge_into_file(root: str, rows: dict, wait: float) -> bool:
         except OSError:
             logger.debug("tool counters file busy; counts kept for the next write", exc_info=True)
             return False
+        pending_files.sweep_stale_temps(path)
         folded: dict = {}
         for p in _pending_paths(base):
             got = _read_pending(p)
-            if got is None:
-                continue
-            try:
-                p.unlink()  # before adding: a file left in place is counted by a later write, once
-            except OSError:
-                logger.debug("tool counters pending file not removed; left for a later write", exc_info=True)
+            if got is None or not pending_files.claim(p):
                 continue
             _add_rows(folded, got)
         total: dict = {}
@@ -280,7 +263,10 @@ def _merge_into_file(root: str, rows: dict, wait: float) -> bool:
             except OSError:
                 pass
             if folded and not _write_pending(base, folded):
-                logger.warning("tool counters: %d folded pending count(s) could not be kept", len(folded))
+                if unkept is not None:
+                    _add_rows(unkept, folded)
+                else:
+                    logger.warning("tool counters: %d folded tool row(s) could not be kept", len(folded))
             return False
         return True
     finally:
@@ -333,10 +319,14 @@ class _State:
             self._last_flush = time.monotonic()
         for root, rows in pending.items():
             written = False
+            unkept: dict = {}
             try:
-                written = _merge_into_file(root, rows, wait)
+                written = _merge_into_file(root, rows, wait, unkept)
             except Exception:
                 logger.debug("tool counters flush failed for one storage directory", exc_info=True)
+            if unkept:
+                # Other processes' counts this write folded and could not keep on disk.
+                _add_rows(rows, unkept)
             if not written:
                 # At exit there is no later write to retry these, so they go to disk.
                 if last_chance and Path(root).is_dir() and _write_pending(Path(root), rows):

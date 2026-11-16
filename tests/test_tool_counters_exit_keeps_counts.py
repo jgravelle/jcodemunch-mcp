@@ -195,3 +195,73 @@ def test_a_serving_flush_keeps_its_counts_in_memory_not_on_disk(store, monkeypat
     monkeypatch.setattr(tc, "_acquire", lambda lock, wait: False)
     tc.flush()
     assert _pending(store) == []
+
+
+def test_folded_counts_the_disk_refuses_twice_stay_in_memory(store, monkeypatch):
+    """A serving write that folds other processes' pending files, then fails and
+    cannot write them back, keeps them with its own counts in memory."""
+    from pathlib import Path
+
+    from jcodemunch_mcp.storage import pending_files
+
+    tc.record("list_repos", 400)
+    tc.flush()
+    tc.record("list_repos", 400)
+    real_acquire = tc._acquire
+    monkeypatch.setattr(tc, "_acquire", lambda lock, wait: False)
+    tc._flush_at_exit()  # another process's count, left pending
+    monkeypatch.setattr(tc, "_acquire", real_acquire)
+
+    _new_process(monkeypatch)
+    tc.record("list_repos", 400)
+    real_replace = Path.replace
+    real_write = pending_files.write
+
+    def refuse_main(self, target):
+        if str(target).endswith(tc.FILE):
+            raise PermissionError("replace refused")
+        return real_replace(self, target)
+
+    monkeypatch.setattr(Path, "replace", refuse_main)
+    monkeypatch.setattr(pending_files, "write", lambda main, payload: False)
+    tc.flush()  # serving: folds the pending count, the write fails, the re-pend fails
+    monkeypatch.setattr(Path, "replace", real_replace)
+    monkeypatch.setattr(pending_files, "write", real_write)
+    assert _pending(store) == []
+    tc.flush()
+    assert _file(store)["tools"]["list_repos"]["calls"] == 3, (
+        "the folded count was kept in memory and written next"
+    )
+
+
+def test_a_stale_pending_temp_is_swept_and_a_fresh_one_kept(store):
+    import os
+    import time
+
+    stale = store / f"{tc.FILE}.dead.ptmp"
+    fresh = store / f"{tc.FILE}.live.ptmp"
+    stale.write_text("{}", encoding="utf-8")
+    fresh.write_text("{}", encoding="utf-8")
+    old = time.time() - 3600
+    os.utime(stale, (old, old))
+    tc.record("list_repos", 400)
+    tc.flush()
+    assert not stale.exists(), (
+        "a process killed mid-write left it; the next fold removes it"
+    )
+    assert fresh.exists(), "one being written this minute is left alone"
+
+
+def test_both_per_call_stores_use_one_pending_protocol():
+    """The protocol lives in `pending_files`; a store that copied it would drift."""
+    import inspect
+
+    from jcodemunch_mcp.storage import direct_reads, pending_files
+
+    for mod in (tc, direct_reads):
+        assert mod.PENDING_SUFFIX is pending_files.SUFFIX
+        src = inspect.getsource(mod)
+        assert ".ptmp" not in src, f"{mod.__name__} writes its own pending temp files"
+        assert "pending_files.claim(" in src, (
+            f"{mod.__name__} removes pending files without the shared rule"
+        )
