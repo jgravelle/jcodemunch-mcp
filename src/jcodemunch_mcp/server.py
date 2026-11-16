@@ -6079,8 +6079,24 @@ def _label_savings_basis(result: dict) -> None:
         logger.debug("tokens_saved basis not labeled", exc_info=True)
 
 
+def _is_absence_answer(result: dict) -> bool:
+    """True when the answer says nothing in the index matched.
+
+    The verdict set is `session_journal._ABSENCE_VERDICTS`, the one place an
+    absence claim is named; a second list here would drift from it.
+    """
+    from .tools.session_journal import _ABSENCE_VERDICTS
+
+    evidence = result.get("negative_evidence")
+    return isinstance(evidence, dict) and evidence.get("verdict") in _ABSENCE_VERDICTS
+
+
 def _count_tool_call(
-    name: str, result: "list[TextContent] | CallToolResult | None", *, relayed: bool = False
+    name: str,
+    result: "list[TextContent] | CallToolResult | None",
+    *,
+    relayed: bool = False,
+    no_match: bool = False,
 ) -> None:
     """Add this call to the local per-tool counters (`storage/tool_counters.py`).
 
@@ -6092,6 +6108,13 @@ def _count_tool_call(
     the default surface was mirrored under `order` (review, 2026-10-13).
     ⚠ A dispatch that raised is a call with no answer: *result* is None and
     it adds a call and no tokens, so `calls` agrees with the latency rows.
+    ⚠ *no_match* says the answer's `negative_evidence` carried an absence
+    verdict (`_is_absence_answer`), never merely the field: #1308 sets it on
+    answers that returned rows too. It is read from the result DICT, before
+    encoding, because a compact encoding cannot be parsed back here;
+    `_call_tool_impl` marks it on this frame. A relayed call's marker stays
+    with the tool that answered, the same as its size, and a refused or failed
+    answer clears it.
     ⚠ *name* is the client's string: only a name this server publishes is
     counted, so nothing else can be written into a file the user may hand to
     someone. ⚠ It never touches the disk (the counters module hands a due
@@ -6105,7 +6128,7 @@ def _count_tool_call(
         from .storage import tool_counters
 
         size = 0 if relayed or result is None else _response_text_bytes(result)
-        tool_counters.record(name, size)
+        tool_counters.record(name, size, no_match=no_match)
     except Exception:
         logger.debug("tool counter not recorded for %s", name, exc_info=True)
 
@@ -6231,7 +6254,13 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent] | CallToolR
         return result
     finally:
         _COUNT_FRAME.reset(_count_token)
-        _count_tool_call(name, _counted_result, relayed=_count_frame["inner"])
+        _count_tool_call(
+            name,
+            _counted_result,
+            relayed=_count_frame["inner"],
+            # A refused or failed answer is not a no-match the client saw.
+            no_match=_dispatch_ok and bool(_count_frame.get("no_match")),
+        )
         if _count_parent is not None:
             _count_parent["inner"] = True
         else:
@@ -8163,6 +8192,17 @@ async def _call_tool_impl(name: str, arguments: dict) -> list[TextContent] | Cal
                         meta["secrets_redacted"] = _redact_count
             except Exception:
                 logger.debug("Secret redaction failed", exc_info=True)
+
+        # The tool counters' no-match count: read the marker while the answer
+        # is still a dict; after encoding it is text in a format the counter
+        # cannot parse. ⚠ Only an ABSENCE verdict counts, the one set
+        # `session_journal` already keys on: `no_exact_match` and
+        # `low_confidence_matches` carry the same field on answers that
+        # returned rows.
+        if isinstance(result, dict) and _is_absence_answer(result):
+            _frame = _COUNT_FRAME.get()
+            if _frame is not None:
+                _frame["no_match"] = True
 
         # Compact output encoding (MUNCH). Opt-in via `format` argument or
         # JCODEMUNCH_DEFAULT_FORMAT env; "auto" falls back to JSON unless
@@ -10551,6 +10591,13 @@ def main(argv: Optional[list[str]] = None):
         help="Write .github/hooks/hooks.json so GitHub Copilot CLI / cloud agent auto-reindex on edit",
     )
     init_parser.add_argument(
+        "--cursor-hooks",
+        action="store_true",
+        dest="cursor_hooks",
+        help="Add hooks to ~/.cursor/hooks.json that count Cursor's agent reads of indexed code "
+        "beside jCodeMunch lookups (see `direct-reads`); reads are always allowed",
+    )
+    init_parser.add_argument(
         "--index",
         action="store_true",
         help="Index the current working directory after setup",
@@ -10829,6 +10876,10 @@ def main(argv: Optional[list[str]] = None):
         help="Preserve the jcodemunch block in this repository's git post-checkout hook",
     )
     uninstall_parser.add_argument(
+        "--keep-cursor-hooks", action="store_true", dest="keep_cursor_hooks",
+        help="Leave the jcodemunch hooks in ~/.cursor/hooks.json",
+    )
+    uninstall_parser.add_argument(
         "--keep-copilot-hooks", action="store_true", dest="keep_copilot_hooks",
         help="Preserve the Copilot postToolUse hook in .github/hooks/hooks.json",
     )
@@ -10878,6 +10929,19 @@ def main(argv: Optional[list[str]] = None):
         "hook-copilot-posttooluse",
         help="GitHub Copilot postToolUse hook: auto-reindex files after Edit/Write (reads stdin)",
     )
+
+    # --- hook-cursor ---
+    subparsers.add_parser(
+        "hook-cursor",
+        help="Cursor beforeReadFile/afterMCPExecution hook: count reads of indexed code beside lookups (reads stdin)",
+    )
+
+    # --- direct-reads ---
+    direct_reads_parser = subparsers.add_parser(
+        "direct-reads",
+        help="Show how often Cursor's agent read indexed code itself, beside jCodeMunch lookups",
+    )
+    direct_reads_parser.add_argument("--json", action="store_true", help="Print the counts as JSON")
 
     # --- upgrade ---
     upgrade_parser = subparsers.add_parser(
@@ -11280,7 +11344,7 @@ def main(argv: Optional[list[str]] = None):
     if any(arg in top_level_flags for arg in raw_argv):
         args = parser.parse_args(raw_argv)
     else:
-        known_commands = {"serve", "watch", "hook-event", "hook-pretooluse", "hook-posttooluse", "hook-copilot-posttooluse", "hook-precompact", "hook-taskcomplete", "hook-subagent-start", "hook-sessionstart", "hook-post-checkout", "watch-claude", "watch-all", "watch-install", "watch-uninstall", "watch-status", "config", "list-repos", "delete-index", "org-report", "org-rollup", "license", "index", "index-file", "import-trace", "import-scip", "claude-md", "init", "install", "install-status", "uninstall", "install-pack", "download-model", "upgrade", "whatsnew", "receipt", "digest", "reflect", "delivery", "parity", "refresh", "health", "file-risk", "observatory", "keyring", "surface", "diagnose", "storage"}
+        known_commands = {"serve", "watch", "hook-event", "hook-pretooluse", "hook-posttooluse", "hook-copilot-posttooluse", "hook-cursor", "direct-reads", "hook-precompact", "hook-taskcomplete", "hook-subagent-start", "hook-sessionstart", "hook-post-checkout", "watch-claude", "watch-all", "watch-install", "watch-uninstall", "watch-status", "config", "list-repos", "delete-index", "org-report", "org-rollup", "license", "index", "index-file", "import-trace", "import-scip", "claude-md", "init", "install", "install-status", "uninstall", "install-pack", "download-model", "upgrade", "whatsnew", "receipt", "digest", "reflect", "delivery", "parity", "refresh", "health", "file-risk", "observatory", "keyring", "surface", "diagnose", "storage"}
         # MCP-tool-name typos: route to the right CLI verb with a friendly hint.
         # `index_repo` and `index_folder` are MCP tools, not CLI subcommands.
         _CLI_ALIASES = {
@@ -11540,6 +11604,7 @@ def main(argv: Optional[list[str]] = None):
             # typed it. That is what survives `--minimal` (#397).
             hooks_explicit=(args.hooks is True),
             copilot_hooks=getattr(args, "copilot_hooks", False),
+            cursor_hooks=getattr(args, "cursor_hooks", False),
             index=args.index,
             audit=args.audit,
             dry_run=args.dry_run,
@@ -11650,6 +11715,7 @@ def main(argv: Optional[list[str]] = None):
             agents_md=not getattr(args, "keep_agents_md", False),
             hooks=not getattr(args, "keep_hooks", False),
             copilot_hooks=not getattr(args, "keep_copilot_hooks", False),
+            cursor_hooks=not getattr(args, "keep_cursor_hooks", False),
             skills=not getattr(args, "keep_skills", False),
             dry_run=getattr(args, "dry_run", False),
             no_backup=getattr(args, "no_backup", False),
@@ -11746,6 +11812,14 @@ def main(argv: Optional[list[str]] = None):
     if args.command == "hook-copilot-posttooluse":
         from .cli.hooks import run_copilot_posttooluse
         sys.exit(run_copilot_posttooluse())
+
+    if args.command == "hook-cursor":
+        from .cli.hooks import run_cursor_hook
+        sys.exit(run_cursor_hook())
+
+    if args.command == "direct-reads":
+        from .cli.direct_reads import run_direct_reads
+        sys.exit(run_direct_reads(as_json=args.json))
 
     if args.command == "upgrade":
         from .cli.upgrade import run_upgrade

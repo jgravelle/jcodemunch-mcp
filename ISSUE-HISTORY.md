@@ -3314,3 +3314,27 @@ The 1.108.447 entry, verbatim as it stood in `CLAUDE.md`:
 The 1.108.448 entry, verbatim as it stood in `CLAUDE.md`:
 
 - **Prior (1.108.448):** **an edit no longer starts an unbounded pile of index runs** (#1444): `storage/index_file_slots.py` gives `index-file` one lock per checkout and two machine slots, with a pending list the live run drains; a filtered `search_symbols` scopes its verdict to the filter (#1446); a missing content copy is repaired by re-indexing that file (#1445). Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-15, release 1.108.452)
+
+The 1.108.449 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.449):** **an index that is missing something says so** (#1448): `search_symbols`, `search_text` and `get_ranked_context` carry `_meta.index_withheld` (files over `max_file_size`); a second checkout of an indexed repo is named at startup and by the PreToolUse hook via `resolve_repo.separate_copy` (#1450); `munch://runtime/identity` and `install-status` carry a `build` digest over the distribution's RECORD (#1435). Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-15, release 1.108.453)
+
+The 1.108.450 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.450):** **a trusted folder is matched by the folder it names** (#1452): `index_folder._is_trusted` resolves each absolute entry (`_resolved_entry`) before comparing, because env-var entries reach it unresolved; a relative or unexpandable entry matches nothing and is logged without the path. Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-16, release 1.108.454)
+
+The 1.108.451 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.451):** **a full index no longer pays for work nobody has asked for yet** (#1455): a full save clears the BM25 statistics row and the first search computes and writes it back; a file's token count is taken the first time a response credits it (`tokens_saved_basis` names the table or the count). Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-16, release 1.108.455)
+
+The 1.108.452 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.452):** **the tool counters say how many calls found nothing** (#1457): `_tool_counters.json` keeps `no_match`, counted from the `no_implementation_found` verdict, and `diagnose` reports it per tool. Full text: `CHANGELOG.md`.

@@ -319,7 +319,16 @@ def test_a_real_checkout_runs_the_installed_hook(tmp_path, monkeypatch):
     odd = tmp_path / "it's a $dir"
     odd.mkdir()
     stub = odd / "jcodemunch-mcp"
-    stub.write_text(f'#!/bin/sh\necho "$@" > "{out.as_posix()}"\n', encoding="utf-8")
+    # The hook runs the command in the background, so `git switch` returns
+    # before the stub is done. A plain `> out` creates the file empty and
+    # fills it a moment later, and a poll for the file can read it in
+    # between and see no words (ubuntu 3.13 CI, once). The stub writes a
+    # temporary file and renames it, so `out` exists only when complete.
+    part = tmp_path / "called.part"
+    stub.write_text(
+        f'#!/bin/sh\necho "$@" > "{part.as_posix()}"\nmv "{part.as_posix()}" "{out.as_posix()}"\n',
+        encoding="utf-8",
+    )
     stub.chmod(0o755)
     monkeypatch.setattr(git_hook, "_resolve_exe", lambda: stub.as_posix())
     git_hook.install_post_checkout(str(repo))
