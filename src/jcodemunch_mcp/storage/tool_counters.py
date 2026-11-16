@@ -1,4 +1,4 @@
-"""Two local per-tool counters: calls, and tokens returned.
+"""Three local per-tool counters: calls, tokens returned, and calls that found nothing.
 
 Kept in `<storage>/_tool_counters.json`. Read by `jcodemunch-mcp diagnose`;
 sent nowhere. The savings file records what each tool SAVED; nothing recorded
@@ -30,6 +30,11 @@ there cost about 15 ms on every twentieth call, which is where a p95 sits.
 
 ⚠ `tokens_returned` is bytes/4, the dispatcher's own scale, and the file names
 that estimator: a count with no basis beside it reads as a tokenizer count.
+
+⚠ `no_match` counts calls whose answer said nothing in the index matched:
+its `negative_evidence` verdict (#1308) was an absence verdict, never merely
+present. The dispatcher decides (`server._is_absence_answer`); this module
+only adds. A file written before the count existed reads it as 0.
 
 ⚠ The caller decides WHICH names are counted (the dispatcher passes only
 catalog names). A tool name arrives from the client, so writing it unchecked
@@ -124,6 +129,7 @@ def _load(path: Path, *, strict: bool = False) -> dict:
             tools[name] = {
                 "calls": _as_count(row.get("calls")),
                 "tokens_returned": _as_count(row.get("tokens_returned")),
+                "no_match": _as_count(row.get("no_match")),
             }
     since = data.get("since") if isinstance(data.get("since"), str) else _empty()["since"]
     return {"version": _VERSION, "since": since, "estimator": ESTIMATOR, "tools": tools}
@@ -177,10 +183,11 @@ def _merge_into_file(root: str, rows: dict, wait: float) -> bool:
         except OSError:
             logger.debug("tool counters file busy; counts kept for the next write", exc_info=True)
             return False
-        for name, (calls, tokens) in rows.items():
-            cur = data["tools"].setdefault(name, {"calls": 0, "tokens_returned": 0})
+        for name, (calls, tokens, misses) in rows.items():
+            cur = data["tools"].setdefault(name, {"calls": 0, "tokens_returned": 0, "no_match": 0})
             cur["calls"] += calls
             cur["tokens_returned"] += tokens
+            cur["no_match"] = cur.get("no_match", 0) + misses
         tmp = base / f"{FILE}.{os.getpid()}.tmp"
         try:
             tmp.write_text(json.dumps(data, separators=(",", ":"), sort_keys=True), encoding="utf-8")
@@ -210,11 +217,12 @@ class _State:
         self._last_flush = time.monotonic()
         self._flushing = False
 
-    def record(self, name: str, response_bytes: int, base_path: Optional[str]) -> None:
+    def record(self, name: str, response_bytes: int, base_path: Optional[str], no_match: bool = False) -> None:
         with self._lock:
-            row = self._pending.setdefault(_root(base_path), {}).setdefault(name, [0, 0])
+            row = self._pending.setdefault(_root(base_path), {}).setdefault(name, [0, 0, 0])
             row[0] += 1
             row[1] += max(0, int(response_bytes)) // 4
+            row[2] += 1 if no_match else 0
             self._since_flush += 1
             due = not self._flushing and (
                 self._since_flush >= _FLUSH_EVERY or time.monotonic() - self._last_flush >= _FLUSH_SECONDS
@@ -252,10 +260,11 @@ class _State:
     def _put_back(self, root: str, rows: dict) -> None:
         with self._lock:
             mine = self._pending.setdefault(root, {})
-            for name, (calls, tokens) in rows.items():
-                row = mine.setdefault(name, [0, 0])
+            for name, (calls, tokens, misses) in rows.items():
+                row = mine.setdefault(name, [0, 0, 0])
                 row[0] += calls
                 row[1] += tokens
+                row[2] += misses
             # ⚠ The call counter is NOT put back. Put back, it stays at or above
             # the threshold and every later call starts a writer thread for as
             # long as the directory is read-only or the disk full (measured: 281
@@ -266,9 +275,10 @@ class _State:
 _state = _State()
 
 
-def record(name: str, response_bytes: int, base_path: Optional[str] = None) -> None:
-    """Count one call of *name* whose answer was *response_bytes* long. Never touches the disk."""
-    _state.record(name, response_bytes, base_path)
+def record(name: str, response_bytes: int, base_path: Optional[str] = None, *, no_match: bool = False) -> None:
+    """Count one call of *name* whose answer was *response_bytes* long, and whether it
+    found nothing (*no_match*). Never touches the disk."""
+    _state.record(name, response_bytes, base_path, no_match)
 
 
 def flush(wait: float = _LOCK_WAIT) -> None:
