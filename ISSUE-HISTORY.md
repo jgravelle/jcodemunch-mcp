@@ -3314,3 +3314,9 @@ The 1.108.447 entry, verbatim as it stood in `CLAUDE.md`:
 The 1.108.448 entry, verbatim as it stood in `CLAUDE.md`:
 
 - **Prior (1.108.448):** **an edit no longer starts an unbounded pile of index runs** (#1444): `storage/index_file_slots.py` gives `index-file` one lock per checkout and two machine slots, with a pending list the live run drains; a filtered `search_symbols` scopes its verdict to the filter (#1446); a missing content copy is repaired by re-indexing that file (#1445). Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-15, release 1.108.452)
+
+The 1.108.449 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.449):** **an index that is missing something says so** (#1448): `search_symbols`, `search_text` and `get_ranked_context` carry `_meta.index_withheld` (files over `max_file_size`); a second checkout of an indexed repo is named at startup and by the PreToolUse hook via `resolve_repo.separate_copy` (#1450); `munch://runtime/identity` and `install-status` carry a `build` digest over the distribution's RECORD (#1435). Full text: `CHANGELOG.md`.

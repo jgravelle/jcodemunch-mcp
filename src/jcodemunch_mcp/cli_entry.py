@@ -29,6 +29,7 @@ HOOK_RUNNERS = {
     "hook-pretooluse": "run_pretooluse",
     "hook-posttooluse": "run_posttooluse",
     "hook-copilot-posttooluse": "run_copilot_posttooluse",
+    "hook-cursor": "run_cursor_hook",
     "hook-precompact": "run_precompact",
     "hook-taskcomplete": "run_taskcomplete",
     "hook-subagent-start": "run_subagentstart",

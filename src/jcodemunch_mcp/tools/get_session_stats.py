@@ -34,4 +34,18 @@ def get_session_stats(storage_path: Optional[str] = None) -> dict:
         import logging
 
         logging.getLogger(__name__).debug("sprawl report failed", exc_info=True)
+
+    # Cursor agent reads of indexed code beside our lookups, counted by
+    # `hook-cursor`. Present only when that hook has written a count, so no
+    # other client's response changes.
+    try:
+        from ..storage.direct_reads import summary as _direct_reads
+
+        block = _direct_reads(storage_path)
+        if block is not None:
+            result["direct_reads"] = block
+    except Exception:  # pragma: no cover - diagnostics must never break stats
+        import logging
+
+        logging.getLogger(__name__).debug("direct-read summary failed", exc_info=True)
     return result
