@@ -1,6 +1,12 @@
 {
-  "current": "1.108.454",
+  "current": "1.108.455",
   "entries": [
+    {
+      "version": "1.108.455",
+      "date": "2026-11-16",
+      "title": "a C function shows the callers that reach it through its header",
+      "summary": "A C or C++ function shows the callers that reach it through the header that declares it, in get_call_hierarchy, get_impact_preview and get_blast_radius."
+    },
     {
       "version": "1.108.454",
       "date": "2026-11-16",
