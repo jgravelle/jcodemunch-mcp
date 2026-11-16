@@ -207,7 +207,9 @@ def test_main_run_twice_leaves_one_report(sd, tmp_path, monkeypatch):
     out = tmp_path / "surface.md"
     out.write_text("## a stale report from an earlier branch", encoding="utf-8")
     for _ in range(2):
-        assert sd.main(["--descriptions", "--base-ref", "x", "--summary", str(out)]) == 0
+        assert (
+            sd.main(["--descriptions", "--base-ref", "x", "--summary", str(out)]) == 0
+        )
     text = out.read_text(encoding="utf-8")
     assert "stale report" not in text
     assert text.count("## done: tool surface documented") == 1
@@ -224,3 +226,125 @@ def test_the_checklist_writes_the_pr_surface_report():
     """`dod_checklist.py` is the step that produces evidence/surface.md for the reviewer."""
     src = (REPO / ".claude" / "hooks" / "dod_checklist.py").read_text(encoding="utf-8")
     assert 'str(EVIDENCE / "surface.md")' in src
+
+
+# ------------------------------------------------- parameter descriptions (L-276)
+# A tool's published text is its description AND every description inside its
+# inputSchema. Before L-276 only the first was compared, so a reworded
+# parameter read "no description changes" and DoD 4 graded n.a.
+
+
+def _schema(**params):
+    return {
+        "type": "object",
+        "properties": {
+            k: {"type": "string", "description": v} for k, v in params.items()
+        },
+    }
+
+
+def test_schema_diff_lists_a_changed_parameter_description(sd):
+    # red arm: the defect the row names
+    base = {"a": _schema(window="Days to look back.")}
+    head = {"a": _schema(window="Days to look back; 0 means all time.")}
+    assert sd.schema_description_diff(base, head) == [
+        "description changed: a properties.window"
+    ]
+
+
+def test_schema_diff_identical_is_empty(sd):
+    base = {"a": _schema(x="one", y="two")}
+    assert sd.schema_description_diff(base, {"a": _schema(x="one", y="two")}) == []
+
+
+def test_schema_diff_names_added_and_removed_descriptions(sd):
+    base = {"a": _schema(old="gone soon")}
+    head = {"a": _schema(new="arrived")}
+    assert sd.schema_description_diff(base, head) == [
+        "description changed: a properties.new (added)",
+        "description changed: a properties.old (removed)",
+    ]
+
+
+def test_schema_diff_walks_nested_items(sd):
+    nested = lambda d: {  # noqa: E731
+        "type": "object",
+        "properties": {
+            "paths": {"type": "array", "items": {"type": "string", "description": d}}
+        },
+    }
+    assert sd.schema_description_diff({"a": nested("x")}, {"a": nested("y")}) == [
+        "description changed: a properties.paths.items"
+    ]
+
+
+def test_schema_diff_ignores_one_sided_tools(sd):
+    # a tool on one side only is a NAME change; verdict() owns it
+    assert (
+        sd.schema_description_diff({"gone": _schema(x="1")}, {"added": _schema(x="2")})
+        == []
+    )
+
+
+def test_report_lists_a_parameter_only_change(sd):
+    # the end-to-end red arm: the tool text is identical, one parameter moved
+    rc, lines, summary = sd.report(
+        base=["a"],
+        head=["a"],
+        changed=[],
+        cl_diff="",
+        base_desc={"a": "same"},
+        head_desc={"a": "same"},
+        descriptions=True,
+        base_schemas={"a": _schema(q="old")},
+        head_schemas={"a": _schema(q="new")},
+    )
+    assert rc == 0
+    assert "description changed: a properties.q" in lines
+    assert "## done: tool descriptions: 1 changed" in summary
+    assert "no description changes" not in summary
+
+
+def test_the_snippet_publishes_each_tools_input_schema(sd):
+    # main() can compare only what the subprocess prints
+    assert "'schemas'" in sd.SNIPPET
+    assert "inputSchema" in sd.SNIPPET
+
+
+def test_schema_diff_reads_a_property_named_description(sd):
+    # a parameter literally called `description` is a dict: descended, not read
+    base = {"a": _schema(description="the text to store")}
+    head = {"a": _schema(description="the text to store, trimmed")}
+    assert sd.schema_description_diff(base, head) == [
+        "description changed: a properties.description"
+    ]
+
+
+def test_schema_diff_walks_anyof_and_defs(sd):
+    def schema(d1, d2):
+        return {
+            "type": "object",
+            "properties": {
+                "x": {
+                    "anyOf": [{"type": "string", "description": d1}, {"type": "null"}]
+                }
+            },
+            "$defs": {"Kind": {"type": "string", "description": d2}},
+        }
+
+    assert sd.schema_description_diff(
+        {"a": schema("one", "kind")}, {"a": schema("two", "kind!")}
+    ) == [
+        "description changed: a $defs.Kind",
+        "description changed: a properties.x.anyOf[0]",
+    ]
+
+
+def test_schema_diff_treats_a_missing_schema_as_empty(sd):
+    # a tool published with no inputSchema on one side gains or loses every description
+    assert sd.schema_description_diff({"a": None}, {"a": _schema(q="new")}) == [
+        "description changed: a properties.q (added)"
+    ]
+    assert sd.schema_description_diff({"a": _schema(q="old")}, {"a": None}) == [
+        "description changed: a properties.q (removed)"
+    ]
