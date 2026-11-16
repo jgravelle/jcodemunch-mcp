@@ -135,15 +135,26 @@ def test_the_dispatcher_labels_the_basis(tmp_path, monkeypatch, tokenizer):
     (root / "widgets.py").write_text(_python_source(), encoding="utf-8")
     res = index_folder(str(root), use_ai_summaries=False, storage_path=str(store))
     assert res.get("success"), res
-    out = asyncio.run(
-        server.call_tool(
-            "search_symbols",
-            {"repo": res["repo"], "query": "widget_00", "format": "json"},
+    from jcodemunch_mcp.storage import token_counts
+
+    def meta_for(query):
+        out = asyncio.run(
+            server.call_tool(
+                "search_symbols",
+                {"repo": res["repo"], "query": query, "format": "json"},
+            )
         )
+        item = out[0] if isinstance(out, list) else out.content[0]
+        return json.loads(item.text)["_meta"]
+
+    first = meta_for("widget_00")
+    assert first["tokens_saved"] > 0, first
+    assert first["tokens_saved_basis"] == st.basis("claude", "table"), (
+        "a file's first credit has no stored count yet",
+        first,
     )
-    item = out[0] if isinstance(out, list) else out.content[0]
-    meta = json.loads(item.text)["_meta"]
-    assert meta["tokens_saved"] > 0, meta
+    token_counts.flush_pending()
+    meta = meta_for("widget_01")
     assert meta["tokens_saved_basis"] == st.basis("claude", "count"), (
         "the meta_fields filter kept the figure; it must keep the unit it was counted in",
         meta,
@@ -447,7 +458,31 @@ def _counts(store: str) -> tuple[dict, dict]:
     return {p: counts.get(h) for p, h in files.items()}, counts
 
 
-def test_a_full_index_stores_a_count_for_every_file(tmp_path):
+def _credit_and_flush(repo: str, store: str, files) -> None:
+    """Credit ``files`` once, as a response would, then run the write-back."""
+    from jcodemunch_mcp.storage import sqlite_store, token_counts
+    from jcodemunch_mcp.tools._utils import load_repo_index_or_error
+
+    sqlite_store._cache_clear()
+    index, error, _status = load_repo_index_or_error(repo, store)
+    assert error is None, error
+    st.credit_files(index, files, [])
+    token_counts.flush_pending()
+
+
+@pytest.fixture
+def _no_queued_counts():
+    from jcodemunch_mcp.storage import token_counts
+
+    with token_counts._pending_lock:
+        token_counts._pending.clear()
+    yield
+    with token_counts._pending_lock:
+        token_counts._pending.clear()
+
+
+def test_a_full_index_counts_nothing_and_a_credit_counts_its_file(tmp_path, _no_queued_counts):
+    """The save pays no tokenizer pass; the first credit of a file stores its count."""
     from jcodemunch_mcp.tools.index_folder import index_folder
 
     root = tmp_path / "src_repo"
@@ -457,16 +492,38 @@ def test_a_full_index_stores_a_count_for_every_file(tmp_path):
     store = tmp_path / "store"
     res = index_folder(str(root), use_ai_summaries=False, storage_path=str(store))
     assert res.get("success"), res
+    _, counts = _counts(str(store))
+    assert counts == {}, "a full save counted files no response has credited"
+    _credit_and_flush(res["repo"], str(store), ["a.py"])
     by_path, _ = _counts(str(store))
-    for name in ("a.py", "b.py"):
-        # The bytes on disk: write_text writes CRLF on Windows, and the count
-        # is of what the index holds.
-        expected = st.count(_on_disk(root / name))
-        assert expected is not None, "no encoding loaded: run `harness warm`"
-        assert by_path[name] == expected, name
+    # The bytes on disk: write_text writes CRLF on Windows, and the count
+    # is of what the index holds.
+    expected = st.count(_on_disk(root / "a.py"))
+    assert expected is not None, "no encoding loaded: run `harness warm`"
+    assert by_path["a.py"] == expected
+    assert by_path["b.py"] is None, "only the credited file is counted"
 
 
-def test_a_reindex_counts_the_changed_file_and_drops_the_old_count(tmp_path):
+def test_a_second_process_credits_a_counted_file_by_its_count(tmp_path, _no_queued_counts):
+    from jcodemunch_mcp.storage import sqlite_store
+    from jcodemunch_mcp.tools._utils import load_repo_index_or_error
+    from jcodemunch_mcp.tools.index_folder import index_folder
+
+    root = tmp_path / "src_repo"
+    root.mkdir()
+    (root / "a.py").write_text(_python_source(5), encoding="utf-8")
+    store = tmp_path / "store"
+    res = index_folder(str(root), use_ai_summaries=False, storage_path=str(store))
+    assert res.get("success"), res
+    _credit_and_flush(res["repo"], str(store), ["a.py"])
+    sqlite_store._cache_clear()
+    index, error, _status = load_repo_index_or_error(res["repo"], str(store))
+    assert error is None, error
+    _saved, why = st.credit_files(index, ["a.py"], [])
+    assert why == st.basis(st.active(), "count"), why
+
+
+def test_a_reindex_drops_the_count_of_content_no_file_holds(tmp_path, _no_queued_counts):
     from jcodemunch_mcp.tools.index_folder import index_folder
 
     root = tmp_path / "src_repo"
@@ -474,76 +531,192 @@ def test_a_reindex_counts_the_changed_file_and_drops_the_old_count(tmp_path):
     (root / "a.py").write_text("def a():\n    return 1\n", encoding="utf-8")
     (root / "b.py").write_text("def b():\n    return 2\n", encoding="utf-8")
     store = tmp_path / "store"
-    assert index_folder(str(root), use_ai_summaries=False, storage_path=str(store)).get("success")
+    res = index_folder(str(root), use_ai_summaries=False, storage_path=str(store))
+    assert res.get("success"), res
+    _credit_and_flush(res["repo"], str(store), ["a.py", "b.py"])
     _, before = _counts(str(store))
-    changed = "def a(x):\n    return x * 3 + 1\n"
-    (root / "a.py").write_text(changed, encoding="utf-8")
+    assert len(before) == 2
+    (root / "a.py").write_text("def a(x):\n    return x * 3 + 1\n", encoding="utf-8")
     res = index_folder(str(root), use_ai_summaries=False, storage_path=str(store), incremental=True)
     assert res.get("success"), res
     by_path, after = _counts(str(store))
-    assert st.count(_on_disk(root / "a.py")) is not None
-    assert by_path["a.py"] == st.count(_on_disk(root / "a.py"))
-    assert len(after) == 2, "the old a.py count is pruned with its hash"
-    assert set(after) != set(before)
+    assert len(after) == 1, "the old a.py count is pruned with its hash"
+    assert set(after) < set(before) and by_path["b.py"] is not None and by_path["a.py"] is None
 
 
-def test_an_index_saved_before_counts_existed_gets_them_on_its_next_save(tmp_path):
-    import sqlite3
-
-    from jcodemunch_mcp.tools.index_folder import index_folder
-
-    root = tmp_path / "src_repo"
-    root.mkdir()
-    (root / "a.py").write_text("def a():\n    return 1\n", encoding="utf-8")
-    (root / "b.py").write_text("def b():\n    return 2\n", encoding="utf-8")
-    store = tmp_path / "store"
-    assert index_folder(str(root), use_ai_summaries=False, storage_path=str(store)).get("success")
-    db = next(Path(store).rglob("*.db"))
-    conn = sqlite3.connect(db)
-    conn.execute("DROP TABLE token_counts")
-    conn.commit()
-    conn.close()
-    (root / "b.py").write_text("def b():\n    return 22\n", encoding="utf-8")
-    assert index_folder(
-        str(root), use_ai_summaries=False, storage_path=str(store), incremental=True
-    ).get("success")
-    by_path, _ = _counts(str(store))
-    assert st.count(_on_disk(root / "a.py")) is not None
-    assert by_path["a.py"] == st.count(_on_disk(root / "a.py")), (
-        "an unchanged file is counted from the indexed copy, without a re-parse"
-    )
-
-
-def test_a_save_without_the_encoding_reads_no_indexed_copies(tmp_path, monkeypatch):
-    """Offline or with the download off, a save must not read every uncounted file."""
-    import sqlite3
-
+def test_a_write_back_without_the_encoding_reads_no_indexed_copies(tmp_path, monkeypatch, _no_queued_counts):
+    """Offline or with the download off, a queued file must not be read only to be discarded."""
     from jcodemunch_mcp.storage import token_counts
     from jcodemunch_mcp.tools.index_folder import index_folder
 
     root = tmp_path / "src_repo"
     root.mkdir()
     (root / "a.py").write_text("def a():\n    return 1\n", encoding="utf-8")
-    (root / "b.py").write_text("def b():\n    return 2\n", encoding="utf-8")
     store = tmp_path / "store"
-    assert index_folder(str(root), use_ai_summaries=False, storage_path=str(store)).get("success")
-    db = next(Path(store).rglob("*.db"))
-    conn = sqlite3.connect(db)
-    conn.execute("DELETE FROM token_counts")
-    conn.commit()
-    conn.close()
+    res = index_folder(str(root), use_ai_summaries=False, storage_path=str(store))
+    assert res.get("success"), res
     reads = []
     real = token_counts._read_copy
     monkeypatch.setattr(token_counts, "_read_copy", lambda *a, **k: reads.append(a) or real(*a, **k))
     monkeypatch.setattr(st, "encoding", lambda wait=None: None)
-    monkeypatch.setattr(token_counts, "_PENDING", type(token_counts._PENDING)())
-    (root / "b.py").write_text("def b():\n    return 22\n", encoding="utf-8")
-    assert index_folder(
-        str(root), use_ai_summaries=False, storage_path=str(store), incremental=True
-    ).get("success")
+    _credit_and_flush(res["repo"], str(store), ["a.py"])
     assert reads == [], "no copy is read when nothing can count it"
     _, counts = _counts(str(store))
     assert counts == {}
+
+
+def _one_file_index(tmp_path, text="def a():\n    return 1\n"):
+    from jcodemunch_mcp.tools.index_folder import index_folder
+
+    root = tmp_path / "src_repo"
+    root.mkdir()
+    (root / "a.py").write_text(text, encoding="utf-8")
+    store = tmp_path / "store"
+    res = index_folder(str(root), use_ai_summaries=False, storage_path=str(store))
+    assert res.get("success"), res
+    (db,) = list(store.rglob("*.db"))
+    return res["repo"], str(store), db
+
+
+def test_an_index_without_the_table_gains_a_count_at_first_credit(tmp_path, _no_queued_counts):
+    """An index saved before token counts existed has no table; the first
+    credit of a file creates it and stores the count."""
+    import sqlite3
+
+    repo, store, db = _one_file_index(tmp_path)
+    conn = sqlite3.connect(db)
+    conn.execute("DROP TABLE token_counts")
+    conn.commit()
+    conn.close()
+    _credit_and_flush(repo, store, ["a.py"])
+    by_path, _ = _counts(store)
+    assert by_path["a.py"] is not None
+
+
+def test_a_file_with_no_indexed_copy_is_not_queued_again(tmp_path, _no_queued_counts):
+    """No copy to count from (``cache_mode: metadata_only``, a deleted copy):
+    the file is tried once, then not queued again by later credits."""
+    from jcodemunch_mcp.storage import token_counts
+
+    repo, store, db = _one_file_index(tmp_path)
+    (db.with_suffix("") / "a.py").unlink()
+    _credit_and_flush(repo, store, ["a.py"])
+    _, counts = _counts(store)
+    assert counts == {}
+    _credit_and_flush(repo, store, ["a.py"])
+    assert token_counts.pending_count() == 0
+    from jcodemunch_mcp.storage import sqlite_store
+    from jcodemunch_mcp.tools._utils import load_repo_index_or_error
+
+    sqlite_store._cache_clear()
+    index, error, _status = load_repo_index_or_error(repo, store)
+    assert error is None, error
+    st.credit_files(index, ["a.py"], [])
+    assert token_counts.pending_count() == 0, "a file with no copy was queued again"
+
+
+def test_a_copy_that_no_longer_matches_its_hash_is_not_counted(tmp_path, _no_queued_counts):
+    """A count belongs to its bytes: text that does not hash to the queued key
+    is not stored under it."""
+    repo, store, db = _one_file_index(tmp_path)
+    (db.with_suffix("") / "a.py").write_text("x = 'something else entirely'\n", encoding="utf-8")
+    _credit_and_flush(repo, store, ["a.py"])
+    _, counts = _counts(store)
+    assert counts == {}
+
+
+def test_a_foreign_commit_right_after_our_write_back_is_not_forgiven(tmp_path, monkeypatch, _no_queued_counts):
+    """Another writer that commits between our COMMIT and our stat (an
+    embedding or a runtime ingest takes no ``indexwrite``) must still read as a
+    rewrite. The seam runs the foreign commit at exactly that point."""
+    import sqlite3
+
+    from jcodemunch_mcp.storage import generation, sqlite_store
+    from jcodemunch_mcp.tools._utils import load_repo_index_or_error
+
+    repo, store, db = _one_file_index(tmp_path)
+    sqlite_store._cache_clear()
+    index, error, _status = load_repo_index_or_error(repo, store)
+    assert error is None, error
+    before = index._loaded_mtime_ns
+
+    def foreign_commit(_db_path):
+        conn = sqlite3.connect(db)
+        conn.execute("CREATE TABLE IF NOT EXISTS foreign_writer (x INTEGER)")
+        conn.execute("INSERT INTO foreign_writer VALUES (1)")
+        conn.commit()
+        conn.close()
+
+    monkeypatch.setattr(sqlite_store, "_after_write_back_commit", foreign_commit)
+    assert sqlite_store.store_token_counts_for_loaded_index(index, [("f" * 64, 3)])
+    now = sqlite_store._db_mtime_ns(db)
+    assert now != before
+    assert not generation.only_benign_rewrites(str(db), before, now)
+
+
+def test_our_own_write_back_alone_is_forgiven(tmp_path, _no_queued_counts):
+    from jcodemunch_mcp.storage import generation, sqlite_store
+    from jcodemunch_mcp.tools._utils import load_repo_index_or_error
+
+    repo, store, db = _one_file_index(tmp_path)
+    sqlite_store._cache_clear()
+    index, error, _status = load_repo_index_or_error(repo, store)
+    assert error is None, error
+    before = index._loaded_mtime_ns
+    assert sqlite_store.store_token_counts_for_loaded_index(index, [("f" * 64, 3)])
+    now = sqlite_store._db_mtime_ns(db)
+    assert generation.only_benign_rewrites(str(db), before, now)
+
+
+def test_one_write_back_counts_a_bounded_amount_and_keeps_the_rest(tmp_path, monkeypatch, _no_queued_counts):
+    """The next call waits for a write-back in flight, so one flush stays short."""
+    from jcodemunch_mcp.storage import token_counts
+    from jcodemunch_mcp.tools.index_folder import index_folder
+
+    root = tmp_path / "src_repo"
+    root.mkdir()
+    for k in range(6):
+        # Distinct content: counts are keyed by content hash.
+        (root / f"m{k}.py").write_text(_python_source(3) + f"VALUE_{k} = {k}" + chr(10), encoding="utf-8")
+    store = tmp_path / "store"
+    res = index_folder(str(root), use_ai_summaries=False, storage_path=str(store))
+    assert res.get("success"), res
+    one = len(_on_disk(root / "m0.py"))
+    monkeypatch.setattr(token_counts, "_FLUSH_MAX_BYTES", one * 2)
+    _credit_and_flush(res["repo"], str(store), [f"m{k}.py" for k in range(6)])
+    _, counts = _counts(str(store))
+    assert counts, "the first flush stored nothing"
+    assert token_counts.pending_count() == 1, "the rest was dropped instead of kept"
+    token_counts.flush_pending()
+    token_counts.flush_pending()
+    by_path, _ = _counts(str(store))
+    assert all(v is not None for v in by_path.values()), by_path
+
+
+def test_the_dispatcher_stores_the_counts_after_the_call(tmp_path, monkeypatch, tokenizer, _no_queued_counts):
+    from jcodemunch_mcp import server
+    from jcodemunch_mcp.tools.index_folder import index_folder
+
+    store = tmp_path / "store"
+    monkeypatch.setenv("CODE_INDEX_PATH", str(store))
+    tokenizer("claude")
+    root = tmp_path / "src_repo"
+    root.mkdir()
+    (root / "widgets.py").write_text(_python_source(), encoding="utf-8")
+    res = index_folder(str(root), use_ai_summaries=False, storage_path=str(store))
+    assert res.get("success"), res
+    server._bm25_outer_calls[0] = 0
+    server._bm25_flush_task[0] = None
+
+    async def call_then_wait():
+        await server.call_tool("search_symbols", {"repo": res["repo"], "query": "widget_00"})
+        task = server._bm25_flush_task[0]
+        assert task is not None, "nothing was scheduled after the call"
+        await task
+
+    asyncio.run(call_then_wait())
+    by_path, _ = _counts(str(store))
+    assert by_path["widgets.py"] == st.count(_on_disk(root / "widgets.py"))
 
 
 def test_search_symbols_without_counts_says_it_used_the_table(indexed, tokenizer):
