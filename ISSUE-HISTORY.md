@@ -3320,3 +3320,9 @@ The 1.108.448 entry, verbatim as it stood in `CLAUDE.md`:
 The 1.108.449 entry, verbatim as it stood in `CLAUDE.md`:
 
 - **Prior (1.108.449):** **an index that is missing something says so** (#1448): `search_symbols`, `search_text` and `get_ranked_context` carry `_meta.index_withheld` (files over `max_file_size`); a second checkout of an indexed repo is named at startup and by the PreToolUse hook via `resolve_repo.separate_copy` (#1450); `munch://runtime/identity` and `install-status` carry a `build` digest over the distribution's RECORD (#1435). Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-15, release 1.108.453)
+
+The 1.108.450 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.450):** **a trusted folder is matched by the folder it names** (#1452): `index_folder._is_trusted` resolves each absolute entry (`_resolved_entry`) before comparing, because env-var entries reach it unresolved; a relative or unexpandable entry matches nothing and is logged without the path. Full text: `CHANGELOG.md`.

@@ -1,6 +1,12 @@
 {
-  "current": "1.108.452",
+  "current": "1.108.453",
   "entries": [
+    {
+      "version": "1.108.453",
+      "date": "2026-11-15",
+      "title": "Cursor's agent reads of indexed code are counted beside its jCodeMunch lookups",
+      "summary": "With `init --cursor-hooks`, Cursor's agent reads of indexed code are counted beside its jCodeMunch lookups, as a floor of what the hooks saw. Known issue: a count whose lock wait times out is dropped without notice; the next release fixes it."
+    },
     {
       "version": "1.108.452",
       "date": "2026-11-15",
