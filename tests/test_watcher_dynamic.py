@@ -195,26 +195,49 @@ class TestEnsureIndexedConcurrent:
 
     @pytest.mark.asyncio
     async def test_ensure_indexed_concurrent(self, tmp_path):
-        """Two concurrent ensure_indexed calls for the same folder only runs one reindex."""
+        """Two concurrent ensure_indexed calls for the same folder only runs one reindex.
+
+        ⚠ The interleaving is PINNED: the first reindex is held until the second
+        caller is waiting on the manager's condition. Without the hold, the test
+        relied on the reindex suspending before the second call ran. It failed
+        `2 == 1` once in a fast tier and passed on rerun; the cause there was not
+        identified. The one shape found that reproduces it is a reindex that
+        completes without yielding: the second call then starts after the first
+        has finished, and a second, sequential reindex is correct behavior.
+        """
         folder = _make_folder(tmp_path)
         mgr = WatcherManager(storage_path=str(tmp_path / "storage"), quiet=True)
 
         reindex_count = 0
+        started = asyncio.Event()
+        release = asyncio.Event()
 
         original_do_reindex = mgr._do_reindex
 
         async def counting_reindex(f, **kwargs):
             nonlocal reindex_count
             reindex_count += 1
+            started.set()
+            await release.wait()
             return await original_do_reindex(f, **kwargs)
 
         mgr._do_reindex = counting_reindex
 
-        # Fire two concurrent ensure_indexed calls
-        results = await asyncio.gather(
-            mgr.ensure_indexed(str(folder)),
-            mgr.ensure_indexed(str(folder)),
-        )
+        first = asyncio.ensure_future(mgr.ensure_indexed(str(folder)))
+        second = None
+        try:
+            await asyncio.wait_for(started.wait(), timeout=10)
+            second = asyncio.ensure_future(mgr.ensure_indexed(str(folder)))
+            # Let the second caller reach the condition while the first is held.
+            for _ in range(1000):
+                if mgr._condition._waiters:
+                    break
+                await asyncio.sleep(0)
+            assert mgr._condition._waiters, "the second caller never waited on the reindex in flight"
+        finally:
+            # Never leave a held reindex behind a failed assertion.
+            release.set()
+        results = await asyncio.wait_for(asyncio.gather(first, second), timeout=60)
 
         # Both callers should get the real reindex result, not a placeholder
         assert all(r.get("status") in ("indexed", "error") for r in results)
@@ -222,6 +245,19 @@ class TestEnsureIndexedConcurrent:
 
         # Only one actual reindex should have run
         assert reindex_count == 1
+
+    @pytest.mark.asyncio
+    async def test_a_reindex_that_never_yields_still_runs_once_per_concurrent_pair(self, tmp_path, monkeypatch):
+        """The pinned test holds even when the reindex completes without suspending.
+
+        This is the shape that failed the unpinned test: `to_thread` replaced by
+        an inline call, so the first reindex never yields on its own.
+        """
+        async def inline(func, *args, **kwargs):
+            return func(*args, **kwargs)
+
+        monkeypatch.setattr(watcher.asyncio, "to_thread", inline)
+        await self.test_ensure_indexed_concurrent(tmp_path)
 
 
 # ---------------------------------------------------------------------------
