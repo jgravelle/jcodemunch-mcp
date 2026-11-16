@@ -161,7 +161,9 @@ def _record(
         _add(data, day, counter)
         if isinstance(cursor_version, str) and cursor_version:
             data["cursor_version"] = cursor_version
-        tmp = path.with_name(f"{path.name}.{os.getpid()}.tmp")
+        # A uuid, so two holders after a stale-lock break never share a temp
+        # file and publish each other's counts.
+        tmp = path.with_name(f"{path.name}.{uuid.uuid4().hex}.tmp")
         try:
             tmp.write_text(json.dumps(data, separators=(",", ":")), encoding="utf-8")
             os.replace(tmp, path)

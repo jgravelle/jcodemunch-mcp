@@ -271,6 +271,14 @@ def test_slow_parallel_writers_whose_waits_run_out_lose_no_count(store, monkeypa
         return real_dumps(*args, **kwargs)
 
     monkeypatch.setattr(direct_reads.json, "dumps", slow_dumps)
+    real_write_pending = direct_reads._write_pending
+    kept_aside = []
+
+    def counting_write_pending(*args, **kwargs):
+        kept_aside.append(args)
+        return real_write_pending(*args, **kwargs)
+
+    monkeypatch.setattr(direct_reads, "_write_pending", counting_write_pending)
     results = []
 
     def one():
@@ -282,6 +290,7 @@ def test_slow_parallel_writers_whose_waits_run_out_lose_no_count(store, monkeypa
     for t in threads:
         t.join()
     assert results == [True] * 10
+    assert kept_aside, "no wait ran out, so the pending path was not exercised"
     assert _all_time(store) == 10
 
 
@@ -362,6 +371,20 @@ def test_a_fold_between_the_reports_two_reads_never_counts_twice(store, monkeypa
     assert fired, "the fold never ran"
     assert _pending(store) == []
     assert s["all_time"]["direct_reads"] == 2
+
+
+def test_a_folded_count_does_not_replace_the_files_cursor_version(store, monkeypatch):
+    direct_reads.record_read(cursor_version="2.1.1", storage_path=str(store), today=TODAY)
+    monkeypatch.setattr(direct_reads, "_LOCK_WAIT_SECONDS", 0.05)
+    lock = _hold_lock(store)
+    direct_reads.record_read(cursor_version="2.1.0", storage_path=str(store), today=TODAY)
+    lock.unlink()
+    assert direct_reads.summary(str(store), today=TODAY)["cursor_version"] == "2.1.1"
+    direct_reads.record_read(storage_path=str(store), today=TODAY)
+    assert _pending(store) == []
+    s = direct_reads.summary(str(store), today=TODAY)
+    assert s["cursor_version"] == "2.1.1"
+    assert s["all_time"]["direct_reads"] == 3
 
 
 def test_a_pending_file_it_cannot_read_counts_nothing_and_is_left(store):
