@@ -10,6 +10,14 @@ A definition in a `.c`/`.cc`/`.cpp`/`.cxx` file now takes the callers found for 
 
 Not covered: matching is by name, so a C++ overload in the header is treated as the same function, and a C++ file that defines its own function of that name is still counted as a caller; an include reached through another header is not followed; Objective-C sources are not included; and the callees direction still points at the header's declaration.
 
+### Fixed - a Cursor read count whose lock wait runs out is kept, not dropped
+
+Each Cursor read count waits up to 1.0 s for the lock on `_direct_reads.json`, and a count whose wait ran out was dropped without notice. On a slow machine with many reads at once the wait runs out: Windows CI run 43792253652 kept 8 of 10 counts in the 10-thread test.
+
+Now such a count is written to a pending file of its own, created whole by a rename under a unique name, so it needs no lock. `direct-reads` and `get_session_stats` count it at once, and the next writer that takes the lock folds it into the counts. A pending file is folded in only after it is removed, so one that cannot be removed stays pending and is counted once, never twice. If the write after a fold fails (on Windows, a reader holding the counts file open is enough), every count it carried goes back to a pending file. The report reads the counts file before the pending files, so a writer folding between the two reads can only make it under-count. The wait is unchanged; a count whose wait runs out costs one small file write after it.
+
+Not covered: a counts file that cannot be read still refuses the write, and that count is lost as before. A pending file per read would grow without bound behind a file nothing repairs.
+
 ## [1.108.453] - 2026-11-15 - Cursor's agent reads of indexed code are counted beside its jCodeMunch lookups
 
 ### Added - Cursor's agent reads of indexed code are counted beside its jCodeMunch lookups
