@@ -3326,3 +3326,9 @@ The 1.108.449 entry, verbatim as it stood in `CLAUDE.md`:
 The 1.108.450 entry, verbatim as it stood in `CLAUDE.md`:
 
 - **Prior (1.108.450):** **a trusted folder is matched by the folder it names** (#1452): `index_folder._is_trusted` resolves each absolute entry (`_resolved_entry`) before comparing, because env-var entries reach it unresolved; a relative or unexpandable entry matches nothing and is logged without the path. Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-16, release 1.108.454)
+
+The 1.108.451 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.451):** **a full index no longer pays for work nobody has asked for yet** (#1455): a full save clears the BM25 statistics row and the first search computes and writes it back; a file's token count is taken the first time a response credits it (`tokens_saved_basis` names the table or the count). Full text: `CHANGELOG.md`.
