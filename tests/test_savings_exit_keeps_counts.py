@@ -218,5 +218,48 @@ def test_an_unreadable_ledger_folds_nothing(tmp_path):
 
 def test_the_savings_meter_uses_the_shared_protocol():
     src = pathlib.Path(tt.__file__).read_text(encoding="utf-8")
-    assert "pending_files." in src
+    assert "_pending_files.claim(" in src
+    assert "_pending_files.write(" in src
     assert "uuid.uuid4().hex}.pending" not in src
+
+
+def test_folded_counts_a_stopping_server_cannot_put_back_go_to_disk_with_its_batch(
+    tmp_path, monkeypatch
+):
+    """Review round 1: a last-chance flush that claimed another server's kept
+    batch, and whose write and re-keep both failed, held it only in memory."""
+    _file(tmp_path).write_text(json.dumps({"total_tokens_saved": 40}), encoding="utf-8")
+    pending_files.write(
+        _file(tmp_path),
+        {"saved": 9, "calls": 1, "by_tool": {"x": 9}, "encoding": 0, "telemetry": 0},
+    )
+    st = _state_with(tmp_path, 1)
+    real_replace = os.replace
+    real_write = pending_files.write
+    refused = []
+
+    def refuse_ledger(src, dst, *a, **k):
+        if Path(dst).name == tt._SAVINGS_FILE:
+            raise PermissionError("refused")
+        return real_replace(src, dst, *a, **k)
+
+    def refuse_once(main, payload):
+        if not refused:
+            refused.append(payload)
+            return False
+        return real_write(main, payload)
+
+    monkeypatch.setattr(os, "replace", refuse_ledger)
+    monkeypatch.setattr(pending_files, "write", refuse_once)
+    st.flush(wait=0.0, state_wait=0.0, last_chance=True)
+    monkeypatch.setattr(os, "replace", real_replace)
+    monkeypatch.setattr(pending_files, "write", real_write)
+    assert refused, "the refused re-keep never happened; the test proves nothing"
+    assert len(_pending(tmp_path)) == 1
+    nxt = _state_with(tmp_path, 0)
+    nxt._flush(lock_wait=0.0)
+    data = _ledger(tmp_path)
+    assert data["total_tokens_saved"] == 50, (
+        "the other server's 9 survived this server's exit"
+    )
+    assert data["by_tool"]["x"] == 9

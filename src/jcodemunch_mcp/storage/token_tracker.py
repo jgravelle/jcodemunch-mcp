@@ -1561,7 +1561,13 @@ class _State:
         outcome = _merge_batch(root, batch, lock_wait)
         kept_on_disk = False
         if not outcome["ok"] and last_chance:
-            kept_on_disk = _keep_batch(root, batch)
+            # ⚠ Other servers' kept batches this write claimed and could not put
+            # back go to disk WITH this batch: memory dies with this process,
+            # and they were durable before it touched them.
+            unkept = outcome.pop("unkept", None)
+            kept_on_disk = _keep_batch(root, _with_folded(batch, unkept))
+            if not kept_on_disk and unkept:
+                outcome["unkept"] = unkept
 
         if not self._acquire_state(state_wait):
             # Exit path with the state held elsewhere: what was written is on
@@ -1619,7 +1625,10 @@ class _State:
                         level = "debug"  # still failing; said once per interval
                     else:
                         self._last_warn_mono = now
-                log = (level, outcome["msg"], outcome["args"], outcome["exc_info"])
+                msg = outcome["msg"]
+                if kept_on_disk:
+                    msg += "; this server is stopping, so they are kept in a pending file beside it instead"
+                log = (level, msg, outcome["args"], outcome["exc_info"])
             self._refresh_label_locked()
             stats_item = self._session_stats_payload_locked(self._build_stats_locked())
             # ⚠ Opt-in perf db (off by default), a SQLite upsert on the connection
