@@ -1,6 +1,12 @@
 {
-  "current": "1.108.451",
+  "current": "1.108.452",
   "entries": [
+    {
+      "version": "1.108.452",
+      "date": "2026-11-15",
+      "title": "the tool counters say how many calls found nothing",
+      "summary": "The tool counters record how many calls found nothing."
+    },
     {
       "version": "1.108.451",
       "date": "2026-11-15",
