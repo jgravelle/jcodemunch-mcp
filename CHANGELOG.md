@@ -2,6 +2,42 @@
 
 ## [Unreleased]
 
+## [1.108.455] - 2026-11-16 - a C function shows the callers that reach it through its header
+
+### Fixed - a C or C++ function shows the callers that reach it through its header
+
+`b.c` includes `a.h` and calls `f`; `a.c` defines `f`. The import graph links `b.c` to `a.h`, never to `a.c`, so `get_call_hierarchy` filed the caller under the header's declaration and the definition, the symbol a reader asks about, came back with no callers. `get_impact_preview` and `get_blast_radius` (with `call_depth` above 0) read the same callers and showed none either.
+
+A definition in a `.c`/`.cc`/`.cpp`/`.cxx` file now takes the callers found for a same-named declaration in a header its own file includes. All three tools now list that caller; `get_blast_radius` can report a caller with no importer, because the caller imports the header, not the source. A source that does not include the header takes nothing, a `static` definition takes nothing, and a file the index parses as C that defines its own function of that name is not counted as calling this one (C has no overloads or namespaces, so its calls reach its own definition). No new edges are stored and nothing is re-parsed; the callers stay `text_matched`.
+
+Not covered: matching is by name, so a C++ overload in the header is treated as the same function, and a C++ file that defines its own function of that name is still counted as a caller; an include reached through another header is not followed; Objective-C sources are not included; and the callees direction still points at the header's declaration.
+
+## [1.108.454] - 2026-11-16 - a Cursor read count whose lock wait runs out is kept, not dropped
+
+### Fixed - a Cursor read count whose lock wait runs out is kept, not dropped
+
+Each Cursor read count waits up to 1.0 s for the lock on `_direct_reads.json`, and a count whose wait ran out was dropped without notice. On a slow machine with many reads at once the wait runs out: Windows CI run 43792253652 kept 8 of 10 counts in the 10-thread test.
+
+Now such a count is written to a pending file of its own, created whole by a rename under a unique name, so it needs no lock. `direct-reads` and `get_session_stats` count it at once, and the next writer that takes the lock folds it into the counts. A pending file is folded in only after it is removed, so one that cannot be removed stays pending and is counted once, never twice. If the write after a fold fails (on Windows, a reader holding the counts file open is enough), every count it carried goes back to a pending file. The report reads the counts file before the pending files, so a writer folding between the two reads can only make it under-count. The wait is unchanged; a count whose wait runs out costs one small file write after it.
+
+Not covered: a counts file that cannot be read still refuses the write, and that count is lost as before. A pending file per read would grow without bound behind a file nothing repairs.
+
+## [1.108.453] - 2026-11-15 - Cursor's agent reads of indexed code are counted beside its jCodeMunch lookups
+
+### Added - Cursor's agent reads of indexed code are counted beside its jCodeMunch lookups
+
+A licensed buyer asked to see how often Cursor's agent opens indexed code files itself instead of asking jCodeMunch. Nothing could say: the server sees only the calls it is sent, and a read that never asked leaves no trace on our side.
+
+`init --cursor-hooks` adds two entries to `~/.cursor/hooks.json`, both running `jcodemunch-mcp hook-cursor`, for hooks Cursor documents at https://cursor.com/docs/hooks (read 2026-11-15; the page carries no date and Cursor's changelog publishes no version numbers, so each payload's own `cursor_version` is recorded and the report prints the last one). On `beforeReadFile` the hook counts a read of a code file under an indexed source root, by the same path rule the Read advice uses, so a separate checkout nested inside an indexed one is not counted. On `afterMCPExecution` it counts a finished call to the server named `jcodemunch`, the name `init` writes into Cursor's `mcp.json`; a server registered by hand under another name counts no lookups. `jcodemunch-mcp direct-reads` (with `--json`) prints today, the last seven days and all time, and `get_session_stats` carries the same `direct_reads` block once a count exists; no other client's response changes.
+
+`beforeReadFile` is a permission hook, and Cursor blocks a read whose hook reply is not valid JSON of the right shape. So the handler always prints `{"permission": "allow"}`: an unreadable payload, one without the documented fields, and a count that could not be written all still allow, and count nothing. A failure before the handler runs exits non-zero, which Cursor lets the read through on. A Cursor without these hooks never runs the command. Every hooked read waits for one start of the `jcodemunch-mcp` process; that time is not measured yet. The counts are a floor and say so (`floor: true`, `coverage: "cursor_ide"`): the Cursor CLI and cloud agents are outside them, and a read the hook missed is not counted. A counts file that cannot be read is reported as unreadable, never as zero, and is never overwritten. There is no token or savings figure. The file holds daily numbers and the last Cursor version, never a path, a conversation id or file text, and nothing is sent; SECURITY.md lists it under background behavior. `uninstall` removes both hooks, and `--keep-cursor-hooks` keeps them.
+
+### Known issue - a read count can be dropped when its lock wait times out
+
+Each count waits up to 1.0 s for the lock on `_direct_reads.json`. When the wait runs out, the hook still allows the read but does not count it, and says nothing. On a slow machine with many reads at once, counts can be lost this way: a Windows CI run of the 10-thread test kept 8 of 10. The file is never damaged and no read is blocked. The next release fixes it.
+
+## [1.108.452] - 2026-11-15 - the tool counters say how many calls found nothing
+
 ### Fixed - the tool counters say how many calls found nothing
 
 `_tool_counters.json` counted a search for a name nothing carries as one more ordinary call, so the per-tool figures `diagnose` reports could not tell calls that answered from calls that found nothing (customer report). Since 1.108.409 (#1308) such an answer carries `negative_evidence` in its body, the channel a default install keeps. That field is also set on answers that returned rows (`no_exact_match`, `low_confidence_matches`), so the dispatcher counts only its absence verdict, `no_implementation_found`, the one an absence claim already keys on. It reads the verdict while the answer is still a dict, before any compact encoding, and the counters keep a third count per tool, `no_match`, beside `calls` and `tokens_returned`; an answer refused for size is not counted as one; `diagnose` reports it in each `by_tool` row. A call relayed by the front door keeps its marker with the tool that answered, the same as its size. A counters file written before this release reads `no_match` as 0 and keeps adding; a count that could not be written keeps its `no_match` for the next write. Nothing new is sent anywhere, and `"tool_counters": false` still records nothing. SECURITY.md and CONFIGURATION.md name the third count.
