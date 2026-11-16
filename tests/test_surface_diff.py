@@ -309,3 +309,42 @@ def test_the_snippet_publishes_each_tools_input_schema(sd):
     # main() can compare only what the subprocess prints
     assert "'schemas'" in sd.SNIPPET
     assert "inputSchema" in sd.SNIPPET
+
+
+def test_schema_diff_reads_a_property_named_description(sd):
+    # a parameter literally called `description` is a dict: descended, not read
+    base = {"a": _schema(description="the text to store")}
+    head = {"a": _schema(description="the text to store, trimmed")}
+    assert sd.schema_description_diff(base, head) == [
+        "description changed: a properties.description"
+    ]
+
+
+def test_schema_diff_walks_anyof_and_defs(sd):
+    def schema(d1, d2):
+        return {
+            "type": "object",
+            "properties": {
+                "x": {
+                    "anyOf": [{"type": "string", "description": d1}, {"type": "null"}]
+                }
+            },
+            "$defs": {"Kind": {"type": "string", "description": d2}},
+        }
+
+    assert sd.schema_description_diff(
+        {"a": schema("one", "kind")}, {"a": schema("two", "kind!")}
+    ) == [
+        "description changed: a $defs.Kind",
+        "description changed: a properties.x.anyOf[0]",
+    ]
+
+
+def test_schema_diff_treats_a_missing_schema_as_empty(sd):
+    # a tool published with no inputSchema on one side gains or loses every description
+    assert sd.schema_description_diff({"a": None}, {"a": _schema(q="new")}) == [
+        "description changed: a properties.q (added)"
+    ]
+    assert sd.schema_description_diff({"a": _schema(q="old")}, {"a": None}) == [
+        "description changed: a properties.q (removed)"
+    ]
