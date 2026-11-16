@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Changed - `check_references` sends the same answer in up to 46% fewer characters
+
+`check_references` returned JSON: every import match repeated `"specifier"`, `"names"` and `"match_type"`, every content line repeated `"line"` and `"text"`, and each enclosing symbol's id repeated its file's whole path. No encoder could carry the nested groups, so the answer always went out as JSON. It now has a compact encoding: one row per identifier, one per import match and one per content line, with each repeated directory and specifier written once and an enclosing id sent without its own file's path. On nestjs, `Injectable` went from 39,513 characters to 21,724, `ModuleRef` from 10,581 to 8,910, a batch of three names from 63,559 to 43,803, and `Injectable` with `search_content=False` from 35,450 to 19,056. No list is shortened and the decoded answer is unchanged. The encoder decodes its own output and ships JSON whenever that doesn't reproduce the whole response exactly, `_meta` included, so a field added later can't be lost on the wire. Keys the server adds to `_meta` ride along as one JSON value.
+
 ## [1.108.455] - 2026-11-16 - a C function shows the callers that reach it through its header
 
 ### Fixed - a C or C++ function shows the callers that reach it through its header
