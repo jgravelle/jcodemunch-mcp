@@ -56,7 +56,7 @@ jcodemunch-mcp config --check
 | `use_ai_summaries` | bool or str | `"auto"` | Enable AI-generated symbol summaries. `"auto"` (default) uses AI when a provider is detected, else falls back to signature-only summaries. `true`/`false` force the choice. Requires an API key (Anthropic, Google, or local LLM). |
 | `summarizer_concurrency` | int | `4` | Parallel batch requests to the AI summarizer. |
 | `allow_remote_summarizer` | bool | `false` | Allow remote AI summarizer even when local LLM is configured. |
-| `summarizer_body_chars` | int | `0` | `0` sends the AI summarizer each symbol's signature only, plus the `Context:` lines (git blame or provider context) a prompt already carries when its symbols have them. Above `0`, each symbol's prompt also carries its decorators (when it has any) and its own source from the index's copy of the file (not the file on disk), redacted with `redact.redact_text` and cut to this many characters. This sends source to the provider: a remote provider (the default Anthropic endpoint, Gemini, a remote OpenAI-compatible base) gets it only when `allow_remote_summarizer` is also `true`, otherwise the prompt stays signature-only and the log says so. A symbol the index holds no text for (e.g. `summarize_repo` on an index written in metadata-only cache mode) stays signature-only. Existing summaries are refreshed with `summarize_repo(force=true)`. Per-repo via `.jcodemunch.jsonc`. |
+| `summarizer_body_chars` | int | `0` | `0` sends the AI summarizer each symbol's signature only, plus the `Context:` lines (git blame or provider context) a prompt already carries when its symbols have them. Above `0`, each symbol's prompt also carries its decorators (when it has any) and its own source from the index's copy of the file (not the file on disk), redacted with `redact.redact_text` and cut to this many characters. This sends source to the provider: a remote provider (the default Anthropic endpoint, Gemini, a remote OpenAI-compatible base) gets it only when `allow_remote_summarizer` is also `true`, otherwise the prompt stays signature-only and the log says so. A symbol the index holds no text for (e.g. `summarize_repo` on an index written in metadata-only cache mode) stays signature-only. Existing summaries are refreshed with `summarize_repo(force=true)`. A project `.jcodemunch.jsonc` may lower it for its repo, never raise it. |
 | `extra_ignore_patterns` | list | `[]` | Additional gitignore-style patterns to exclude from indexing. Merged with per-call patterns. |
 | `exclude_skip_directories` | list | `[]` | Remove entries from the built-in skip directory list. Example: `["proto"]` to index protobuf dirs skipped by default. `["migrations"]` also indexes generated migrations, which are otherwise skipped (counted as `generated_migrations`) while a hand-written `migrations` package is indexed. |
 | `exclude_secret_patterns` | list | `[]` | Remove entries from the built-in secret-file skip patterns. |
@@ -164,6 +164,8 @@ Controls the `_meta` envelope included in tool responses. Reducing meta fields s
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | `meta_fields` | list or null | `[]` | `[]` (default, token-lean) = strip `_meta` entirely. `null` = include all fields. List = include only named fields. |
+| `savings_tokenizer` | string | `"claude"` | Which tokenizer `tokens_saved` is counted in: `"claude"` or `"openai"` (cl100k_base). Each indexed file's cl100k_base token count is taken the first time a response credits the file (from the index's own copy, after that response), and a response is counted when it is served. `"openai"` uses that count; `"claude"` multiplies it by the measured Claude/cl100k ratio for the file's language (`benchmarks/savings_tokenizer/`). `tiktoken` fetches the encoding file once, on first use (see `tokenizer_download`). Where no count exists yet (a file's first credit, or a file with no indexed copy), the measured bytes per token for the language is used instead. `_meta.tokens_saved_basis` names the path. Any other value reads `"claude"`. Totals already recorded are not rescaled. |
+| `tokenizer_download` | bool | `true` | Let `tiktoken` fetch `cl100k_base.tiktoken` (1,681,126 bytes) once from `openaipublic.blob.core.windows.net` the first time a token count is needed, on a background thread that never blocks or fails a call. `false` (or `JCODEMUNCH_TOKENIZER_DOWNLOAD=0`) never fetches; a copy already in tiktoken's cache is still used. Without the file, counts use the bytes-per-token table and `_meta.tokens_saved_basis` says why. |
 
 **Example — keep only timing and savings:**
 
@@ -181,7 +183,7 @@ Controls the `_meta` envelope included in tool responses. Reducing meta fields s
 }
 ```
 
-Available meta fields: `timing_ms`, `tokens_saved`, `total_tokens_saved`, `files_searched`, `truncated`, `candidates_scored`.
+Available meta fields: `timing_ms`, `tokens_saved`, `tokens_saved_basis` (kept whenever `tokens_saved` is), `total_tokens_saved`, `files_searched`, `truncated`, `candidates_scored`.
 
 The legacy `suppress_meta` per-call parameter still works for backward compatibility.
 
@@ -208,6 +210,7 @@ The legacy `suppress_meta` per-call parameter still works for backward compatibi
 | `watch_all_skip_temp` | bool | `true` | `watch-all` leaves unwatched any indexed repo under the system temp directory or a top-level `tmp`/`temp` folder. The index stays searchable. |
 | `watch_all_max_idle_days` | int | `14` | `watch-all` leaves unwatched any indexed repo whose newest indexed file and last indexed commit are both older than this. Before skipping, the tree is checked too (the indexed commit is still checked out; no indexed file or its folder is newer), at most every 10 minutes per repo, so an edited or committed repo is watched again. `0` = watch every repo. |
 | `freshness_mode` | str | `"relaxed"` | `"relaxed"` = serve immediately. `"strict"` = wait for fresh results (500ms timeout). |
+| `refresh_on_read` | bool | `true` | `true` = before a read tool answers on a git repository, re-index the files that changed since the index was built (a rebase, a branch switch, an edit outside the agent) when at most 50 of them are files the index would take; the whole check, git included, holds the answer for at most 2 s (a re-index that outlives it finishes in the background, and the answer says `in_progress`). Otherwise the answer carries `index_refresh` with the reason (`too_many_files`, `locked`, `failed`) and the `index_folder` call that fixes it; past 200 not-indexed paths the indexer refuses, it says `undetermined` or `unchecked` instead of calling the index current. Checks git at most once per repo every 30 s in each server process; writes only the local index, and re-indexed files get heuristic summaries. `false` answers from the index as it is and only flags a stale row. |
 | `claude_poll_interval` | float | `5.0` | Poll interval (seconds) for Claude Code worktree discovery. |
 
 ### Logging
@@ -313,7 +316,7 @@ Opt-in complexity-based model routing. Off by default — zero behavioral change
 }
 ```
 
-Built-in default batting orders: Anthropic (`haiku` / `sonnet` / `opus`), OpenAI (`gpt-4o-mini` / `gpt-4o` / `o3`), Google (`flash` / `pro` / `pro`).
+Built-in default batting orders: Anthropic (`claude-haiku-5-5` / `claude-sonnet-5-5` / `claude-opus-5-5`), OpenAI (`gpt-6-luna` / `gpt-6-sol` / `o3`), Google (`gemini-3.6-flash` / `gemini-3.8-flash` / `gemini-3.8-flash`).
 
 ### Freshness
 
@@ -365,7 +368,20 @@ Place a `.jcodemunch.jsonc` file in your project root. It merges over the global
 }
 ```
 
+A project file may turn a setting off but never on, for the settings that decide which folders are trusted, what is read or run, what is sent off the machine, and what a summarizer may bill:
+
+- `trusted_folders` and `trusted_folders_whitelist_mode` are read from your own config only.
+- `allow_paid_summaries`, `allow_remote_summarizer`, `use_ai_summaries`, `summarizer_body_chars`, `openai_extra_body`, `git_blame_enabled`, `redact_source_root`, `response_max_bytes` and `enrichment` are read from a project file only when the value is no more permissive than yours (for example `"use_ai_summaries": false`, `"redact_source_root": true`, or a smaller `response_max_bytes`). In `enrichment`, a project may set `lsp_enabled` to `false` but not `true`, and may not change `lsp_servers`.
+- `disabled_tools` in a project file adds to your list; it cannot re-enable a tool you disabled.
+- `exclude_secret_patterns` in a project file keeps only the exclusions your own config also makes.
+- `summarizer_provider` and `summarizer_model` are read from a project file only when your own opt-in covers the choice: a paid provider needs `allow_paid_summaries`, and an OpenAI-compatible base that is not on this machine needs `allow_paid_summaries` and `allow_remote_summarizer`. A local base needs neither. `"summarizer_provider": "none"` always applies.
+- `max_file_size`, `max_folder_files` and `max_index_files` are read from a project file as written.
+
+A project value that is ignored is logged once, naming the key. Set it in your own `config.jsonc` or environment instead.
+
 Project config is loaded automatically when a repo is indexed. It uses hash-based caching — the file is only re-parsed when its content changes, not on every watcher cycle.
+
+A license key is not read from a project file. Set `license_key` in your own `config.jsonc` or the `JCODEMUNCH_LICENSE_KEY` environment variable; `license --key` and `install-pack --license` also take a key for one run. A `license_key` in `.jcodemunch.jsonc` is ignored, and the project loader logs a warning that names both places to put it instead (a project file can be committed to a repository).
 
 ## Migrating from environment variables
 
@@ -397,6 +413,7 @@ Every `JCODEMUNCH_*` env var maps to a config key:
 | `JCODEMUNCH_WATCH_ALL_SKIP_TEMP` | `watch_all_skip_temp` |
 | `JCODEMUNCH_WATCH_ALL_MAX_IDLE_DAYS` | `watch_all_max_idle_days` |
 | `JCODEMUNCH_FRESHNESS_MODE` | `freshness_mode` |
+| `JCODEMUNCH_REFRESH_ON_READ` | `refresh_on_read` |
 | `JCODEMUNCH_CLAUDE_POLL_INTERVAL` | `claude_poll_interval` |
 | `JCODEMUNCH_LOG_LEVEL` | `log_level` |
 | `JCODEMUNCH_LOG_FILE` | `log_file` |
@@ -570,7 +587,7 @@ When `adaptive_tiering` is false, `plan_turn(model=...)` and `announce_model(...
 
 `tool_surface` is written into your config exactly once, when it is first created, and is deliberately absent from the config template so a package update can never inject it. That is what guarantees an upgrade never collapses your tool list — and it also means an install created before the `counter` default **stays on `full` permanently**, because nothing migrates it.
 
-So `jcodemunch-mcp surface` and `jcodemunch-mcp install-status` print a one-time offer showing what the move would cost and save **on your install**, computed at the moment you run it:
+So `jcodemunch-mcp surface`, `jcodemunch-mcp install-status`, `jcodemunch-mcp upgrade` and `jcodemunch-mcp init --hooks` print an offer showing what the move would cost and save **on your install**, computed at the moment you run it:
 
 ```
 Tool surface: full (91 tools, 26,943 schema tokens)
@@ -595,9 +612,9 @@ The same offer is also added once per install to the first successful `resolve_r
 
 ### `tool_counters` and `jcodemunch-mcp diagnose`
 
-The server keeps two counts per tool in `_tool_counters.json` in the storage directory: calls, and tokens returned (the answer's bytes divided by 4; the file names that estimator). They are on by default and are sent nowhere. The file is written every 20 calls, or on the first call after 30 seconds, and when the server stops. A call relayed by the front door is counted under both names and its size under the tool that answered. Set `"tool_counters": false` to record nothing; no file is then written.
+The server keeps three counts per tool in `_tool_counters.json` in the storage directory: calls, tokens returned (the answer's bytes divided by 4; the file names that estimator), and `no_match`, the calls whose answer said nothing in the index matched (its `negative_evidence` verdict was `no_implementation_found`; an answer that returned near matches is not counted, and neither is one refused for size). A file written before `no_match` existed reads it as 0. They are on by default and are sent nowhere. The file is written every 20 calls, or on the first call after 30 seconds, and when the server stops. A call relayed by the front door is counted under both names and its size under the tool that answered. Set `"tool_counters": false` to record nothing; no file is then written.
 
-`jcodemunch-mcp diagnose` joins those counts with the tokens saved per tool, the server versions, each index's sizes, the tool surface and the state of each installed policy, and writes one JSON report to `<storage>/diagnose/`. The report is built from a fixed list of fields and of what each value may be: an index appears as `index-1`, never by name or path, a tool name the server does not publish is added into `other`, and a `tool_profile` you named yourself appears as `custom`. `--include-anon-id` adds the anonymous savings id, which is otherwise left out; `--stdout` prints the report and writes no file. Things to know when reading one: tokens saved and the two counts began on different dates, given as `saved_since` and `counting_since`; counts a running server has not written yet are not in it; `source_bytes` is `null` for an index that stores no file sizes; a saved figure is `null` when the savings file could not be read; and a companion server reads `null` when it is not installed in the same Python environment.
+`jcodemunch-mcp diagnose` joins those counts with the tokens saved per tool, the server versions, each index's sizes, the tool surface and the state of each installed policy, and writes one JSON report to `<storage>/diagnose/`. The report is built from a fixed list of fields and of what each value may be: an index appears as `index-1`, never by name or path, a tool name the server does not publish is added into `other`, and a `tool_profile` you named yourself appears as `custom`. `--include-anon-id` adds the anonymous savings id, which is otherwise left out; `--stdout` prints the report and writes no file. Things to know when reading one: tokens saved and the other counts began on different dates, given as `saved_since` and `counting_since`; counts a running server has not written yet are not in it; `source_bytes` is `null` for an index that stores no file sizes; a saved figure is `null` when the savings file could not be read; and a companion server reads `null` when it is not installed in the same Python environment.
 
 ⚠ The numbers above are this machine's. Yours differ if you have `disabled_tools` set or are on a narrower `tool_profile` — which is why the offer computes them rather than quoting ours.
 

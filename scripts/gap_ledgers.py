@@ -95,6 +95,10 @@ LEDGERS: frozenset[tuple[str, str]] = frozenset(
 #: `check()` green: a ledger moved here stops asking for an issue.
 NOT_LEDGERS: dict[tuple[str, str], str] = {
     (
+        "test_honored_aliases_are_not_reported_ignored.py",
+        "NOT_HONORED_WHEN_UNDECLARED",
+    ): "deliberate: render_diagram's open_in_viewer is declared only while the viewer setting is on, and does nothing while it is off",
+    (
         "test_config_isolation_guard.py",
         "EXEMPT",
     ): "deliberate: modules that exercise the real config path, each named with its reason",

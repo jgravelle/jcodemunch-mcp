@@ -4,6 +4,9 @@ Measures, on THIS repository's `src/` tree copied into a temp dir:
 
   index.cold_self_seconds          cold `index_folder` wall clock (median of N)
   index.one_file_reindex_ms        `index_file` after appending one line (median of N)
+  index.cold_over_one_file_ratio   the cold time in ms over the one-file reindex
+                                   time, both from this run (runner speed
+                                   divides out; LEDGER L-314)
   latency.<tool>_warm_p95_ms       warm p95 over N calls for search_symbols,
                                    search_text, get_symbol_source, get_file_outline
   latency.<tool>_cold_ms           first call in this process
@@ -60,6 +63,15 @@ def _corpus_digest() -> str:
 def _p95(xs: list[float]) -> float:
     xs = sorted(xs)
     return xs[min(len(xs) - 1, int(round(0.95 * (len(xs) - 1))))]
+
+
+def cold_over_one_file_ratio(cold_seconds: float, one_file_ms: float) -> float:
+    """Cold index time over one-file reindex time, both from THIS run.
+
+    A slow runner slows both by about the same factor, so the ratio divides
+    runner speed out (LEDGER L-314): on 22 CI readings the cold time alone ran
+    from 2.9 s to 5.3 s while this stayed in a narrow band."""
+    return round(cold_seconds * 1000 / one_file_ms, 1)
 
 
 def _warm_p95(label: str, sample, passes) -> dict:
@@ -161,6 +173,9 @@ def run(n: int) -> dict:
         reidx.append((time.perf_counter() - t) * 1000)
     out["index.one_file_reindex_ms"] = round(statistics.median(reidx), 1)
     out["index.one_file_reindex_p95_ms"] = round(_p95(reidx), 1)
+    out["index.cold_over_one_file_ratio"] = cold_over_one_file_ratio(
+        out["index.cold_self_seconds"], out["index.one_file_reindex_ms"]
+    )
 
     passes = _floor_check()
 

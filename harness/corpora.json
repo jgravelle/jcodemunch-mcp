@@ -74,7 +74,7 @@
     "token_tasks": {
       "path": "benchmarks/tasks.json",
       "pattern": null,
-      "sha256": "383a912cb8f309ec3fde7d00e4d28d2ddb36748242b00431cf614330bd6dc353"
+      "sha256": "4271c0cb184dfb48e3f2558902ff79a46f19c112ec3983340fe0c52ab636969c"
     }
   },
   "external_pins": {

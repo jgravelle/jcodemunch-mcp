@@ -106,6 +106,85 @@ def _indexed_source_roots() -> list[str]:
         return []
 
 
+# A separate copy of an indexed repo: said once per session and
+# folder, from a marker file under the index store, and the lookup behind it
+# runs at most once per marker. Markers older than a week are removed when a
+# new one is written.
+_SEPARATE_COPY_TIMEOUT = 1.5
+_SEPARATE_COPY_KEEP_SECONDS = 7 * 86400
+
+
+def _separate_copy_marker(session_id: str, cwd: str):
+    import hashlib
+    from pathlib import Path
+
+    base = Path(os.path.expanduser(os.environ.get("CODE_INDEX_PATH") or "~/.code-index"))
+    key = hashlib.sha256(f"{session_id}\0{_norm_path(cwd)}".encode("utf-8")).hexdigest()[:32]
+    return base / "hook_state" / "separate_copy" / key
+
+
+def _prune_markers(folder) -> None:
+    import time
+
+    cutoff = time.time() - _SEPARATE_COPY_KEEP_SECONDS
+    for old in folder.iterdir():
+        try:
+            if old.is_file() and old.stat().st_mtime < cutoff:
+                old.unlink()
+        except OSError:
+            logger.debug("separate-copy marker prune failed", exc_info=True)
+
+
+def _lookup_separate_copy(cwd: str):
+    """resolve_repo(cwd) read through `separate_copy`, bounded like the server's startup lookup."""
+    import threading
+
+    box: dict = {}
+
+    def _look() -> None:
+        try:
+            from ...tools.resolve_repo import resolve_repo, separate_copy
+
+            box["found"] = separate_copy(resolve_repo(cwd))
+        except Exception:
+            logger.debug("separate-copy lookup failed", exc_info=True)
+
+    t = threading.Thread(target=_look, name="jcm-hook-separate-copy", daemon=True)
+    t.start()
+    t.join(_SEPARATE_COPY_TIMEOUT)
+    return None if t.is_alive() else box.get("found")
+
+
+def _separate_copy_note_once(data: dict) -> "str | None":
+    """The separate-copy sentence for this session's folder, the first time only.
+
+    The marker is written BEFORE the lookup, so a lookup that fails or times
+    out is not retried on every later tool call. A folder inside (or above) an
+    indexed root needs no note and pays only the marker and the roots check.
+    """
+    try:
+        sid, cwd = data.get("session_id"), data.get("cwd")
+        if not isinstance(sid, str) or not sid or not isinstance(cwd, str) or not cwd:
+            return None
+        marker = _separate_copy_marker(sid, cwd)
+        if marker.exists():
+            return None
+        marker.parent.mkdir(parents=True, exist_ok=True)
+        _prune_markers(marker.parent)
+        marker.touch()
+        if _path_overlaps(_norm_path(cwd), _indexed_source_roots()):
+            return None
+        found = _lookup_separate_copy(cwd)
+        if found is None:
+            return None
+        from ...tools.resolve_repo import separate_copy_sentence
+
+        return separate_copy_sentence(*found)
+    except Exception:
+        logger.debug("separate-copy note failed", exc_info=True)
+        return None
+
+
 def _grep_search_root(tool_input: dict, cwd: str) -> str:
     """Resolve the directory a Grep/Glob call will actually scan (normalised)."""
     path = (tool_input.get("path") or "").strip()
@@ -367,6 +446,16 @@ def run_pretooluse() -> int:
     tool_input = data.get("tool_input") or {}
     if not isinstance(tool_input, dict):
         return 0
+
+    # Once per session and folder: a separate copy of an indexed repo would
+    # otherwise get silence below, with no reason given. This
+    # returns before the steering below, so that one call gets the note instead
+    # of advice; under strict mode a Grep or Read aimed into an indexed root
+    # from such a folder passes un-denied once. The note is allow-only and
+    # said once, so that is accepted.
+    note = _separate_copy_note_once(data)
+    if note:
+        return _emit_additional_context("PreToolUse", note)
 
     tool_name = data.get("tool_name", "")
 

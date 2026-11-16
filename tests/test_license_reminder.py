@@ -260,13 +260,26 @@ def test_cli_reminds_only_after_a_clean_exit(store, monkeypatch):
     assert calls == [["receipt"]]
 
 
-def test_the_console_script_and_python_m_both_go_through_cli():
+def test_the_console_script_and_python_m_both_go_through_cli(monkeypatch):
+    """Both entries reach `server.cli` for every command but a bare hook.
+
+    The console entry is `cli_entry.cli`, which runs a bare `hook-<name>`
+    without importing the server (no hook is in CLI_COMMANDS) and hands
+    everything else to `server.cli`, where the reminder runs.
+    """
     from pathlib import Path
 
+    from jcodemunch_mcp import cli_entry, server
+
     root = Path(__file__).resolve().parent.parent
-    assert 'jcodemunch-mcp = "jcodemunch_mcp.server:cli"' in (root / "pyproject.toml").read_text(encoding="utf-8")
+    assert 'jcodemunch-mcp = "jcodemunch_mcp.cli_entry:cli"' in (root / "pyproject.toml").read_text(encoding="utf-8")
     main_py = (root / "src" / "jcodemunch_mcp" / "__main__.py").read_text(encoding="utf-8")
-    assert "cli()" in main_py and "main()" not in main_py
+    assert "from .cli_entry import cli" in main_py and "cli()" in main_py and "main()" not in main_py
+    seen = []
+    monkeypatch.setattr(server, "cli", lambda argv=None: seen.append(argv))
+    cli_entry.cli(["receipt"])
+    assert seen == [["receipt"]]
+    assert not set(cli_entry.HOOK_RUNNERS) & set(lr.CLI_COMMANDS)
 
 
 # --- Option T: the tool answer ----------------------------------------------------------

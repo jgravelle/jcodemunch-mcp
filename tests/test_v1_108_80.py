@@ -6,7 +6,6 @@ exposes the class contract instead of just the class name.
 """
 
 import os
-import tempfile
 
 from jcodemunch_mcp.parser.extractor import parse_file
 
@@ -122,11 +121,11 @@ class TestDataclassFields:
         assert [s.name for s in methods] == ["m"]
         assert [s.name for s in fields] == ["x"]
 
-    def test_outline_surfaces_fields(self):
+    def test_outline_surfaces_fields(self, tmp_path):
         from jcodemunch_mcp.tools.index_folder import index_folder
         from jcodemunch_mcp.tools.get_file_outline import get_file_outline
 
-        d = tempfile.mkdtemp()
+        d = str(tmp_path)
         with open(os.path.join(d, "spec.py"), "w", encoding="utf-8") as fh:
             fh.write(
                 "from dataclasses import dataclass, field\n\n"

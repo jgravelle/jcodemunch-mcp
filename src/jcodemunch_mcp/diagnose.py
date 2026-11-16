@@ -109,7 +109,12 @@ _POLICY = {
     "state": _one_of("current", "differs", None),
     "digest": _matches(r"[0-9a-f]{12}", none=True),
 }
-_TOOL = {"calls": _count_or_none, "tokens_returned": _count_or_none, "tokens_saved": _count_or_none}
+_TOOL = {
+    "calls": _count_or_none,
+    "tokens_returned": _count_or_none,
+    "no_match": _count_or_none,
+    "tokens_saved": _count_or_none,
+}
 _TOOLS = {
     "estimator": _one_of(ESTIMATOR),
     "counting_since": _matches(_DATE, none=True),
@@ -344,15 +349,17 @@ def _count(value: object) -> int:
 
 
 def _savings(root: Path) -> Optional[dict]:
-    """The savings file: `{}` when there is none, `None` when it could not be read."""
-    try:
-        data = json.loads((root / "_savings.json").read_text(encoding="utf-8"))
-    except FileNotFoundError:
-        return {}
-    except (OSError, ValueError):
-        logger.debug("diagnose: savings file not read", exc_info=True)
-        return None
-    return data if isinstance(data, dict) else None
+    """The savings file: `{}` when there is none, `None` when it could not be read.
+
+    Read through the meter's own reader (L-297), so a file the meter refuses
+    to add to gives no figure here either.
+    """
+    from .storage import token_tracker
+
+    data, why = token_tracker._read_ledger(root / "_savings.json")
+    if data is None:
+        logger.debug("diagnose: savings file not used: %s", why)
+    return data
 
 
 def _date(value: object) -> Optional[str]:
@@ -372,12 +379,15 @@ def _tools(root: Path, savings: Optional[dict], known: set) -> dict:
 
     def row(name: str) -> dict:
         key = name if name in known else OTHER
-        return by_tool.setdefault(key, {"calls": uncounted, "tokens_returned": uncounted, "tokens_saved": blank})
+        return by_tool.setdefault(key, {
+            "calls": uncounted, "tokens_returned": uncounted, "no_match": uncounted, "tokens_saved": blank,
+        })
 
     for name, c in (counters["tools"].items() if counters is not None else ()):
         r = row(name)
         r["calls"] += _count(c.get("calls"))
         r["tokens_returned"] += _count(c.get("tokens_returned"))
+        r["no_match"] += _count(c.get("no_match"))
     saved = (savings or {}).get("by_tool")
     for name, n in (saved.items() if isinstance(saved, dict) else ()):
         row(str(name))["tokens_saved"] += _count(n)

@@ -11,7 +11,10 @@ added or removed tool. Exit 1 otherwise. Nothing here restates a number.
 `--descriptions` also diffs each tool's DESCRIPTION between the two trees
 (docs/workflows/FINDINGS.md W-1): one `description changed: <name>` line per
 tool whose description differs, and under `--summary` a
-`## done: tool descriptions` block. A description change is a surface change
+`## done: tool descriptions` block. Since L-276 a tool's text includes every
+`description` inside its inputSchema, reported as
+`description changed: <name> <path>` (a parameter reworded, added or removed).
+A description change is a surface change
 (STANDARD criterion 4) and is always LISTED; it never moves the exit code,
 which belongs to the name rule alone.
 """
@@ -28,15 +31,17 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
 REQUIRED_DOCS = ("README.md", "CLAUDE.md", "CHANGELOG.md")
-# One subprocess per tree returns BOTH halves: the sorted names and the
-# name -> description map. Two snippets would mean two worktrees of the base
+# One subprocess per tree returns every half: the sorted names, the
+# name -> description map and the name -> inputSchema map (L-276: a
+# parameter description is published text too). Two snippets would mean two worktrees of the base
 # ref for one question.
 SNIPPET = (
     "import json,sys;"
     "from jcodemunch_mcp import server;"
     "ts=server._build_tools_list(profile_override='full', surface_override='full');"
     "print(json.dumps({'names': sorted(t.name for t in ts), "
-    "'descriptions': {t.name: t.description for t in ts}}))"
+    "'descriptions': {t.name: t.description for t in ts}, "
+    "'schemas': {t.name: t.inputSchema or {} for t in ts}}))"
 )
 
 
@@ -141,6 +146,48 @@ def description_diff(base_desc: dict[str, str], head_desc: dict[str, str]) -> li
     ]
 
 
+def _schema_descriptions(obj, path: str = "") -> dict[str, str]:
+    """path -> text for every string `description` in one inputSchema.
+
+    The same walk `tests/test_tool_descriptions_never_tell_the_agent_to_ignore.py`
+    uses: a description key is a leaf, everything else is descended. A property
+    literally NAMED `description` is a dict, so it is descended, not read.
+    """
+    out: dict[str, str] = {}
+    if isinstance(obj, dict):
+        for key, value in obj.items():
+            if key == "description" and isinstance(value, str):
+                out[path or "(schema)"] = value
+            else:
+                out.update(
+                    _schema_descriptions(value, f"{path}.{key}" if path else str(key))
+                )
+    elif isinstance(obj, list):
+        for i, value in enumerate(obj):
+            out.update(_schema_descriptions(value, f"{path}[{i}]"))
+    return out
+
+
+def schema_description_diff(base_schemas: dict, head_schemas: dict) -> list[str]:
+    """One line per inputSchema description that differs, for tools on BOTH sides.
+
+    `description changed: <name> <path>`, with `(added)` or `(removed)` when
+    the description exists on one side only. Sorted by tool, then path.
+    """
+    lines: list[str] = []
+    for name in sorted(set(base_schemas) & set(head_schemas)):
+        b = _schema_descriptions(base_schemas[name] or {})
+        h = _schema_descriptions(head_schemas[name] or {})
+        for path in sorted(set(b) | set(h)):
+            if path not in b:
+                lines.append(f"description changed: {name} {path} (added)")
+            elif path not in h:
+                lines.append(f"description changed: {name} {path} (removed)")
+            elif b[path] != h[path]:
+                lines.append(f"description changed: {name} {path}")
+    return lines
+
+
 def report(
     *,
     base: list[str],
@@ -150,6 +197,8 @@ def report(
     base_desc: dict[str, str],
     head_desc: dict[str, str],
     descriptions: bool,
+    base_schemas: dict | None = None,
+    head_schemas: dict | None = None,
 ) -> tuple[int, list[str], str]:
     """(exit code, stdout lines, summary text). The exit code is the name verdict's alone."""
     ok, lines = verdict(base, head, changed, cl_diff)
@@ -159,7 +208,9 @@ def report(
         + "\n"
     )
     if descriptions:
-        desc_lines = description_diff(base_desc, head_desc)
+        desc_lines = description_diff(base_desc, head_desc) + schema_description_diff(
+            base_schemas or {}, head_schemas or {}
+        )
         lines = lines + desc_lines
         count = len(desc_lines) if desc_lines else "none"
         body = (
@@ -181,7 +232,8 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument(
         "--descriptions",
         action="store_true",
-        help="also diff each tool's description (listed, never a failure; FINDINGS W-1)",
+        help="also diff each tool's description and its parameter descriptions "
+        "(listed, never a failure; FINDINGS W-1, L-276)",
     )
     return ap
 
@@ -205,6 +257,8 @@ def main(argv=None) -> int:
         base_desc=base["descriptions"],
         head_desc=head["descriptions"],
         descriptions=a.descriptions,
+        base_schemas=base.get("schemas", {}),
+        head_schemas=head.get("schemas", {}),
     )
     for ln in lines:
         print(ln)

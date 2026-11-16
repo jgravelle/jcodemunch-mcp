@@ -92,6 +92,7 @@ def parse_immediate(
     active_providers: Optional[list[ContextProvider]] = None,
     warnings: Optional[list[str]] = None,
     repo: Optional[str] = None,
+    parse_failures: Optional[list] = None,
 ) -> tuple[list[Symbol], dict[str, str], dict[str, str], dict[str, list[dict]], list[str]]:
     """Parse files and enrich, but skip AI summarization for immediate return.
 
@@ -137,6 +138,8 @@ def parse_immediate(
         except Exception as e:
             warnings.append(f"Failed to parse {rel_path}: {e}")
             logger.debug("PARSE ERROR (parse_immediate): %s — %s", rel_path, e)
+            if parse_failures is not None:
+                parse_failures.append(rel_path)
 
     # 2. Enrich with context providers
     if providers and new_symbols:
@@ -217,6 +220,7 @@ def parse_and_prepare_incremental(
     use_ai_summaries: bool = True,
     warnings: Optional[list[str]] = None,
     repo: Optional[str] = None,
+    parse_failures: Optional[list] = None,
 ) -> tuple[list[Symbol], dict[str, str], dict[str, str], dict[str, list[dict]], list[str]]:
     """Shared incremental pipeline: parse, enrich, summarize, extract metadata.
 
@@ -258,6 +262,8 @@ def parse_and_prepare_incremental(
         except Exception as e:
             warnings.append(f"Failed to parse {rel_path}: {e}")
             logger.debug("PARSE ERROR (incremental): %s — %s", rel_path, e)
+            if parse_failures is not None:
+                parse_failures.append(rel_path)
 
     logger.info(
         "Incremental parsing — with symbols: %d, no symbols: %d",

@@ -14,7 +14,6 @@ weight-tuner signals keyed on it could never fire.
 from __future__ import annotations
 
 import inspect
-import tempfile
 from pathlib import Path
 
 import pytest
@@ -24,7 +23,7 @@ import pytest
 # V5 — fusion similarity (embedding) channel wiring                           #
 # --------------------------------------------------------------------------- #
 
-def test_v5_embedding_api_shapes_the_channel_uses():
+def test_v5_embedding_api_shapes_the_channel_uses(tmp_path):
     """The three forms the dead channel got wrong must resolve now: the real
     export is ``embed_texts`` (not ``_embed_texts``), ``EmbeddingStore`` takes a
     positional ``db_path``, and ``get_all()`` takes no arguments."""
@@ -44,21 +43,21 @@ def test_v5_embedding_api_shapes_the_channel_uses():
     assert getall_params == ["self"], getall_params
 
     # And it actually constructs + returns a dict from a fresh db.
-    d = Path(tempfile.mkdtemp())
-    assert isinstance(EmbeddingStore(d / "e.db").get_all(), dict)
+    assert isinstance(EmbeddingStore(tmp_path / "e.db").get_all(), dict)
 
 
-def test_v5_fusion_runs_without_embeddings_and_reports_channels():
+def test_v5_fusion_runs_without_embeddings_and_reports_channels(tmp_path):
     """With no embeddings indexed, fusion still runs (lexical/identity/structural)
     and does not crash on the now-live similarity block."""
     from jcodemunch_mcp.tools.index_folder import index_folder
     from jcodemunch_mcp.tools.search_symbols import search_symbols
 
-    repo = Path(tempfile.mkdtemp())
+    repo = tmp_path / "repo"
+    repo.mkdir()
     (repo / "svc.py").write_text(
         "def get_user(uid):\n    return uid\n\ndef save_user(u):\n    return u\n"
     )
-    store = Path(tempfile.mkdtemp())
+    store = tmp_path / "store"
     res = index_folder(path=str(repo), use_ai_summaries=False, incremental=False, storage_path=str(store))
     out = search_symbols(repo=res["repo"], query="get_user", fusion=True, storage_path=str(store))
     assert "error" not in out, out

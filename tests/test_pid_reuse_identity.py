@@ -20,7 +20,9 @@ from jcodemunch_mcp.storage import process_registry as registry
 from jcodemunch_mcp.storage import process_locks as locks
 
 
-IDENTITY_PLATFORMS = ("win32", "linux")
+# macOS reads the start through libproc since the darwin fix; before it
+# these four tests skipped there with the reason below.
+IDENTITY_PLATFORMS = ("win32", "linux", "darwin")
 
 
 # --- _process_create_time ---------------------------------------------------
@@ -30,8 +32,9 @@ def test_own_create_time_is_sane():
     if sys.platform not in IDENTITY_PLATFORMS:
         pytest.skip("creation-time identity not implemented on this platform")
     assert ct is not None
-    if sys.platform == "win32":
-        # Windows is epoch-domain: created after 2020, not in the future.
+    if sys.platform in ("win32", "darwin"):
+        # Windows and macOS are epoch-domain: created after 2020, not in the
+        # future.
         assert 1577836800.0 < ct <= time.time() + 5.0
     else:
         # Linux is boot-relative (jcm#450: immune to clock steps): the sane

@@ -1122,6 +1122,111 @@ def install_copilot_hooks(*, dry_run: bool = False, backup: bool = True) -> str:
     return f"  wrote {hooks_path} with jcodemunch postToolUse hook"
 
 
+_CURSOR_HOOK_EVENTS = ("beforeReadFile", "afterMCPExecution")
+
+
+def _cursor_hooks_path() -> Path:
+    return Path.home() / ".cursor" / "hooks.json"
+
+
+def _is_cursor_rule(rule) -> bool:
+    """Whether a Cursor hooks.json entry is OUR ``hook-cursor`` entry."""
+    return isinstance(rule, dict) and _extract_jcm_subcommand(
+        rule.get("command", "") or ""
+    ) == "hook-cursor"
+
+
+def _cursor_hook_command() -> str:
+    exe = _hook_invocation()
+    # The desktop app runs a hook through PowerShell on Windows, where a quoted
+    # path followed by an argument is a parse error without the call operator.
+    if platform.system() == "Windows" and exe.startswith('"'):
+        exe = "& " + exe
+    return f"{exe} hook-cursor"
+
+
+def install_cursor_hooks(*, dry_run: bool = False, backup: bool = True) -> str:
+    """Merge the two counting hooks into ``~/.cursor/hooks.json``.
+
+    ``beforeReadFile`` and ``afterMCPExecution`` both run
+    ``jcodemunch-mcp hook-cursor``, which counts the agent's reads of indexed
+    code beside its jcodemunch calls and always allows the read. Other hooks in
+    the file are kept; our entry is updated in place, never duplicated. The
+    user file only: a project ``.cursor/hooks.json`` would be committed.
+    """
+    path = _cursor_hooks_path()
+    if not path.parent.exists():
+        return f"  Cursor not found ({path.parent} does not exist); skipped"
+    command = _cursor_hook_command()
+    raw = None
+    if path.exists():
+        try:
+            raw = path.read_text(encoding="utf-8")
+            data = json.loads(raw)
+        except (json.JSONDecodeError, ValueError, OSError):
+            return f"  failed to parse existing {path}; skipping"
+        if not isinstance(data, dict) or not isinstance(data.get("hooks", {}), dict):
+            return f"  unexpected shape in {path}; skipping"
+    else:
+        data = {}
+    data.setdefault("version", 1)
+    hooks = data.setdefault("hooks", {})
+    changed = False
+    for event in _CURSOR_HOOK_EVENTS:
+        rules = hooks.setdefault(event, [])
+        if not isinstance(rules, list):
+            return f"  unexpected shape for {event} in {path}; skipping"
+        ours = [r for r in rules if _is_cursor_rule(r)]
+        if len(ours) == 1 and ours[0].get("command") == command:
+            continue
+        rules[:] = [r for r in rules if not _is_cursor_rule(r)]
+        rules.append({"command": command, "timeout": 10})
+        changed = True
+    if not changed:
+        return f"  Cursor hooks already present in {path}"
+    if dry_run:
+        return f"  would write the jcodemunch Cursor hooks to {path}"
+    if backup and raw is not None:
+        _backup_path(path).write_text(raw, encoding="utf-8")
+    path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    return f"  wrote the jcodemunch Cursor hooks (beforeReadFile, afterMCPExecution) to {path}"
+
+
+def uninstall_cursor_hooks(*, dry_run: bool = False, backup: bool = True) -> str:
+    path = _cursor_hooks_path()
+    if not path.exists():
+        return f"  no hooks file at {path}"
+    try:
+        raw = path.read_text(encoding="utf-8")
+        data = json.loads(raw)
+    except (json.JSONDecodeError, ValueError, OSError):
+        return f"  failed to parse {path}; skipped"
+    hooks = data.get("hooks") if isinstance(data, dict) else None
+    if not isinstance(hooks, dict):
+        return f"  unexpected shape in {path}; skipped"
+    removed = False
+    for event in list(hooks):
+        rules = hooks[event]
+        if not isinstance(rules, list):
+            continue
+        kept = [r for r in rules if not _is_cursor_rule(r)]
+        if len(kept) != len(rules):
+            removed = True
+            if kept:
+                hooks[event] = kept
+            else:
+                del hooks[event]
+    if not removed:
+        return f"  no jcodemunch Cursor hook in {path}"
+    if dry_run:
+        return f"  would remove the jcodemunch Cursor hooks from {path}"
+    if backup:
+        _backup_path(path).write_text(raw, encoding="utf-8")
+    # The file is kept even when nothing is left in it: it may predate us.
+    path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    return f"  removed the jcodemunch Cursor hooks from {path}"
+
+
 def _installed_jcm_subcommands(data: dict[str, Any]) -> "set[str]":
     """Every jcm subcommand a settings.json hook rule already runs."""
     found: set[str] = set()
@@ -1422,6 +1527,7 @@ def run_init(
     # ``hooks=True`` the two cases are indistinguishable here.
     hooks_explicit: bool = False,
     copilot_hooks: bool = False,
+    cursor_hooks: bool = False,
     index: bool = False,
     audit: bool = False,
     dry_run: bool = False,
@@ -1488,6 +1594,7 @@ def run_init(
         interactive = False
         claude_md = "skip"
         copilot_hooks = False
+        cursor_hooks = False
         index = False
         audit = False
         skills = False
@@ -1735,6 +1842,17 @@ def run_init(
                 "keeping jCodemunch fresh without any manual `index-file` calls",
             ))
 
+    # ----- Step 3d: Cursor counting hooks (~/.cursor/hooks.json) -----
+    if cursor_hooks:
+        msg = install_cursor_hooks(dry_run=dry_run, backup=backup)
+        print(f"  Cursor hooks:{msg}")
+        if demo and "would" in msg:
+            _demo_actions.append((
+                "Add jcodemunch's beforeReadFile and afterMCPExecution hooks to ~/.cursor/hooks.json",
+                "Cursor's agent reads of indexed code would be counted beside its jCodeMunch "
+                "lookups (`jcodemunch-mcp direct-reads`); every read is still allowed",
+            ))
+
     # ----- Step 4: Index -----
     do_index = index
     if not do_index and interactive:
@@ -1792,6 +1910,26 @@ def run_init(
             for line in _offer:
                 print(line)
 
+    # ----- Offer, never apply: the surface a new install would get -----
+    # `upgrade` re-runs `init --hooks --yes`, and a user refreshing hooks types
+    # the same, so this is where an install that predates the `counter` default
+    # sees what switching saves. It prints and changes nothing; the user runs
+    # the switch command. Same block and renderer as `install-status`.
+    # ⚠ `hooks_explicit`, not `hooks`: `install <agent>` passes hooks=True as
+    # its own default, and the offer belongs to the refresh a user runs.
+    if (hooks_explicit or os.environ.get(UPGRADE_REFRESH_ENV) == "1") and not demo:
+        try:
+            _surface = _surface_offer_block()
+        except Exception:
+            logger.debug("surface offer check failed", exc_info=True)
+            _surface = None
+        if _surface:
+            from ..surface_offer import render_offer_lines
+
+            print()
+            for line in render_offer_lines(_surface):
+                print(line)
+
     # ----- Done -----
     print()
     if demo:
@@ -1816,8 +1954,8 @@ def run_init(
             for line in _LICENCE_LINES:
                 print(line)
             # This machine was just shown the license line, so the server's
-            # one-time notice is not due. `upgrade` re-runs init silently and
-            # prints nothing, so it writes no marker.
+            # one-time notice is not due. `upgrade` re-runs init without the
+            # license line, so it writes no marker.
             from ..license_notice import mark_shown
 
             mark_shown("init")
@@ -2257,6 +2395,7 @@ def run_uninstall(
     agents_md: bool = True,
     hooks: bool = True,
     copilot_hooks: bool = True,
+    cursor_hooks: bool = True,
     skills: bool = True,
     claude_md_scope: str = "global",
     dry_run: bool = False,
@@ -2324,6 +2463,10 @@ def run_uninstall(
     if copilot_hooks and not scoped_to_one:
         msg = uninstall_copilot_hooks(dry_run=dry_run, backup=backup)
         print(f"  Copilot hooks:{msg}")
+
+    if cursor_hooks and (not scoped_to_one or (target or "").lower() == "cursor"):
+        msg = uninstall_cursor_hooks(dry_run=dry_run, backup=backup)
+        print(f"  Cursor hooks:{msg}")
 
     if git_hook and not scoped_to_one:
         from . import git_hook as _git_hook
@@ -2625,6 +2768,14 @@ def install_status() -> dict[str, Any]:
     #   release checklist has eight steps and none of them touch the dev box,
     #   so this is the only place the drift can surface.
     report["source_drift"] = _running_source_drift()
+    # #1435: which running servers serve older code than is installed now.
+    try:
+        from ..storage.process_registry import serving_report
+
+        report["servers"] = serving_report(os.environ.get("CODE_INDEX_PATH"))
+    except Exception:
+        logger.debug("servers block unreadable for install-status", exc_info=True)
+        report["servers"] = None
     try:
         from ..parser import grammar_pack
         # #608: the check a user runs after `pip install -U tree-sitter-language-pack`
@@ -2731,6 +2882,10 @@ def print_status(report: Optional[dict[str, Any]] = None, *, as_json: bool = Fal
         print("\nRunning code:")
         print(f"  [?] {drift['reason']}")
 
+    servers = report.get("servers")
+    if servers and servers.get("servers"):
+        _print_servers(servers)
+
     offer = report.get("surface_offer")
     if offer:
         from ..surface_offer import render_offer_lines
@@ -2739,6 +2894,33 @@ def print_status(report: Optional[dict[str, Any]] = None, *, as_json: bool = Fal
         for line in render_offer_lines(offer):
             print(line)
     print()
+
+
+def _print_servers(block: dict[str, Any]) -> None:
+    """Running servers and whether each needs a restart (#1435). Report only."""
+    build = block.get("installed_build")
+    built = f", build {build}" if build else ""
+    print(f"\nRunning servers (installed {block.get('installed_version')}{built}):")
+    for s in block.get("servers") or []:
+        who = (
+            f"pid {s.get('pid')} ({s.get('client_id')}, {s.get('transport')}, "
+            f"recorded {s.get('version')}"
+            + (f", build {s['build']}" if s.get("build") else "")
+            + ")"
+        )
+        verdict = s.get("restart_required")
+        if verdict is True:
+            print(f"  [!] RESTART REQUIRED {who}: {s.get('reason', '')}")
+        elif verdict is False:
+            print(f"  [ok] {who}: {s.get('reason', '')}")
+        else:
+            # UNKNOWN is shown as unknown, never as current.
+            print(f"  [?] {who}: {s.get('reason', '')}")
+    if block.get("restart_required"):
+        print(
+            "      Restart those through their MCP client or service manager; "
+            "this command stops nothing."
+        )
 
 
 def list_targets() -> None:

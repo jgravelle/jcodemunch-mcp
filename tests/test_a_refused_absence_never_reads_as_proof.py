@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+import threading
 from pathlib import Path
 
 import pytest
@@ -60,7 +61,15 @@ def _meta_fields(monkeypatch, value):
 
 @pytest.fixture
 def checkout(tmp_path, monkeypatch):
-    """A git repo indexed at c0; the caller commits past it when it wants staleness."""
+    """A git repo indexed at c0; the caller commits past it when it wants staleness.
+
+    Refresh-on-read is off here: with it on, the dispatcher re-indexes the
+    commit before the search and the index is no longer stale. This file is
+    about how a stale index is reported, which is what a user with
+    ``refresh_on_read: false`` gets; the default-install arm turns it back on
+    and forces each way the repair does not run.
+    """
+    from jcodemunch_mcp import config as _config
     from jcodemunch_mcp.tools.index_folder import index_folder
     from jcodemunch_mcp.tools.search_symbols import _result_cache
 
@@ -75,6 +84,7 @@ def checkout(tmp_path, monkeypatch):
     _git(["commit", "-qm", "c0"], root)
     store = tmp_path / "store"
     monkeypatch.setenv("CODE_INDEX_PATH", str(store))
+    monkeypatch.setitem(_config._GLOBAL_CONFIG, "refresh_on_read", False)
     res = index_folder(str(root), use_ai_summaries=False, storage_path=str(store), identity_mode="local")
     _result_cache.clear()
 
@@ -83,7 +93,7 @@ def checkout(tmp_path, monkeypatch):
         _git(["add", "-A"], root)
         _git(["commit", "-qm", "c1"], root)
 
-    return {"repo": res["repo"], "commit_past": commit_past}
+    return {"repo": res["repo"], "root": str(root), "commit_past": commit_past}
 
 
 async def _search(repo: str, fmt: str = "json") -> dict:
@@ -108,6 +118,74 @@ async def test_a_stale_scan_whose_absence_is_refused_does_not_call_itself_strong
     assert "strong evidence" not in v["note"]
     assert "do not reformulate" not in v["note"].lower()
     assert v["absence_blocked_by"] in v["note"], "the note names the refusal"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("unrepaired", ["locked", "in_progress", "too_many_files", "failed", "undetermined"])
+async def test_on_a_default_install_a_stale_scan_the_refresh_could_not_repair_is_still_refused(
+    checkout, monkeypatch, unrepaired
+):
+    """Refresh on read is on by default and repairs the index before the scan,
+    so the arm above runs only with it off. This is the default install whose
+    repair did NOT run: the refusal and its note must reach the caller all the
+    same, beside the `index_refresh` block that says why."""
+    from jcodemunch_mcp import config as _config
+    from jcodemunch_mcp import refresh_on_read as ror
+
+    _meta_fields(monkeypatch, ["verdict"])
+    monkeypatch.setitem(_config._GLOBAL_CONFIG, "refresh_on_read", True)
+    monkeypatch.setitem(_config._GLOBAL_CONFIG, "server_output", "raw")
+    ror.reset_cooldowns()
+    root = Path(checkout["root"])
+    release = threading.Event()
+
+    def held(*a, **k):
+        release.wait(10)
+        return {}
+
+    def failing(*a, **k):
+        raise RuntimeError("disk full")
+
+    if unrepaired == "locked":
+        monkeypatch.setattr(ror, "_index_write_locked", lambda *_a: True)
+        checkout["commit_past"]()
+    elif unrepaired == "in_progress":
+        monkeypatch.setattr(ror, "_reindex", held)
+        checkout["commit_past"]()
+    elif unrepaired == "too_many_files":
+        monkeypatch.setattr(ror, "REFRESH_MAX_FILES", 0)
+        checkout["commit_past"]()
+    elif unrepaired == "failed":
+        monkeypatch.setattr(ror, "_reindex", failing)
+        checkout["commit_past"]()
+    else:
+        # Past the refusal cap with nothing the check could count: the commit
+        # adds a file the indexer refuses, beside an un-ignored dependency tree.
+        monkeypatch.setattr(ror, "_MAX_REFUSALS_CHECKED", 1)
+        (root / "node_modules").mkdir()
+        (root / "node_modules" / "m.js").write_text("module.exports = 1\n", encoding="utf-8")
+        (root / "app" / "notes.log").write_text("x\n", encoding="utf-8")
+        _git(["add", "app/notes.log"], root)
+        _git(["commit", "-qm", "c1"], root)
+
+    try:
+        body = await _search(checkout["repo"])
+    finally:
+        release.set()
+    assert body["index_refresh"]["reason"] == unrepaired, "precondition: the repair did not run"
+    assert body["index_refresh"].get("refreshed") in (0, None)
+    v = body["_meta"]["verdict"]
+    assert v["absence_citable"] is False
+    if unrepaired != "undetermined":
+        assert "stale" in v["absence_blocked_by"]
+    else:  # the un-ignored tree is an uncommitted change the scan could not read
+        assert v["absence_blocked_by"]
+    assert v["note"] != _NOTES[STATE_ABSENT]
+    assert "strong evidence" not in v["note"]
+    assert "NOT proven" in v["note"]
+    if unrepaired != "undetermined":
+        assert v["absence_blocked_by"] in v["note"], "the note names the refusal"
+    ror.reset_cooldowns()
 
 
 @pytest.mark.asyncio

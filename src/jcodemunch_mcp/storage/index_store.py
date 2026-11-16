@@ -693,7 +693,24 @@ INDEX_VERSION = 17
 # 28 (#1315): C-family `#import`, `#include_next`, an indented `#include` and
 #   `# include` are edges. `files.imports` changes on UNCHANGED content (the
 #   generation-25 shape). The resolver half of #1315 needs no re-parse.
-PARSER_GENERATION = 28
+# 29 (L-263, L-291): a JS/TS function assigned to a member at module scope is a
+#   symbol (`res.send = function () {}`, `exports.f = ...`,
+#   `Foo.prototype.m = ...`), and a bound function's signature is its header,
+#   not its body. Symbols and signatures change on UNCHANGED content.
+# 30 (#1374): a `;`-terminated Java or Kotlin import followed by a carriage
+#   return or trailing spaces is an edge; the import pattern stopped there,
+#   so a CRLF checkout lost every Java import. `files.imports` changes on
+#   UNCHANGED content (the generation-25 shape). The resolver half of #1374
+#   (JVM source roots, `.java`/`.kt`) needs no re-parse.
+# 31 (#1375): a Java or Kotlin wildcard import is an edge: `import a.b.*`
+#   becomes one `a.b.Name` edge per type name the file uses, and
+#   `import static a.b.C.*` an edge to `a.b.C`. `files.imports` changes on
+#   UNCHANGED content (the generation-25 shape).
+# 32 (#1377): a Java or Kotlin file's own package is an implicit wildcard
+#   import, so each type name the file uses becomes a `<package>.Name` edge
+#   marked `same_package`. `files.imports` changes on UNCHANGED content (the
+#   generation-25 shape).
+PARSER_GENERATION = 32
 
 
 @dataclass(frozen=True)
@@ -855,7 +872,15 @@ class CodeIndex:
         if not self.alias_map and self.source_root:
             try:
                 from ..parser.imports import _load_tsconfig_aliases
-                self.alias_map = _load_tsconfig_aliases(self.source_root)
+                # The file list vouches for the tree only after a full
+                # discovery walk the file cap didn't cut. A `paths=` first
+                # index, or one from before coverage was recorded, keeps the walk.
+                whole = (self.coverage or {}).get("walk") == "full" and not (
+                    (self.file_cap_status or {}).get("truncated")
+                )
+                self.alias_map = _load_tsconfig_aliases(
+                    self.source_root, known_files=self.source_files if whole else None
+                )
             except Exception:
                 pass
         # Load PSR-4 namespace map from composer.json if PHP files are present
@@ -879,6 +904,18 @@ class CodeIndex:
                 augment_racket_collection_edges(self.imports, self.source_root, self._source_file_set)
             except Exception:
                 logger.debug("racket collection edges unavailable", exc_info=True)
+        # (#1376) A Kotlin import that names a top-level declaration
+        # (`import a.b.buildSnapshot`, declared in `a/b/SnapshotMapper.kt`)
+        # gains an edge to the declaring file, the same ADDED-edge shape as
+        # Racket's. Derived from the symbols on every construction, so a
+        # declaration that moved files moves its edge.
+        langs = self.languages or {}
+        if self.imports and ("kotlin" in langs or "java" in langs):
+            try:
+                from ..parser.imports import augment_jvm_declaration_edges
+                augment_jvm_declaration_edges(self.imports, self.symbols, self._source_file_set)
+            except Exception:
+                logger.debug("jvm declaration edges unavailable", exc_info=True)
 
     def get_callers_by_name(self) -> dict[tuple[str, str], list[str]]:
         """Lazy reverse lookup: (caller_file, called_name) -> [symbol IDs].
@@ -1418,6 +1455,10 @@ class IndexStore:
         """
         return self._sqlite.open_selective(owner, name, **kwargs)
 
+    def read_file_symbols(self, owner: str, name: str, files: list):
+        """``(indexed_at, mtime_ns, symbols)`` for the named files, or None (use another path)."""
+        return self._sqlite.read_file_symbols(owner, name, files)
+
     def get_symbol_content(self, owner: str, name: str, symbol_id: str, _index: Optional["CodeIndex"] = None) -> Optional[str]:
         """Read symbol source using stored byte offsets.
 
@@ -1440,6 +1481,10 @@ class IndexStore:
     def read_cached_source(self, owner: str, name: str, file_path: str) -> Optional[str]:
         """A file's text from the content cache (path-contained); None if absent."""
         return self._sqlite.read_cached_source(owner, name, file_path)
+
+    def missing_cached_copies(self, owner: str, name: str, file_paths) -> list[str]:
+        """The listed files whose cached text is absent."""
+        return self._sqlite.missing_cached_copies(owner, name, file_paths)
 
     def detect_changes(
         self,

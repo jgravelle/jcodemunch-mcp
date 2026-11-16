@@ -211,6 +211,125 @@
       "replacement": "tests/test_import_resolution_is_memoized.py::test_a_gleam_answer_is_never_shared_between_importers",
       "commit": "perf/1317-resolution-memo",
       "date": "2026-11-03"
+    },
+    {
+      "path": "tests/test_v1_108_193.py::test_the_three_withheld_reasons",
+      "lesson": "Its name counted the withheld reasons as three. A file whose parse ran past the budget or raised is real, current and wanted, and its symbols are missing because of our parser, so `parse_failed` joins the set. The exact-equality pin it carried stays, so a reason added or dropped by accident still fails.",
+      "replacement": "tests/test_v1_108_193.py::test_the_withheld_reasons",
+      "commit": "fix/parse-failure-withheld",
+      "date": "2026-11-07"
+    },
+    {
+      "path": "tests/test_config.py::test_project_config_dot_slash_resolution",
+      "lesson": "It asserted that a repository's own .jcodemunch.jsonc decides which folders are trusted. Which folders this install trusts is set in the user's own config only. A project file's trusted_folders and trusted_folders_whitelist_mode are ignored with a warning.",
+      "replacement": "tests/test_config.py::test_a_project_files_trusted_folders_is_ignored",
+      "commit": "fix/project-config-cost-keys",
+      "date": "2026-11-07"
+    },
+    {
+      "path": "tests/test_config.py::test_project_config_path_resolution",
+      "lesson": "It asserted that a repository's own .jcodemunch.jsonc decides which folders are trusted. Which folders this install trusts is set in the user's own config only. A project file's trusted_folders and trusted_folders_whitelist_mode are ignored with a warning.",
+      "replacement": "tests/test_config.py::test_a_project_files_trusted_folders_is_ignored",
+      "commit": "fix/project-config-cost-keys",
+      "date": "2026-11-07"
+    },
+    {
+      "path": "tests/test_config.py::test_project_config_implicit_relative_escape_rejected",
+      "lesson": "It asserted that a repository's own .jcodemunch.jsonc decides which folders are trusted. Which folders this install trusts is set in the user's own config only. A project file's trusted_folders and trusted_folders_whitelist_mode are ignored with a warning.",
+      "replacement": "tests/test_config.py::test_a_project_files_trusted_folders_is_ignored",
+      "commit": "fix/project-config-cost-keys",
+      "date": "2026-11-07"
+    },
+    {
+      "path": "tests/test_config.py::test_project_config_multiple_mixed_entries",
+      "lesson": "It asserted that a repository's own .jcodemunch.jsonc decides which folders are trusted. Which folders this install trusts is set in the user's own config only. A project file's trusted_folders and trusted_folders_whitelist_mode are ignored with a warning.",
+      "replacement": "tests/test_config.py::test_a_project_files_trusted_folders_is_ignored",
+      "commit": "fix/project-config-cost-keys",
+      "date": "2026-11-07"
+    },
+    {
+      "path": "tests/test_config.py::test_project_config_overrides_global_trusted_folders",
+      "lesson": "It asserted that a repository's own .jcodemunch.jsonc decides which folders are trusted. Which folders this install trusts is set in the user's own config only. A project file's trusted_folders and trusted_folders_whitelist_mode are ignored with a warning.",
+      "replacement": "tests/test_config.py::test_a_project_files_trusted_folders_is_ignored",
+      "commit": "fix/project-config-cost-keys",
+      "date": "2026-11-07"
+    },
+    {
+      "path": "tests/test_config.py::test_project_config_empty_list_overrides_global",
+      "lesson": "It asserted that a repository's own .jcodemunch.jsonc decides which folders are trusted. Which folders this install trusts is set in the user's own config only. A project file's trusted_folders and trusted_folders_whitelist_mode are ignored with a warning.",
+      "replacement": "tests/test_config.py::test_a_project_files_trusted_folders_is_ignored",
+      "commit": "fix/project-config-cost-keys",
+      "date": "2026-11-07"
+    },
+    {
+      "path": "tests/test_config.py::test_project_config_deduplicates",
+      "lesson": "It asserted that a repository's own .jcodemunch.jsonc decides which folders are trusted. Which folders this install trusts is set in the user's own config only. A project file's trusted_folders and trusted_folders_whitelist_mode are ignored with a warning.",
+      "replacement": "tests/test_config.py::test_a_project_files_trusted_folders_is_ignored",
+      "commit": "fix/project-config-cost-keys",
+      "date": "2026-11-07"
+    },
+    {
+      "path": "tests/test_tools.py::test_index_folder_uses_project_config_trusted_folders",
+      "lesson": "It asserted that a repository's own .jcodemunch.jsonc decides which folders are trusted. Which folders this install trusts is set in the user's own config only. A project file's trusted_folders and trusted_folders_whitelist_mode are ignored with a warning.",
+      "replacement": "tests/test_project_config_cannot_spend_or_send.py::test_a_project_file_cannot_trust_its_own_folder",
+      "commit": "fix/project-config-cost-keys",
+      "date": "2026-11-07"
+    },
+    {
+      "path": "tests/test_summarizer_body_chars.py::test_default_is_zero_and_a_project_config_turns_it_on_for_that_repo_only",
+      "lesson": "It asserted that a repository's own .jcodemunch.jsonc can turn on sending symbol source to the summarizer. A project file may turn a setting off, never on; the user's own config turns it on, and a project file may lower it for its repo.",
+      "replacement": "tests/test_summarizer_body_chars.py::test_default_is_zero_and_a_project_config_can_only_lower_it",
+      "commit": "fix/project-config-cost-keys",
+      "date": "2026-11-07"
+    },
+    {
+      "path": "tests/test_refresh_campaign.py::test_an_unforced_subset_still_escalates",
+      "lesson": "It required a paths= call without force_reparse to escalate a due PARSER_GENERATION upgrade to a full re-parse. Under paths= that full re-parse covered the listed file only and saved it as the whole index, so the assertion passed exactly while seven of the fixture's eight files were dropped (#1397). The property it protected is that an unforced subset cannot quietly skip the upgrade.",
+      "replacement": "tests/test_refresh_campaign.py::test_an_unforced_subset_keeps_the_upgrade_due",
+      "commit": "fix/1397-paths-full-reindex",
+      "date": "2026-11-11"
+    },
+    {
+      "path": "tests/test_bm25_stats_live_in_the_index.py::test_the_save_time_publish_writes_idf_last",
+      "lesson": "It pinned the order in which a full save published precomputed BM25 statistics into the warm index (#490's idf-last rule). A full save no longer computes them: that cost made every full index slower (v1.108.423) for an index that may never be searched, so the save-time publish path and its function are gone. The idf-last rule still holds on the path that reads a stored row.",
+      "replacement": "tests/test_bm25_stats_live_in_the_index.py::test_the_stored_hit_publishes_idf_last",
+      "commit": "fix/cold-index-lazy-stats",
+      "date": "2026-11-15"
+    },
+    {
+      "path": "tests/test_savings_tokenizer_table.py::test_a_full_index_stores_a_count_for_every_file",
+      "lesson": "It required a full save to store a count for every file. A full save no longer counts files: counting every file while the index was written made a full index slower (v1.108.439, #1414) to pay for files no response credits. A file is counted the first time a response credits it, after the call, and its next credit uses the count.",
+      "replacement": "tests/test_savings_tokenizer_table.py::test_a_full_index_counts_nothing_and_a_credit_counts_its_file",
+      "commit": "fix/cold-index-lazy-stats",
+      "date": "2026-11-15"
+    },
+    {
+      "path": "tests/test_savings_tokenizer_table.py::test_a_reindex_counts_the_changed_file_and_drops_the_old_count",
+      "lesson": "It required a re-index to count the changed file. A full save no longer counts files: counting every file while the index was written made a full index slower (v1.108.439, #1414) to pay for files no response credits. A file is counted the first time a response credits it, after the call, and its next credit uses the count. Pruning the old count at save is kept.",
+      "replacement": "tests/test_savings_tokenizer_table.py::test_a_reindex_drops_the_count_of_content_no_file_holds",
+      "commit": "fix/cold-index-lazy-stats",
+      "date": "2026-11-15"
+    },
+    {
+      "path": "tests/test_savings_tokenizer_table.py::test_an_index_saved_before_counts_existed_gets_them_on_its_next_save",
+      "lesson": "It required an index without counts to gain them at its next save. A full save no longer counts files: counting every file while the index was written made a full index slower (v1.108.439, #1414) to pay for files no response credits. A file is counted the first time a response credits it, after the call, and its next credit uses the count. An old index now gains each count at that file's first credit.",
+      "replacement": "tests/test_savings_tokenizer_table.py::test_a_second_process_credits_a_counted_file_by_its_count",
+      "commit": "fix/cold-index-lazy-stats",
+      "date": "2026-11-15"
+    },
+    {
+      "path": "tests/test_savings_tokenizer_table.py::test_a_save_without_the_encoding_reads_no_indexed_copies",
+      "lesson": "It guarded the save from reading every copy when no encoding could count them. The save reads none now by construction; the same guard holds on the write-back.",
+      "replacement": "tests/test_savings_tokenizer_table.py::test_a_write_back_without_the_encoding_reads_no_indexed_copies",
+      "commit": "fix/cold-index-lazy-stats",
+      "date": "2026-11-15"
+    },
+    {
+      "path": "tests/test_bm25_stats_live_in_the_index.py::test_a_full_index_writes_the_stats_with_the_symbols",
+      "lesson": "It required a full save to write the BM25 corpus statistics in the symbols' own transaction (#1343). That cost made every full index slower (v1.108.423) for an index that may never be searched. A full save now clears the row, and the first search computes the statistics and has them written back, so a second process still reads them instead of computing them.",
+      "replacement": "tests/test_bm25_stats_live_in_the_index.py::test_a_full_index_stores_no_stats_and_the_first_search_does",
+      "commit": "fix/cold-index-lazy-stats",
+      "date": "2026-11-15"
     }
   ]
 }

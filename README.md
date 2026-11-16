@@ -1,8 +1,8 @@
 # jCodeMunch MCP
 
-**An MCP server that retrieves source code by symbol, not by file, using tree-sitter AST parsing.** It uses 94.5% fewer tokens per lookup on average than grep-and-read on our 15-lookup benchmark (86.9% to 98.7% across the lookups, at pinned commits), so your agent stops spending its context window on whole files.
+**An MCP server that retrieves source code by symbol, not by file, using tree-sitter AST parsing.** It uses 96.2% fewer tokens per lookup on average than grep-and-read on our 15-lookup benchmark (90.4% to 99.2% across the lookups, at pinned commits), so your agent stops spending its context window on whole files.
 
-<sub>Benchmark: 5 queries on each of express, fastapi and gin at pinned commits, tokens counted with tiktoken `cl100k_base`, jcodemunch-mcp at commit `15afcf75`, whose version string is 1.108.391 but which also carries the settings-file ranking change released in 1.108.392 and the field/constant change released after it. A lookup is one `search_symbols` plus `get_symbol_source` on its top 3 hits, against grep-and-read (rank files by match count, read the top 3 whole). Per lookup, not per session. Reproduce with [`benchmarks/REPRODUCING.md`](benchmarks/REPRODUCING.md).</sub>
+<sub>Benchmark: 5 queries on each of express, fastapi and gin at pinned commits, tokens counted with tiktoken `cl100k_base`, jcodemunch-mcp 1.108.426 with the served-response count of #1361 (the benchmark counts the text the server sends on a default install). A lookup is one `search_symbols` plus `get_symbol_source` on its top 3 hits, against grep-and-read (rank files by match count, read the top 3 whole). Per lookup, not per session. Reproduce with [`benchmarks/REPRODUCING.md`](benchmarks/REPRODUCING.md).</sub>
 
 > **Real results from production, as of 2026-08-17**
 > **838B+ tokens saved** · **136,000+ reporting installs** · **$4.2M+ in AI spend avoided** · **100,000+ kg CO₂ prevented**
@@ -50,19 +50,19 @@ Index once. Query cheaply. Keep moving. **Precision context beats brute-force co
 
 ### Reproducible token efficiency benchmark
 
-Measured with `tiktoken cl100k_base` across three public repos pinned to upstream commits, run 2026-10-22 on v1.108.391 (at commit `15afcf75`, whose version string is 1.108.391 but which also carries the settings-file ranking change released in 1.108.392 and the field/constant change released after it). Workflow: `search_symbols` (top 5) + `get_symbol_source` × 3 per query. Two baselines, same run, same corpus, same file reader:
+Measured with `tiktoken cl100k_base` across three public repos pinned to upstream commits, run 2026-11-08 on v1.108.426, with the benchmark counting the text the server sends on a default install (#1361). Workflow: `search_symbols` (top 5) + `get_symbol_source` × 3 per query. Two baselines, same run, same corpus, same file reader:
 
 - **Grep-top-3**: `rg -l` the query terms, rank files by match count, open the top 3 whole. This is what a competent agent without the tool actually does, and it is the number to quote.
 - **Read-all**: every indexed source file concatenated. A ceiling nobody pays; retained for continuity with previously published figures.
 
 | Repository | Files | Symbols | Grep-top-3 baseline | jCodeMunch | vs grep | vs read-all |
 |------------|------:|--------:|--------------------:|-----------:|--------:|------------:|
-| expressjs/express | 186 | 989 | 15,724 avg | 990 avg | **15.9x** | 156.1x |
-| fastapi/fastapi | 1,186 | 13,699 | 85,296 avg | 2,556 avg | **33.4x** | 322.9x |
-| gin-gonic/gin | 98 | 1,822 | 31,975 avg | 1,481 avg | **21.6x** | 102.5x |
-| **Grand total, pooled (15 task-runs)** | | | **664,975** | **25,132** | 26.5x | 225.2x |
+| expressjs/express | 186 | 1,085 | 15,040 avg | 743 avg | **20.2x** | 208.0x |
+| fastapi/fastapi | 1,186 | 13,699 | 86,713 avg | 1,779 avg | **48.7x** | 463.9x |
+| gin-gonic/gin | 98 | 1,822 | 32,253 avg | 994 avg | **32.5x** | 152.8x |
+| **Grand total, pooled (15 task-runs)** | | | **670,032** | **17,581** |  | 321.9x |
 
-**Against a grep-and-read agent: 94.5% fewer tokens per lookup on average.** No single multiple describes every query; the per-repo rows above are the spread. Against read-all the figure is 99.6%, but nobody pays that ceiling. Compact [MUNCH](SPEC_MUNCH.md) wire encoding then trims a median 45.5% more bytes off responses.
+**Against a grep-and-read agent: 96.2% fewer tokens per lookup on average.** No single multiple describes every query; the per-repo rows above are the spread. Against read-all the figure is 99.7%, but nobody pays that ceiling. That count is the text the server actually sends, compact MUNCH encoding included, so it's what your agent receives on a default install.
 
 Full methodology, pinned commits, harness, and known caveats: [benchmarks/METHODOLOGY.md](benchmarks/METHODOLOGY.md) · [Reproduce it yourself](benchmarks/REPRODUCING.md) · [TOKEN_SAVINGS.md](TOKEN_SAVINGS.md)
 
@@ -160,9 +160,9 @@ What that lookup costs, from our benchmark on Express at commit `1faf2289`, coun
 | | Tokens |
 |---|---:|
 | Grep-and-read: search `router route handler`, open the top 3 matching files whole | 9,890 |
-| jCodeMunch: one symbol search, then the source of the top 3 matches | 1,074 |
+| jCodeMunch: one symbol search, then the source of the top 3 matches | 506 |
 
-That's one of the 15 lookups in the benchmark (5 each on express, fastapi and gin at pinned commits). jCodeMunch used 94.5% fewer tokens per lookup on average than grep-and-read on our 15-lookup benchmark. The pack is built from Express 4.x, while the benchmark pins commit `1faf2289` on upstream main, so your count can differ. To rerun the benchmark at the pinned commits, follow [`benchmarks/REPRODUCING.md`](benchmarks/REPRODUCING.md); raw data is in [`benchmarks/`](benchmarks/).
+That's one of the 15 lookups in the benchmark (5 each on express, fastapi and gin at pinned commits). jCodeMunch used 96.2% fewer tokens per lookup on average than grep-and-read on our 15-lookup benchmark. The pack is built from Express 4.x, while the benchmark pins commit `1faf2289` on upstream main, so your count can differ. To rerun the benchmark at the pinned commits, follow [`benchmarks/REPRODUCING.md`](benchmarks/REPRODUCING.md); raw data is in [`benchmarks/`](benchmarks/).
 
 ---
 
@@ -200,7 +200,7 @@ That's the highlight reel. The complete tour of the full tool set (90+ tools beh
 
 It helps most on targeted edits (one function, one method, one class), which is the majority of real editing work. Edits that genuinely require the entire file (restructuring file-level state, reordering logic spanning hundreds of lines) see no advantage. Best fits: large repositories, unfamiliar codebases, agent-driven exploration, refactoring and impact analysis, and teams cutting AI token costs without making agents dumber.
 
-**Languages:** 70+ via tree-sitter, including Python, JavaScript/TypeScript, Go, Rust, Java, C/C++, C#, PHP, Ruby, Swift, and Kotlin. Full matrix: [LANGUAGE_SUPPORT.md](LANGUAGE_SUPPORT.md). **Monorepos:** yes; incremental indexing, workspace-member detection, subpath scoping.
+**Languages:** 79+ via tree-sitter, including Python, JavaScript/TypeScript, Go, Rust, Java, C/C++, C#, PHP, Ruby, Swift, and Kotlin. Full matrix: [LANGUAGE_SUPPORT.md](LANGUAGE_SUPPORT.md). **Monorepos:** yes; incremental indexing, workspace-member detection, subpath scoping.
 
 ---
 
@@ -267,7 +267,7 @@ jCodeMunch runs on your machine. Your code, file paths and queries stay there: t
 
 The one thing the server sends by default is an anonymous savings counter: a random ID, the tokens saved since the last send, and a lifetime total. It sends no code, no paths and no queries. Turn it off with `"share_savings": false` in `~/.code-index/config.jsonc` or `JCODEMUNCH_SHARE_SAVINGS=0`. The Claude Code plugin turns it off for you.
 
-Anything else that reaches the network is something you run or turn on yourself, and each is listed in [Security, privacy, and background behavior](#security-privacy-and-background-behavior). Full policy: https://jcodemunch.com/privacy.php
+The one other default network call is a single download, not a send: the first time a count is needed, `tiktoken` fetches `cl100k_base.tiktoken` (1,681,126 bytes) once from `https://openaipublic.blob.core.windows.net/encodings/`, checks it against its pinned SHA-256 and keeps it in its own cache (`TIKTOKEN_CACHE_DIR`, else `data-gym-cache` under your temp directory). The request carries nothing about you or your code. It runs on a background thread and never blocks or fails a call; until it finishes, and whenever it is off, fails or the machine is offline, counts use the measured bytes-per-token table and `_meta.tokens_saved_basis` says why. `"tokenizer_download": false` in `config.jsonc` or `JCODEMUNCH_TOKENIZER_DOWNLOAD=0` turns it off (a copy already in tiktoken's cache is still used). Anything else that reaches the network is something you run or turn on yourself, and each is listed in [Security, privacy, and background behavior](#security-privacy-and-background-behavior). Full policy: https://jcodemunch.com/privacy.php
 
 ## Security, privacy, and background behavior
 
@@ -277,9 +277,11 @@ A short work-license reminder follows, 7 days after a machine's first index and 
 
 The text report of `jcodemunch-mcp receipt` ends with one license line on a machine with no license key, tagged `utm_medium=receipt`. It has no clock and writes no state; every switch that silences the reminder silences it, and `--export` and `--explain` never carry it.
 
-The short version is the [Privacy Policy](#privacy-policy) above. Local-first by design: indexes live at `~/.code-index/`, and the base package's only default network behavior is an anonymous savings counter (random ID plus aggregate token counts, no code, no paths, no PII; opt out with `share_savings: false`). Everything the server does beyond answering a tool call (file watching, the opt-in login service, license validation, model downloads, org reporting) is opt-in or opt-out, visible, and reversible, and every item is enumerated in **[SECURITY.md](SECURITY.md#background-behavior-fully-disclosed)** alongside the path-traversal, symlink, and secret-redaction controls. A stdio server also stops on its own when the client process that started it is gone, even if its stdin pipe stays open (`JCODEMUNCH_PARENT_WATCH_SECONDS=0` turns that off). A default `init` writes no policy file and installs no hook whose output the model reads; those are `init --policy` and `init --guidance`, and `init --remove-guidance` takes them back out of an older install. `init --git-hook` adds a git post-checkout hook that re-indexes the files a branch switch changed, in an already indexed repository; `uninstall` run in that repository removes it.
+The short version is the [Privacy Policy](#privacy-policy) above. Local-first by design: indexes live at `~/.code-index/`, and the base package's default network behavior is an anonymous savings counter (random ID plus aggregate token counts, no code, no paths, no PII; opt out with `share_savings: false`) and the one-time download of the token-counting file described under Token counting below (opt out with `tokenizer_download: false`). Everything the server does beyond answering a tool call (file watching, the opt-in login service, license validation, model downloads, org reporting) is opt-in or opt-out, visible, and reversible, and every item is enumerated in **[SECURITY.md](SECURITY.md#background-behavior-fully-disclosed)** alongside the path-traversal, symlink, and secret-redaction controls. On a git repository, a read tool first asks git (read-only, at most once per repo every 30 s in each server process) which files changed since the index was built and re-indexes up to 50 of them locally before answering; the whole check holds the answer for at most 2 s, and a re-index that outlives it keeps running in the background after the answer. `refresh_on_read: false` turns that off. A stdio server also stops on its own when the client process that started it is gone, even if its stdin pipe stays open (`JCODEMUNCH_PARENT_WATCH_SECONDS=0` turns that off). A default `init` writes no policy file and installs no hook whose output the model reads; those are `init --policy` and `init --guidance`, and `init --remove-guidance` takes them back out of an older install. `init --git-hook` adds a git post-checkout hook that re-indexes the files a branch switch changed, in an already indexed repository; `uninstall` run in that repository removes it. `init --cursor-hooks` adds two hooks to `~/.cursor/hooks.json` that count Cursor's agent reads of indexed code beside its jCodeMunch calls, in `~/.code-index/_direct_reads.json` (daily counts only; nothing is sent, and every read is allowed); `uninstall` removes them.
 
 **Grammar pack override (#608).** The dependency `tree-sitter-language-pack` is pinned `<1.0.0` because the 0.x wheels bundle every grammar and parsing stays local. F# is the one exception: it is parsed by the pinned `tree-sitter-fsharp` wheel, which also compiles its grammar in, so F# parsing stays local on either pack (#848). You can override it with `pip install -U tree-sitter-language-pack` after installing; nothing in the code refuses it. What you accept, measured against 1.17.0 on 2026-09-11: the 1.x pack ships no grammars and fetches each one over the network into its cache directory (measured on Windows: `%LOCALAPPDATA%\tree-sitter-language-pack\v<version>\libs`; `jcodemunch-mcp install-status` prints the path on any platform) the first time a language is parsed, so an airgapped install parses nothing, and the `nim` grammar changed upstream, so nim files yield no symbols (the manifest also lacks `autohotkey`, `ejs` and `verse`, which costs nothing here: those three are parsed by jCodeMunch's own extractors, not by tree-sitter). An install on a 1.x pack says so: every `index_folder` result carries a `grammar_pack` block and a warning naming the version, the cache directory and each language whose grammar failed, and `jcodemunch-mcp install-status` prints the same. Dropping the pin is a separate decision that needs the offline story first.
+
+**Token counting (`tiktoken`).** `tokens_saved` is counted with OpenAI's `cl100k_base` encoding, scaled to Claude's tokenizer by a measured per-language ratio unless `savings_tokenizer` is `"openai"`. The encoding file is not in the package: the first time a count is needed, `tiktoken` fetches `cl100k_base.tiktoken` (1,681,126 bytes) once from `https://openaipublic.blob.core.windows.net/encodings/`, checks it against its pinned SHA-256 and keeps it in its own cache (`TIKTOKEN_CACHE_DIR`, else `data-gym-cache` under your temp directory). The request carries nothing about you or your code. It runs on a background thread and never blocks or fails a call; until it finishes, and whenever it is off, fails or the machine is offline, counts use the measured bytes-per-token table and `_meta.tokens_saved_basis` says why. `"tokenizer_download": false` in `config.jsonc` or `JCODEMUNCH_TOKENIZER_DOWNLOAD=0` turns it off (a copy already in tiktoken's cache is still used). Each file is counted once, the first time a response credits it: that response uses the bytes-per-token table for the file, and after the response is sent the server counts the file from the index's own copy and stores the count in the index's database (`token_counts` table), so later calls read it. A file the index keeps no copy of keeps the table estimate. `tiktoken`'s MIT notice is in `jcodemunch_mcp/data/NOTICE.md`.
 
 ---
 
@@ -403,6 +405,18 @@ Claude Code and GitHub Copilot (the Copilot app, Copilot CLI, VS Code and JetBra
 
 In Claude Code, add `"allowManagedMcpServersOnly": true` to make the managed list the only allowlist that applies ([docs](https://code.claude.com/docs/en/managed-mcp#restrict-the-allowlist-to-managed-settings-only)). Codex reads its own config and isn't covered by these settings.
 
+**Codex.** A Codex admin can limit MCP servers with requirements. One route is the system file: `%ProgramData%\OpenAI\Codex\requirements.toml` on Windows, `/etc/codex/requirements.toml` on Linux and macOS. OpenAI's docs list the other layers, such as the cloud bundle and macOS MDM ([docs](https://learn.chatgpt.com/docs/enterprise/managed-configuration)). Per those docs, a server stays enabled only when both its name and its identity match an entry:
+
+```toml
+[mcp_servers.jcodemunch]
+identity = { command = "jcodemunch-mcp" }
+```
+
+- By OpenAI's documented rule, this string form matches a user entry whose `command` is exactly `jcodemunch-mcp` and ignores args. An entry with an absolute path doesn't match and is disabled. We haven't run this enforcement ourselves.
+- On Windows, `jcodemunch-mcp init` writes the bare name when PATH finds the same install, and Codex starts it from PATH. Otherwise `init` writes the absolute path, which this entry doesn't match.
+- On Linux and macOS, `init` always writes the absolute path, because a client started outside a login shell can have a narrower PATH. To match this entry, a user sets `command = "jcodemunch-mcp"` in `~/.codex/config.toml`, which works only if that client's PATH finds it. The alternative is the docs' structured identity, `command = { executable = "<absolute path>", args = [] }`, which has to name each machine's path.
+- Our plugin's server is allowlisted under `plugins.<plugin>.mcp_servers.jcodemunch`, not the entry above. It starts with `uvx` and `jcodemunch-mcp==X.Y.Z`. A string identity of `uvx` would approve any package started with `uvx`. To pin ours, use the structured form with an exact `args` match on `jcodemunch-mcp==X.Y.Z`, which changes with each release.
+
 For GitHub's registry route, the server ID is `io.github.jgravelle/jcodemunch-mcp`. That route is in public preview, and GitHub calls the managed-settings allowlist the more secure, generally available method ([docs](https://docs.github.com/en/copilot/how-tos/administer-copilot/manage-mcp-usage/restrict-based-on-registry)).
 
 Keep the server name `jcodemunch` in every config, so jCodeMunch shows up under one name. Copilot's usage metrics API counts MCP connection and reconnection attempts per user, not tool calls ([docs](https://docs.github.com/en/copilot/reference/copilot-usage-metrics/copilot-usage-metrics#customization-fields-api-only)).
@@ -453,7 +467,7 @@ Then add an entry for it to the repo's `.cursor-plugin/marketplace.json`, follow
 ## FAQ
 
 **How much can I save on Claude / Opus tokens?**
-In retrieval-heavy workflows, code-reading tokens typically drop 86-99%, benchmarked at 94.5% fewer tokens per lookup on average against a grep-and-read agent across 15 lookups and 3 repositories. Per-query results span 7.6x to 77.2x. Methodology: [TOKEN_SAVINGS.md](TOKEN_SAVINGS.md) and [benchmarks/](benchmarks/).
+Code-reading tokens drop 90-99% per lookup on our benchmark: 96.2% fewer on average than a grep-and-read agent across 15 lookups and 3 repositories. Per-query results span 10.4x to 132.5x. Methodology: [TOKEN_SAVINGS.md](TOKEN_SAVINGS.md) and [benchmarks/](benchmarks/).
 
 **How is this different from RAG or grep-based tools?**
 jCodeMunch retrieves at the **symbol level** with byte-level precision (functions, classes, importers, blast radius, hierarchies) rather than fuzzy chunks (RAG) or raw line matches (grep) the agent still has to read and reason over.

@@ -103,6 +103,7 @@ class SelectiveIndexView:
     __slots__ = (
         "_partial", "_promote", "_full", "_fetch_symbol", "_extra",
         "_promotions", "_promoted_by", "_generation", "_generation_moved",
+        "_imports_loader",
         *_PROVENANCE,
         *EXACT_FIELDS,
     )
@@ -114,7 +115,12 @@ class SelectiveIndexView:
         promote: Callable[[], Optional[object]],
         fetch_symbol: Callable[[str], Optional[dict]],
         generation: Optional[str] = None,
+        imports_loader: Optional[Callable[[], Optional[dict]]] = None,
     ) -> None:
+        """``imports_loader``: decodes ``imports`` from the rows this view was
+        read from. When given, ``partial.imports`` is a placeholder and the
+        field is decoded on first access, from the same snapshot, so its value
+        is the one an eager decode gives."""
         object.__setattr__(self, "_partial", partial)
         object.__setattr__(self, "_promote", promote)
         object.__setattr__(self, "_fetch_symbol", fetch_symbol)
@@ -130,6 +136,10 @@ class SelectiveIndexView:
             object.__setattr__(self, field, getattr(partial, field, None))
         for field in EXACT_FIELDS:
             object.__setattr__(self, field, getattr(partial, field, None))
+        object.__setattr__(self, "_imports_loader", imports_loader)
+        if imports_loader is not None:
+            # Left unset, so the first read reaches __getattr__ and decodes.
+            object.__delattr__(self, "imports")
 
     # -- the exact half ---------------------------------------------------- #
 
@@ -171,6 +181,13 @@ class SelectiveIndexView:
         """
         if attr.startswith("__") and attr.endswith("__"):
             raise AttributeError(attr)
+        if attr == "imports" and self._imports_loader is not None:
+            # Exact, from this view's own snapshot: never a promotion.
+            value = self._imports_loader()
+            object.__setattr__(self, "imports", value)
+            object.__setattr__(self, "_imports_loader", None)
+            self._partial.imports = value
+            return value
         return getattr(self._promoted(attr), attr)
 
     def _promoted(self, because: str = "unknown"):

@@ -170,7 +170,7 @@ def _load_tasks() -> tuple[list[str], list[str]]:
         return repos, queries
     return DEFAULT_REPOS, [
         "router route handler", "middleware", "error exception",
-        "request response", "context bind",
+        "request response", "param bind",
     ]
 
 

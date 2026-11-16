@@ -22,6 +22,7 @@ again.
 
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 
@@ -73,19 +74,42 @@ def _written(tmp_path, files):
     return out["repo"], storage
 
 
+def _working_jdk() -> tuple[str, str] | None:
+    """`javac` and `java` paths when both RUN, else None.
+
+    On PATH is not the same as working: macOS ships `/usr/bin/javac` and
+    `/usr/bin/java` as stubs that exit 1 ("Unable to locate a Java Runtime")
+    when no JDK is installed, and the first Mac full tier failed every case
+    here on that stub.
+    """
+    javac, java = shutil.which("javac"), shutil.which("java")
+    if not javac or not java:
+        return None
+    for exe in (javac, java):
+        try:
+            probe = subprocess.run([exe, "-version"], capture_output=True, timeout=60)
+        except (OSError, subprocess.TimeoutExpired):
+            return None
+        if probe.returncode != 0:
+            return None
+    return javac, java
+
+
 def _javac_runs(tmp_path) -> None:
     """Compile OUTSIDE the indexed tree: a build dir written into it makes the
     index stale, and the preflight then refuses for that reason instead."""
-    if not shutil.which("javac") or not shutil.which("java"):
+    jdk = _working_jdk()
+    if jdk is None:
         return  # the JLS rule stands without it; the compile is the proof when present
+    javac, java = jdk
     build = tmp_path.parent / (tmp_path.name + "-javac")
     build.mkdir()
     subprocess.run(
-        ["javac", "-d", str(build), str(tmp_path / "A.java"), str(tmp_path / "B.java")],
+        [javac, "-d", str(build), str(tmp_path / "A.java"), str(tmp_path / "B.java")],
         check=True,
         capture_output=True,
     )
-    out = subprocess.run(["java", "-cp", str(build), "B"], capture_output=True, text=True, check=True)
+    out = subprocess.run([java, "-cp", str(build), "B"], capture_output=True, text=True, check=True)
     assert out.stdout.strip() == "1", "the pair must name one method, or the fixture proves nothing"
 
 
@@ -95,6 +119,30 @@ def test_an_escaped_call_is_a_reference(tmp_path, call):
     _javac_runs(tmp_path)
     got = check_references(repo, identifier="file", storage_path=sp)
     assert "B.java" in {f["file"] for f in got.get("content_references", [])}, got
+
+
+def _stub_jdk(bin_dir) -> None:
+    """A `javac` and a `java` that exit 1, like macOS's stubs with no JDK."""
+    bin_dir.mkdir()
+    for name in ("javac", "java"):
+        if os.name == "nt":
+            (bin_dir / f"{name}.bat").write_text("@exit /b 1" + chr(10))
+        else:
+            f = bin_dir / name
+            f.write_text("#!/bin/sh" + chr(10) + "exit 1" + chr(10))
+            f.chmod(0o755)
+
+
+def test_a_jdk_stub_on_path_is_no_compiler(tmp_path, monkeypatch):
+    # On PATH is not the same as working. The helper must take the no-javac
+    # path for a stub that exits 1 instead of failing the test that called it.
+    bin_dir = tmp_path / "stub-bin"
+    _stub_jdk(bin_dir)
+    monkeypatch.setenv("PATH", str(bin_dir) + os.pathsep + os.environ.get("PATH", ""))
+    assert _working_jdk() is None
+    work = tmp_path / "src"
+    work.mkdir()
+    _javac_runs(work)
 
 
 def test_the_escaped_caller_blocks_the_delete(tmp_path):

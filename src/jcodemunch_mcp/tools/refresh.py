@@ -110,7 +110,7 @@ def _resolve_target(path: str, storage_path: Optional[str]):
 
 def _discover(source_root: str) -> list[str]:
     """The file list a full index_folder walk would produce, root-relative."""
-    from .index_folder import discover_local_files
+    from .index_folder import discover_local_files, profile_ignore_patterns_for
     from ..security import get_cli_max_folder_files
 
     # The CLI cap, because `refresh` is a command-line path and a CLI-built
@@ -118,7 +118,13 @@ def _discover(source_root: str) -> list[str]:
     # the first max_folder_files would stamp a generation over a partial re-parse.
     max_files = get_cli_max_folder_files(repo=str(Path(source_root).resolve()))
     root = Path(source_root).resolve()
-    files, _warnings, _skips = discover_local_files(root, max_files=max_files)
+    # The profile's ignores too, or refresh re-parses (and so indexes) what the
+    # full walk excluded, and the corpus it proves coverage of is not the walk's.
+    files, _warnings, _skips = discover_local_files(
+        root,
+        max_files=max_files,
+        profile_ignore_patterns=profile_ignore_patterns_for(root) or None,
+    )
     rels = []
     for f in files:
         try:

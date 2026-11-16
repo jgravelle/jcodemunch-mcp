@@ -11,6 +11,7 @@ import unicodedata
 from ._enclosing import attach_enclosing_symbols
 from typing import Optional
 
+from ..parser.imports import wildcard_edge_filter
 from ..storage import IndexStore
 from ._utils import index_status_to_tool_error, resolve_repo
 
@@ -103,9 +104,12 @@ def _check_single(
     # ── Import-level check ──────────────────────────────────────────────────
     import_references = []
     if index.imports is not None:
+        dead_wildcard = wildcard_edge_filter(index)
         for src_file, file_imports in index.imports.items():
             matches = []
             for imp in file_imports:
+                if dead_wildcard(imp, src_file):
+                    continue
                 named_match = any(_fold(n) == ident_lower for n in imp.get("names", []))
                 spec = imp["specifier"]
                 spec_stem = _fold(posixpath.splitext(posixpath.basename(spec))[0])
@@ -311,7 +315,9 @@ def check_references(
     if identifier is not None and identifiers is not None and len(identifiers) == 0:
         identifiers = None
     if (identifier is None and identifiers is None) or (identifier is not None and identifiers is not None):
-        raise ValueError("Provide exactly one of 'identifier' or 'identifiers', not both and not neither.")
+        from ._arg_contract import ArgumentError
+
+        raise ArgumentError("Provide exactly one of 'identifier' or 'identifiers', not both and not neither.")
 
     start = time.perf_counter()
     max_content_results = max(1, min(max_content_results, 100))
