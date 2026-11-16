@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed - the tool counters say how many calls found nothing
+
+`_tool_counters.json` counted a search for a name nothing carries as one more ordinary call, so the per-tool figures `diagnose` reports could not tell calls that answered from calls that found nothing (customer report). Since 1.108.409 (#1308) such an answer carries `negative_evidence` in its body, the channel a default install keeps. That field is also set on answers that returned rows (`no_exact_match`, `low_confidence_matches`), so the dispatcher counts only its absence verdict, `no_implementation_found`, the one an absence claim already keys on. It reads the verdict while the answer is still a dict, before any compact encoding, and the counters keep a third count per tool, `no_match`, beside `calls` and `tokens_returned`; an answer refused for size is not counted as one; `diagnose` reports it in each `by_tool` row. A call relayed by the front door keeps its marker with the tool that answered, the same as its size. A counters file written before this release reads `no_match` as 0 and keeps adding; a count that could not be written keeps its `no_match` for the next write. Nothing new is sent anywhere, and `"tool_counters": false` still records nothing. SECURITY.md and CONFIGURATION.md name the third count.
+
 ## [1.108.451] - 2026-11-15 - a full index no longer pays for work nobody has asked for yet
 
 ### Fixed - a full index no longer pays for search statistics and token counts nobody has asked for yet
