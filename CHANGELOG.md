@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.454] - 2026-11-16 - a Cursor read count whose lock wait runs out is kept, not dropped
+
 ### Fixed - a Cursor read count whose lock wait runs out is kept, not dropped
 
 Each Cursor read count waits up to 1.0 s for the lock on `_direct_reads.json`, and a count whose wait ran out was dropped without notice. On a slow machine with many reads at once the wait runs out: Windows CI run 43792253652 kept 8 of 10 counts in the 10-thread test.
