@@ -217,9 +217,7 @@ def _add_rows(into: dict, rows: dict) -> None:
         row[2] += misses
 
 
-def _merge_into_file(
-    root: str, rows: dict, wait: float, unkept: Optional[dict] = None, *, last_chance: bool = False
-) -> bool:
+def _merge_into_file(root: str, rows: dict, wait: float, unkept: Optional[dict] = None) -> bool:
     """Add *rows*, and every pending file, to the file under *root*. False when *rows* were not written.
 
     Folded counts from other processes' pending files that could be neither
@@ -239,14 +237,13 @@ def _merge_into_file(
         except OSError:
             logger.debug("tool counters file busy; counts kept for the next write", exc_info=True)
             return False
+        pending_files.sweep_stale_temps(path)
         folded: dict = {}
-        if pending_files.fold_due(path, force=last_chance):
-            pending_files.sweep_stale_temps(path)
-            for p in _pending_paths(base):
-                got = _read_pending(p)
-                if got is None or not pending_files.claim(p):
-                    continue
-                _add_rows(folded, got)
+        for p in _pending_paths(base):
+            got = _read_pending(p)
+            if got is None or not pending_files.claim(p):
+                continue
+            _add_rows(folded, got)
         total: dict = {}
         _add_rows(total, folded)
         _add_rows(total, rows)
@@ -324,7 +321,7 @@ class _State:
             written = False
             unkept: dict = {}
             try:
-                written = _merge_into_file(root, rows, wait, unkept, last_chance=last_chance)
+                written = _merge_into_file(root, rows, wait, unkept)
             except Exception:
                 logger.debug("tool counters flush failed for one storage directory", exc_info=True)
             if unkept:

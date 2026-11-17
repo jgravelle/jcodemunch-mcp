@@ -18,22 +18,6 @@ import json
 import pytest
 
 from jcodemunch_mcp.storage import tool_counters as tc
-from jcodemunch_mcp.storage import pending_files
-
-
-@pytest.fixture(autouse=True)
-def _fold_on_every_write():
-    # These tests are about what a fold does, so every write folds. The
-    # once-a-minute throttle has its own tests (test_pending_fold_throttle.py).
-    # Set and restored here, not through monkeypatch: a test that calls
-    # `monkeypatch.undo()` mid-way would undo it too.
-    saved = pending_files.FOLD_INTERVAL_SECONDS, dict(pending_files._last_fold)
-    pending_files.FOLD_INTERVAL_SECONDS = 0.0
-    pending_files._last_fold.clear()
-    yield
-    pending_files.FOLD_INTERVAL_SECONDS = saved[0]
-    pending_files._last_fold.clear()
-    pending_files._last_fold.update(saved[1])
 
 
 @pytest.fixture()

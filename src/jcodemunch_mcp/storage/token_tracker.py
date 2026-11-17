@@ -71,7 +71,7 @@ _SAVINGS_LOCK_WAIT_AT_EXIT = 3.0
 # ⚠⚠ A batch the EXIT flush cannot write (the wait above runs out, or the read
 # or the replace is refused) goes to a pending file beside `_savings.json`
 # (`pending_files`), never back to memory: at exit there is no next write.
-# A later write by any server folds it in (`pending_files.fold_due`). The tool counters and the Cursor
+# The next write by any server folds it in. The tool counters and the Cursor
 # read counter had the same loss and use the same protocol.
 _PENDING_KEYS = ("saved", "calls", "encoding", "telemetry")
 # Calls a dispatcher reports (`note_call`) reach the file on the counters'
@@ -1558,7 +1558,7 @@ class _State:
             self._write_session_stats_file(stats_item)
             return
 
-        outcome = _merge_batch(root, batch, lock_wait, last_chance=last_chance)
+        outcome = _merge_batch(root, batch, lock_wait)
         kept_on_disk = False
         if not outcome["ok"] and last_chance:
             # ⚠ Other servers' kept batches this write claimed and could not put
@@ -1739,7 +1739,7 @@ def _merge_into(data: dict, batch: dict) -> "tuple[str, datetime]":
     return anon_id, now
 
 
-def _merge_batch(root: Path, batch: dict, lock_wait: float, *, last_chance: bool = False) -> dict:
+def _merge_batch(root: Path, batch: dict, lock_wait: float) -> dict:
     """Merge *batch* into `<root>/_savings.json` under `_savings.lock`. Touches no `_State`.
 
     Returns ``{"ok": True, ...the file's new totals}`` or ``{"ok": False,
@@ -1773,10 +1773,8 @@ def _merge_batch(root: Path, batch: dict, lock_wait: float, *, last_chance: bool
                 "a new one. %d tokens saved over %d calls are kept in memory for the next write",
                 path, problem, batch["saved"], batch["calls"],
             )
-        folded = None
-        if _pending_files.fold_due(path, force=last_chance):
-            _pending_files.sweep_stale_temps(path)
-            folded = _fold_kept_batches(path)
+        _pending_files.sweep_stale_temps(path)
+        folded = _fold_kept_batches(path)
         merged = _with_folded(batch, folded)
         try:
             anon_id, now = _merge_into(data, merged)

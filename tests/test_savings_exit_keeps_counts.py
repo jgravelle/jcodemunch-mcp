@@ -30,21 +30,6 @@ def _no_share(monkeypatch):
     monkeypatch.setattr(tt, "_share_savings", lambda *a, **k: None)
 
 
-@pytest.fixture(autouse=True)
-def _fold_on_every_write():
-    # These tests are about what a fold does, so every write folds. The
-    # once-a-minute throttle has its own tests (test_pending_fold_throttle.py).
-    # Set and restored here, not through monkeypatch: a test that calls
-    # `monkeypatch.undo()` mid-way would undo it too.
-    saved = pending_files.FOLD_INTERVAL_SECONDS, dict(pending_files._last_fold)
-    pending_files.FOLD_INTERVAL_SECONDS = 0.0
-    pending_files._last_fold.clear()
-    yield
-    pending_files.FOLD_INTERVAL_SECONDS = saved[0]
-    pending_files._last_fold.clear()
-    pending_files._last_fold.update(saved[1])
-
-
 def _file(root: Path) -> Path:
     return root / tt._SAVINGS_FILE
 
