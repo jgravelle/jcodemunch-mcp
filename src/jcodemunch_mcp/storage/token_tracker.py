@@ -1841,7 +1841,7 @@ def _read_kept(p: Path) -> Optional[dict]:
         isinstance(k, str) and _is_whole_count(v) for k, v in by_tool.items()
     ):
         return None
-    out = {k: int(rec.get(k, 0)) for k in _PENDING_KEYS}
+    out: dict = {k: int(rec.get(k, 0)) for k in _PENDING_KEYS}
     out["by_tool"] = {k: int(v) for k, v in by_tool.items()}
     return out
 
