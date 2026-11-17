@@ -252,15 +252,14 @@ def test_a_stale_pending_temp_is_swept_and_a_fresh_one_kept(store):
     assert fresh.exists(), "one being written this minute is left alone"
 
 
-def test_every_per_call_store_uses_one_pending_protocol():
+def test_both_per_call_stores_use_one_pending_protocol():
     """The protocol lives in `pending_files`; a store that copied it would drift."""
     import inspect
 
-    from jcodemunch_mcp.storage import direct_reads, pending_files, token_tracker
+    from jcodemunch_mcp.storage import direct_reads, pending_files
 
     for mod in (tc, direct_reads):
         assert mod.PENDING_SUFFIX is pending_files.SUFFIX
-    for mod in (tc, direct_reads, token_tracker):
         src = inspect.getsource(mod)
         assert ".ptmp" not in src, f"{mod.__name__} writes its own pending temp files"
         assert "pending_files.claim(" in src, (

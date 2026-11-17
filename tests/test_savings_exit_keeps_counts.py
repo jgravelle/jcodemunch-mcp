@@ -263,3 +263,12 @@ def test_folded_counts_a_stopping_server_cannot_put_back_go_to_disk_with_its_bat
         "the other server's 9 survived this server's exit"
     )
     assert data["by_tool"]["x"] == 9
+
+
+def test_the_savings_meter_writes_no_pending_temp_of_its_own():
+    """The tool counters' and Cursor reads' protocol ratchet, extended to this store."""
+    import inspect
+
+    src = inspect.getsource(tt)
+    assert ".ptmp" not in src, "token_tracker writes its own pending temp files"
+    assert "_pending_files.claim(" in src
