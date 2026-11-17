@@ -122,6 +122,11 @@ _SYNTHETIC_TABLE_KEYS = {
     # search_text (#246) and find_references pre-flatten a nested shape into a
     # private key that deliberately cannot collide with the public `results`.
     "__rows__",
+    # check_references flattens its identifier entries and both nested match
+    # lists into three private tables (encoding/schemas/check_references.py).
+    "__q__",
+    "__i__",
+    "__c__",
 }
 
 _SCHEMA_DIR = pathlib.Path(__file__).resolve().parents[1] / "src" / "jcodemunch_mcp" / "encoding" / "schemas"
