@@ -2,6 +2,18 @@
 
 ## [Unreleased]
 
+### Fixed - a Go import by module path reaches the package it names
+
+Go names a package of its own module by the module path, `import "github.com/gin-gonic/gin/binding"`, not by a relative path. Nothing read `go.mod`, so no such import reached a file, and every in-module Go package had no importers. `find_dead_code` reported those files as dead at confidence 1.0, the value it documents as provably unreachable. On four Go repositories, before and after this fix, Go files reported dead went from 54 to 1 (gin 0f09c3a9), 19 to 5 (cobra adbc8813), 518 to 9 (hugo afb2d9ac) and 462 to 24 (prometheus 49c815a0). `find_importers`, `get_blast_radius` and every other import-graph tool missed the same edges: hugo went from 0 to 185 Go files with an importer.
+
+When the index loads, each `go.mod` in the tree is read now, and an import under a module path it declares gains an edge to a file of the package's directory. A nested module's own `go.mod` decides for its tree. The standard library and dependencies name no directory here and gain nothing, so a top-level `errors/` is not the `errors` package. The added edge is derived on every load and never stored, like the Kotlin declaration edges, so a package that moved moves its edge.
+
+Files of one Go package also call each other with no import (LEDGER L-262), so a file whose only users were its peers read as dead. `find_dead_code` now treats a Go package as one unit: a package with an entry point, or an importer outside it, is live, every file of it. A package that nothing reaches is still reported, every file of it. `get_dead_code_v2` adds each file's same-package peers to its reachability walk, which starts at entry points, so the same holds there.
+
+Other languages resolve exactly as before. On eight corpora (Python, Java, JavaScript, TypeScript, PHP, Kotlin, and the non-Go files of hugo and prometheus), every resolved edge from a non-Go file hashes the same on both trees, and `find_dead_code` reports the same number of files.
+
+Not changed: a `package main` program (`cmd/promtool/main.go`) is not an entry point yet, which accounts for most of what is still reported on prometheus and hugo (LEDGER L-321). An index built with `index_repo` has no local tree, so it reads no `go.mod`.
+
 ## [1.108.459] - 2026-11-17 - a savings count is kept when servers stop together
 
 ### Fixed - a savings count is kept when servers stop together

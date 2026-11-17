@@ -112,7 +112,10 @@ def served_repo():
         root = Path(tmp)
         (root / "repository").mkdir()
         (root / "pkg").mkdir()
-        (root / "go.mod").write_text(GO_MOD)
+        # No go.mod: since L-264 a module-path import under a declared module
+        # resolves, so the unresolved package edge this class pins needs a tree
+        # whose module is not declared (a subtree, a GOPATH layout).
+        # `test_go_module_path_imports.py` pins the same fixture with go.mod.
         (root / "repository" / "order_repo.go").write_text(ORDER_REPO_GO)
         (root / "repository" / "same_pkg_caller.go").write_text(SAME_PKG_GO)
         (root / "pkg" / "pick_service.go").write_text(PICK_SERVICE_GO)
