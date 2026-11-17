@@ -39,6 +39,12 @@ def test_the_reported_shape_round_trips():
         ["plain", ["mixed"]],  # a string and a list in one column
         [7, {"seven": 7}],  # an int and a dict in one column
         [True, [False]],  # a bool and a list in one column
+        # Review round 1: two scalar types before the list, which the
+        # scalar scan stops at.
+        [1, "a", [1]],
+        ["a", 1, {"k": 1}],
+        [1, 2.5, [3]],
+        [True, 2, [3]],
     ],
 )
 def test_a_column_holding_a_list_or_dict_round_trips(cells):

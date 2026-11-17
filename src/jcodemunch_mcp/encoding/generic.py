@@ -87,18 +87,20 @@ def _infer_col_types(rows: list[dict], cols: list[str]) -> dict[str, str]:
     """Infer a type per column by scanning non-null samples."""
     types: dict[str, str] = {}
     for c in cols:
+        # ⚠ A cell holding a list or dict goes on the wire as JSON and comes
+        # back as one (L-312: it was written with `repr` and decoded as a
+        # string). Checked over EVERY row before the scalar scan below, which
+        # stops at its second distinct type and would miss a later list.
+        # Every cell of such a column is JSON, so a string beside it stays a
+        # string.
+        if any(isinstance(r.get(c), (list, dict)) for r in rows):
+            types[c] = "json"
+            continue
         seen: set[str] = set()
         for r in rows:
             v = r.get(c)
             if v is None:
                 continue
-            if isinstance(v, (list, dict)):
-                # A cell holding a list or dict goes on the wire as JSON and
-                # comes back as one (L-312: it was written with `repr` and
-                # decoded as a string). Every cell of such a column is JSON,
-                # so a string beside it stays a string.
-                seen.add("json")
-                break
             if isinstance(v, bool):
                 seen.add("bool")
             elif isinstance(v, int):
@@ -109,9 +111,7 @@ def _infer_col_types(rows: list[dict], cols: list[str]) -> dict[str, str]:
                 seen.add("str")
             if len(seen) > 1:
                 break
-        if "json" in seen:
-            types[c] = "json"
-        elif not seen or "str" in seen:
+        if not seen or "str" in seen:
             types[c] = "str"
         elif seen == {"bool"}:
             types[c] = "bool"
