@@ -6,6 +6,10 @@ for all four; gpt-4.1-nano was shut down 2026-10-23. The summarizer fell back
 to gpt-4o-mini and the agent selector's OpenAI order was gpt-4o-mini / gpt-4o,
 so an install that never named a model would start failing that day.
 
+o3 and o3-pro shut down on 2026-12-11 (notice of 2026-06-11), with gpt-6.1-sol
+named as the replacement. The selector's OpenAI "high" stayed o3 after the
+first fix, because this scan matched only the gpt-4 family.
+
 A user's explicit model (OPENAI_MODEL, `summarizer_model`, an agent_selector
 batting order) is untouched. `model_tier_map`'s "gpt-4o" key stays: it matches
 the CLIENT's model id to pick a tool tier and calls no API. Only its two sites
@@ -23,7 +27,7 @@ from jcodemunch_mcp.summarizer import batch_summarize as bs
 SRC = Path(__file__).resolve().parents[1] / "src" / "jcodemunch_mcp"
 # A quoted retired id: bare, dated snapshot, or provider-prefixed.
 _RETIRED = re.compile(
-    r"""["'](?:[\w.-]+/)?gpt-4(?:o(?:-mini)?|\.1(?:-mini|-nano)?)(?:-\d{4}-\d{2}-\d{2})?["']"""
+    r"""["'](?:[\w.-]+/)?(?:gpt-4(?:o(?:-mini)?|\.1(?:-mini|-nano)?)|o3(?:-pro)?)(?:-\d{4}-\d{2}-\d{2})?["']"""
 )
 # `"gpt-4o": "full"` routes a client model to a tool tier; exempt in config.py only.
 _TIER_MAP_ENTRY = re.compile(r'^\s*"gpt-4o":\s*"full",?\s*$')
@@ -48,7 +52,7 @@ def test_the_openai_defaults_are_the_named_successors():
     assert DEFAULT_PROVIDERS["openai"] == {
         "low": "gpt-6-luna",
         "medium": "gpt-6-sol",
-        "high": "o3",
+        "high": "gpt-6.1-sol",
     }
 
 
@@ -74,7 +78,8 @@ def test_the_scan_fails_on_each_reintroduced_spelling(tmp_path):
         '    "medium": "gpt-4o",\n    "gpt-4o": "full",\n', encoding="utf-8"
     )
     (tmp_path / "pricing.py").write_text(
-        'A = \'gpt-4.1-mini-2025-04-14\'\nB = "openai/gpt-4o-mini"\nC = "gpt-4.1-nano"\n',
+        'A = \'gpt-4.1-mini-2025-04-14\'\nB = "openai/gpt-4o-mini"\nC = "gpt-4.1-nano"\n'
+        'D = "o3"\nE = "o3-pro-2025-06-10"\n',
         encoding="utf-8",
     )
     (tmp_path / "config.py").write_text('    "gpt-4o": "full",\n', encoding="utf-8")
@@ -87,12 +92,14 @@ def test_the_scan_fails_on_each_reintroduced_spelling(tmp_path):
         "pricing.py:1",
         "pricing.py:2",
         "pricing.py:3",
+        "pricing.py:4",
+        "pricing.py:5",
     }
 
 
 def test_a_successor_or_another_family_is_not_flagged(tmp_path):
     (tmp_path / "m.py").write_text(
-        'X = ("gpt-6-luna", "gpt-6-sol", "o3", "gpt-5.4-nano", "gpt-4")\n',
+        'X = ("gpt-6-luna", "gpt-6-sol", "gpt-6.1-sol", "o4-mini", "gpt-5.4-nano", "gpt-4")\n',
         encoding="utf-8",
     )
     assert _scan(tmp_path)[0] == []
