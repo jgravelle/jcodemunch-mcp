@@ -14,7 +14,7 @@ How it works. When an index loads, each `go.mod` in the tree is read, and an imp
 
 Other languages are unchanged. On eight corpora (Python, Java, JavaScript, TypeScript, PHP, Kotlin, and the non-Go files of hugo and prometheus), every resolved edge from a non-Go file is the same before and after, and so are `find_dead_code`'s counts. On the six with no Go file, the coupling counts are the same too.
 
-The work is done once per index load, and a loaded index is cached: building hugo's index went from 2.7 to 25.9 ms, and prometheus's from 8.5 to 30.3 ms.
+The work is done once per index load, and a loaded index is cached: constructing hugo's index in memory on load went from 2.7 to 25.9 ms, and prometheus's from 8.5 to 30.3 ms, while a whole first load took about 490 ms on both versions.
 
 Not yet covered: a `package main` program is not an entry point. Of the 24 Go files still reported on prometheus, 11 are in `cmd/promtool` and 8 are named `main.go`, one file counted in both; 4 of hugo's 9 are named `main.go` (LEDGER L-321). An index built with `index_repo` has no local tree, so it reads no `go.mod`.
 
