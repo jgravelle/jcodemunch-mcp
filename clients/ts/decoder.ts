@@ -278,6 +278,9 @@ function decodeLegendPrefix(value: string, legend: Map<number, string>): string 
 
 function coerce(raw: string, hint: string): Json {
     if (raw === "") return null;
+    // A `json` column carries each cell as JSON text: a list or dict, or a
+    // scalar beside one (gen1).
+    if (hint === "json") return JSON.parse(raw) as Json;
     if (hint === "bool") return raw === "T";
     if (hint === "int") {
         const n = parseInt(raw, 10);

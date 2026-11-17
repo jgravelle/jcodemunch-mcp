@@ -87,6 +87,15 @@ def _infer_col_types(rows: list[dict], cols: list[str]) -> dict[str, str]:
     """Infer a type per column by scanning non-null samples."""
     types: dict[str, str] = {}
     for c in cols:
+        # ⚠ A cell holding a list or dict goes on the wire as JSON and comes
+        # back as one (L-312: it was written with `repr` and decoded as a
+        # string). Checked over EVERY row before the scalar scan below, which
+        # stops at its second distinct type and would miss a later list.
+        # Every cell of such a column is JSON, so a string beside it stays a
+        # string.
+        if any(isinstance(r.get(c), (list, dict)) for r in rows):
+            types[c] = "json"
+            continue
         seen: set[str] = set()
         for r in rows:
             v = r.get(c)
@@ -139,6 +148,8 @@ def _collect_prefixes(samples: list[str], min_len: int = 6) -> dict[str, int]:
 def _coerce(raw: str, hint: str) -> Any:
     if raw == "":
         return None
+    if hint == "json":
+        return _json.loads(raw)
     if hint == "bool":
         return raw == "T"
     if hint == "int":
@@ -263,6 +274,8 @@ def encode(tool_name: str, response: dict) -> tuple[str, str]:
                 v = r.get(c)
                 if types[c] == "str" and isinstance(v, str):
                     v = legend.encode_prefix(v)
+                elif types[c] == "json" and v is not None:
+                    v = _json.dumps(v, separators=(",", ":"))
                 encoded_row.append(v)
             data_rows.append(encoded_row)
         sections.append(write_table(tag, data_rows))
