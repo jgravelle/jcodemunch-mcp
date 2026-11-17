@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed - a savings count is kept when servers stop together
+
+The savings meter writes `_savings.json` when a server stops, waiting up to 3 seconds for `_savings.lock`. A write that failed there, because the wait ran out or the read or the replace was refused, put the batch back in memory, and the process then exited with it: the loss the tool counters had (entry below), in the lifetime savings total. A stopping server now keeps that batch in a `_savings.json.<random>.pending` file, through the shared `storage/pending_files.py` rules. The next write by any server removes each pending file and then adds its counts, so a file it can't remove is left for a later write and never counted twice. A write that fails after adding them puts them back in a pending file, or, if that also fails, keeps them with its own batch: in memory while serving, in one pending file when stopping. A server that loads the meter counts pending files in its lifetime total. Counts kept this way are credited to the day the next write adds them, not the day they were earned. `receipt` and `diagnose` read `_savings.json` alone, so they show a kept batch only once a server has written again. A running server still keeps an unwritten batch in memory and retries it, as before.
+
 ## [1.108.458] - 2026-11-17 - a compact answer gives back a list or dict inside a table row
 
 ### Fixed - a compact answer gives back a list or dict inside a table row
