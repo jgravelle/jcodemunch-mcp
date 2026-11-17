@@ -2819,9 +2819,148 @@ def written_imports(edges: list) -> list:
     """
     if not edges:
         return edges
-    if not any(JVM_DECLARED_EDGE_KEY in e for e in edges):
+    if not any(k in e for e in edges for k in _DERIVED_EDGE_KEYS):
         return edges
-    return [e for e in edges if JVM_DECLARED_EDGE_KEY not in e]
+    return [e for e in edges if not any(k in e for k in _DERIVED_EDGE_KEYS)]
+
+
+# (L-264) The key that marks an edge `augment_go_module_edges` added. Its value
+# is the module path the import wrote, so the edge can be traced back.
+GO_MODULE_EDGE_KEY = "go_module_of"
+
+# A `module` directive: `module github.com/x/y`, optionally quoted, optionally
+# followed by a `//` comment.
+_GO_MODULE_LINE = re.compile(r'^\s*module\s+"?([^\s"]+)"?\s*(?://.*)?$', re.M)
+
+
+def go_modules(source_root: str, source_files) -> dict[str, str]:
+    """Map each Go module path to its directory, read from the `go.mod` files.
+
+    `go.mod` is not an indexed file, so it is read from disk. Only the
+    directories that hold `.go` files, and their ancestors, are looked at: a
+    module with no Go file is reached by no import. The directory is
+    root-relative POSIX, `""` for the root. A `go.mod` that cannot be read, or
+    has no `module` line, adds nothing.
+    """
+    if not source_root:
+        return {}
+    dirs: set[str] = set()
+    for f in source_files:
+        if f.endswith(".go"):
+            d = posixpath.dirname(f)
+            while d not in dirs:
+                dirs.add(d)
+                if not d:
+                    break
+                d = posixpath.dirname(d)
+    root = Path(source_root)
+    modules: dict[str, str] = {}
+    for d in sorted(dirs):
+        gomod = root / d / "go.mod" if d else root / "go.mod"
+        try:
+            text = gomod.read_text("utf-8", errors="replace")
+        except OSError:
+            continue
+        m = _GO_MODULE_LINE.search(text)
+        if m and m.group(1) not in modules:
+            modules[m.group(1)] = d
+    return modules
+
+
+def augment_go_module_edges(imports: dict, source_root: str, source_files) -> int:
+    """(L-264) Add an edge from a Go import by module path to the package it names.
+
+    `import "github.com/gin-gonic/gin/binding"` in gin's `context.go` names
+    the `binding/` directory of the module `go.mod` declares as
+    `github.com/gin-gonic/gin`. The resolver reads no `go.mod`, so the import
+    reached no file, and every file of an in-module package showed zero
+    importers.
+
+    The edge the import wrote is kept, and one is ADDED to one `.go` file of
+    the package's directory: the Kotlin declaration shape, so the resolver
+    stays path-only and its call sites keep their single-target contract. A
+    package is a directory, and one file stands for it: the non-test file
+    named after the directory if there is one, else the first non-test file
+    by name. Reaching the rest of the package is the readers' job
+    (`find_dead_code` treats the package as the unit; `with_same_package_peers`
+    adds the peers for the callers and blast-radius walks).
+
+    ⚠ Only a path under a module declared in this tree is read: the standard
+    library (`errors`) and a dependency (`github.com/gin-contrib/sse`) name
+    no directory here, and matching them by their last segment would give a
+    same-named directory importers it does not have. A path that merely
+    starts with the module's text (`.../ginx`) is not under it. The longest
+    module path wins, so a nested module's own `go.mod` decides for its tree.
+
+    Added edges carry `GO_MODULE_EDGE_KEY` and are removed and derived again
+    on every call, and `written_imports` keeps them out of storage, so a
+    package that moved moves its edge on the next load. Runs at every
+    `CodeIndex` construction. Returns the number added.
+    """
+    if not imports:
+        return 0
+    go_files = [f for f in source_files if f.endswith(".go")]
+    if not go_files:
+        return 0
+    modules = go_modules(source_root, go_files)
+    by_dir: dict[str, list[str]] = {}
+    for f in sorted(go_files):
+        by_dir.setdefault(posixpath.dirname(f), []).append(f)
+    # Longest module path first, so a nested module is asked before its parent.
+    ordered = sorted(modules.items(), key=lambda kv: -len(kv[0]))
+
+    def _package_file(d: str) -> Optional[str]:
+        files = by_dir.get(d)
+        if not files:
+            return None
+        # A directory of `_test.go` files alone is no importable package.
+        plain = [f for f in files if not f.endswith("_test.go")]
+        if not plain:
+            return None
+        named = f"{d}/{posixpath.basename(d)}.go" if d else None
+        if named in plain:
+            return named
+        return plain[0]
+
+    added = 0
+    for importer, edges in imports.items():
+        if not edges or not importer.endswith(".go"):
+            continue
+        kept = [e for e in edges if GO_MODULE_EDGE_KEY not in e]
+        if len(kept) != len(edges):
+            edges[:] = kept
+        if not ordered:
+            continue
+        present = {e.get("specifier") for e in edges}
+        importer_dir = posixpath.dirname(importer)
+        new: dict[str, dict] = {}
+        for e in edges:
+            spec = e.get("specifier") or ""
+            if not spec or spec.startswith("."):
+                continue
+            for module, mod_dir in ordered:
+                if spec == module:
+                    rest = ""
+                elif spec.startswith(module + "/"):
+                    rest = spec[len(module) + 1:]
+                else:
+                    continue
+                pkg_dir = posixpath.join(mod_dir, rest) if mod_dir and rest else (mod_dir or rest)
+                target = _package_file(pkg_dir)
+                if target and posixpath.dirname(target) != importer_dir:
+                    rel = posixpath.relpath(target, importer_dir or ".")
+                    rel = rel if rel.startswith("../") else "./" + rel
+                    if rel not in new and rel not in present:
+                        new[rel] = {"specifier": rel, "names": [], GO_MODULE_EDGE_KEY: spec}
+                        added += 1
+                break
+        if new:
+            edges.extend(new.values())
+    return added
+
+
+# Every key an index-time augmentation marks its added edges with.
+_DERIVED_EDGE_KEYS = (JVM_DECLARED_EDGE_KEY, GO_MODULE_EDGE_KEY)
 
 
 def _python_package_parents(source_files) -> dict[str, tuple[str, ...]]:

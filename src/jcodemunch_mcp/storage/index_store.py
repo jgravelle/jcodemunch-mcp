@@ -916,6 +916,15 @@ class CodeIndex:
                 augment_jvm_declaration_edges(self.imports, self.symbols, self._source_file_set)
             except Exception:
                 logger.debug("jvm declaration edges unavailable", exc_info=True)
+        # (L-264) A Go import by module path (`github.com/gin-gonic/gin/binding`)
+        # gains an edge to a file of the package it names, read through the
+        # tree's `go.mod` files, the same ADDED-edge shape.
+        if self.imports and self.source_root and "go" in langs:
+            try:
+                from ..parser.imports import augment_go_module_edges
+                augment_go_module_edges(self.imports, self.source_root, self._source_file_set)
+            except Exception:
+                logger.debug("go module edges unavailable", exc_info=True)
 
     def get_callers_by_name(self) -> dict[tuple[str, str], list[str]]:
         """Lazy reverse lookup: (caller_file, called_name) -> [symbol IDs].

@@ -28,7 +28,10 @@ from jcodemunch_mcp.tools.index_folder import index_folder
 
 REPO = Path(__file__).resolve().parents[1]
 
-GO_MOD = "module fixture\n\ngo 1.22\n"
+# The module this go.mod declares is NOT `fixture`, so `import "fixture/repository"`
+# is outside it and stays an edge the graph cannot see. Since L-264 an import
+# under the declared module resolves; `test_go_module_path_imports.py` pins that.
+GO_MOD = "module example.com/elsewhere\n\ngo 1.22\n"
 ORDER_REPO_GO = """package repository
 
 type OrderRepo struct{ db string }
