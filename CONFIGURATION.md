@@ -42,7 +42,12 @@ jcodemunch-mcp config --init
 
 # Validate config + check prerequisites (storage, AI packages, HTTP transport)
 jcodemunch-mcp config --check
+
+# Print the Code Exploration Policy that `init` installs and `config --check` compares against
+jcodemunch-mcp claude-md --generate --format policy
 ```
+
+`claude-md` also prints the full or missing-tools snippet (`--format full`, `--format append`) and replaces an out-of-date installed block (`--refresh`); see its row in [CLI-AND-ENV.md](CLI-AND-ENV.md).
 
 ## Configuration reference
 
