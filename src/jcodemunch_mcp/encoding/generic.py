@@ -92,6 +92,13 @@ def _infer_col_types(rows: list[dict], cols: list[str]) -> dict[str, str]:
             v = r.get(c)
             if v is None:
                 continue
+            if isinstance(v, (list, dict)):
+                # A cell holding a list or dict goes on the wire as JSON and
+                # comes back as one (L-312: it was written with `repr` and
+                # decoded as a string). Every cell of such a column is JSON,
+                # so a string beside it stays a string.
+                seen.add("json")
+                break
             if isinstance(v, bool):
                 seen.add("bool")
             elif isinstance(v, int):
@@ -102,7 +109,9 @@ def _infer_col_types(rows: list[dict], cols: list[str]) -> dict[str, str]:
                 seen.add("str")
             if len(seen) > 1:
                 break
-        if not seen or "str" in seen:
+        if "json" in seen:
+            types[c] = "json"
+        elif not seen or "str" in seen:
             types[c] = "str"
         elif seen == {"bool"}:
             types[c] = "bool"
@@ -139,6 +148,8 @@ def _collect_prefixes(samples: list[str], min_len: int = 6) -> dict[str, int]:
 def _coerce(raw: str, hint: str) -> Any:
     if raw == "":
         return None
+    if hint == "json":
+        return _json.loads(raw)
     if hint == "bool":
         return raw == "T"
     if hint == "int":
@@ -263,6 +274,8 @@ def encode(tool_name: str, response: dict) -> tuple[str, str]:
                 v = r.get(c)
                 if types[c] == "str" and isinstance(v, str):
                     v = legend.encode_prefix(v)
+                elif types[c] == "json" and v is not None:
+                    v = _json.dumps(v, separators=(",", ":"))
                 encoded_row.append(v)
             data_rows.append(encoded_row)
         sections.append(write_table(tag, data_rows))

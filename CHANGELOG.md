@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed - a compact answer gives back a list or dict inside a table row
+
+The generic compact encoder (`gen1`, used by every tool that has no encoder of its own) wrote a table cell holding a list or dict with Python's `repr` and decoded it as a string. A response like `{items: [{name, kids: [{x: 1}]}]}` came back with `kids` as the text `"[{'x': 1}]"`, which no JSON reader can parse, though the encoder promises a round trip. It shipped under the default `server_output` whenever the compact form beat JSON by the gate margin, and always under `compact`. A column with a list or dict in any row now goes on the wire as JSON, one cell at a time, and decodes back to the same value; a string, number or bool in that column comes back unchanged. A table with no such cell encodes byte for byte as before, so the encoding id stays `gen1` and an older payload decodes the same way.
+
 ## [1.108.456] - 2026-11-16 - check_references sends the same answer in up to 46% fewer characters
 
 ### Changed - `check_references` sends the same answer in up to 46% fewer characters
