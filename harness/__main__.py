@@ -1311,6 +1311,9 @@ def main(argv: list[str] | None = None) -> int:
     if a.summary or a.annotate:
         tee = _Tee(sys.stdout)
         sys.stdout = tee
+    # A tier that raises leaves no rc of its own; start from a failure so the
+    # summary below records FAIL instead of raising over the real error (L-281).
+    rc = 1
     try:
         rc = _dispatch(a)
     finally:

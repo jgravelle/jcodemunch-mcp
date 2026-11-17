@@ -6,14 +6,23 @@ character outside cp1252 (a warning sign, an arrow) and prints nothing.
 `scripts/release_notes.py` did that on 1.108.338's block, and the harness's
 fast tier lost the tail of a failing run the same way and then wrote an empty
 summary. Every entry point under scripts/ and harness/ now sets stdout and
-stderr to UTF-8 when it runs as a script.
+stderr to UTF-8 when it runs as a script, before it runs anything else.
+
+The harness half had a second trigger: any exception in a tier left `rc`
+unbound, so the summary write raised UnboundLocalError over the real error
+and fast.md stayed empty. `main` now starts from a failing `rc`.
+
+Not covered here: `.claude/hooks/` and `benchmarks/` entry points (L-320).
 """
 
 import ast
+import importlib
 import os
 import subprocess
 import sys
 from pathlib import Path
+
+import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -44,28 +53,44 @@ def _main_guard(path: Path):
     return None
 
 
-def _reconfigures(guard: ast.If, stream: str) -> bool:
-    """True when the guard calls sys.<stream>.reconfigure(encoding="utf-8")."""
-    for node in ast.walk(guard):
-        if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)):
-            continue
-        f = node.func
-        if not (
-            f.attr == "reconfigure"
-            and isinstance(f.value, ast.Attribute)
-            and f.value.attr == stream
-            and isinstance(f.value.value, ast.Name)
-            and f.value.value.id == "sys"
+def _reconfigured_stream(stmt: ast.stmt) -> "str | None":
+    """'stdout' or 'stderr' when stmt is sys.<stream>.reconfigure(encoding="utf-8")."""
+    if not (isinstance(stmt, ast.Expr) and isinstance(stmt.value, ast.Call)):
+        return None
+    call = stmt.value
+    f = call.func
+    if not (
+        isinstance(f, ast.Attribute)
+        and f.attr == "reconfigure"
+        and isinstance(f.value, ast.Attribute)
+        and f.value.attr in ("stdout", "stderr")
+        and isinstance(f.value.value, ast.Name)
+        and f.value.value.id == "sys"
+    ):
+        return None
+    for kw in call.keywords:
+        if (
+            kw.arg == "encoding"
+            and isinstance(kw.value, ast.Constant)
+            and kw.value.value == "utf-8"
         ):
-            continue
-        for kw in node.keywords:
-            if (
-                kw.arg == "encoding"
-                and isinstance(kw.value, ast.Constant)
-                and kw.value.value == "utf-8"
-            ):
-                return True
-    return False
+            return f.value.attr
+    return None
+
+
+def _reconfigured_first(guard: ast.If) -> bool:
+    """True when both streams are set to UTF-8 before the guard runs anything else.
+
+    Order matters: a guard that calls `sys.exit(main())` first and reconfigures
+    after it has already printed everything it will print.
+    """
+    seen = set()
+    for stmt in guard.body:
+        stream = _reconfigured_stream(stmt)
+        if stream is None:
+            break
+        seen.add(stream)
+    return seen == {"stdout", "stderr"}
 
 
 def test_the_entry_point_list_is_not_empty():
@@ -78,14 +103,57 @@ def test_every_entry_point_writes_utf8():
     missing = [
         str(p.relative_to(ROOT))
         for p in _entry_points()
-        if not (
-            _reconfigures(_main_guard(p), "stdout")
-            and _reconfigures(_main_guard(p), "stderr")
-        )
+        if not _reconfigured_first(_main_guard(p))
     ]
     assert not missing, (
-        f"set sys.stdout and sys.stderr to UTF-8 in the __main__ guard of: {missing}"
+        "set sys.stdout and sys.stderr to UTF-8 as the first statements of the "
+        f"__main__ guard of: {missing}"
     )
+
+
+def _guard_of(src: str) -> ast.If:
+    tree = ast.parse(src)
+    return next(n for n in tree.body if isinstance(n, ast.If))
+
+
+def test_the_check_refuses_a_guard_that_reconfigures_after_main():
+    late = (
+        'if __name__ == "__main__":\n'
+        "    sys.exit(main())\n"
+        '    sys.stdout.reconfigure(encoding="utf-8")\n'
+        '    sys.stderr.reconfigure(encoding="utf-8")\n'
+    )
+    one = (
+        'if __name__ == "__main__":\n'
+        '    sys.stdout.reconfigure(encoding="utf-8")\n'
+        "    sys.exit(main())\n"
+    )
+    first = (
+        'if __name__ == "__main__":\n'
+        '    sys.stdout.reconfigure(encoding="utf-8")\n'
+        '    sys.stderr.reconfigure(encoding="utf-8")\n'
+        "    sys.exit(main())\n"
+    )
+    assert not _reconfigured_first(_guard_of(late))
+    assert not _reconfigured_first(_guard_of(one))
+    assert _reconfigured_first(_guard_of(first))
+
+
+def test_a_tier_that_raises_still_writes_a_failing_summary(monkeypatch, tmp_path):
+    # L-281's second trigger: `rc` was unbound when the tier raised, so the
+    # summary write raised UnboundLocalError over the real error.
+    sys.path.insert(0, str(ROOT))
+    hm = importlib.import_module("harness.__main__")
+
+    def boom(_a):
+        raise RuntimeError("the tier's own error")
+
+    monkeypatch.setattr(hm, "_dispatch", boom)
+    summary = tmp_path / "fast.md"
+    with pytest.raises(RuntimeError, match="the tier's own error"):
+        hm.main(["fast", "--summary", str(summary)])
+    text = summary.read_text(encoding="utf-8")
+    assert "## harness fast: FAIL" in text
 
 
 def test_release_notes_prints_a_warning_sign_through_a_cp1252_stdout():
