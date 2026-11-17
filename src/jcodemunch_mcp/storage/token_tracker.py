@@ -44,6 +44,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from .. import config as _config
+from . import pending_files as _pending_files
 from . import savings_meter as _meter
 from . import tool_counters as _tool_counters
 
@@ -67,6 +68,12 @@ _SAVINGS_LOCK_WAIT = 0.25
 # meter stale; fewer is an ordinary moment of two servers writing.
 _BUSY_DEFERRALS_BEFORE_STALE = 3
 _SAVINGS_LOCK_WAIT_AT_EXIT = 3.0
+# ⚠⚠ A batch the EXIT flush cannot write (the wait above runs out, or the read
+# or the replace is refused) goes to a pending file beside `_savings.json`
+# (`pending_files`), never back to memory: at exit there is no next write.
+# The next write by any server folds it in. The tool counters and the Cursor
+# read counter had the same loss and use the same protocol.
+_PENDING_KEYS = ("saved", "calls", "encoding", "telemetry")
 # Calls a dispatcher reports (`note_call`) reach the file on the counters'
 # schedule, so a session of tools that record no savings still stamps the meter
 # as alive, and `savings_meter.label` can compare the two files' times.
@@ -399,6 +406,14 @@ class _State:
         by_tool = data.get("by_tool")
         self._tool_totals = dict(by_tool) if isinstance(by_tool, dict) else {}
         self._by_tool_since = data.get("by_tool_since")
+        if not self._load_failed:
+            # Batches a stopped server kept on disk belong to the lifetime
+            # total; the next write folds them into the file.
+            kept = _kept_batches(path)
+            self._total += kept["saved"]
+            self._encoding_total += kept["encoding"]
+            for tool, amount in kept["by_tool"].items():
+                self._tool_totals[tool] = self._tool_totals.get(tool, 0) + amount
         self._loaded = True
         _clear_stale_temp_files(Path(self._root_dir))
         self._refresh_label_locked()
@@ -1507,8 +1522,12 @@ class _State:
         # Replaced whole, so `lifetime_label()` can read it without the lock.
         self._label = self._lifetime_label_locked()
 
-    def _flush(self, lock_wait: float = _SAVINGS_LOCK_WAIT, state_wait: Optional[float] = None) -> None:
+    def _flush(self, lock_wait: float = _SAVINGS_LOCK_WAIT, state_wait: Optional[float] = None,
+               *, last_chance: bool = False) -> None:
         """Write the pending counts to disk.
+
+        *last_chance* (the exit and signal paths): a batch that is not written
+        goes to a pending file instead of back to memory, which dies next.
 
         ⚠⚠ `_lock` is held only to swap the batch out and to apply the outcome,
         never across the file-lock wait, the read, the write or `os.replace`. A
@@ -1540,6 +1559,15 @@ class _State:
             return
 
         outcome = _merge_batch(root, batch, lock_wait)
+        kept_on_disk = False
+        if not outcome["ok"] and last_chance:
+            # ⚠ Other servers' kept batches this write claimed and could not put
+            # back go to disk WITH this batch: memory dies with this process,
+            # and they were durable before it touched them.
+            unkept = outcome.pop("unkept", None)
+            kept_on_disk = _keep_batch(root, _with_folded(batch, unkept))
+            if not kept_on_disk and unkept:
+                outcome["unkept"] = unkept
 
         if not self._acquire_state(state_wait):
             # Exit path with the state held elsewhere: what was written is on
@@ -1570,12 +1598,19 @@ class _State:
                 # Send batched telemetry. We send the absolute lifetime total (just
                 # written) so the server can GREATEST-converge and recover any
                 # previously dropped sends; the delta rides along for legacy servers.
-                if batch["telemetry"] > 0 and _config.get("share_savings", True):
-                    send = (batch["telemetry"], outcome["total"], self._anon_id)
+                telemetry = batch["telemetry"] + outcome.get("folded_telemetry", 0)
+                if telemetry > 0 and _config.get("share_savings", True):
+                    send = (telemetry, outcome["total"], self._anon_id)
             else:
                 # Not written: nothing is sent either, since the total would not
                 # be one this machine holds.
-                self._put_back_locked(batch)
+                if not kept_on_disk:
+                    self._put_back_locked(batch)
+                unkept = outcome.get("unkept")
+                if unkept:
+                    # Other servers' kept batches this write folded and could
+                    # keep neither in the file nor back on disk.
+                    self._put_back_locked(unkept)
                 if outcome.get("busy"):
                     # Another server holding the file for a moment is ordinary,
                     # so one deferral is not a stopped meter; a run of them is.
@@ -1590,7 +1625,10 @@ class _State:
                         level = "debug"  # still failing; said once per interval
                     else:
                         self._last_warn_mono = now
-                log = (level, outcome["msg"], outcome["args"], outcome["exc_info"])
+                msg = outcome["msg"]
+                if kept_on_disk:
+                    msg += "; this server is stopping, so they are kept in a pending file beside it instead"
+                log = (level, msg, outcome["args"], outcome["exc_info"])
             self._refresh_label_locked()
             stats_item = self._session_stats_payload_locked(self._build_stats_locked())
             # ⚠ Opt-in perf db (off by default), a SQLite upsert on the connection
@@ -1622,13 +1660,14 @@ class _State:
         """The label for this process's lifetime total, read WITHOUT the lock (a snapshot)."""
         return dict(self._label)
 
-    def flush(self, wait: float = _SAVINGS_LOCK_WAIT_AT_EXIT, state_wait: float = _STATE_LOCK_WAIT_AT_EXIT) -> None:
-        """Public flush — called at atexit and on SIGTERM/SIGINT.
+    def flush(self, wait: float = _SAVINGS_LOCK_WAIT_AT_EXIT, state_wait: float = _STATE_LOCK_WAIT_AT_EXIT,
+              *, last_chance: bool = False) -> None:
+        """Public flush; `_exit_flush` calls it at atexit and on SIGTERM/SIGINT with *last_chance*.
 
         Both bounds apply: *wait* for another process's file lock, *state_wait*
         for this process's own state lock (see `_flush`).
         """
-        self._flush(lock_wait=wait, state_wait=state_wait)
+        self._flush(lock_wait=wait, state_wait=state_wait, last_chance=last_chance)
 
 
 def _merge_into(data: dict, batch: dict) -> "tuple[str, datetime]":
@@ -1734,9 +1773,13 @@ def _merge_batch(root: Path, batch: dict, lock_wait: float) -> dict:
                 "a new one. %d tokens saved over %d calls are kept in memory for the next write",
                 path, problem, batch["saved"], batch["calls"],
             )
+        _pending_files.sweep_stale_temps(path)
+        folded = _fold_kept_batches(path)
+        merged = _with_folded(batch, folded)
         try:
-            anon_id, now = _merge_into(data, batch)
+            anon_id, now = _merge_into(data, merged)
         except Exception as exc:
+            kept = _keep_folded(root, folded)
             # ⚠ `_read_ledger` refuses every mistyped field the merge adds to,
             # so this is reached only by a shape it does not know yet, or by a
             # defect in the merge itself. Either way the batch is kept and the
@@ -1749,7 +1792,7 @@ def _merge_batch(root: Path, batch: dict, lock_wait: float) -> dict:
                 "%d tokens saved over %d calls are kept in memory for the next write",
                 path, type(exc).__name__, exc, batch["saved"], batch["calls"],
                 exc_info=True,
-            )
+            ) | kept
         # Through a temp file named for this process and os.replace, so a
         # reader never sees a half-written file and a failed write leaves
         # the old one whole.
@@ -1763,7 +1806,7 @@ def _merge_batch(root: Path, batch: dict, lock_wait: float) -> dict:
             except OSError:
                 pass
             return failed("warning", "Savings file %s could not be written; counts kept for the next write", path,
-                          exc_info=True)
+                          exc_info=True) | _keep_folded(root, folded)
         mono = time.monotonic()  # taken under the file lock, so writes in this process order by it
     finally:
         try:
@@ -1780,7 +1823,83 @@ def _merge_batch(root: Path, batch: dict, lock_wait: float) -> dict:
         "by_tool_since": data.get("by_tool_since"),
         "stamp": now,
         "mono": mono,
+        "folded_telemetry": folded["telemetry"] if folded else 0,
     }
+
+
+def _empty_kept() -> dict:
+    return {"saved": 0, "calls": 0, "encoding": 0, "telemetry": 0, "by_tool": {}}
+
+
+def _read_kept(p: Path) -> Optional[dict]:
+    """A kept batch's counts, or None for a pending file that is not one."""
+    rec = _pending_files.read(p)
+    if rec is None or not all(_is_whole_count(rec.get(k, 0)) for k in _PENDING_KEYS):
+        return None
+    by_tool = rec.get("by_tool", {})
+    if not isinstance(by_tool, dict) or not all(
+        isinstance(k, str) and _is_whole_count(v) for k, v in by_tool.items()
+    ):
+        return None
+    out: dict = {k: int(rec.get(k, 0)) for k in _PENDING_KEYS}
+    out["by_tool"] = {k: int(v) for k, v in by_tool.items()}
+    return out
+
+
+def _add_kept(into: dict, rec: dict) -> None:
+    for k in _PENDING_KEYS:
+        into[k] += rec[k]
+    for tool, amount in rec["by_tool"].items():
+        into["by_tool"][tool] = into["by_tool"].get(tool, 0) + amount
+
+
+def _kept_batches(path: Path) -> dict:
+    """The sum of every kept batch beside *path*, read and left in place."""
+    total = _empty_kept()
+    for p in _pending_files.paths(path):
+        rec = _read_kept(p)
+        if rec is not None:
+            _add_kept(total, rec)
+    return total
+
+
+def _fold_kept_batches(path: Path) -> Optional[dict]:
+    """Claim every kept batch beside *path* and return their sum (None when there are none)."""
+    total = None
+    for p in _pending_files.paths(path):
+        rec = _read_kept(p)
+        if rec is None or not _pending_files.claim(p):
+            continue
+        total = total or _empty_kept()
+        _add_kept(total, rec)
+    return total
+
+
+def _with_folded(batch: dict, folded: Optional[dict]) -> dict:
+    if not folded:
+        return batch
+    merged = dict(batch)
+    for k in _PENDING_KEYS:
+        merged[k] = batch[k] + folded[k]
+    by_tool = dict(batch["by_tool"])
+    for tool, amount in folded["by_tool"].items():
+        by_tool[tool] = by_tool.get(tool, 0) + amount
+    merged["by_tool"] = by_tool
+    return merged
+
+
+def _keep_batch(root: Path, batch: dict) -> bool:
+    """Write *batch*'s counts to a pending file. False when it could not be written."""
+    payload = {k: batch[k] for k in _PENDING_KEYS}
+    payload["by_tool"] = dict(batch["by_tool"])
+    return _pending_files.write(root / _SAVINGS_FILE, payload)
+
+
+def _keep_folded(root: Path, folded: Optional[dict]) -> dict:
+    """After a failed write: put *folded* back on disk, or hand it to the caller as ``unkept``."""
+    if not folded or _keep_batch(root, folded):
+        return {}
+    return {"unkept": folded}
 
 
 def _clear_stale_temp_files(root: Path) -> None:
@@ -1807,13 +1926,18 @@ _state = _State()
 # registered runs FIRST -- registering the closer second would close the database
 # out from under the final flush, whose _persist_session_yield_locked writes to
 # it. This ordering makes flush run first and the close last.
+def _exit_flush() -> None:
+    """The last flush this process makes: a batch it cannot write is kept on disk."""
+    _state.flush(last_chance=True)
+
+
 atexit.register(_state.close_perf_dbs)
-atexit.register(_state.flush)
+atexit.register(_exit_flush)
 
 
 def _signal_flush(signum, frame):
     """Flush savings to disk on SIGTERM/SIGINT, then re-raise the signal."""
-    _state.flush()
+    _exit_flush()
     # Restore the default handler and re-raise so the process exits normally.
     signal.signal(signum, signal.SIG_DFL)
     os.kill(os.getpid(), signum)

@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+### Fixed - a savings count is kept when servers stop together
+
+The savings meter writes `_savings.json` when a server stops, waiting up to 3 seconds for `_savings.lock`. A write that failed there, because the wait ran out or the read or the replace was refused, put the batch back in memory, and the process then exited with it: the loss the tool counters had (entry below), in the lifetime savings total. A stopping server now keeps that batch in a `_savings.json.<random>.pending` file, through the shared `storage/pending_files.py` rules. The next write by any server removes each pending file and then adds its counts, so a file it can't remove is left for a later write and never counted twice. A write that fails after adding them puts them back in a pending file, or, if that also fails, keeps them with its own batch: in memory while serving, in one pending file when stopping. A server that loads the meter counts pending files in its lifetime total. Counts kept this way are credited to the day the next write adds them, not the day they were earned. `receipt` and `diagnose` read `_savings.json` alone, so they show a kept batch only once a server has written again. A running server still keeps an unwritten batch in memory and retries it, as before.
+
+## [1.108.458] - 2026-11-17 - a compact answer gives back a list or dict inside a table row
+
 ### Fixed - a compact answer gives back a list or dict inside a table row
 
 The generic compact encoder (`gen1`, used by every tool that has no encoder of its own) wrote a table cell holding a list or dict with Python's `repr` and decoded it as a string. A response like `{items: [{name, kids: [{x: 1}]}]}` came back with `kids` as the text `"[{'x': 1}]"`, which no JSON reader can parse, though the encoder promises a round trip. It shipped under the default `server_output` whenever the compact form beat JSON by the gate margin, and always under `compact`. A column with a list or dict in any row is now typed `json` on the wire: each cell is written as JSON text and decodes back to the same value, and a string, number or bool in that column comes back unchanged. A table with no such cell encodes byte for byte as before, so the encoding id stays `gen1` and an older payload decodes the same way. The TypeScript decoder in `clients/ts` and `SPEC_MUNCH.md` know the new type. A decoder older than this release reads a `json` column's cells as raw JSON text, so a string there arrives quoted; before, the same cells arrived as `repr` text, which was wrong too.
