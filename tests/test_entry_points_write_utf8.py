@@ -12,7 +12,8 @@ The harness half had a second trigger: any exception in a tier left `rc`
 unbound, so the summary write raised UnboundLocalError over the real error
 and fast.md stayed empty. `main` now starts from a failing `rc`.
 
-Not covered here: `.claude/hooks/` and `benchmarks/` entry points (L-320).
+The same rule reaches `.claude/hooks/` and `benchmarks/` (L-320): a benchmark
+prints corpus text and a hook prints repository paths and CHANGELOG lines.
 """
 
 import ast
@@ -28,15 +29,25 @@ ROOT = Path(__file__).resolve().parent.parent
 
 
 def _entry_points() -> list[Path]:
-    """Every file under scripts/ and harness/ with a `__main__` guard."""
+    """Every file under scripts/, harness/, .claude/hooks/ and benchmarks/ with a `__main__` guard."""
+    # Tracked files only: a gitignored corpus checked out under benchmarks/
+    # is someone else's code.
+    tracked = subprocess.run(
+        ["git", "ls-files", "--", "scripts", "harness", ".claude/hooks", "benchmarks"],
+        capture_output=True,
+        text=True,
+        cwd=ROOT,
+        check=True,
+    ).stdout.split()
     out = []
-    for d in ("scripts", "harness"):
-        for p in sorted((ROOT / d).rglob("*.py")):
-            if (
-                "__name__" in p.read_text(encoding="utf-8")
-                and _main_guard(p) is not None
-            ):
-                out.append(p)
+    for rel in sorted(tracked):
+        p = ROOT / rel
+        if (
+            p.suffix == ".py"
+            and "__name__" in p.read_text(encoding="utf-8")
+            and _main_guard(p) is not None
+        ):
+            out.append(p)
     return out
 
 
@@ -96,7 +107,7 @@ def _reconfigured_first(guard: ast.If) -> bool:
 def test_the_entry_point_list_is_not_empty():
     # The ratchet below iterates this list; an empty list would pass vacuously.
     names = {p.name for p in _entry_points()}
-    assert {"release_notes.py", "__main__.py"} <= names, names
+    assert {"release_notes.py", "__main__.py", "pre_pr.py", "report.py"} <= names, names
 
 
 def test_every_entry_point_writes_utf8():

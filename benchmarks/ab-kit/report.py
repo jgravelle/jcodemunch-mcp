@@ -4,6 +4,7 @@ Reads <dir>/runs/*/run.json, grades each answer against the answer key, and prin
 per-lookup tokens and correctness, a paired Hodges-Lehmann ratio with an exact Wilcoxon signed-rank test on tokens,
 correct counts per arm with an exact McNemar test, and the quality guard.
 """
+import sys
 import argparse, collections, hashlib, itertools, json, math, pathlib, re, statistics
 
 def norm(s): return re.sub(r"[^a-z0-9_]", "", (s or "").lower())
@@ -104,4 +105,8 @@ def main():
     print("\nUnit: the Explore agent's tokens per lookup, as Claude Code reports them. The parent session's tokens are not counted, "
           "so this is not the whole session's bill.")
 
-if __name__ == "__main__": raise SystemExit(main())
+if __name__ == "__main__":
+    # Windows: a redirected stdout is cp1252; write UTF-8 (L-145, L-320).
+    sys.stdout.reconfigure(encoding="utf-8")
+    sys.stderr.reconfigure(encoding="utf-8")
+    raise SystemExit(main())
