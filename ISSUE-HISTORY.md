@@ -3344,3 +3344,9 @@ The 1.108.452 entry, verbatim as it stood in `CLAUDE.md`:
 The 1.108.453 entry, verbatim as it stood in `CLAUDE.md`:
 
 - **Prior (1.108.453):** **Cursor's agent reads of indexed code are counted beside its jCodeMunch lookups** (#1456): `init --cursor-hooks` adds a `beforeReadFile` hook (`hook-cursor`) counting reads of indexed files (`storage/direct_reads.py`, under `tool_counters.acquire_lock`); known issue: a count whose 1.0 s lock wait times out is dropped silently. Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-17, release 1.108.457)
+
+The 1.108.454 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.454):** **a Cursor read count whose lock wait runs out is kept, not dropped** (#1464): a count whose `acquire_lock` wait times out goes to `_direct_reads.json.<uuid>.pending`, which `summary` counts and the next lock holder folds in (removed before added, re-pended if the write fails; the report reads the counts file first). Full text: `CHANGELOG.md`.
