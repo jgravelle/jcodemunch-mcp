@@ -3350,3 +3350,9 @@ The 1.108.453 entry, verbatim as it stood in `CLAUDE.md`:
 The 1.108.454 entry, verbatim as it stood in `CLAUDE.md`:
 
 - **Prior (1.108.454):** **a Cursor read count whose lock wait runs out is kept, not dropped** (#1464): a count whose `acquire_lock` wait times out goes to `_direct_reads.json.<uuid>.pending`, which `summary` counts and the next lock holder folds in (removed before added, re-pended if the write fails; the report reads the counts file first). Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-17, release 1.108.458)
+
+The 1.108.455 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.455):** **a C function shows the callers that reach it through its header** (#1459): a C/C++ definition takes the text-path callers of a same-named declaration in a header its file includes (`_call_graph._declaring_headers`; a `static` definition and a file defining its own copy take none). Full text: `CHANGELOG.md`.

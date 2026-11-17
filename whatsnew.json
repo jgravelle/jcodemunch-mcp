@@ -1,6 +1,12 @@
 {
-  "current": "1.108.457",
+  "current": "1.108.458",
   "entries": [
+    {
+      "version": "1.108.458",
+      "date": "2026-11-17",
+      "title": "a compact answer gives back a list or dict inside a table row",
+      "summary": "The generic compact encoder sends a table cell holding a list or dict as JSON, so it decodes back to the list or dict instead of a string."
+    },
     {
       "version": "1.108.457",
       "date": "2026-11-17",
