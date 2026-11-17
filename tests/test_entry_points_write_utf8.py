@@ -142,7 +142,7 @@ def test_the_check_refuses_a_guard_that_reconfigures_after_main():
 def test_a_tier_that_raises_still_writes_a_failing_summary(monkeypatch, tmp_path):
     # L-281's second trigger: `rc` was unbound when the tier raised, so the
     # summary write raised UnboundLocalError over the real error.
-    sys.path.insert(0, str(ROOT))
+    monkeypatch.syspath_prepend(str(ROOT))
     hm = importlib.import_module("harness.__main__")
 
     def boom(_a):
