@@ -3338,3 +3338,9 @@ The 1.108.451 entry, verbatim as it stood in `CLAUDE.md`:
 The 1.108.452 entry, verbatim as it stood in `CLAUDE.md`:
 
 - **Prior (1.108.452):** **the tool counters say how many calls found nothing** (#1457): `_tool_counters.json` keeps `no_match`, counted from the `no_implementation_found` verdict, and `diagnose` reports it per tool. Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-16, release 1.108.456)
+
+The 1.108.453 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.453):** **Cursor's agent reads of indexed code are counted beside its jCodeMunch lookups** (#1456): `init --cursor-hooks` adds a `beforeReadFile` hook (`hook-cursor`) counting reads of indexed files (`storage/direct_reads.py`, under `tool_counters.acquire_lock`); known issue: a count whose 1.0 s lock wait times out is dropped silently. Full text: `CHANGELOG.md`.
