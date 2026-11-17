@@ -1,6 +1,12 @@
 {
-  "current": "1.108.458",
+  "current": "1.108.459",
   "entries": [
+    {
+      "version": "1.108.459",
+      "date": "2026-11-17",
+      "title": "a savings count is kept when servers stop together",
+      "summary": "A server that stops while another holds the savings file keeps its counts in a pending file, and the next write adds them in."
+    },
     {
       "version": "1.108.458",
       "date": "2026-11-17",
