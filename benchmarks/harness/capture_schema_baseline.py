@@ -170,6 +170,9 @@ def breakdown() -> None:
 
 
 if __name__ == "__main__":
+    # Windows: a redirected stdout is cp1252; write UTF-8 (L-145, L-320).
+    sys.stdout.reconfigure(encoding="utf-8")
+    sys.stderr.reconfigure(encoding="utf-8")
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--breakdown",

@@ -16,6 +16,7 @@ Usage: ratios.py   (reads and writes next to this file)
 
 from __future__ import annotations
 
+import sys
 import json
 from collections import defaultdict
 from pathlib import Path
@@ -82,4 +83,7 @@ def main() -> None:
 
 
 if __name__ == "__main__":
+    # Windows: a redirected stdout is cp1252; write UTF-8 (L-145, L-320).
+    sys.stdout.reconfigure(encoding="utf-8")
+    sys.stderr.reconfigure(encoding="utf-8")
     main()
