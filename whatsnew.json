@@ -1,6 +1,12 @@
 {
-  "current": "1.108.456",
+  "current": "1.108.457",
   "entries": [
+    {
+      "version": "1.108.457",
+      "date": "2026-11-17",
+      "title": "a tool count is kept when servers stop together",
+      "summary": "A server that stops while another holds the tool-count file keeps its counts in a pending file, and the next write adds them in."
+    },
     {
       "version": "1.108.456",
       "date": "2026-11-16",
