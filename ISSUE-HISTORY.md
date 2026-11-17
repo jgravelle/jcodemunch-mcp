@@ -3356,3 +3356,9 @@ The 1.108.454 entry, verbatim as it stood in `CLAUDE.md`:
 The 1.108.455 entry, verbatim as it stood in `CLAUDE.md`:
 
 - **Prior (1.108.455):** **a C function shows the callers that reach it through its header** (#1459): a C/C++ definition takes the text-path callers of a same-named declaration in a header its file includes (`_call_graph._declaring_headers`; a `static` definition and a file defining its own copy take none). Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-17, release 1.108.459)
+
+The 1.108.456 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.456):** **check_references sends the same answer in up to 46% fewer characters** (#1469): a compact encoding (`cr1`, `encoding/schemas/check_references.py`) that ships JSON whenever it does not decode to the whole response, `_meta` included; no list is shortened. Full text: `CHANGELOG.md`.
