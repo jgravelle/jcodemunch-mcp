@@ -2913,11 +2913,14 @@ def augment_go_module_edges(imports: dict, source_root: str, source_files) -> in
         files = by_dir.get(d)
         if not files:
             return None
+        # A directory of `_test.go` files alone is no importable package.
         plain = [f for f in files if not f.endswith("_test.go")]
+        if not plain:
+            return None
         named = f"{d}/{posixpath.basename(d)}.go" if d else None
         if named in plain:
             return named
-        return (plain or files)[0]
+        return plain[0]
 
     added = 0
     for importer, edges in imports.items():

@@ -10,9 +10,13 @@ When the index loads, each `go.mod` in the tree is read now, and an import under
 
 Files of one Go package also call each other with no import (LEDGER L-262), so a file whose only users were its peers read as dead. `find_dead_code` now treats a Go package as one unit: a package with an entry point, or an importer outside it, is live, every file of it. A package that nothing reaches is still reported, every file of it. `get_dead_code_v2` adds each file's same-package peers to its reachability walk, which starts at entry points, so the same holds there.
 
+`get_repo_health`'s coupling axis counts a Go package as one unit too. The import edge reaches one file of a package, so read file by file, every other file that imports something showed no importers and counted as unstable: on the four repositories that took coupling to 43.3 (gin), 58.3 (cobra), 23.4 (hugo) and 22.2 (prometheus). Each package's importers and imports are now counted across its files, and every file carries the package's reading: 97.0, 58.3, 57.7 and 58.5. Before this fix the axis read 67.2, 100, 97.8 and 84.6 over a Go import graph with almost no resolved edge. A package still reads as unstable when it imports others and nothing here imports it, such as a `cmd/` program or cobra's `doc`. The composite grade is withheld on all four repositories, before and after, because the dead-code axis cannot be measured there. Other languages' coupling counts are unchanged on the six non-Go corpora.
+
 Other languages resolve exactly as before. On eight corpora (Python, Java, JavaScript, TypeScript, PHP, Kotlin, and the non-Go files of hugo and prometheus), every resolved edge from a non-Go file hashes the same on both trees, and `find_dead_code` reports the same number of files.
 
-Not changed: a `package main` program (`cmd/promtool/main.go`) is not an entry point yet, which accounts for most of what is still reported on prometheus and hugo (LEDGER L-321). An index built with `index_repo` has no local tree, so it reads no `go.mod`.
+The augmentation runs when an index is loaded, and a loaded index is cached, so it is paid once per load: an isolated construction of hugo's index went from 2.7 to 25.9 ms, and of prometheus's from 8.5 to 30.3 ms.
+
+Not changed: a `package main` program is not an entry point yet. Of the 24 Go files still reported on prometheus, 11 are in `cmd/promtool` and 8 are named `main.go`, one file counted in both; 4 of hugo's 9 are named `main.go` (LEDGER L-321). An index built with `index_repo` has no local tree, so it reads no `go.mod`.
 
 ## [1.108.459] - 2026-11-17 - a savings count is kept when servers stop together
 

@@ -126,6 +126,17 @@ def test_a_nested_module_resolves_against_its_own_go_mod(tmp_path):
     assert "tools/lint/rules.go" not in dead, dead.get("tools/lint/rules.go")
 
 
+def test_a_directory_of_test_files_alone_gains_no_importer(tmp_path):
+    # Go cannot import a package that holds only `_test.go` files.
+    files = {
+        "go.mod": "module example.com/app\n",
+        "main.go": 'package main\n\nimport "example.com/app/t"\n',
+        "t/x_test.go": "package t\n\nfunc TestX() {}\n",
+    }
+    repo, store = _index(tmp_path, files)
+    assert _importers(repo, store, "t/x_test.go") == set()
+
+
 def test_a_module_path_with_no_dot_resolves(tmp_path):
     files = {
         "go.mod": 'module "myapp"\n',
@@ -181,6 +192,30 @@ def test_blast_radius_reaches_a_cross_package_caller(tmp_path):
     assert "error" not in r, r
     assert "pkg/pick_service.go" in {c["file"] for c in r["confirmed"]}, r
     assert r["overall_risk_score"] is not None, r
+
+
+def test_a_multi_file_go_package_is_one_stable_unit_for_coupling(tmp_path):
+    # Two programs import `lib`; the import edge reaches one file of it, and
+    # another of its files imports `util`. Read file by file, that file has
+    # Ca=0 and Ce=1 and is unstable. Read as the package it is, `lib` has two
+    # importers and one import: stable, every file of it.
+    from jcodemunch_mcp.storage import IndexStore
+    from jcodemunch_mcp.tools.get_repo_health import _count_unstable_modules
+
+    files = {
+        "go.mod": "module example.com/app\n",
+        "cmd/a/main.go": 'package main\n\nimport "example.com/app/lib"\n\nfunc main() { lib.A() }\n',
+        "cmd/b/main.go": 'package main\n\nimport "example.com/app/lib"\n\nfunc main() { lib.A() }\n',
+        "lib/lib.go": "package lib\n\nfunc A() int { return b() }\n",
+        "lib/more.go": 'package lib\n\nimport "example.com/app/util"\n\nfunc b() int { return util.U() }\n',
+        "util/util.go": "package util\n\nfunc U() int { return 1 }\n",
+    }
+    repo, store = _index(tmp_path, files)
+    owner, _, name = repo.partition("/")
+    ix = IndexStore(base_path=store).load_index(owner, name)
+    unstable, total, _, _ = _count_unstable_modules(ix)
+    # Only the two programs are unstable (Ce=1, Ca=0); `lib/more.go` is not.
+    assert (unstable, total) == (2, 5), (unstable, total)
 
 
 def test_the_added_edge_is_not_stored(tmp_path):
