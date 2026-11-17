@@ -1311,6 +1311,9 @@ def main(argv: list[str] | None = None) -> int:
     if a.summary or a.annotate:
         tee = _Tee(sys.stdout)
         sys.stdout = tee
+    # A tier that raises leaves no rc of its own; start from a failure so the
+    # summary below records FAIL instead of raising over the real error (L-281).
+    rc = 1
     try:
         rc = _dispatch(a)
     finally:
@@ -1390,4 +1393,8 @@ def _dispatch(a) -> int:
 
 
 if __name__ == "__main__":
+    # Windows: a redirected stdout is cp1252, and this prints text read from
+    # CHANGELOG.md and LEDGER.md (L-145, L-281).
+    sys.stdout.reconfigure(encoding="utf-8")
+    sys.stderr.reconfigure(encoding="utf-8")
     sys.exit(main())

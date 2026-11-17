@@ -239,4 +239,8 @@ def main(argv: list[str] | None = None) -> int:
 
 
 if __name__ == "__main__":
+    # Windows: a redirected stdout is cp1252, and this prints text read from
+    # CHANGELOG.md and LEDGER.md (L-145, L-281).
+    sys.stdout.reconfigure(encoding="utf-8")
+    sys.stderr.reconfigure(encoding="utf-8")
     sys.exit(main())
