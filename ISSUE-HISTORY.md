@@ -3362,3 +3362,9 @@ The 1.108.455 entry, verbatim as it stood in `CLAUDE.md`:
 The 1.108.456 entry, verbatim as it stood in `CLAUDE.md`:
 
 - **Prior (1.108.456):** **check_references sends the same answer in up to 46% fewer characters** (#1469): a compact encoding (`cr1`, `encoding/schemas/check_references.py`) that ships JSON whenever it does not decode to the whole response, `_meta` included; no list is shortened. Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-17, release 1.108.460)
+
+The 1.108.457 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.457):** **a tool count is kept when servers stop together** (#1470): the exit flush of `_tool_counters.json` writes what it could not add to a `.pending` sibling, and the next write claims each one before adding it; the protocol is `storage/pending_files.py`, shared with the Cursor read counter. Full text: `CHANGELOG.md`.

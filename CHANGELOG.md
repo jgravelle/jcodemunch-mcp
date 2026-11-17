@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.460] - 2026-11-17 - Go imports between packages of one module resolve through go.mod
+
 ### Fixed - Go imports between packages of one module now resolve through go.mod
 
 Go imports between packages of one module now resolve: `import "github.com/gin-gonic/gin/binding"` reaches the `binding/` package through the module path `go.mod` declares. Before, no such import reached a file, so every in-module Go package showed no importers.
