@@ -158,6 +158,10 @@ _STAGE_BUDGET_WEIGHT = {
 # field ships with its cap). The two disclosure keys appear only on a cut list,
 # so a list without them is the producer's whole list.
 _RISK_UNRESOLVABLE_FILES_CAP = 20
+# Rows the changed stage keeps per list. Each list ships beside the
+# producer's own `*_count`, so a cut page never reads as the whole (#559).
+_CHANGED_ROWS_CAP = 5
+_CHANGED_ROW_KEYS = ("symbol_id", "change_type", "previous_name")
 
 
 def _capped_signal_breakdown(breakdown: dict) -> dict:
@@ -656,12 +660,27 @@ def assemble_task_context(
                 storage_path=storage_path,
             )
             if isinstance(out, dict) and "error" not in out:
-                _add_entry("changed", "get_changed_symbols", {
-                    "added": (out.get("added", []) or [])[:5],
-                    "modified": (out.get("modified", []) or [])[:5],
-                    "removed": (out.get("removed", []) or [])[:5],
-                    "renamed": (out.get("renamed", []) or [])[:5],
-                })
+                # (L-272) The producer publishes `added_symbols`,
+                # `removed_symbols` and `changed_symbols`, a changed row naming
+                # its `change_type` (modified or renamed). The stage read
+                # `added`/`modified`/`removed`/`renamed`, which it has never
+                # published, so every list was empty and a review capsule
+                # said nothing changed.
+                def _rows(key: str) -> list[dict]:
+                    return [
+                        {k: r[k] for k in _CHANGED_ROW_KEYS if k in r}
+                        for r in (out.get(key) or [])[:_CHANGED_ROWS_CAP]
+                    ]
+
+                payload = {
+                    key: _rows(key)
+                    for key in ("added_symbols", "removed_symbols", "changed_symbols")
+                }
+                for key in ("added_count", "removed_count", "changed_count",
+                            "symbol_diff_complete"):
+                    if key in out:
+                        payload[key] = out[key]
+                _add_entry("changed", "get_changed_symbols", payload)
         except Exception as exc:  # noqa: BLE001
             logger.debug("assemble_task_context: changed_symbols skipped: %s", exc, exc_info=True)
 

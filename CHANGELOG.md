@@ -10,6 +10,12 @@ A Go file that holds a top-level `func main` and opens with `package main` is no
 
 On prometheus (49c815a0), Go files `find_dead_code` reports went from 24 to 4, and on hugo (afb2d9ac) from 9 to 4. In `get_dead_code_v2`, the entry points found went from 0 to 9 on prometheus and from 1 to 5 on hugo, and the share of symbols `unreachable_file` fires on went from 1.0 to 0.0856 and from 0.999 to 0.0703. On gin, cobra and six corpora in other languages every number is the same before and after. The `get_repo_health` grade is withheld on all ten corpora, before and after.
 
+### Fixed - a review capsule says what changed
+
+`assemble_task_context` in review mode runs `get_changed_symbols` and puts what it found in a `changed` entry. That entry read the keys `added`, `modified`, `removed` and `renamed`, which `get_changed_symbols` has never published: it publishes `added_symbols`, `removed_symbols` and `changed_symbols`, and each changed row names its `change_type`. So all four lists were empty for every diff, and a review capsule told the agent nothing had changed, on a change that touched code.
+
+The entry now carries those three lists, at most five rows each, with each row's `symbol_id`, its `change_type` and, for a rename, its `previous_name`. Beside them it carries the producer's own `added_count`, `removed_count` and `changed_count`, so a cut list never reads as the whole diff, and `symbol_diff_complete`, so a diff with a file that could not be parsed says so. The test runs the real `get_changed_symbols` and fails if the entry carries a key that it does not publish; a mock would hand the stage whatever keys it asked for, which is how this stayed hidden.
+
 ## [1.108.461] - 2026-11-18 - the agent selector's top OpenAI model is no longer one OpenAI retires on 2026-12-11
 
 ### Fixed - the agent selector's top OpenAI model is no longer one OpenAI retires on 2026-12-11
