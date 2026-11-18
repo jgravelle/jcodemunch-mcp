@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import subprocess
 import time
 from pathlib import Path
@@ -11,6 +12,7 @@ from typing import Optional
 from ..storage import IndexStore
 from ..parser import parse_file, get_language_for_path
 from ..parser.symbols import compute_content_hash
+from ..word_rule import word_pattern
 from ._utils import index_status_to_tool_error, resolve_repo
 from .get_blast_radius import _build_reverse_adjacency, _bfs_importers, blast_verdict
 
@@ -87,8 +89,57 @@ def _parse_symbols_from_content(content: str, rel_path: str, repo: str | None = 
             "file": rel_path,
             "line": sym.line,
             "content_hash": ch,
+            _RENAME_SHAPE: _rename_shape(sym, content, lines),
         }
     return result
+
+
+# (L-322) What a symbol looks like with its own name masked: (kind, parent,
+# hash of the body with every whole-token use of the name replaced). Two
+# symbols with the same shape and different names are one symbol renamed.
+# Internal to the diff; `_public` strips it from every published row.
+_RENAME_SHAPE = "_rename_shape"
+
+
+def _rename_shape(sym, content: str, lines: list[str]) -> Optional[tuple]:
+    name = sym.name or ""
+    qn = sym.qualified_name or ""
+    if not name or not qn.endswith(name):
+        return None
+    if sym.byte_length:
+        body = content.encode("utf-8")[sym.byte_offset:sym.byte_offset + sym.byte_length].decode(
+            "utf-8", errors="replace")
+    elif sym.line and sym.end_line:
+        body = "".join(lines[sym.line - 1:sym.end_line])
+    else:
+        return None
+    masked = re.sub(word_pattern(name), "\x00", body)
+    if masked == body:
+        return None
+    return (sym.kind, qn[: len(qn) - len(name)], compute_content_hash(masked.encode("utf-8")))
+
+
+def _public(sym: dict) -> dict:
+    return {k: v for k, v in sym.items() if k != _RENAME_SHAPE}
+
+
+def _pair_renames(removed: set, added: set, before_syms: dict, after_syms: dict) -> list[tuple]:
+    """(removed key, added key) pairs that are one symbol renamed.
+
+    A shape pairs only when exactly one removed and exactly one added symbol
+    carry it: two candidates with the same masked body are not a rename the
+    diff can name, so both stay `added` and `removed`.
+    """
+    def group(keys, syms):
+        out: dict = {}
+        for k in keys:
+            shape = syms[k].get(_RENAME_SHAPE)
+            if shape is not None:
+                out.setdefault(shape, []).append(k)
+        return out
+
+    gone, new = group(removed, before_syms), group(added, after_syms)
+    return [(r[0], new[s][0]) for s, r in gone.items() if len(r) == 1 and len(new.get(s, ())) == 1]
 
 
 def get_changed_symbols(
@@ -421,16 +472,28 @@ def get_changed_symbols(
 
         before_keys = set(before_syms)
         after_keys = set(after_syms)
+        added_keys = after_keys - before_keys
+        removed_keys = before_keys - after_keys
 
-        for key in after_keys - before_keys:
-            entry = dict(after_syms[key])
+        for old_key, new_key in _pair_renames(removed_keys, added_keys, before_syms, after_syms):
+            removed_keys.discard(old_key)
+            added_keys.discard(new_key)
+            entry = _public(after_syms[new_key])
+            entry["change_type"] = "renamed"
+            entry["previous_name"] = before_syms[old_key]["name"]
+            if include_blast_radius and rev_adj is not None:
+                _attach_blast(entry, file_path)
+            changed_symbols.append(entry)
+
+        for key in added_keys:
+            entry = _public(after_syms[key])
             entry["change_type"] = "added"
             if include_blast_radius and rev_adj is not None:
                 _attach_blast(entry, file_path)
             added_symbols.append(entry)
 
-        for key in before_keys - after_keys:
-            entry = dict(before_syms[key])
+        for key in removed_keys:
+            entry = _public(before_syms[key])
             entry["change_type"] = "removed"
             if include_blast_radius and rev_adj is not None:
                 # A removed symbol is named at the path it was removed from, so
@@ -441,16 +504,10 @@ def get_changed_symbols(
         for key in before_keys & after_keys:
             b = before_syms[key]
             a = after_syms[key]
-            # Detect rename: same body hash but different name
-            if b["name"] != a["name"] and b["content_hash"] == a["content_hash"] and b["content_hash"]:
-                entry = dict(a)
-                entry["change_type"] = "renamed"
-                entry["previous_name"] = b["name"]
-                if include_blast_radius and rev_adj is not None:
-                    _attach_blast(entry, file_path)
-                changed_symbols.append(entry)
-            elif b["content_hash"] != a["content_hash"] and (b["content_hash"] or a["content_hash"]):
-                entry = dict(a)
+            # The same key is the same qualified name, so a rename never
+            # reaches here; it is paired above (L-322).
+            if b["content_hash"] != a["content_hash"] and (b["content_hash"] or a["content_hash"]):
+                entry = _public(a)
                 entry["change_type"] = "modified"
                 if include_blast_radius and rev_adj is not None:
                     _attach_blast(entry, file_path)

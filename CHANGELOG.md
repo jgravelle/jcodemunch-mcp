@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+### Fixed - a renamed function is reported as renamed
+
+`get_changed_symbols` keys each symbol by its qualified name and kind, so a renamed function is a different key on each side of the diff. Its `renamed` branch compared two symbols under the same key, which share a qualified name, and compared hashes that include the name itself, so it could never run. A rename came back as one `added` row and one `removed` row, and `change_type: renamed` and `previous_name` were never published, though the tool's description promised them. `assemble_task_context` and `get_pr_risk_profile` read the same rows, so a rename also counted as two changed symbols there.
+
+Now a removed symbol and an added symbol in the same file are one symbol renamed when they have the same kind and the same parent, and their bodies are identical once each one's own name is masked, so a recursive function renamed in its body too still pairs. Only a unique match pairs: when two added symbols have the same masked body, nothing is guessed and both stay `added`. A rename whose body was also edited stays `added` and `removed`. A method whose class was renamed is still `added` and `removed` under the new class (LEDGER L-322).
+
 ## [1.108.462] - 2026-11-18 - a Go program is an entry point, a review capsule says what changed, and a forced summary refresh keeps what a provider that cannot run would overwrite
 
 ### Fixed - a Go program is an entry point to the dead-code tools
