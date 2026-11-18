@@ -76,6 +76,33 @@ def test_v2_reaches_a_programs_peer(tmp_path):
     assert "unreachable_file" in signals.get("lib/main.go::Helper#function", []), signals
 
 
+def test_an_ignored_generator_does_not_revive_the_package_beside_it(tmp_path):
+    # `go generate` runs a `//go:build ignore` file; `go build` leaves it out of
+    # the package. Rooting it would make its directory live through the
+    # package rule, hiding a dead library package beside it.
+    files = {
+        "go.mod": "module example.com/app\n\ngo 1.22\n",
+        "lib/lib.go": "package lib\n\nfunc Helper() int { return 2 }\n",
+        "lib/gen.go": "//go:build ignore\n\npackage main\n\nfunc main() {}\n",
+        "tools/legacy/gen.go": "// +build ignore\n\npackage main\n\nfunc main() {}\n",
+    }
+    repo, store = _index(tmp_path, files)
+    dead = _dead_files(repo, store)
+    for f in ("lib/lib.go", "lib/gen.go", "tools/legacy/gen.go"):
+        assert f in dead, (f, sorted(dead))
+
+
+def test_only_the_package_clause_names_the_package(tmp_path):
+    # A block comment above the clause that starts a line with `package main`
+    # does not make a library file a program.
+    files = {
+        "go.mod": "module example.com/app\n\ngo 1.22\n",
+        "lib/doc.go": "/*\npackage main is not this package\n*/\npackage lib\n\nfunc main() {}\n",
+    }
+    repo, store = _index(tmp_path, files)
+    assert "lib/doc.go" in _dead_files(repo, store)
+
+
 def test_v2_counts_a_program_as_an_entry_point_not_a_package_json_entry(tmp_path):
     repo, store = _index(tmp_path, APP)
     meta = get_dead_code_v2(repo, storage_path=store, min_confidence=0.0)["_meta"]
