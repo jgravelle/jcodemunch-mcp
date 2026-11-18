@@ -16,6 +16,12 @@ On prometheus (49c815a0), Go files `find_dead_code` reports went from 24 to 4, a
 
 The entry now carries those three lists, at most five rows each, with each row's `symbol_id`, its `change_type` and, for a rename, its `previous_name`. Beside them it carries the producer's own `added_count`, `removed_count` and `changed_count`, so a cut list never reads as the whole diff, and `symbol_diff_complete`, so a diff with a file that could not be parsed says so. The test runs the real `get_changed_symbols` and fails if the entry carries a key that it does not publish; a mock would hand the stage whatever keys it asked for, which is how this stayed hidden.
 
+### Fixed - a forced summary refresh keeps what it had when the named provider cannot run
+
+`summarize_repo(force=true)` clears every summary and runs the pipeline again. Since 1.108.404 (#1282), a symbol the provider was asked for and did not answer keeps its stored summary. A provider that is configured but never gets a client was not covered, because it is never asked: a missing key under an explicit `minimax`, `glm` or `openrouter`, or a remote `OPENAI_API_BASE` that the localhost rule refuses without `allow_remote_summarizer`. The run then saved a signature fallback over every stored AI summary, and the result read like a healthy run, so the user had no sign that the summaries they paid for were gone.
+
+Now a provider the configuration names but cannot build is reported as `provider_unavailable`, with a `provider_unavailable_reason` naming the likely cause. Each symbol whose new summary would be only its signature fallback keeps what was stored, and `previous_summaries_kept` counts them. A docstring summary is still written, and with no provider configured at all a forced run resets to the fallback as before. `_create_summarizer` and the new report read one function for which provider the configuration selects, so the two cannot disagree.
+
 ## [1.108.461] - 2026-11-18 - the agent selector's top OpenAI model is no longer one OpenAI retires on 2026-12-11
 
 ### Fixed - the agent selector's top OpenAI model is no longer one OpenAI retires on 2026-12-11

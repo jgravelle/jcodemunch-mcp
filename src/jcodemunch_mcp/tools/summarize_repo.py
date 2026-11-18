@@ -5,7 +5,7 @@ import time
 from typing import Optional
 
 from ..storage import IndexStore
-from ..summarizer import summarize_symbols
+from ..summarizer import signature_fallback, summarize_symbols
 from ._utils import index_status_to_tool_error, resolve_repo
 
 logger = logging.getLogger(__name__)
@@ -130,6 +130,21 @@ def summarize_repo(
             sym.summary = previous
             kept += 1
 
+    # (L-274) The configuration names a provider whose client could not be
+    # built, so no request was sent and #1282's list is empty. A signature
+    # fallback is not what the user configured: each symbol that got one keeps
+    # what was stored, and the result names the provider. A docstring summary
+    # is the pipeline's own answer and is written.
+    unavailable = report.get("provider_unavailable")
+    unavailable_kept = 0
+    if unavailable:
+        for sym in symbols:
+            previous = stored.get(sym.id, "")
+            if previous and previous != sym.summary and sym.summary == signature_fallback(sym):
+                sym.summary = previous
+                unavailable_kept += 1
+    kept += unavailable_kept
+
     # `updated` counts summaries that differ from what was stored, so a kept
     # summary is not counted as updated (#1282). Before, a forced run counted
     # every summary against the blank it had just set.
@@ -183,5 +198,24 @@ def summarize_repo(
         result["previous_summaries_kept_reason"] = (
             "the AI provider was asked for these symbols and returned no summary (a failed or rate-limited request, or a blank answer), "
             "so each kept the summary it already had; run summarize_repo(force=true) again to retry them"
+        )
+    if unavailable:
+        result["provider_unavailable"] = unavailable
+        reason = (
+            f"summarizer provider '{unavailable}' is configured but its client could not be built "
+            "(a missing API key, its SDK package not installed, or a remote endpoint refused "
+            "without allow_remote_summarizer), so no request was sent"
+        )
+        if unavailable_kept:
+            reason += (
+                f"; {unavailable_kept} symbol(s) kept the summary they already had "
+                "instead of a signature fallback"
+            )
+        result["provider_unavailable_reason"] = reason
+        if unavailable_kept and provider_fallbacks == 0:
+            result["previous_summaries_kept_reason"] = result["provider_unavailable_reason"]
+        logger.warning(
+            "summarize_repo: provider %s is configured but has no client for %s/%s; %d stored summaries kept",
+            unavailable, owner, name, unavailable_kept,
         )
     return result
