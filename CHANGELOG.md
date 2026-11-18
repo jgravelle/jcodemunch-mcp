@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed - a review capsule names the symbol a renamed function was
+
+`get_changed_symbols` reports a renamed symbol with both `previous_name` and `previous_symbol_id`, but `assemble_task_context`'s changed stage kept only the bare name. A name is not something a lookup takes: `get_symbol_source` and `find_references` take an id, and two classes can each have had a method of that name, so a review capsule could say what a symbol was called without saying which symbol it was. The stage now carries `previous_symbol_id` too, and a test runs the real producer on a renamed function and requires the capsule row to match its `symbol_id`, `previous_name` and `previous_symbol_id` (LEDGER L-322).
+
 ## [1.108.463] - 2026-11-18 - a watch-service probe that could not ask reads as unknown, and a renamed function reads as renamed
 
 ### Fixed - a renamed function is reported as renamed

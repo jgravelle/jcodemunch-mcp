@@ -126,3 +126,37 @@ def test_a_long_list_is_cut_and_its_count_is_the_whole(tmp_path, monkeypatch):
     entry = _changed_entry(repo_id, storage)
     assert _ids(entry["added_symbols"]) == _ids(many[:cap])
     assert entry["added_count"] == cap + 4
+
+
+def test_a_renamed_row_names_the_symbol_it_was(tmp_path):
+    """A renamed row carries the old symbol's id, not only its bare name (L-322).
+
+    `previous_name` alone cannot be looked up: the id is what `get_symbol_source`
+    and `find_references` take, and two classes can each have had a `load`.
+    """
+    root = tmp_path / "renamefix"
+    root.mkdir()
+    body = "    total = 0\n    for item in items:\n        total += item\n    return total\n"
+    (root / "core.py").write_text("def add_all(items):\n" + body, encoding="utf-8")
+    _git(["init", "-q"], root)
+    _git(["config", "user.email", "t@t.test"], root)
+    _git(["config", "user.name", "T"], root)
+    _git(["add", "-A"], root)
+    _git(["commit", "-q", "-m", "initial"], root)
+    storage = str(tmp_path / ".index")
+    repo_id = index_folder(str(root), use_ai_summaries=False, storage_path=storage)[
+        "repo"
+    ]
+    (root / "core.py").write_text("def sum_items(items):\n" + body, encoding="utf-8")
+    _git(["commit", "-q", "-am", "rename"], root)
+
+    diff = get_changed_symbols(
+        repo=repo_id, include_blast_radius=False, storage_path=storage
+    )
+    renamed = [r for r in diff["changed_symbols"] if r["change_type"] == "renamed"]
+    assert len(renamed) == 1, diff
+    entry = _changed_entry(repo_id, storage)
+    rows = [r for r in entry["changed_symbols"] if r.get("change_type") == "renamed"]
+    assert len(rows) == 1, entry
+    for key in ("symbol_id", "previous_name", "previous_symbol_id"):
+        assert rows[0].get(key) == renamed[0][key], key
