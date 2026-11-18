@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.462] - 2026-11-18 - a Go program is an entry point, a review capsule says what changed, and a forced summary refresh keeps what a provider that cannot run would overwrite
+
 ### Fixed - a Go program is an entry point to the dead-code tools
 
 Go runs a program from the `func main` of a `package main`, and nothing imports it. The dead-code tools knew only Python's entry-point file names, so every file of a `cmd/` program was reported dead: `find_dead_code` gave it `zero_importers` at confidence 1.0, and `get_dead_code_v2` saw no entry point on most Go repositories, so its `unreachable_file` signal fired on almost every symbol and could not tell anything apart.
