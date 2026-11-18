@@ -23,14 +23,17 @@ import sys
 import time
 from pathlib import Path
 
+import importlib.util
+
 import pytest
+from mcp import ClientSession
+from mcp.client.streamable_http import streamable_http_client
+from mcp.shared._httpx_utils import create_mcp_http_client
 
-pytest.importorskip("uvicorn")
-pytest.importorskip("starlette")
-
-from mcp import ClientSession  # noqa: E402
-from mcp.client.streamable_http import streamable_http_client  # noqa: E402
-from mcp.shared._httpx_utils import create_mcp_http_client  # noqa: E402
+# The server subprocess needs the HTTP extras; the unit tests below do not.
+_HAS_HTTP = all(
+    importlib.util.find_spec(name) is not None for name in ("uvicorn", "starlette")
+)
 
 _TOKEN = "test-token-1491"
 
@@ -129,6 +132,7 @@ async def _tier_calls(url: str, headers: dict[str, str]) -> list[tuple[str, dict
     return log
 
 
+@pytest.mark.skipif(not _HAS_HTTP, reason="uvicorn and starlette are not installed")
 def test_a_tier_set_in_one_session_is_not_the_tier_of_another(http_server):
     url, headers = http_server
     # A stalled server would otherwise hold each call for the client's read timeout.
