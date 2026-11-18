@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.463] - 2026-11-18 - a watch-service probe that could not ask reads as unknown, and a renamed function reads as renamed
+
 ### Fixed - a renamed function is reported as renamed
 
 `get_changed_symbols` keys each symbol by its qualified name and kind, so a renamed function is a different key on each side of the diff. Its `renamed` branch compared two symbols under the same key, which share a qualified name, and compared hashes that include the name itself, so it could never run. A rename came back as one `added` row and one `removed` row, and `change_type: renamed` and `previous_name` were never published, though the tool's description promised them. `assemble_task_context`, `get_pr_risk_profile` and `digest` read the same rows, so a rename also counted as two changed symbols there.

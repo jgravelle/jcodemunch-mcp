@@ -3380,3 +3380,9 @@ The 1.108.458 entry, verbatim as it stood in `CLAUDE.md`:
 The 1.108.459 entry, verbatim as it stood in `CLAUDE.md`:
 
 - **Prior (1.108.459):** **a savings count is kept when servers stop together** (#1473): the savings meter's exit flush writes what it could not add to a `.pending` file beside the savings file, through the shared `storage/pending_files.py` protocol, and the next write folds it in. Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-18, release 1.108.463)
+
+The 1.108.460 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.460):** **Go imports between packages of one module resolve through go.mod** (L-264, #1480): when an index loads, `parser/imports.augment_go_module_edges` reads each `go.mod` and gives an import under its module path an edge to one file of the package directory, derived on every load and never stored (`written_imports`); `find_dead_code`, `get_dead_code_v2` and the coupling axis of `get_repo_health` read a Go package as one unit. Full text: `CHANGELOG.md`.

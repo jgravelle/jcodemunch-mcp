@@ -1,6 +1,12 @@
 {
-  "current": "1.108.462",
+  "current": "1.108.463",
   "entries": [
+    {
+      "version": "1.108.463",
+      "date": "2026-11-18",
+      "title": "a watch-service probe that could not ask reads as unknown, and a renamed function reads as renamed",
+      "summary": "get_watch_status reports unknown, with the reason, when the service manager could not be asked, instead of reporting the watcher stopped. get_changed_symbols reports a renamed function as one renamed row with its previous name and symbol id, instead of an added row and a removed row."
+    },
     {
       "version": "1.108.462",
       "date": "2026-11-18",
