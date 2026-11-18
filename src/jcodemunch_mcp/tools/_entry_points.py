@@ -616,6 +616,71 @@ def _script_entries(
     return found
 
 
+# (LEDGER L-321) Go runs a program from the `func main` of a `package main`, and
+# nothing imports it, so every `cmd/` program read as dead. The root is the
+# file that holds a top-level `func main` and opens with `package main`; its
+# same-package peers are live with it through the package rule (L-264). ⚠ The
+# symbol narrows the content reads to one file per program. ⚠ A `main.go` in a
+# library package is not a program, and a `func main` in a `_test.go` file runs
+# nothing, so neither is a root.
+# ⚠⚠ A `//go:build ignore` file (a `go generate` program) is NOT a root:
+# `go build` leaves it out of its directory's package, but the package rule
+# groups by directory, so rooting it would revive a dead library package beside
+# it (a false negative on a file main reports correctly).
+_GO_PACKAGE_CLAUSE_RE = re.compile(r"package\s+(\w+)\b")
+_GO_IGNORE_CONSTRAINT_RE = re.compile(r"//(?:go:build|\s*\+build)\s+ignore\b")
+
+
+def _go_main_program(content: str) -> bool:
+    """True when the file's own package clause is `main` and no build
+    constraint above it excludes the file."""
+    in_block = False
+    for line in content.splitlines():
+        s = line.strip()
+        if in_block:
+            if "*/" in s:
+                in_block = False
+                s = s.split("*/", 1)[1].strip()
+            else:
+                continue
+        if not s:
+            continue
+        if s.startswith("//"):
+            if _GO_IGNORE_CONSTRAINT_RE.match(s):
+                return False
+            continue
+        if s.startswith("/*"):
+            if "*/" not in s:
+                in_block = True
+            continue
+        m = _GO_PACKAGE_CLAUSE_RE.match(s)
+        return bool(m) and m.group(1) == "main"
+    return False
+
+
+def go_main_entries(index, store, owner: str, repo_name: str) -> set[str]:
+    """Go files that hold the `func main` of a `package main`."""
+    langs = getattr(index, "file_languages", None) or {}
+    candidates: set[str] = set()
+    for sym in getattr(index, "symbols", None) or ():
+        f = sym.get("file", "")
+        if not f.endswith(".go") or f.endswith("_test.go"):
+            continue
+        if langs and langs.get(f) not in (None, "go"):
+            continue
+        # A method named main is kind "method", so the kind check alone
+        # leaves only a top-level `func main`.
+        if sym.get("kind") != "function" or sym.get("name") != "main":
+            continue
+        candidates.add(f)
+    found: set[str] = set()
+    for f in sorted(candidates):
+        content = store.get_file_content(owner, repo_name, f)
+        if content and _go_main_program(content):
+            found.add(f)
+    return found
+
+
 def package_json_entries(index, store, owner: str, repo_name: str) -> set[str]:
     """Source files a ``package.json`` declares as roots.
 

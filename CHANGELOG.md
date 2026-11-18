@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+### Fixed - a Go program is an entry point to the dead-code tools
+
+Go runs a program from the `func main` of a `package main`, and nothing imports it. The dead-code tools knew only Python's entry-point file names, so every file of a `cmd/` program was reported dead: `find_dead_code` gave it `zero_importers` at confidence 1.0, and `get_dead_code_v2` saw no entry point on most Go repositories, so its `unreachable_file` signal fired on almost every symbol and could not tell anything apart.
+
+A Go file that holds a top-level `func main` and opens with `package main` is now an entry point to both tools, and the other files of its package are live with it. A `main.go` in a library package is not a program, and neither is a `func main` in a `_test.go` file, so both are still reported when nothing reaches them. A generator marked `//go:build ignore` (or `// +build ignore`) is not one either: `go build` leaves it out of its package, and counting it would have kept a dead library package in the same directory live. Only the file's own `package` clause counts, not a comment above it.
+
+On prometheus (49c815a0), Go files `find_dead_code` reports went from 24 to 4, and on hugo (afb2d9ac) from 9 to 4. In `get_dead_code_v2`, the entry points found went from 0 to 9 on prometheus and from 1 to 5 on hugo, and the share of symbols `unreachable_file` fires on went from 1.0 to 0.0856 and from 0.999 to 0.0703. On gin, cobra and six corpora in other languages every number is the same before and after. The `get_repo_health` grade is withheld on all ten corpora, before and after.
+
 ### Fixed - a review capsule says what changed
 
 `assemble_task_context` in review mode runs `get_changed_symbols` and puts what it found in a `changed` entry. That entry read the keys `added`, `modified`, `removed` and `renamed`, which `get_changed_symbols` has never published: it publishes `added_symbols`, `removed_symbols` and `changed_symbols`, and each changed row names its `change_type`. So all four lists were empty for every diff, and a review capsule told the agent nothing had changed, on a change that touched code.
