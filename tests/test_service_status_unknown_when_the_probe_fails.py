@@ -250,7 +250,8 @@ def test_windows_a_task_that_is_not_registered_is_not_installed(monkeypatch):
 
 
 @pytest.mark.parametrize(
-    "stdout,expected", [(b"present\r\n", True), (b"absent\r\n", False), (b"", None)]
+    "stdout,expected",
+    [(b"present\r\n", True), (b"absent\r\n", False), (b"", None), (b"error\r\n", None)],
 )
 def test_windows_task_existence_is_read_from_a_fixed_token(
     monkeypatch, stdout, expected

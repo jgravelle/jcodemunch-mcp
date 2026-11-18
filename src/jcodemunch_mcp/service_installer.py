@@ -421,9 +421,12 @@ def _scheduled_task_exists() -> Optional[bool]:
     could not be asked. The answer is a fixed token the script prints, so it
     does not depend on the display language (the reason `State` is read from
     the enum above)."""
+    # `absent` only for ObjectNotFound, an invariant enum: an access, CIM or
+    # module-load failure prints `error` and reads as unknown, never as a
+    # task that is not there.
     script = (
-        f"if (Get-ScheduledTask -TaskName '{SERVICE_NAME}' -ErrorAction SilentlyContinue)"
-        " { 'present' } else { 'absent' }"
+        f"try {{ $null = Get-ScheduledTask -TaskName '{SERVICE_NAME}' -ErrorAction Stop; 'present' }}"
+        " catch { if ($_.CategoryInfo.Category -eq 'ObjectNotFound') { 'absent' } else { 'error' } }"
     )
     try:
         result = subprocess.run(
