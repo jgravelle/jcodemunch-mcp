@@ -201,11 +201,17 @@ def summarize_repo(
         )
     if unavailable:
         result["provider_unavailable"] = unavailable
-        result["provider_unavailable_reason"] = (
+        reason = (
             f"summarizer provider '{unavailable}' is configured but its client could not be built "
-            "(a missing API key, or a remote endpoint refused without allow_remote_summarizer), "
-            "so no request was sent and each symbol kept the summary it already had"
+            "(a missing API key, its SDK package not installed, or a remote endpoint refused "
+            "without allow_remote_summarizer), so no request was sent"
         )
+        if unavailable_kept:
+            reason += (
+                f"; {unavailable_kept} symbol(s) kept the summary they already had "
+                "instead of a signature fallback"
+            )
+        result["provider_unavailable_reason"] = reason
         if unavailable_kept and provider_fallbacks == 0:
             result["previous_summaries_kept_reason"] = result["provider_unavailable_reason"]
         logger.warning(

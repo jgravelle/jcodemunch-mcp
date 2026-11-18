@@ -112,6 +112,7 @@ def test_a_forced_run_keeps_stored_summaries_when_the_provider_cannot_run(
     assert out["provider_unavailable"] == provider, out
     assert out["previous_summaries_kept"] == len(before), out
     assert provider in out["provider_unavailable_reason"], out
+    assert f"{len(before)} symbol(s) kept" in out["provider_unavailable_reason"], out
     assert "provider_fallbacks" not in out, "no request was sent, so nothing failed"
 
 
@@ -129,6 +130,9 @@ def test_a_symbol_with_no_stored_summary_still_gets_its_fallback(tmp_path, monke
     assert out["success"], out
     assert out["provider_unavailable"] == "minimax", out
     assert "previous_summaries_kept" not in out, out
+    assert "kept" not in out["provider_unavailable_reason"], (
+        "nothing was kept, so the reason must not say so"
+    )
 
 
 def test_with_no_provider_named_the_report_names_none(ai_summarized, monkeypatch):
