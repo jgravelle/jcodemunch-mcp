@@ -283,7 +283,14 @@ def _status_launchd() -> dict:
     out = (result.stdout or "").strip()
     err = (result.stderr or "").strip()
     if result.returncode == 0:
-        return {"platform": "launchd", "active": True, "status": "active", "detail": out}
+        # Loaded. A job with no `"PID" =` line is loaded but not running (it
+        # exited or crashed), so it is `inactive` though `active` keeps meaning
+        # "loaded".
+        running = '"PID" =' in out
+        return {
+            "platform": "launchd", "active": True,
+            "status": "active" if running else "inactive", "detail": out,
+        }
     if "could not find service" in (err + " " + out).lower():
         installed = _launchd_plist_path().exists()
         return {
@@ -407,6 +414,34 @@ def _scheduled_task_state() -> Optional[str]:
         return None
     state = _decode_windows_output(result.stdout or b"").strip()
     return state or None
+
+
+def _scheduled_task_exists() -> Optional[bool]:
+    """Whether the watch task is registered: True, False, or None when that
+    could not be asked. The answer is a fixed token the script prints, so it
+    does not depend on the display language (the reason `State` is read from
+    the enum above)."""
+    script = (
+        f"if (Get-ScheduledTask -TaskName '{SERVICE_NAME}' -ErrorAction SilentlyContinue)"
+        " { 'present' } else { 'absent' }"
+    )
+    try:
+        result = subprocess.run(
+            ["powershell", "-NoProfile", "-NonInteractive", "-Command", script],
+            capture_output=True, check=False, timeout=30,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+    except (OSError, subprocess.SubprocessError):
+        logger.debug("Get-ScheduledTask existence probe failed", exc_info=True)
+        return None
+    if result.returncode != 0:
+        return None
+    word = _decode_windows_output(result.stdout or b"").strip()
+    if word == "present":
+        return True
+    if word == "absent":
+        return False
+    return None
 
 
 # ⚠⚠ L-149: `schtasks /Create` with switches takes Task Scheduler's defaults for
@@ -611,8 +646,10 @@ def _status_windows() -> dict:
         source = "display_text"
     if state is None:
         # The display-text fallback is not a measurement (non-English Windows
-        # reads every task as not running), so it never earns `inactive`.
-        status = "unknown"
+        # reads every task as not running), so it never earns `inactive`. A
+        # task that is not registered at all is a successful answer, read
+        # without display text.
+        status = "not_installed" if _scheduled_task_exists() is False else "unknown"
     else:
         status = "active" if active else "inactive"
     out: dict = {
@@ -695,8 +732,9 @@ def service_status() -> dict:
     """The watch service's state. Every answer carries `status`: `active`,
     `inactive`, `not_installed` or `unknown`, read from what the probe said
     and never from an exit code alone. `active` keeps each platform's
-    existing meaning and is None where the probe could not ask; a reader
-    that needs the classification reads `status`."""
+    existing meaning: None where the systemd or launchd probe could not ask,
+    and the display-text fallback on Windows (named by `state_source`). A
+    reader that needs the classification reads `status`."""
     sys_ = platform.system()
     if sys_ == "Linux":
         out = _status_systemd()

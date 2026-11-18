@@ -171,8 +171,17 @@ def _freshness_correction(cluster: dict, repo: Optional[str], storage_path: Opti
         ws = get_watch_status(storage_path=storage_path, check_completeness=False)
         if isinstance(ws, dict):
             svc = ws.get("service") or {}
-            active = svc.get("active")
-            service_active = active if isinstance(active, bool) else None
+            # `status` is the classification; `active` is read only when an
+            # older answer carries no `status`.
+            status = svc.get("status")
+            if status == "active":
+                service_active = True
+            elif status in ("inactive", "not_installed"):
+                service_active = False
+            elif status is None and isinstance(svc.get("active"), bool):
+                service_active = svc["active"]
+            else:
+                service_active = None
             probe_error = str(svc.get("probe_error") or "")
     except Exception:
         logger.debug("suggest_corrections: watch status unavailable", exc_info=True)

@@ -193,6 +193,15 @@ def test_launchd_a_loaded_job_is_active(launchd):
     assert s["active"] is True and s["status"] == "active", s
 
 
+def test_launchd_a_loaded_job_with_no_process_is_inactive(launchd):
+    """Loaded, so `active` keeps its meaning; no PID, so nothing is running."""
+    plist, answer = launchd
+    plist.write_text("<plist/>")
+    answer.update(rc=0, out='{\n\t"LastExitStatus" = 256;\n\t"Label" = "x";\n};')
+    s = si._status_launchd()
+    assert s["active"] is True and s["status"] == "inactive", s
+
+
 @pytest.mark.parametrize(
     "has_plist,status", [(True, "inactive"), (False, "not_installed")]
 )
@@ -223,10 +232,35 @@ def test_windows_a_display_text_reading_is_unknown(monkeypatch):
     """The fallback is wrong on non-English Windows, so it never earns `inactive`."""
     monkeypatch.setattr(si, "_run_schtasks", lambda args: (0, "Status: Bereit", ""))
     monkeypatch.setattr(si, "_scheduled_task_state", lambda: None)
+    monkeypatch.setattr(si, "_scheduled_task_exists", lambda: None)
     monkeypatch.setattr(si, "_scheduled_task_settings", lambda: None)
     monkeypatch.setattr(si, "_scheduled_task_command", lambda: None)
     s = si._status_windows()
     assert s["status"] == "unknown" and s["state_source"] == "display_text", s
+
+
+def test_windows_a_task_that_is_not_registered_is_not_installed(monkeypatch):
+    """A missing task is a successful answer, read without display text."""
+    monkeypatch.setattr(si, "_run_schtasks", lambda args: (1, "", "FEHLER"))
+    monkeypatch.setattr(si, "_scheduled_task_state", lambda: None)
+    monkeypatch.setattr(si, "_scheduled_task_exists", lambda: False)
+    monkeypatch.setattr(si, "_scheduled_task_settings", lambda: None)
+    monkeypatch.setattr(si, "_scheduled_task_command", lambda: None)
+    assert si._status_windows()["status"] == "not_installed"
+
+
+@pytest.mark.parametrize(
+    "stdout,expected", [(b"present\r\n", True), (b"absent\r\n", False), (b"", None)]
+)
+def test_windows_task_existence_is_read_from_a_fixed_token(
+    monkeypatch, stdout, expected
+):
+    monkeypatch.setattr(
+        si.subprocess,
+        "run",
+        lambda *a, **kw: subprocess.CompletedProcess(a, 0, stdout, b""),
+    )
+    assert si._scheduled_task_exists() is expected
 
 
 def test_windows_a_measured_state_is_classified(monkeypatch):
@@ -262,6 +296,13 @@ def test_a_probe_with_no_classification_is_unknown(monkeypatch):
             {"active": None, "status": "unknown", "probe_error": "no_user_bus"},
             "could not be read",
         ),
+        # Windows: the display-text fallback keeps `active`, `status` is the answer.
+        (
+            {"active": False, "status": "unknown", "state_source": "display_text"},
+            "could not be read",
+        ),
+        ({"active": False, "status": "not_installed"}, "isn't running"),
+        ({"active": True, "status": "inactive"}, "isn't running"),
     ],
 )
 def test_suggest_corrections_does_not_call_an_unknown_service_stopped(
