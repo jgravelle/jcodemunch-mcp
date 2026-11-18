@@ -352,7 +352,7 @@ def summarize_with_kept(
     symbols = summarize_symbols(
         symbols, use_ai=use_ai_summaries, repo=repo, source_for=source_for, report=report,
     )
-    counts = keep_stored_summaries(symbols, stored_summaries or {}, report)
+    counts = keep_stored_summaries(symbols, stored_summaries or {}, report, require_hash=True)
     if report.get("provider_unavailable"):
         summary_report["provider_unavailable"] = report["provider_unavailable"]
     for key, n in counts.items():

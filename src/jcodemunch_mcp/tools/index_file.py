@@ -13,7 +13,11 @@ from ..parser.context import discover_providers, collect_metadata
 from ..security import validate_path
 from ..storage import IndexStore
 from ..storage.index_store import _file_hash, _get_git_head, _get_git_branch
-from ._indexing_pipeline import parse_and_prepare_incremental
+from ._indexing_pipeline import (
+    parse_and_prepare_incremental,
+    stored_summary_map,
+    summary_report_fields,
+)
 from .index_folder import (
     _gitignore_specs_on_path,
     _scan_package_json_forced_paths,
@@ -479,6 +483,14 @@ def index_file(
         progress_cb(0, 1, rel_path)
     warnings: list[str] = []
     parse_failed: list[str] = []
+    # (L-323) The file's stored summaries, so a provider that cannot answer
+    # does not leave signature fallbacks over the bodies this edit did not touch.
+    summary_report: dict = {}
+    stored_summaries: dict = {}
+    if use_ai_summaries and not is_new:
+        _rows = store.read_file_symbols(owner, name, [rel_path])
+        if _rows:
+            stored_summaries = stored_summary_map(_rows[2])
     new_symbols, file_summaries, file_languages, file_imports, _no_symbols = (
         parse_and_prepare_incremental(
             files_to_parse={rel_path},
@@ -488,6 +500,8 @@ def index_file(
             warnings=warnings,
             repo=str(source_root),
             parse_failures=parse_failed,
+            stored_summaries=stored_summaries,
+            summary_report=summary_report,
         )
     )
 
@@ -554,6 +568,7 @@ def index_file(
         "indexed_at": updated.indexed_at if updated else "",
         "duration_seconds": round(time.monotonic() - t0, 2),
     }
+    result.update(summary_report_fields(summary_report))
     if _is_branch_delta:
         result["branch"] = _current_branch
         result["branch_delta"] = True

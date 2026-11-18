@@ -23,6 +23,8 @@ import pytest
 from jcodemunch_mcp.storage.sqlite_store import SQLiteIndexStore
 from jcodemunch_mcp.summarizer import batch_summarize as bs
 from jcodemunch_mcp.tools import summarize_repo as summarize_mod
+from jcodemunch_mcp.parser.symbols import Symbol
+from jcodemunch_mcp.tools.index_file import index_file
 from jcodemunch_mcp.tools.index_folder import index_folder
 
 FILES = {
@@ -200,3 +202,63 @@ def test_with_no_provider_named_the_fallback_is_written(ai_summarized, monkeypat
     assert _ai_names(db) == set(), _summaries(db)
     assert "provider_unavailable" not in out, out
     assert "previous_summaries_kept" not in out, out
+
+
+def test_the_edit_route_keeps_the_summaries_of_untouched_bodies(ai_summarized, monkeypatch):
+    """`index_file`, which the edit hook runs, re-summarizes the whole file it is given."""
+    root, storage, db = ai_summarized
+    work = root / "pkg" / "work.py"
+    work.write_text(
+        work.read_text(encoding="utf-8").replace("return x + 0", "return x * 0"),
+        encoding="utf-8",
+    )
+    _unbuildable_minimax(monkeypatch)
+
+    out = index_file(str(work), use_ai_summaries=True, storage_path=storage)
+
+    assert out.get("success"), out
+    after = _summaries(db)
+    assert after["f0"] == "def f0(x)", after
+    assert {n for n in after if after[n].startswith("AI: ")} == {f"f{i}" for i in range(1, 6)}
+    assert out["previous_summaries_kept"] == 5, out
+    assert out["provider_unavailable"] == "minimax", out
+
+
+def _bare(content_hash: str) -> Symbol:
+    sym = Symbol(
+        id="a.cbl::PARA#function", file="a.cbl", name="PARA", qualified_name="PARA",
+        kind="function", language="cobol", signature="PARA.", content_hash=content_hash,
+    )
+    sym.summary = bs.signature_fallback(sym)
+    return sym
+
+
+@pytest.mark.parametrize(
+    "parsed_hash,stored_hash",
+    [("", "deadbeef"), ("newhash", ""), ("", "")],
+    ids=["parsed-has-no-hash", "stored-has-no-hash", "neither-has-a-hash"],
+)
+@pytest.mark.parametrize("report", [{"provider_unavailable": "minimax"}, None], ids=["unavailable", "failed"])
+def test_a_reparse_keeps_nothing_it_cannot_compare(parsed_hash, stored_hash, report):
+    """Several extractors build symbols with no content hash, and migrated rows store ''.
+    A comparison that could not be made is not an unchanged body."""
+    sym = _bare(parsed_hash)
+    fallback = sym.summary
+    if report is None:
+        report = {"provider_failed": {sym.id}}
+    counts = bs.keep_stored_summaries(
+        [sym], {sym.id: ("AI summary of the old body", stored_hash)}, report, require_hash=True,
+    )
+    assert sym.summary == fallback
+    assert counts["failed_kept"] == counts["unavailable_kept"] == 0
+
+
+def test_a_reparse_keeps_a_summary_whose_hash_matches():
+    """The positive half, so the guard above cannot pass by never keeping anything."""
+    sym = _bare("samehash")
+    counts = bs.keep_stored_summaries(
+        [sym], {sym.id: ("AI summary", "samehash")}, {"provider_unavailable": "minimax"},
+        require_hash=True,
+    )
+    assert sym.summary == "AI summary"
+    assert counts["unavailable_kept"] == 1

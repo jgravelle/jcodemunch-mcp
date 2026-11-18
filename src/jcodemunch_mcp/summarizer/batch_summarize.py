@@ -1121,6 +1121,8 @@ def keep_stored_summaries(
     symbols: list[Symbol],
     stored: dict[str, tuple[str, str]],
     report: dict,
+    *,
+    require_hash: bool = False,
 ) -> dict[str, int]:
     """Give back the stored summary a provider could not replace (#1282, L-274, L-323).
 
@@ -1134,6 +1136,13 @@ def keep_stored_summaries(
     left with its signature fallback. A docstring summary is the pipeline's own
     answer and is written. A symbol whose body changed keeps nothing: a summary
     of the old body is not a summary of this one.
+
+    ``require_hash`` is for a caller that re-parsed the file: the stored and
+    parsed symbols are two readings, so a summary is kept only when both carry
+    a content hash and the hashes match. A missing hash on either side is a
+    comparison that could not be made, never an unchanged body (several
+    extractors build symbols with no hash, and migrated rows store ``''``).
+    `summarize_repo` compares a stored row with itself and keeps the default.
 
     Returns the counts the caller reports: `provider_fallbacks` (symbols the
     provider was asked for and did not answer), `failed_kept` and
@@ -1151,7 +1160,10 @@ def keep_stored_summaries(
         previous, previous_hash = stored.get(sym.id, ("", ""))
         if not previous or previous == sym.summary:
             continue
-        if previous_hash and sym.content_hash and previous_hash != sym.content_hash:
+        if require_hash:
+            if not (previous_hash and sym.content_hash and previous_hash == sym.content_hash):
+                continue
+        elif previous_hash and sym.content_hash and previous_hash != sym.content_hash:
             continue
         if was_failed:
             sym.summary = previous
