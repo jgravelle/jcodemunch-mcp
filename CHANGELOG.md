@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+### Fixed - a forced re-index keeps the AI summaries a provider could not replace
+
+1.108.462 made a forced `summarize_repo` keep each stored summary when the configured summarizer never gets a client (a missing key, a remote base the localhost rule refuses), and #1282 did the same when the provider is asked and answers nothing. The indexer had the same exposure and neither rule. `index_folder(paths=..., force_reparse=True)`, which `refresh` and the `paths=` route use, re-parses files whose content did not change and re-summarizes their symbols. A full re-index re-summarizes every symbol in a file that changed, including the functions in it that did not. In both, a provider that could not answer left each symbol its signature fallback, which was saved over the AI summary it had, and the result said nothing.
+
+The rule now lives in one place, `keep_stored_summaries` in the summarizer, and `summarize_repo`, both `index_folder` paths and `index_file` (the route the edit hook takes) apply it. A symbol keeps its stored summary when the provider was asked for it and gave none, or when the configured provider has no client and the symbol was left with its signature fallback. A symbol whose body changed keeps nothing, because a summary of the old body does not describe the new one. On a re-parse a summary is kept only when the stored and parsed symbols both carry a content hash and the hashes match, so a language whose extractor records no hash keeps nothing rather than an unchecked summary. An index result now carries the same keys `summarize_repo` returns: `provider_unavailable` and its reason, `provider_fallbacks` and `previous_summaries_kept`, each present only when there is something to say. The incremental path reads the stored summaries of the changed files only, and only when an AI provider is asked. With no provider configured, the signature fallback is the pipeline's answer and is written as before. `index_repo` and the watcher's deferred summarize pass do not apply the rule yet; a provider that cannot answer there still writes fallbacks over stored summaries (LEDGER L-323).
+
+
 ## [1.108.465] - 2026-11-18 - two HTTP sessions that send the same token keep their own tool tier
 
 ### Fixed - two HTTP sessions that send the same token keep their own tool tier

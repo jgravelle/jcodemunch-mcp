@@ -67,7 +67,6 @@ from ..storage.index_store import (
     _get_git_head,
     _get_git_branch,
 )
-from ..summarizer import summarize_symbols
 from ..reindex_state import WatcherChange
 from ..path_map import parse_path_map, remap
 
@@ -1413,6 +1412,9 @@ from ._indexing_pipeline import (
     complete_file_summaries as _complete_file_summaries,
     parse_and_prepare_incremental,
     parse_immediate,
+    stored_summary_map as _stored_summary_map,
+    summarize_with_kept as _summarize_with_kept,
+    summary_report_fields as _summary_report_fields,
 )
 from ._utils import (
     PARSER_UPGRADE_WARNING,
@@ -3859,6 +3861,16 @@ def index_folder(
 
             # Shared pipeline: parse, enrich, summarize, extract metadata
             _incr_parse_failed: list[str] = []
+            # (L-323) A re-parsed file's stored summaries, so a provider that
+            # cannot answer does not leave its signature fallbacks over them.
+            # Read for the changed files only, and only when an AI provider is
+            # asked: the selective view's `.symbols` would load the whole corpus.
+            _incr_summary_report: dict = {}
+            _incr_stored: dict = {}
+            if use_ai_summaries and changed:
+                _incr_rows = store.read_file_symbols(owner, repo_name, sorted(set(changed)))
+                if _incr_rows:
+                    _incr_stored = _stored_summary_map(_incr_rows[2])
             new_symbols, incr_file_summaries, incr_file_languages, incr_file_imports, incremental_no_symbols = (
                 parse_and_prepare_incremental(
                     files_to_parse=files_to_parse,
@@ -3868,6 +3880,8 @@ def index_folder(
                     warnings=warnings,
                     repo=str(folder_path),
                     parse_failures=_incr_parse_failed,
+                    stored_summaries=_incr_stored,
+                    summary_report=_incr_summary_report,
                 )
             )
 
@@ -4024,6 +4038,7 @@ def index_folder(
                 "no_symbols_count": len(incremental_no_symbols),
                 "no_symbols_files": incremental_no_symbols[:50],
             }
+            result.update(_summary_report_fields(_incr_summary_report))
             if _full_deletion:
                 result["full_deletion"] = True
             if _is_branch_delta:
@@ -4125,6 +4140,7 @@ def index_folder(
             collect_extra_imports(active_providers, file_imports)
 
         # Generate summaries — preserve existing summaries for unchanged files
+        _folder_summary_report: dict = {}
         if all_symbols:
             _folder_existing_summaries: dict[tuple[str, str, str], str] | None = None
             _folder_unchanged_files: set[str] | None = None
@@ -4152,15 +4168,28 @@ def index_folder(
             def _cached_source(rel: str) -> Optional[str]:
                 return store.read_cached_source(owner, repo_name, rel)
 
+            # (L-323) Stored summaries for the files this run re-summarizes, so
+            # a provider that cannot answer leaves them in place.
+            _folder_stored = (
+                _stored_summary_map(existing_index.symbols)
+                if use_ai_summaries and existing_index is not None and existing_index.symbols
+                else {}
+            )
             if _folder_existing_summaries and _folder_unchanged_files:
                 from ._indexing_pipeline import _split_for_summarization
                 _needs_summary, _already_summarized = _split_for_summarization(
                     all_symbols, _folder_existing_summaries, _folder_unchanged_files
                 )
-                _summarized = summarize_symbols(_needs_summary, use_ai=use_ai_summaries, repo=str(folder_path), source_for=_cached_source) if _needs_summary else []
+                _summarized = _summarize_with_kept(
+                    _needs_summary, use_ai_summaries, str(folder_path), _cached_source,
+                    _folder_stored, _folder_summary_report,
+                ) if _needs_summary else []
                 all_symbols = _summarized + _already_summarized
             else:
-                all_symbols = summarize_symbols(all_symbols, use_ai=use_ai_summaries, repo=str(folder_path), source_for=_cached_source)
+                all_symbols = _summarize_with_kept(
+                    all_symbols, use_ai_summaries, str(folder_path), _cached_source,
+                    _folder_stored, _folder_summary_report,
+                )
 
         # Generate file-level summaries (single-pass grouping) using shared helpers
         file_symbols_map = defaultdict(list)
@@ -4504,6 +4533,7 @@ def index_folder(
             "no_symbols_count": len(no_symbols_files),
             "no_symbols_files": no_symbols_files[:50],  # Show up to 50 for inspection
         }
+        result.update(_summary_report_fields(_folder_summary_report))
         if _is_branch_delta:
             result["branch"] = _current_branch
             result["branch_delta"] = True

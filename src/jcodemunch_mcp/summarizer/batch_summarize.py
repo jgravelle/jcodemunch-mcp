@@ -1115,3 +1115,75 @@ def summarize_symbols(
             sym.summary = signature_fallback(sym)
 
     return symbols
+
+
+def keep_stored_summaries(
+    symbols: list[Symbol],
+    stored: dict[str, tuple[str, str]],
+    report: dict,
+    *,
+    require_hash: bool = False,
+) -> dict[str, int]:
+    """Give back the stored summary a provider could not replace (#1282, L-274, L-323).
+
+    THE ONE rule every caller of `summarize_symbols` applies when it has a stored
+    summary to lose: `summarize_repo` and the indexer's re-parse paths.
+    `stored` maps a symbol id to its stored `(summary, content_hash)`.
+
+    A symbol keeps what was stored when the provider was asked for it and gave
+    no summary (`report["provider_failed"]`), or when the configured provider
+    never got a client (`report["provider_unavailable"]`) and the symbol was
+    left with its signature fallback. A docstring summary is the pipeline's own
+    answer and is written. A symbol whose body changed keeps nothing: a summary
+    of the old body is not a summary of this one.
+
+    ``require_hash`` is for a caller that re-parsed the file: the stored and
+    parsed symbols are two readings, so a summary is kept only when both carry
+    a content hash and the hashes match. A missing hash on either side is a
+    comparison that could not be made, never an unchanged body (several
+    extractors build symbols with no hash, and migrated rows store ``''``).
+    `summarize_repo` compares a stored row with itself and keeps the default.
+
+    Returns the counts the caller reports: `provider_fallbacks` (symbols the
+    provider was asked for and did not answer), `failed_kept` and
+    `unavailable_kept`.
+    """
+    failed = report.get("provider_failed") or set()
+    unavailable = report.get("provider_unavailable")
+    counts = {"provider_fallbacks": 0, "failed_kept": 0, "unavailable_kept": 0}
+    for sym in symbols:
+        was_failed = sym.id in failed
+        if was_failed:
+            counts["provider_fallbacks"] += 1
+        elif not unavailable:
+            continue
+        previous, previous_hash = stored.get(sym.id, ("", ""))
+        if not previous or previous == sym.summary:
+            continue
+        if require_hash:
+            if not (previous_hash and sym.content_hash and previous_hash == sym.content_hash):
+                continue
+        elif previous_hash and sym.content_hash and previous_hash != sym.content_hash:
+            continue
+        if was_failed:
+            sym.summary = previous
+            counts["failed_kept"] += 1
+        elif sym.summary == signature_fallback(sym):
+            sym.summary = previous
+            counts["unavailable_kept"] += 1
+    return counts
+
+
+def unavailable_reason(provider: str, kept: int) -> str:
+    """The `provider_unavailable_reason` every caller reports, in one wording."""
+    reason = (
+        f"summarizer provider '{provider}' is configured but its client could not be built "
+        "(a missing API key, its SDK package not installed, or a remote endpoint refused "
+        "without allow_remote_summarizer), so no request was sent"
+    )
+    if kept:
+        reason += (
+            f"; {kept} symbol(s) kept the summary they already had "
+            "instead of a signature fallback"
+        )
+    return reason
