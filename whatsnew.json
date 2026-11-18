@@ -1,6 +1,12 @@
 {
-  "current": "1.108.463",
+  "current": "1.108.464",
   "entries": [
+    {
+      "version": "1.108.464",
+      "date": "2026-11-18",
+      "title": "a review capsule names the symbol a renamed function was",
+      "summary": "assemble_task_context keeps the previous symbol id on a renamed row of its changed-symbols stage, so a review capsule says which symbol a rename came from, not only its old name."
+    },
     {
       "version": "1.108.463",
       "date": "2026-11-18",
