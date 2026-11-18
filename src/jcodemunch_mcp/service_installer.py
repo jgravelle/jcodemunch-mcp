@@ -122,8 +122,10 @@ def _uninstall_systemd() -> dict:
 # other output (an empty stdout, a bus or permission error on stderr) means the
 # query did not happen, so the service's state is UNKNOWN, never inactive.
 _SYSTEMD_ACTIVE_STATES = frozenset({"active", "reloading", "refreshing"})
+# `unknown` is what older systemd (219, RHEL/CentOS 7) prints for a unit it
+# never loaded: a query that succeeded, settled by the unit-file check below.
 _SYSTEMD_INACTIVE_STATES = frozenset(
-    {"inactive", "failed", "activating", "deactivating", "maintenance"}
+    {"inactive", "failed", "activating", "deactivating", "maintenance", "unknown"}
 )
 _SYSTEMD_PROBE_TIMEOUT_SECONDS = 5.0
 
@@ -133,7 +135,12 @@ def _systemd_probe_error(stderr: str) -> str:
     low = stderr.lower()
     if "permission denied" in low or "access denied" in low:
         return "permission_denied"
-    if "bus" in low or "xdg_runtime_dir" in low:
+    if (
+        "dbus_session_bus_address" in low
+        or "xdg_runtime_dir" in low
+        or "user scope bus" in low
+        or "failed to connect to bus" in low
+    ):
         return "no_user_bus"
     return "probe_failed"
 
@@ -252,11 +259,43 @@ def _uninstall_launchd() -> dict:
 
 
 def _status_launchd() -> dict:
-    result = subprocess.run(
-        ["launchctl", "list", LAUNCHD_LABEL],
-        capture_output=True, text=True, encoding="utf-8", errors="replace", check=False,
-    )
-    return {"platform": "launchd", "active": result.returncode == 0, "detail": result.stdout.strip()}
+    """`active` keeps its meaning (the job is loaded); `status` is read from
+    what `launchctl` said, never from its exit code alone. A label launchd
+    does not know is `inactive` when our plist exists and `not_installed`
+    when it does not; any other failure is `unknown`."""
+    try:
+        result = subprocess.run(
+            ["launchctl", "list", LAUNCHD_LABEL],
+            capture_output=True, text=True, encoding="utf-8", errors="replace",
+            check=False, timeout=_SYSTEMD_PROBE_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired:
+        return {
+            "platform": "launchd", "active": None, "status": "unknown",
+            "probe_error": "timeout",
+            "detail": f"launchctl list did not answer in {_SYSTEMD_PROBE_TIMEOUT_SECONDS:g} s",
+        }
+    except OSError as exc:
+        return {
+            "platform": "launchd", "active": None, "status": "unknown",
+            "probe_error": "probe_failed", "detail": str(exc),
+        }
+    out = (result.stdout or "").strip()
+    err = (result.stderr or "").strip()
+    if result.returncode == 0:
+        return {"platform": "launchd", "active": True, "status": "active", "detail": out}
+    if "could not find service" in (err + " " + out).lower():
+        installed = _launchd_plist_path().exists()
+        return {
+            "platform": "launchd", "active": False,
+            "status": "inactive" if installed else "not_installed",
+            "detail": err or out,
+        }
+    return {
+        "platform": "launchd", "active": None, "status": "unknown",
+        "probe_error": "permission_denied" if "permission" in err.lower() else "probe_failed",
+        "detail": err or out or f"launchctl list exited {result.returncode} with no output",
+    }
 
 
 # ── Task Scheduler (Windows) ────────────────────────────────────────────────
@@ -570,9 +609,16 @@ def _status_windows() -> dict:
         # confident `false` pass for a measurement.
         active = "Running" in stdout or "Ready" in stdout
         source = "display_text"
+    if state is None:
+        # The display-text fallback is not a measurement (non-English Windows
+        # reads every task as not running), so it never earns `inactive`.
+        status = "unknown"
+    else:
+        status = "active" if active else "inactive"
     out: dict = {
         "platform": "schtasks",
         "active": active,
+        "status": status,
         "state": state,
         "state_source": source,
         # ⚠ `active` keeps #469's meaning (the task exists and is enabled). This
@@ -647,9 +693,10 @@ def uninstall_service() -> dict:
 
 def service_status() -> dict:
     """The watch service's state. Every answer carries `status`: `active`,
-    `inactive`, `not_installed` or `unknown`, and `active` is None only for
-    `unknown`. The systemd probe sets `status` itself; the others are read
-    from their `active` flag."""
+    `inactive`, `not_installed` or `unknown`, read from what the probe said
+    and never from an exit code alone. `active` keeps each platform's
+    existing meaning and is None where the probe could not ask; a reader
+    that needs the classification reads `status`."""
     sys_ = platform.system()
     if sys_ == "Linux":
         out = _status_systemd()
@@ -658,10 +705,8 @@ def service_status() -> dict:
     elif sys_ == "Windows":
         out = _status_windows()
     else:
-        out = {"platform": sys_, "active": False, "reason": "unsupported"}
-    if "status" not in out:
-        active = out.get("active")
-        out["status"] = "active" if active is True else "inactive" if active is False else "unknown"
+        out = {"platform": sys_, "active": False, "status": "not_installed", "reason": "unsupported"}
+    out.setdefault("status", "unknown")
     return out
 
 

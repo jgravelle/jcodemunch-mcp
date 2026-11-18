@@ -40,7 +40,10 @@ def systemd(monkeypatch, tmp_path: Path):
     answer: dict = {}
 
     def run(args, **kw):
+        answer["kw"] = kw
         if "raise" in answer:
+            if not kw.get("timeout"):
+                raise AssertionError("the probe must pass a timeout to subprocess.run")
             raise answer["raise"]
         return subprocess.CompletedProcess(
             args, answer.get("rc", 0), answer.get("out", ""), answer.get("err", "")
@@ -103,7 +106,7 @@ def test_a_permission_failure_is_unknown(systemd):
     assert s["probe_error"] == "permission_denied", s
 
 
-def test_an_unrecognised_failure_is_unknown(systemd):
+def test_an_unrecognized_failure_is_unknown(systemd):
     unit, answer = systemd
     unit.write_text("[Unit]\n")
     answer.update(out="", err="Transport endpoint is not connected\n", rc=1)
@@ -119,6 +122,23 @@ def test_a_probe_timeout_is_unknown(systemd):
     s = si._status_systemd()
     assert s["active"] is None and s["status"] == "unknown", s
     assert s["probe_error"] == "timeout", s
+    assert answer["kw"]["timeout"] == si._SYSTEMD_PROBE_TIMEOUT_SECONDS
+
+
+def test_old_systemd_unknown_for_an_unloaded_unit_is_not_installed(systemd):
+    """systemd 219 prints `unknown` for a unit it never loaded: a successful query."""
+    unit, answer = systemd
+    answer.update(out="unknown\n", rc=3)
+    s = si._status_systemd()
+    assert s["active"] is False and s["status"] == "not_installed", s
+
+
+def test_a_transport_error_naming_no_bus_is_not_called_a_missing_bus(systemd):
+    unit, answer = systemd
+    unit.write_text("[Unit]\n")
+    answer.update(out="", err="Device or resource busy\n", rc=1)
+    s = si._status_systemd()
+    assert s["status"] == "unknown" and s["probe_error"] == "probe_failed", s
 
 
 def test_a_nonzero_exit_alone_is_not_inactive(systemd):
@@ -150,16 +170,87 @@ def test_get_watch_status_reports_a_raising_probe_as_unknown(monkeypatch, tmp_pa
     assert "probe exploded" in out["service"]["detail"], out["service"]
 
 
-def test_every_platform_answer_carries_a_status(monkeypatch):
-    monkeypatch.setattr(si.platform, "system", lambda: "Darwin")
-    monkeypatch.setattr(
-        si, "_status_launchd", lambda: {"platform": "launchd", "active": True}
+@pytest.fixture
+def launchd(monkeypatch, tmp_path: Path):
+    plist = tmp_path / "com.jcodemunch.watch.plist"
+    monkeypatch.setattr(si, "_launchd_plist_path", lambda: plist)
+    answer: dict = {}
+
+    def run(args, **kw):
+        assert kw.get("timeout"), "the probe must pass a timeout"
+        return subprocess.CompletedProcess(
+            args, answer.get("rc", 0), answer.get("out", ""), answer.get("err", "")
+        )
+
+    monkeypatch.setattr(si.subprocess, "run", run)
+    return plist, answer
+
+
+def test_launchd_a_loaded_job_is_active(launchd):
+    plist, answer = launchd
+    answer.update(rc=0, out='{\n\t"PID" = 42;\n};')
+    s = si._status_launchd()
+    assert s["active"] is True and s["status"] == "active", s
+
+
+@pytest.mark.parametrize(
+    "has_plist,status", [(True, "inactive"), (False, "not_installed")]
+)
+def test_launchd_an_unknown_label_is_inactive_or_not_installed(
+    launchd, has_plist, status
+):
+    plist, answer = launchd
+    if has_plist:
+        plist.write_text("<plist/>")
+    answer.update(
+        rc=113, err='Could not find service "com.jcodemunch.watch" in domain for port'
     )
-    assert si.service_status()["status"] == "active"
+    s = si._status_launchd()
+    assert s["active"] is False and s["status"] == status, s
+
+
+def test_launchd_another_failure_is_unknown_not_inactive(launchd):
+    """The same rule as systemd: a nonzero exit alone is not inactive."""
+    plist, answer = launchd
+    plist.write_text("<plist/>")
+    answer.update(rc=1, err="Bootstrap failed: 5: Input/output error")
+    s = si._status_launchd()
+    assert s["active"] is None and s["status"] == "unknown", s
+    assert s["probe_error"] == "probe_failed", s
+
+
+def test_windows_a_display_text_reading_is_unknown(monkeypatch):
+    """The fallback is wrong on non-English Windows, so it never earns `inactive`."""
+    monkeypatch.setattr(si, "_run_schtasks", lambda args: (0, "Status: Bereit", ""))
+    monkeypatch.setattr(si, "_scheduled_task_state", lambda: None)
+    monkeypatch.setattr(si, "_scheduled_task_settings", lambda: None)
+    monkeypatch.setattr(si, "_scheduled_task_command", lambda: None)
+    s = si._status_windows()
+    assert s["status"] == "unknown" and s["state_source"] == "display_text", s
+
+
+def test_windows_a_measured_state_is_classified(monkeypatch):
+    monkeypatch.setattr(si, "_run_schtasks", lambda args: (0, "", ""))
+    monkeypatch.setattr(si, "_scheduled_task_settings", lambda: None)
+    monkeypatch.setattr(si, "_scheduled_task_command", lambda: None)
+    monkeypatch.setattr(si, "_scheduled_task_state", lambda: "Running")
+    assert si._status_windows()["status"] == "active"
+    monkeypatch.setattr(si, "_scheduled_task_state", lambda: "Disabled")
+    assert si._status_windows()["status"] == "inactive"
+
+
+def test_an_unsupported_platform_has_no_service(monkeypatch):
+    monkeypatch.setattr(si.platform, "system", lambda: "Plan9")
+    s = si.service_status()
+    assert s["active"] is False and s["status"] == "not_installed", s
+
+
+def test_a_probe_with_no_classification_is_unknown(monkeypatch):
+    monkeypatch.setattr(si.platform, "system", lambda: "Darwin")
     monkeypatch.setattr(
         si, "_status_launchd", lambda: {"platform": "launchd", "active": False}
     )
-    assert si.service_status()["status"] == "inactive"
+    assert si.service_status()["status"] == "unknown"
 
 
 @pytest.mark.parametrize(
