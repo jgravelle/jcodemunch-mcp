@@ -161,7 +161,9 @@ _RISK_UNRESOLVABLE_FILES_CAP = 20
 # Rows the changed stage keeps per list. Each list ships beside the
 # producer's own `*_count`, so a cut page never reads as the whole (#559).
 _CHANGED_ROWS_CAP = 5
-_CHANGED_ROW_KEYS = ("symbol_id", "change_type", "previous_name")
+# A renamed row keeps the old symbol's id beside its bare name: the id is what
+# a lookup takes, and two owners can each have had a symbol of that name.
+_CHANGED_ROW_KEYS = ("symbol_id", "change_type", "previous_name", "previous_symbol_id")
 
 
 def _capped_signal_breakdown(breakdown: dict) -> dict:

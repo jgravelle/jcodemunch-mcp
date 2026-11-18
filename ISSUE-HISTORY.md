@@ -3386,3 +3386,9 @@ The 1.108.459 entry, verbatim as it stood in `CLAUDE.md`:
 The 1.108.460 entry, verbatim as it stood in `CLAUDE.md`:
 
 - **Prior (1.108.460):** **Go imports between packages of one module resolve through go.mod** (L-264, #1480): when an index loads, `parser/imports.augment_go_module_edges` reads each `go.mod` and gives an import under its module path an edge to one file of the package directory, derived on every load and never stored (`written_imports`); `find_dead_code`, `get_dead_code_v2` and the coupling axis of `get_repo_health` read a Go package as one unit. Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-18, release 1.108.464)
+
+The 1.108.461 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.461):** **the agent selector's top OpenAI model is no longer one OpenAI retires on 2026-12-11** (#1481): `agent_selector.DEFAULT_PROVIDERS["openai"]["high"]` is `gpt-6.1-sol`, OpenAI's named replacement for `o3`; `tests/test_no_default_names_a_retired_openai_model.py` also fails on `o3`/`o3-pro`, bare or dated. Full text: `CHANGELOG.md`.
