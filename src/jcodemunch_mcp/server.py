@@ -1030,7 +1030,9 @@ def _session_key() -> Hashable:
       1. `session.session_id` if the MCP library exposes one. It does not in
          1.30.0, so this branch is kept for a library that adds it.
       2. The streamable-http transport's session id, captured by the handler
-         (#1491). Two clients sending the same token are two sessions.
+         (#1491). Two clients sending the same Authorization header are two
+         sessions, and a reconnect is a new session with the default tier.
+         The handler drops the session's override when the session ends.
       3. The hashed auth principal captured by the streamable-http handler —
          fires only when the transport issues no session id (stateless MCP,
          spec 2026-07-28), so authed callers keep durable state there.
@@ -1071,6 +1073,16 @@ def _session_key() -> Hashable:
 def _drop_override(key: Hashable) -> None:
     with _session_tier_lock:
         _session_tier_overrides.pop(key, None)
+
+
+def _forget_http_session(sid: str) -> None:
+    """Drop what a streamable-http session kept under its transport id (#1491).
+
+    A session keyed by its transport id has no weakref finalizer to clean up
+    after it, so the handler calls this when the session ends; without it every
+    session that set a tier would leave an entry for the life of the process.
+    """
+    _drop_override(sid)
 
 
 def _set_session_tier(tier: str | None) -> None:
@@ -8834,6 +8846,7 @@ async def run_streamable_http_server(host: str, port: int):
     def _drop_session(sid: str) -> None:
         _sessions.pop(sid, None)
         _session_last_seen.pop(sid, None)
+        _forget_http_session(sid)
         t = _session_tasks.pop(sid, None)
         if t and not t.done():
             t.cancel()
@@ -8929,6 +8942,7 @@ async def run_streamable_http_server(host: str, port: int):
                 _sessions.pop(new_id, None)
                 _session_tasks.pop(new_id, None)
                 _session_last_seen.pop(new_id, None)
+                _forget_http_session(new_id)
 
         task = asyncio.create_task(_session_runner())
         _session_tasks[new_id] = task

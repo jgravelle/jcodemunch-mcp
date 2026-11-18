@@ -41,11 +41,16 @@ def _free_port() -> int:
         return s.getsockname()[1]
 
 
-def _wait_listening(port: int, proc: subprocess.Popen, deadline_s: float = 60.0) -> None:
+def _wait_listening(
+    port: int, proc: subprocess.Popen, log: Path, deadline_s: float = 60.0
+) -> None:
     end = time.monotonic() + deadline_s
     while time.monotonic() < end:
         if proc.poll() is not None:
-            raise RuntimeError(f"server exited early with {proc.returncode}")
+            raise RuntimeError(
+                f"server exited early with {proc.returncode}: "
+                + log.read_text(encoding="utf-8", errors="replace")[-2000:]
+            )
         try:
             with socket.create_connection(("127.0.0.1", port), timeout=0.5):
                 return
@@ -59,25 +64,32 @@ def http_server(request, tmp_path: Path):
     """The real server; with a token every client sends the same principal."""
     port = _free_port()
     env = dict(os.environ)
-    env.pop("JCODEMUNCH_HTTP_TOKEN", None)
+    # Nothing from the developer's or runner's environment may set the tier
+    # or the token: B's default must be the configured `full`.
+    for name in [n for n in env if n.startswith("JCODEMUNCH_")]:
+        env.pop(name)
     if request.param:
         env["JCODEMUNCH_HTTP_TOKEN"] = _TOKEN
     env["CODE_INDEX_PATH"] = str(tmp_path / "index")
     src = Path(__file__).resolve().parents[1] / "src"
     env["PYTHONPATH"] = str(src) + os.pathsep + env.get("PYTHONPATH", "")
+    log = tmp_path / "server.log"
+    log_fh = open(log, "w", encoding="utf-8")
+    # `-m jcodemunch_mcp`, the package entry point, not `-m jcodemunch_mcp.server`:
+    # the latter runs server.py as `__main__`, a second copy of the module.
     proc = subprocess.Popen(
         [
-            sys.executable, "-m", "jcodemunch_mcp.server", "serve",
+            sys.executable, "-m", "jcodemunch_mcp", "serve",
             "--transport", "streamable-http",
             "--host", "127.0.0.1", "--port", str(port),
             "--watcher=false",
         ],
         env=env,
         stdout=subprocess.DEVNULL,
-        stderr=subprocess.PIPE,
+        stderr=log_fh,
     )
     try:
-        _wait_listening(port, proc)
+        _wait_listening(port, proc, log)
         headers = {"Authorization": f"Bearer {_TOKEN}"} if request.param else {}
         yield f"http://127.0.0.1:{port}/mcp", headers
     finally:
@@ -86,6 +98,7 @@ def http_server(request, tmp_path: Path):
             proc.wait(timeout=10)
         except subprocess.TimeoutExpired:
             proc.kill()
+        log_fh.close()
 
 
 async def _tier_calls(url: str, headers: dict[str, str]) -> list[tuple[str, dict]]:
@@ -118,9 +131,85 @@ async def _tier_calls(url: str, headers: dict[str, str]) -> list[tuple[str, dict
 
 def test_a_tier_set_in_one_session_is_not_the_tier_of_another(http_server):
     url, headers = http_server
-    log = asyncio.run(_tier_calls(url, headers))
+    # A stalled server would otherwise hold each call for the client's read timeout.
+    log = asyncio.run(asyncio.wait_for(_tier_calls(url, headers), timeout=120))
     (_, a), (_, b) = log
     assert a.get("changed") is True, a
     # B never set a tier, so it is still on the default and asking for it
     # changes nothing. Shared state reports `changed: true, from: core`.
     assert b.get("changed") is False, b
+
+
+# The key and its cleanup, as units. The end-to-end test above cannot see what
+# the server process keeps after a session ends.
+
+from jcodemunch_mcp import server as server_mod  # noqa: E402
+
+
+class _SessionWithoutId:
+    """The real `ServerSession` shape: no `session_id` attribute."""
+
+
+class _Ctx:
+    def __init__(self, session):
+        self.session = session
+
+
+class _Srv:
+    def __init__(self, session):
+        self.request_context = _Ctx(session)
+
+
+def test_the_transport_id_wins_over_the_principal(monkeypatch):
+    monkeypatch.setattr(server_mod, "server", _Srv(_SessionWithoutId()))
+    p = server_mod._HTTP_PRINCIPAL.set("principal-shared")
+    s = server_mod._HTTP_TRANSPORT_SESSION.set("transport-a")
+    try:
+        assert server_mod._session_key() == "transport-a"
+    finally:
+        server_mod._HTTP_TRANSPORT_SESSION.reset(s)
+        server_mod._HTTP_PRINCIPAL.reset(p)
+
+
+def test_a_transport_that_issues_no_id_keys_by_the_principal(monkeypatch):
+    monkeypatch.setattr(server_mod, "server", _Srv(_SessionWithoutId()))
+    p = server_mod._HTTP_PRINCIPAL.set("principal-shared")
+    s = server_mod._HTTP_TRANSPORT_SESSION.set(None)
+    try:
+        assert server_mod._session_key() == "principal-shared"
+    finally:
+        server_mod._HTTP_TRANSPORT_SESSION.reset(s)
+        server_mod._HTTP_PRINCIPAL.reset(p)
+
+
+def test_an_ended_session_leaves_no_tier_override(monkeypatch):
+    monkeypatch.setattr(server_mod, "server", _Srv(_SessionWithoutId()))
+    s = server_mod._HTTP_TRANSPORT_SESSION.set("transport-ended")
+    try:
+        server_mod._set_session_tier("core")
+        assert server_mod._session_tier_overrides.get("transport-ended") == "core"
+        server_mod._forget_http_session("transport-ended")
+        assert "transport-ended" not in server_mod._session_tier_overrides
+    finally:
+        server_mod._HTTP_TRANSPORT_SESSION.reset(s)
+        server_mod._reset_session_tiers()
+
+
+def test_both_ways_a_session_ends_forget_it():
+    """The idle sweep (`_drop_session`) and the runner's exit both call the cleanup."""
+    import ast
+    import inspect
+    import textwrap
+
+    tree = ast.parse(textwrap.dedent(inspect.getsource(server_mod.run_streamable_http_server)))
+    callers = set()
+    for fn in ast.walk(tree):
+        if isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            for node in ast.walk(fn):
+                if (
+                    isinstance(node, ast.Call)
+                    and isinstance(node.func, ast.Name)
+                    and node.func.id == "_forget_http_session"
+                ):
+                    callers.add(fn.name)
+    assert {"_drop_session", "_session_runner"} <= callers, callers
