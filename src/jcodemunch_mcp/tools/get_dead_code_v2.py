@@ -43,6 +43,7 @@ from ._entry_points import (
     unseen_consumer,
 )
 from .find_dead_code import _matches_any_pattern, unmatched_patterns
+from .get_blast_radius import with_same_package_peers
 from ._runtime_discovery import discover_dynamic_packages
 from ._dynamic_boundary import FILES_CAP, DynamicBoundary
 from ._test_paths import is_test_file as _is_test_file  # noqa: F401  (the one rule, LEDGER L-101)
@@ -1211,6 +1212,13 @@ def get_dead_code_v2(
     psr4_map = getattr(index, "psr4_map", None)
     rev = _build_reverse_adjacency(index.imports, source_files, alias_map, psr4_map)
     forward = _build_forward_adjacency(index.imports, source_files, alias_map, psr4_map)
+    # (L-264) A Go package's files call each other with no import, so each
+    # file lists its peers in both directions: the reachability walk below
+    # starts from entry points, so a package nothing reaches stays unreached,
+    # and the caller search reads the peers a same-package call sits in.
+    file_languages = getattr(index, "file_languages", None)
+    rev = with_same_package_peers(rev, file_languages)
+    forward = with_same_package_peers(forward, file_languages)
 
     # Pre-compute reachable files from entry points (Signal 1 input).
     # Two heuristics: (a) classic filename match (app.py, main.py, etc.);

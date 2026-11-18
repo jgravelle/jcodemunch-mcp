@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import fnmatch
 import logging
+import posixpath
 import re
 import time
 from typing import Optional
@@ -129,6 +130,32 @@ def unmatched_patterns(patterns: Optional[list[str]], source_files) -> list[str]
         return []
     files = list(source_files)
     return [p for p in patterns if not any(_matches_any_pattern(f, [p]) for f in files)]
+
+
+def _live_go_packages(index, rev: dict[str, list[str]], live_roots: set[str]) -> set[str]:
+    """(L-264) The files of every package-directory package something outside it reaches.
+
+    A package is the files of one language in one directory, the rule
+    `with_same_package_peers` uses. It is live when one of its files is a
+    live root or is imported by a file outside the package.
+    """
+    from .get_blast_radius import PACKAGE_DIRECTORY_LANGUAGES  # a module-level import is a cycle
+
+    langs = getattr(index, "file_languages", None) or {}
+    packages: dict[tuple[str, str], list[str]] = {}
+    for f in index.source_files:
+        lang = langs.get(f)
+        if lang in PACKAGE_DIRECTORY_LANGUAGES:
+            packages.setdefault((posixpath.dirname(f.replace("\\", "/")), lang), []).append(f)
+    live: set[str] = set()
+    for files in packages.values():
+        members = set(files)
+        if any(
+            f in live_roots or any(i not in members for i in rev.get(f, ()))
+            for f in files
+        ):
+            live.update(files)
+    return live
 
 
 def _has_entry_point_decorator(sym: dict) -> bool:
@@ -287,6 +314,13 @@ def find_dead_code(
     dynamic = discover_dynamic_packages(index, store, owner, name)
     live_roots.update(f for f in dynamic.roots if f in source_files)
 
+    # (L-264) A Go package is one unit: its files call each other with no
+    # import, so a file whose only users are its peers has no importer and
+    # read as dead. A package with a live root, or an importer from outside
+    # it, is live, every file of it. A package only its own files reach is
+    # not, and is still reported whole.
+    package_live = _live_go_packages(index, rev, live_roots)
+
     # -----------------------------------------------------------------------
     # Phase 2: content check for `if __name__ == "__main__"` (Python only,
     # only for files not yet classified as live and with zero importers)
@@ -337,7 +371,7 @@ def find_dead_code(
     dead_files: list[dict] = []
 
     for f in sorted(index.source_files):
-        if f in live_roots:
+        if f in live_roots or f in package_live:
             continue
         if not include_tests and _is_test_file(f):
             continue
@@ -351,7 +385,7 @@ def find_dead_code(
             # Check for cascading dead code: all importers themselves have
             # zero importers and are not live roots
             all_dead = all(
-                not rev.get(imp) and imp not in live_roots
+                not rev.get(imp) and imp not in live_roots and imp not in package_live
                 for imp in importers
             )
             if all_dead:

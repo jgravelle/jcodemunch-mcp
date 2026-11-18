@@ -6,6 +6,24 @@
 
 When `agent_selector` is on and names the model for a task, its built-in OpenAI order ended in `o3` for the hardest tasks. OpenAI shuts `o3` down on 2026-12-11 and names `gpt-6.1-sol` as its replacement (OpenAI's deprecations page, notice of 2026-06-11). The 1.108.443 change that moved the summarizer and the selector off the 2027-01-14 retirements kept `o3`, because its guard test matched only the `gpt-4o` and `gpt-4.1` names, so from 2026-12-11 the selector would have recommended a model that no longer answers. The order is now `gpt-6-luna` / `gpt-6-sol` / `gpt-6.1-sol`. A batting order set in your `agent_selector` config is used as written. The guard test now also fails on `o3` and `o3-pro`, bare or as a dated snapshot, anywhere in `src/`.
 
+## [1.108.460] - 2026-11-17 - Go imports between packages of one module resolve through go.mod
+
+### Fixed - Go imports between packages of one module now resolve through go.mod
+
+Go imports between packages of one module now resolve: `import "github.com/gin-gonic/gin/binding"` reaches the `binding/` package through the module path `go.mod` declares. Before, no such import reached a file, so every in-module Go package showed no importers.
+
+`find_dead_code`, `get_dead_code_v2`, `find_importers`, `get_blast_radius` and the other import-graph tools now see these edges. On four Go repositories, Go files that `find_dead_code` reported dead went from 54 to 1 (gin 0f09c3a9), 19 to 5 (cobra adbc8813), 518 to 9 (hugo afb2d9ac) and 462 to 24 (prometheus 49c815a0). Go files with an importer went from 0 to 185 on hugo.
+
+Go coupling figures in `get_repo_health` change, because they are now measured over the real import graph: 97.0 (gin), 58.3 (cobra), 57.7 (hugo) and 58.5 (prometheus), where the near-empty graph gave 67.2, 100, 97.8 and 84.6. A package that imports others and that nothing in the repository imports still reads as unstable, such as a `cmd/` program. The composite grade is withheld on all four repositories, before and after, because their dead-code axis cannot be measured.
+
+How it works. When an index loads, each `go.mod` in the tree is read, and an import under a module path it declares gains an edge to one file of the package's directory. A nested module's own `go.mod` decides for its tree. The standard library and dependencies gain nothing, so a top-level `errors/` is not the `errors` package. The edge is derived on every load and never stored, so a package that moved moves its edge. A Go package counts as one unit: its files call each other with no import, so `find_dead_code` and the coupling axis read a package as live, and as stable or not, across its files, and `get_dead_code_v2` walks a file's same-package peers. A package that nothing reaches is still reported, every file of it.
+
+Other languages are unchanged. On eight corpora (Python, Java, JavaScript, TypeScript, PHP, Kotlin, and the non-Go files of hugo and prometheus), every resolved edge from a non-Go file is the same before and after, and so are `find_dead_code`'s counts. On the six with no Go file, the coupling counts are the same too.
+
+The work is done once per index load, and a loaded index is cached: constructing hugo's index in memory on load went from 2.7 to 25.9 ms, and prometheus's from 8.5 to 30.3 ms, while a whole first load took about 490 ms on both versions.
+
+Not yet covered: a `package main` program is not an entry point. Of the 24 Go files still reported on prometheus, 11 are in `cmd/promtool` and 8 are named `main.go`, one file counted in both; 4 of hugo's 9 are named `main.go` (LEDGER L-321). An index built with `index_repo` has no local tree, so it reads no `go.mod`.
+
 ## [1.108.459] - 2026-11-17 - a savings count is kept when servers stop together
 
 ### Fixed - a savings count is kept when servers stop together

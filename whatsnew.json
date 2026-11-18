@@ -1,6 +1,12 @@
 {
-  "current": "1.108.459",
+  "current": "1.108.460",
   "entries": [
+    {
+      "version": "1.108.460",
+      "date": "2026-11-17",
+      "title": "Go imports between packages of one module resolve through go.mod",
+      "summary": "A Go import by module path now reaches the package it names, so most packages of one module no longer read as dead or unimported."
+    },
     {
       "version": "1.108.459",
       "date": "2026-11-17",
