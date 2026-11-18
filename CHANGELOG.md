@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+### Fixed - a review capsule says what changed
+
+`assemble_task_context` in review mode runs `get_changed_symbols` and puts what it found in a `changed` entry. That entry read the keys `added`, `modified`, `removed` and `renamed`, which `get_changed_symbols` has never published: it publishes `added_symbols`, `removed_symbols` and `changed_symbols`, and each changed row names its `change_type`. So all four lists were empty for every diff, and a review capsule told the agent nothing had changed, on a change that touched code.
+
+The entry now carries those three lists, at most five rows each, with each row's `symbol_id`, its `change_type` and, for a rename, its `previous_name`. Beside them it carries the producer's own `added_count`, `removed_count` and `changed_count`, so a cut list never reads as the whole diff, and `symbol_diff_complete`, so a diff with a file that could not be parsed says so. The test runs the real `get_changed_symbols` and fails if the entry carries a key that it does not publish; a mock would hand the stage whatever keys it asked for, which is how this stayed hidden.
+
 ## [1.108.461] - 2026-11-18 - the agent selector's top OpenAI model is no longer one OpenAI retires on 2026-12-11
 
 ### Fixed - the agent selector's top OpenAI model is no longer one OpenAI retires on 2026-12-11
