@@ -18,6 +18,9 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
+import pytest
+
+from jcodemunch_mcp.tools import get_changed_symbols as mod
 from jcodemunch_mcp.tools.get_changed_symbols import get_changed_symbols
 from jcodemunch_mcp.tools.index_folder import index_folder
 
@@ -110,9 +113,54 @@ def test_two_candidates_with_the_same_body_are_not_paired(tmp_path):
     assert result["changed_symbols"] == []
 
 
-def test_a_different_kind_is_not_a_rename(tmp_path):
+def test_a_different_body_is_not_a_rename(tmp_path):
     before = "def shape(x):\n    return x\n\n\n" + PADDING
     after = "class Shape:\n    pass\n\n\n" + PADDING
     result = _diff(tmp_path, before, after)
     assert result["changed_symbols"] == []
     assert [r["name"] for r in result["removed_symbols"]] == ["shape"]
+
+
+def test_a_method_moved_to_another_class_and_renamed_is_not_a_rename(tmp_path):
+    # Same masked body, different parent: only the parent rule rejects it.
+    before = "class A:\n    def f(self):\n        return 1\n\n\nclass B:\n    pass\n\n\n" + PADDING
+    after = "class A:\n    pass\n\n\nclass B:\n    def g(self):\n        return 1\n\n\n" + PADDING
+    result = _diff(tmp_path, before, after)
+    assert [r for r in result["changed_symbols"] if r["change_type"] == "renamed"] == []
+    assert [r["qualified_name"] for r in result["added_symbols"]] == ["B.g"]
+    assert [r["qualified_name"] for r in result["removed_symbols"]] == ["A.f"]
+
+
+def test_a_rename_after_multibyte_text_reads_the_right_bytes(tmp_path):
+    lead = "# caf\u00e9 \u2603 \u4e2d\u6587\n\n\n"
+    before = lead + "def old_name(v):\n    return v * 2\n\n\n" + PADDING
+    after = lead + "def new_name(v):\n    return v * 2\n\n\n" + PADDING
+    rows = _diff(tmp_path, before, after)["changed_symbols"]
+    assert [(r["change_type"], r["previous_name"]) for r in rows] == [("renamed", "old_name")]
+
+
+def test_a_renamed_row_names_the_old_symbol_id(tmp_path):
+    before = "def compute_total(items):\n    return sum(items)\n\n\n" + PADDING
+    after = "def sum_items(items):\n    return sum(items)\n\n\n" + PADDING
+    row = _diff(tmp_path, before, after)["changed_symbols"][0]
+    assert row["previous_symbol_id"].endswith("compute_total#function"), row
+    assert row["symbol_id"].endswith("sum_items#function"), row
+    assert "_rename_span" not in row
+
+
+def _sym(name, qn, kind, body):
+    raw = body.encode("utf-8")
+    return {"name": name, "qualified_name": qn, "kind": kind, "symbol_id": qn,
+            "_rename_span": (0, len(raw), 1, 1)}, body
+
+
+@pytest.mark.parametrize("old,new,pairs", [
+    (("a", "a", "function"), ("b", "b", "function"), True),
+    (("a", "a", "function"), ("b", "b", "method"), False),  # only the kind differs
+    (("a", "X.a", "function"), ("b", "Y.b", "function"), False),  # only the parent differs
+])
+def test_each_pairing_condition_rejects_on_its_own(old, new, pairs):
+    (b, bt) = _sym(*old, f"def {old[0]}(): return 1")
+    (a, at) = _sym(*new, f"def {new[0]}(): return 1")
+    got = mod._pair_renames({"o"}, {"n"}, {"o": b}, {"n": a}, bt, at)
+    assert got == ([("o", "n")] if pairs else [])

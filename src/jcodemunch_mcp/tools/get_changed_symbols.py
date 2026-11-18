@@ -89,56 +89,69 @@ def _parse_symbols_from_content(content: str, rel_path: str, repo: str | None = 
             "file": rel_path,
             "line": sym.line,
             "content_hash": ch,
-            _RENAME_SHAPE: _rename_shape(sym, content, lines),
+            _RENAME_SPAN: (sym.byte_offset, sym.byte_length, sym.line, sym.end_line),
         }
     return result
 
 
-# (L-322) What a symbol looks like with its own name masked: (kind, parent,
-# hash of the body with every whole-token use of the name replaced). Two
-# symbols with the same shape and different names are one symbol renamed.
+# (L-322) Where a symbol's body is: (byte_offset, byte_length, line,
+# end_line). Read only for the symbols left unmatched, to pair renames.
 # Internal to the diff; `_public` strips it from every published row.
-_RENAME_SHAPE = "_rename_shape"
+_RENAME_SPAN = "_rename_span"
 
 
-def _rename_shape(sym, content: str, lines: list[str]) -> Optional[tuple]:
-    name = sym.name or ""
-    qn = sym.qualified_name or ""
+def _rename_shape(sym: dict, raw: bytes, lines: list[str]) -> Optional[tuple]:
+    """(kind, parent, hash of the body with the symbol's own name masked).
+
+    Two symbols with the same shape and different names are one symbol
+    renamed. ``raw`` is the file encoded once; the parser's offsets are bytes.
+    """
+    name = sym.get("name") or ""
+    qn = sym.get("qualified_name") or ""
     if not name or not qn.endswith(name):
         return None
-    if sym.byte_length:
-        body = content.encode("utf-8")[sym.byte_offset:sym.byte_offset + sym.byte_length].decode(
-            "utf-8", errors="replace")
-    elif sym.line and sym.end_line:
-        body = "".join(lines[sym.line - 1:sym.end_line])
+    offset, length, line, end_line = sym[_RENAME_SPAN]
+    if length:
+        body = raw[offset:offset + length].decode("utf-8", errors="replace")
+    elif line and end_line:
+        body = "".join(lines[line - 1:end_line])
     else:
         return None
     masked = re.sub(word_pattern(name), "\x00", body)
     if masked == body:
         return None
-    return (sym.kind, qn[: len(qn) - len(name)], compute_content_hash(masked.encode("utf-8")))
+    return (sym.get("kind"), qn[: len(qn) - len(name)], compute_content_hash(masked.encode("utf-8")))
 
 
 def _public(sym: dict) -> dict:
-    return {k: v for k, v in sym.items() if k != _RENAME_SHAPE}
+    return {k: v for k, v in sym.items() if k != _RENAME_SPAN}
 
 
-def _pair_renames(removed: set, added: set, before_syms: dict, after_syms: dict) -> list[tuple]:
+def _pair_renames(
+    removed: set, added: set, before_syms: dict, after_syms: dict,
+    before_content: Optional[str], after_content: Optional[str],
+) -> list[tuple]:
     """(removed key, added key) pairs that are one symbol renamed.
 
     A shape pairs only when exactly one removed and exactly one added symbol
     carry it: two candidates with the same masked body are not a rename the
-    diff can name, so both stay `added` and `removed`.
+    diff can name, so both stay `added` and `removed`. Shapes are computed
+    only for the unmatched keys, so a diff with no add-and-remove pays nothing.
     """
-    def group(keys, syms):
+    if not removed or not added or before_content is None or after_content is None:
+        return []
+
+    def group(keys, syms, content):
+        raw, lines = content.encode("utf-8"), content.splitlines(keepends=True)
         out: dict = {}
         for k in keys:
-            shape = syms[k].get(_RENAME_SHAPE)
+            shape = _rename_shape(syms[k], raw, lines)
             if shape is not None:
                 out.setdefault(shape, []).append(k)
         return out
 
-    gone, new = group(removed, before_syms), group(added, after_syms)
+    gone = group(removed, before_syms, before_content)
+    new = group(added, after_syms, after_content)
     return [(r[0], new[s][0]) for s, r in gone.items() if len(r) == 1 and len(new.get(s, ())) == 1]
 
 
@@ -475,12 +488,15 @@ def get_changed_symbols(
         added_keys = after_keys - before_keys
         removed_keys = before_keys - after_keys
 
-        for old_key, new_key in _pair_renames(removed_keys, added_keys, before_syms, after_syms):
+        for old_key, new_key in _pair_renames(
+            removed_keys, added_keys, before_syms, after_syms, before_content, after_content,
+        ):
             removed_keys.discard(old_key)
             added_keys.discard(new_key)
             entry = _public(after_syms[new_key])
             entry["change_type"] = "renamed"
             entry["previous_name"] = before_syms[old_key]["name"]
+            entry["previous_symbol_id"] = before_syms[old_key]["symbol_id"]
             if include_blast_radius and rev_adj is not None:
                 _attach_blast(entry, file_path)
             changed_symbols.append(entry)
