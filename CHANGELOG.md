@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+### Fixed - a renamed function is reported as renamed
+
+`get_changed_symbols` keys each symbol by its qualified name and kind, so a renamed function is a different key on each side of the diff. Its `renamed` branch compared two symbols under the same key, which share a qualified name, and compared hashes that include the name itself, so it could never run. A rename came back as one `added` row and one `removed` row, and `change_type: renamed` and `previous_name` were never published, though the tool's description promised them. `assemble_task_context`, `get_pr_risk_profile` and `digest` read the same rows, so a rename also counted as two changed symbols there.
+
+Now a removed symbol and an added symbol in the same file are one symbol renamed when they have the same kind and the same parent, and their bodies are identical once each one's own name is masked, so a recursive function renamed in its body too still pairs. A renamed row carries `previous_name` and `previous_symbol_id`, the identity `check_rename_safe` and a caller tracing the old name need. The masked bodies are computed only for symbols left unmatched, so a diff with no rename costs what it did. Only a unique match pairs: when two added symbols have the same masked body, nothing is guessed and both stay `added`. A rename whose body was also edited stays `added` and `removed`. A method whose class was renamed is still `added` and `removed` under the new class (LEDGER L-322).
+
 ### Fixed - a watch-service probe that could not ask reads as unknown, not as stopped
 
 On Linux, `get_watch_status` asks `systemctl --user is-active` whether the watch service runs. That needs the user's session bus, and a process started without `DBUS_SESSION_BUS_ADDRESS` or `XDG_RUNTIME_DIR` (a managed MCP host, a cron job, an ssh shell) gets "Failed to connect to user scope bus" and a nonzero exit instead. The probe compared that output with `active` and answered `active: false`, so a probe that observed nothing told the user the watcher was not running, and `suggest_corrections` told them to install a service that may have been running fine. @dkiaulakis reported the same contract against jdocmunch-mcp (jgravelle/jdocmunch-mcp#206); this repository has its own copy of the probe.
