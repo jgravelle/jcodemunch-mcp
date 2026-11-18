@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.466] - 2026-11-18 - a forced re-index keeps the AI summaries a provider could not replace
+
 ### Fixed - a forced re-index keeps the AI summaries a provider could not replace
 
 1.108.462 made a forced `summarize_repo` keep each stored summary when the configured summarizer never gets a client (a missing key, a remote base the localhost rule refuses), and #1282 did the same when the provider is asked and answers nothing. The indexer had the same exposure and neither rule. `index_folder(paths=..., force_reparse=True)`, which `refresh` and the `paths=` route use, re-parses files whose content did not change and re-summarizes their symbols. A full re-index re-summarizes every symbol in a file that changed, including the functions in it that did not. In both, a provider that could not answer left each symbol its signature fallback, which was saved over the AI summary it had, and the result said nothing.

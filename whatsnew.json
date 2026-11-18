@@ -1,6 +1,12 @@
 {
-  "current": "1.108.465",
+  "current": "1.108.466",
   "entries": [
+    {
+      "version": "1.108.466",
+      "date": "2026-11-18",
+      "title": "a forced re-index keeps the AI summaries a provider could not replace",
+      "summary": "When the configured summarizer cannot run, a forced or edit-time re-index keeps the AI summaries already stored instead of writing signature fallbacks over them, and the result names the provider that could not run."
+    },
     {
       "version": "1.108.465",
       "date": "2026-11-18",
