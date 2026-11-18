@@ -118,15 +118,77 @@ def _uninstall_systemd() -> dict:
     return {"platform": "systemd", "unit": str(unit_path), "removed": removed}
 
 
+# What `systemctl is-active` prints when it reached the service manager. Any
+# other output (an empty stdout, a bus or permission error on stderr) means the
+# query did not happen, so the service's state is UNKNOWN, never inactive.
+_SYSTEMD_ACTIVE_STATES = frozenset({"active", "reloading", "refreshing"})
+_SYSTEMD_INACTIVE_STATES = frozenset(
+    {"inactive", "failed", "activating", "deactivating", "maintenance"}
+)
+_SYSTEMD_PROBE_TIMEOUT_SECONDS = 5.0
+
+
+def _systemd_probe_error(stderr: str) -> str:
+    """A stable class for a probe that did not reach the user's service manager."""
+    low = stderr.lower()
+    if "permission denied" in low or "access denied" in low:
+        return "permission_denied"
+    if "bus" in low or "xdg_runtime_dir" in low:
+        return "no_user_bus"
+    return "probe_failed"
+
+
 def _status_systemd() -> dict:
+    """The watch service's state on systemd: `active`, `inactive`,
+    `not_installed` or `unknown`.
+
+    `active` is None when the probe could not ask. A process started without
+    the user's session bus (`DBUS_SESSION_BUS_ADDRESS`, `XDG_RUNTIME_DIR`) gets
+    a bus error and a nonzero exit, and reading that as inactive told the user
+    a running watcher was stopped (reported against jdocmunch-mcp#206). The
+    state is read from what `is-active` printed, never from its exit code.
+    """
     if shutil.which("systemctl") is None:
-        return {"platform": "systemd", "active": False, "reason": "systemctl not found"}
-    result = subprocess.run(
-        ["systemctl", "--user", "is-active", f"{SERVICE_NAME}.service"],
-        capture_output=True, text=True, encoding="utf-8", errors="replace", check=False,
-    )
-    state = result.stdout.strip() or result.stderr.strip()
-    return {"platform": "systemd", "active": state == "active", "state": state}
+        # The installer refuses without systemctl, so no unit of ours can run.
+        return {
+            "platform": "systemd", "active": False, "status": "not_installed",
+            "reason": "systemctl not found",
+        }
+    try:
+        result = subprocess.run(
+            ["systemctl", "--user", "is-active", f"{SERVICE_NAME}.service"],
+            capture_output=True, text=True, encoding="utf-8", errors="replace",
+            check=False, timeout=_SYSTEMD_PROBE_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired:
+        return {
+            "platform": "systemd", "active": None, "status": "unknown",
+            "probe_error": "timeout",
+            "detail": f"systemctl --user is-active did not answer in {_SYSTEMD_PROBE_TIMEOUT_SECONDS:g} s",
+        }
+    except OSError as exc:
+        return {
+            "platform": "systemd", "active": None, "status": "unknown",
+            "probe_error": "probe_failed", "detail": str(exc),
+        }
+    out = (result.stdout or "").strip()
+    err = (result.stderr or "").strip()
+    state = out.splitlines()[0].strip() if out else ""
+    if state in _SYSTEMD_ACTIVE_STATES:
+        return {"platform": "systemd", "active": True, "status": "active", "state": state}
+    if state in _SYSTEMD_INACTIVE_STATES:
+        installed = _systemd_unit_path().exists()
+        return {
+            "platform": "systemd", "active": False,
+            "status": "inactive" if installed else "not_installed",
+            "state": state,
+        }
+    return {
+        "platform": "systemd", "active": None, "status": "unknown",
+        "probe_error": _systemd_probe_error(err),
+        "state": out or err,
+        "detail": err or out or f"systemctl --user is-active exited {result.returncode} with no output",
+    }
 
 
 # ── launchd (macOS) ─────────────────────────────────────────────────────────
@@ -584,14 +646,23 @@ def uninstall_service() -> dict:
 
 
 def service_status() -> dict:
+    """The watch service's state. Every answer carries `status`: `active`,
+    `inactive`, `not_installed` or `unknown`, and `active` is None only for
+    `unknown`. The systemd probe sets `status` itself; the others are read
+    from their `active` flag."""
     sys_ = platform.system()
     if sys_ == "Linux":
-        return _status_systemd()
-    if sys_ == "Darwin":
-        return _status_launchd()
-    if sys_ == "Windows":
-        return _status_windows()
-    return {"platform": sys_, "active": False, "reason": "unsupported"}
+        out = _status_systemd()
+    elif sys_ == "Darwin":
+        out = _status_launchd()
+    elif sys_ == "Windows":
+        out = _status_windows()
+    else:
+        out = {"platform": sys_, "active": False, "reason": "unsupported"}
+    if "status" not in out:
+        active = out.get("active")
+        out["status"] = "active" if active is True else "inactive" if active is False else "unknown"
+    return out
 
 
 # ── escaping helpers ────────────────────────────────────────────────────────
