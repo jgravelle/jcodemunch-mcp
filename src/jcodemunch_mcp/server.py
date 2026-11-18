@@ -979,6 +979,16 @@ _HTTP_PRINCIPAL: "contextvars.ContextVar[Optional[str]]" = contextvars.ContextVa
     "jcodemunch_http_principal", default=None
 )
 
+# (#1491) The streamable-http transport's own session id, set by the handler
+# beside the principal and read from the transport, so it is None exactly when
+# the transport issues no id (stateless). The MCP library's `ServerSession` has
+# no `session_id` (1.30.0), so without this every client sending the same
+# Authorization header, i.e. every client of a single-token server, keyed to one
+# principal and shared one tier.
+_HTTP_TRANSPORT_SESSION: "contextvars.ContextVar[Optional[str]]" = contextvars.ContextVar(
+    "jcodemunch_http_transport_session", default=None
+)
+
 
 def _principal_from_authorization(auth_header: Optional[str]) -> Optional[str]:
     """Derive a stable, non-reversible state key from an Authorization header.
@@ -1017,20 +1027,26 @@ def _session_key() -> Hashable:
     """Return a stable hashable key for the active MCP session.
 
     Priority:
-      1. `session.session_id` if the MCP library exposes one (HTTP transport).
-      2. The hashed auth principal captured by the streamable-http handler —
+      1. `session.session_id` if the MCP library exposes one. It does not in
+         1.30.0, so this branch is kept for a library that adds it.
+      2. The streamable-http transport's session id, captured by the handler
+         (#1491). Two clients sending the same token are two sessions.
+      3. The hashed auth principal captured by the streamable-http handler —
          fires only when the transport issues no session id (stateless MCP,
          spec 2026-07-28), so authed callers keep durable state there.
-      3. A per-process UUID tracked in a WeakKeyDictionary keyed by the
+      4. A per-process UUID tracked in a WeakKeyDictionary keyed by the
          session object. Survives for the lifetime of the session and
          disappears with it — no id() reuse after GC (F2), no LRU eviction
          required (F3).
-      4. The default sentinel when there is no active session (stdio/tests).
+      5. The default sentinel when there is no active session (stdio/tests).
     """
     session = _get_mcp_session()
     sid = getattr(session, "session_id", None) if session is not None else None
     if isinstance(sid, str) and sid:
         return sid
+    transport_sid = _HTTP_TRANSPORT_SESSION.get()
+    if transport_sid:
+        return transport_sid
     principal = _HTTP_PRINCIPAL.get()
     if principal is not None:
         return principal
@@ -8876,8 +8892,8 @@ async def run_streamable_http_server(host: str, port: int):
 
         # New session — capture the caller's auth principal into this request's
         # context BEFORE spawning the session task: create_task copies the
-        # context, so every handler in the session inherits it. Today the
-        # transport session_id above always wins in _session_key(); the
+        # context, so every handler in the session inherits it. The transport
+        # session id captured below wins over it in _session_key(); the
         # principal takes over only when session ids stop being issued.
         _HTTP_PRINCIPAL.set(_principal_from_authorization(request.headers.get("authorization")))
         if _HTTP_PRINCIPAL.get() is None:
@@ -8887,6 +8903,9 @@ async def run_streamable_http_server(host: str, port: int):
         # requests, preventing cross-session pollution.
         new_id = uuid.uuid4().hex
         transport = StreamableHTTPServerTransport(mcp_session_id=new_id)
+        # (#1491) Read off the transport, not `new_id`: a stateless transport
+        # issues no id, and then the principal above is the key again.
+        _HTTP_TRANSPORT_SESSION.set(getattr(transport, "mcp_session_id", None))
         _sessions[new_id] = transport
         _session_last_seen[new_id] = _t.monotonic()
 
