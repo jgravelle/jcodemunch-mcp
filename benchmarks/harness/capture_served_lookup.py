@@ -9,13 +9,16 @@ with its token count, byte count and digest, so two captures can be diffed
 byte for byte.
 
 It measures nothing new. It wraps `run_benchmark._served_text` and runs
-`run_benchmark._measure_jmunch_served` unchanged, after the same setup the
-benchmark's served method does, so the texts it writes are the texts the
-benchmark counted.
+`run_benchmark._measure_jmunch_served` unchanged, after
+`run_benchmark.served_setup()`, the one setup the benchmark's served method
+uses, so the texts it writes are the texts the benchmark counted.
 
-It also writes `environment.json`: the NAMES of the environment variables
-(never their values), the platform, the interpreter and package versions, and
-the config path and storage path the process resolved.
+It also writes `environment.json` first, so it survives a failed lookup: the
+NAMES of the environment variables (never their values), the platform, the
+interpreter and package versions, and the config path the process resolved.
+That path is the one value it records, because it is what the capture was
+asked to find; it can contain the home directory, so a capture taken on a
+developer box is not for publishing.
 
 Usage:
     python benchmarks/harness/capture_served_lookup.py --repo gin-gonic/gin --out <dir>
@@ -68,16 +71,18 @@ def environment() -> dict:
         "packages": {d: _version(d) for d in ("jcodemunch-mcp", "mcp", "tiktoken")},
         "config_path": config_path,
         "config_path_exists": Path(config_path).exists() if not config_path.startswith("unresolved") else None,
-        "code_index_path": os.environ.get("CODE_INDEX_PATH"),
+        "code_index_path_set": "CODE_INDEX_PATH" in os.environ,
         "tokenizer": rb.TOKENIZER,
     }
 
 
 def capture(repo: str, queries: list[str], out: Path) -> dict:
     out.mkdir(parents=True, exist_ok=True)
-    rb._use_default_install_config()
-    rb._quiet_once_per_process_notices()
+    rb.served_setup()
+    (out / "environment.json").write_text(json.dumps(environment(), indent=1), encoding="utf-8")
     repo_id = rb.resolve_repo_arg(repo)
+    if repo_id == repo and os.path.isdir(repo):
+        raise SystemExit(f"{repo} is a folder no index resolves to; index it first")
 
     calls: list[dict] = []
     real = rb._served_text
@@ -113,7 +118,6 @@ def capture(repo: str, queries: list[str], out: Path) -> dict:
 
     manifest = {"repo": repo, "repo_id": repo_id, "lookups": lookups, "calls": calls}
     (out / "manifest.json").write_text(json.dumps(manifest, indent=1, default=str), encoding="utf-8")
-    (out / "environment.json").write_text(json.dumps(environment(), indent=1), encoding="utf-8")
     return manifest
 
 

@@ -50,11 +50,17 @@ def test_the_capture_is_what_the_benchmark_counts(indexed_repo, tmp_path, monkey
     cap = importlib.import_module("capture_served_lookup")
     rb = cap.rb
     real = rb._served_text
+    # The capture must run the benchmark's own setup, not a copy of it: a
+    # second, uncaptured call in this process cannot see a divergence.
+    setups = []
+    real_setup = rb.served_setup
+    monkeypatch.setattr(rb, "served_setup", lambda: (setups.append(1), real_setup())[1])
     out = tmp_path / "capture"
     queries = ["route handler", "param bind"]
 
     manifest = cap.capture(indexed_repo, queries, out)
 
+    assert setups == [1], "capture() must call run_benchmark.served_setup()"
     assert rb._served_text is real, "the wrapper must be removed after the capture"
     assert any(row["hits_fetched"] for row in manifest["lookups"]), "the fixture must fetch"
     for query, row in zip(queries, manifest["lookups"]):
@@ -76,3 +82,21 @@ def test_the_capture_is_what_the_benchmark_counts(indexed_repo, tmp_path, monkey
     assert "do-not-write-this-value" not in env_text
     assert env["packages"]["mcp"]
     assert env["config_path"]
+
+
+def test_a_folder_no_index_resolves_to_is_refused(indexed_repo, tmp_path):
+    cap = importlib.import_module("capture_served_lookup")
+    stray = tmp_path / "not-indexed"
+    stray.mkdir()
+    with pytest.raises(SystemExit):
+        cap.capture(str(stray), ["route handler"], tmp_path / "out")
+
+
+def test_the_served_setup_keeps_a_runner_off_the_savings_total(indexed_repo, monkeypatch):
+    """cicd C-23: the setup replaces the config the env opt-out sets, so it pins it."""
+    monkeypatch.setenv("JCODEMUNCH_SHARE_SAVINGS", "0")
+    cap = importlib.import_module("capture_served_lookup")
+    from jcodemunch_mcp import config
+
+    cap.rb.served_setup()
+    assert config.get("share_savings") is False

@@ -108,7 +108,9 @@ jobs:
           uv run python benchmarks/harness/capture_served_lookup.py --repo "${RUNNER_TEMP}/bench-corpus/gin-gonic__gin" --out "${RUNNER_TEMP}/served-capture"
 
       - name: Upload the served capture
-        if: ${{ github.event.inputs.capture_served == 'true' }}
+        # always(): the environment record is written first, and a failed
+        # lookup is the run where it is needed most.
+        if: ${{ always() && github.event.inputs.capture_served == 'true' }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
         with:
           name: benchmark-served-capture

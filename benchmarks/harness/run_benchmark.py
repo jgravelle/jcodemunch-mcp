@@ -187,6 +187,12 @@ def _use_default_install_config() -> None:
         os.environ.pop(name, None)
 
     cfg._GLOBAL_CONFIG = deepcopy(cfg.DEFAULTS)
+    # A benchmark process is not a user: it must never report to the public
+    # savings total (cicd C-23). `DEFAULTS` has it on, and this replaces the
+    # config the `JCODEMUNCH_SHARE_SAVINGS=0` opt-out would have set, so the
+    # opt-out is pinned here. It gates a background post only; no served text
+    # depends on it.
+    cfg._GLOBAL_CONFIG["share_savings"] = False
     cfg._CONFIG_LOADED = True
     cfg._PROJECT_CONFIGS.clear()
     cfg._PROJECT_CONFIG_HASHES.clear()
@@ -214,6 +220,16 @@ def _decode_served(text: str) -> dict:
     from jcodemunch_mcp.encoding.decoder import decode
 
     return decode(text)
+
+
+def served_setup() -> None:
+    """Everything the served method sets up before its first lookup.
+
+    The one copy: `main` and `capture_served_lookup.py` both call it, so a
+    capture measures what the benchmark counts.
+    """
+    _use_default_install_config()
+    _quiet_once_per_process_notices()
 
 
 def _start_lookup_session() -> None:
@@ -1387,8 +1403,7 @@ def main():
         )
         return 2
     if MEASURE_METHOD == "served":
-        _use_default_install_config()
-        _quiet_once_per_process_notices()
+        served_setup()
 
     print(f"jcodemunch-mcp benchmark harness  |  tokenizer: {TOKENIZER}", flush=True)
     print(f"Counted: {MEASURE_METHOD}", flush=True)
