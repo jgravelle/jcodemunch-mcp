@@ -288,7 +288,11 @@ def get_watch_status(
         svc = service_status()
     except Exception as exc:
         logger.debug("service_status failed", exc_info=True)
-        svc = {"active": False, "error": str(exc)}
+        # A probe that raised observed nothing: unknown, never inactive.
+        svc = {
+            "active": None, "status": "unknown", "probe_error": "probe_failed",
+            "detail": str(exc), "error": str(exc),
+        }
 
     return {
         "service": svc,

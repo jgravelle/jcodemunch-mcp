@@ -18,6 +18,7 @@ charter ([[feedback_jcm_read_only_charter]]) expressed as a feature.
 from __future__ import annotations
 
 import difflib
+import logging
 import os
 from typing import Any, Optional
 
@@ -28,6 +29,8 @@ from .audit_agent_config import (
     _discover_files,
     _fuzzy_suggest,
 )
+
+logger = logging.getLogger(__name__)
 
 # Tools that signal a routing problem when they recur on a failing query: a
 # text/content scan where a structural tool would have answered cleanly.
@@ -158,15 +161,48 @@ def _vocabulary_correction(
 def _freshness_correction(cluster: dict, repo: Optional[str], storage_path: Optional[str]) -> dict:
     """Stale-at-query => the index lagged edits when the agent searched.
     Operational hint, no file patch."""
-    service_active = False
+    # True, False, or None when the watch service's state could not be read
+    # (no user session bus, a timeout). None is not "stopped".
+    service_active: Optional[bool] = None
+    probe_error = ""
     try:
         from .get_watch_status import get_watch_status
         # Only `service.active` is read here; skip the completeness count.
         ws = get_watch_status(storage_path=storage_path, check_completeness=False)
         if isinstance(ws, dict):
-            service_active = bool((ws.get("service") or {}).get("active"))
+            svc = ws.get("service") or {}
+            # `status` is the classification; `active` is read only when an
+            # older answer carries no `status`.
+            status = svc.get("status")
+            if status == "active":
+                service_active = True
+            elif status in ("inactive", "not_installed"):
+                service_active = False
+            elif status is None and isinstance(svc.get("active"), bool):
+                service_active = svc["active"]
+            else:
+                service_active = None
+            probe_error = str(svc.get("probe_error") or "")
     except Exception:
-        service_active = False
+        logger.debug("suggest_corrections: watch status unavailable", exc_info=True)
+        service_active = None
+    if service_active is None:
+        action = (
+            "The watch service's state could not be read"
+            + (f" ({probe_error})" if probe_error else "")
+            + "; check it with `jcodemunch-mcp watch-status` from a login shell, "
+            "and run `jcodemunch-mcp watch-install` (or `watch-all`) if it is not running."
+        )
+    elif not service_active:
+        action = (
+            "The watch service isn't running — run `jcodemunch-mcp watch-install` "
+            "(or `watch-all`) to auto-reindex on change."
+        )
+    else:
+        action = (
+            "The watch service is running but the index still went stale; check "
+            "`get_watch_status` for per-repo reindex lag."
+        )
     rate = cluster.get("evidence", {}).get("stale_rate")
     return {
         "kind": "index_freshness",
@@ -176,13 +212,7 @@ def _freshness_correction(cluster: dict, repo: Optional[str], storage_path: Opti
             f"symbols lagged edits at query time."
         ),
         "evidence": cluster.get("evidence", {}),
-        "recommended_action": (
-            "The watch service isn't running — run `jcodemunch-mcp watch-install` "
-            "(or `watch-all`) to auto-reindex on change."
-            if not service_active else
-            "The watch service is running but the index still went stale; check "
-            "`get_watch_status` for per-repo reindex lag."
-        ),
+        "recommended_action": action,
         "suggested_patch": None,
     }
 
