@@ -258,6 +258,10 @@ def encode(
             for sk in subkeys:
                 if sk in sub:
                     scalar_payload[f"{key}.{sk}"] = sub[sk]
+            # (L-325) A nested row (a focal `symbol`) is a row too: its verdict
+            # rides as one more prefixed scalar when it is off its default.
+            for vk in _row_verdict_cols([sub], subkeys):
+                scalar_payload[f"{key}.{vk}"] = sub[vk]
     meta = response.get("_meta") or {}
     for k in meta_keys:
         if k in meta:
@@ -394,6 +398,10 @@ def decode(
             prefixed = f"{key}.{sk}"
             if prefixed in raw_scalars:
                 sub[sk] = _coerce(raw_scalars[prefixed], stypes.get(prefixed, "str"))
+        for vk in UNIVERSAL_ROW_VERDICTS:
+            prefixed = f"{key}.{vk}"
+            if vk not in subkeys and raw_scalars.get(prefixed):
+                sub[vk] = raw_scalars[prefixed]
         if sub:
             result[key] = sub
     # Meta

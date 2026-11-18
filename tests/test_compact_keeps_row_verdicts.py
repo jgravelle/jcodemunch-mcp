@@ -14,6 +14,8 @@ keeps the bytes it had, so every figure measured on a fresh corpus is unmoved.
 from __future__ import annotations
 
 import os
+import re
+import sqlite3
 import subprocess
 from pathlib import Path
 
@@ -21,6 +23,11 @@ import pytest
 
 from jcodemunch_mcp.encoding import decoder, encode_response
 from jcodemunch_mcp.encoding import schema_driven as sd
+from jcodemunch_mcp.runtime._calls_store import new_ingest_id, upsert_calls
+from jcodemunch_mcp.storage.sqlite_store import SQLiteIndexStore
+from jcodemunch_mcp.tools.find_references import find_references
+from jcodemunch_mcp.tools.get_blast_radius import get_blast_radius
+from jcodemunch_mcp.tools.get_call_hierarchy import get_call_hierarchy
 from jcodemunch_mcp.tools.get_context_bundle import get_context_bundle
 from jcodemunch_mcp.tools.get_ranked_context import get_ranked_context
 from jcodemunch_mcp.tools.get_symbol import get_symbol_source
@@ -66,6 +73,26 @@ def stale_repo(tmp_path: Path, monkeypatch):
     storage = str(tmp_path / "store")
     res = index_folder(str(root), use_ai_summaries=False, storage_path=storage)
     assert res.get("success"), res
+    # Runtime traces for two symbols, so the tools that stamp
+    # `_runtime_confidence` stamp it (confirmed on these, declared_only on the rest).
+    owner, name = res["repo"].split("/", 1)
+    conn = sqlite3.connect(
+        str(SQLiteIndexStore(base_path=storage)._db_path(owner, name))
+    )
+    try:
+        upsert_calls(
+            conn,
+            "otel",
+            [
+                ("pkg/core.py::helper_0#function", 5, 1.0, 2.0),
+                ("pkg/core.py::use_helpers#function", 3, 1.0, 2.0),
+            ],
+            now="2026-11-18T00:00:00Z",
+            ingest_id=new_ingest_id(),
+        )
+        conn.commit()
+    finally:
+        conn.close()
     core = root / "pkg" / "core.py"
     core.write_text(
         core.read_text(encoding="utf-8") + "\n# edited after indexing\n",
@@ -96,10 +123,21 @@ def _non_default(pairs):
     return sorted(p for p in pairs if not (p[0] == "_freshness" and p[1] == "fresh"))
 
 
-# The tools that stamp `_freshness` on each row. find_references,
-# get_call_hierarchy, get_blast_radius and search_text stamp a row verdict only
-# as `_runtime_confidence`, and only when runtime traces were ingested; the
-# table-level tests below carry that verdict through the shared encoder.
+# Every tool that stamps a row verdict, keyed by the module that stamps it.
+# search_symbols, get_ranked_context, get_symbol_source and get_context_bundle
+# stamp `_freshness`; find_references, get_call_hierarchy and get_blast_radius
+# stamp `_runtime_confidence` (and `_runtime_body`) when traces exist, on table
+# rows, on a references group and on the focal `symbol` dict.
+STAMPING_MODULES = {
+    "search_symbols": ("search_symbols", "search_symbols_standard"),
+    "get_ranked_context": ("get_ranked_context",),
+    "get_symbol": ("get_symbol_source",),
+    "get_context_bundle": ("get_context_bundle",),
+    "find_references": ("find_references",),
+    "get_call_hierarchy": ("get_call_hierarchy",),
+    "get_blast_radius": ("get_blast_radius",),
+}
+
 CALLS = {
     "search_symbols": lambda r, s: search_symbols(
         repo=r, query="helper", detail_level="compact", storage_path=s
@@ -116,7 +154,33 @@ CALLS = {
     "get_context_bundle": lambda r, s: get_context_bundle(
         repo=r, symbol_id="pkg/core.py::helper_0#function", storage_path=s
     ),
+    "find_references": lambda r, s: find_references(
+        repo=r, identifier="helper_0", storage_path=s
+    ),
+    "get_call_hierarchy": lambda r, s: get_call_hierarchy(
+        repo=r, symbol_id="pkg/core.py::helper_0#function", storage_path=s
+    ),
+    "get_blast_radius": lambda r, s: get_blast_radius(
+        repo=r, symbol="helper_0", storage_path=s
+    ),
 }
+
+_STAMP = re.compile(
+    r"\.annotate\(|attach_runtime_confidence|RuntimeConfidenceProbe"
+    r"|\[\"_(?:freshness|runtime_confidence|runtime_body)\"\]\s*="
+)
+
+
+def test_every_tool_that_stamps_a_row_verdict_is_driven_here():
+    """A tool that starts stamping a row verdict joins the round trip above."""
+    tools_dir = Path(__import__("jcodemunch_mcp.tools", fromlist=["x"]).__file__).parent
+    stamping = {
+        p.stem
+        for p in tools_dir.glob("*.py")
+        if _STAMP.search(p.read_text(encoding="utf-8"))
+    }
+    assert stamping == set(STAMPING_MODULES), sorted(stamping ^ set(STAMPING_MODULES))
+    assert {c for calls in STAMPING_MODULES.values() for c in calls} == set(CALLS)
 
 
 @pytest.mark.parametrize("call", sorted(CALLS))
@@ -273,3 +337,60 @@ def test_a_decoder_that_predates_the_column_still_reads_the_rows():
             r for b in split_sections(stale)[1] for r in (read_table(b, "s") or [])
         ]
     )
+
+
+def test_a_verdictless_flattened_or_nested_answer_keeps_its_bytes():
+    """The two other carriers add nothing when no row holds a verdict: a
+    find_references group, and a focal `symbol` dict (get_blast_radius)."""
+    refs = {
+        "repo": "local/x",
+        "identifier": "f",
+        "reference_count": 1,
+        "references": [
+            {"file": "a.py", "matches": [{"specifier": "f", "match_type": "import"}]}
+        ],
+    }
+    plain, _ = encode_response("find_references", refs, "compact")
+    assert "_runtime" not in plain and "__empty_group_verdicts__" not in plain, plain
+
+    blast = {
+        "repo": "local/x",
+        "symbol": {
+            "id": "a.py::f#function",
+            "name": "f",
+            "kind": "function",
+            "file": "a.py",
+            "line": 1,
+        },
+        "confirmed": [],
+        "potential": [],
+    }
+    plain, meta = encode_response("get_blast_radius", blast, "compact")
+    assert meta["encoding"] != "json", meta
+    assert "symbol._runtime" not in plain, plain
+    stamped = dict(
+        blast,
+        symbol={
+            **blast["symbol"],
+            "_runtime_confidence": "confirmed",
+            "_runtime_body": "earlier",
+        },
+    )
+    back = decoder.decode(encode_response("get_blast_radius", stamped, "compact")[0])
+    assert back["symbol"]["_runtime_confidence"] == "confirmed", back
+    assert back["symbol"]["_runtime_body"] == "earlier", back
+
+
+def test_an_empty_references_group_keeps_its_verdict():
+    refs = {
+        "repo": "local/x",
+        "identifier": "f",
+        "reference_count": 0,
+        "references": [
+            {"file": "a.py", "matches": [], "_runtime_confidence": "confirmed"}
+        ],
+    }
+    back = decoder.decode(encode_response("find_references", refs, "compact")[0])
+    assert back["references"] == [
+        {"file": "a.py", "matches": [], "_runtime_confidence": "confirmed"}
+    ], back
