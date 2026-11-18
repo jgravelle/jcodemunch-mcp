@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.465] - 2026-11-18 - two HTTP sessions that send the same token keep their own tool tier
+
 ### Fixed - two HTTP sessions that send the same token keep their own tool tier
 
 On the streamable-http transport, every session's tool tier is keyed by `_session_key()`. It preferred the MCP library's `session.session_id`, then a hash of the `Authorization` header. The library's `ServerSession` has no `session_id` attribute (mcp 1.30.0), so the first branch never fired. Every client sending the same header, which is every client of a server started with `JCODEMUNCH_HTTP_TOKEN`, shared one key: `set_tool_tier` in one session changed the tier of every other. Reported by @lilubot (#1491), with the reproduction and the cause.

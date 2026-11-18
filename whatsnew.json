@@ -1,6 +1,12 @@
 {
-  "current": "1.108.464",
+  "current": "1.108.465",
   "entries": [
+    {
+      "version": "1.108.465",
+      "date": "2026-11-18",
+      "title": "two HTTP sessions that send the same token keep their own tool tier",
+      "summary": "On the streamable-http transport, each session keeps its own tool tier even when every client sends the same bearer token, and a session's tier is dropped when the session ends."
+    },
     {
       "version": "1.108.464",
       "date": "2026-11-18",
