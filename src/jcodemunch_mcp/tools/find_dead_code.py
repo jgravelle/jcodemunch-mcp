@@ -17,6 +17,7 @@ from ._entry_points import (
     entry_point_spec,
     has_dotnet_evidence,
     is_host_invoked,
+    go_main_entries,
     package_json_entries as _package_json_entries,
     unseen_consumer,
 )
@@ -260,6 +261,9 @@ def find_dead_code(
     # so the file was misclassified as `all_importers_dead` at confidence 0.7.
     pkg_entries = _package_json_entries(index, store, owner, name)
     live_roots.update(pkg_entries)
+    # (L-321) a Go `package main` program is a root; its peers follow
+    # through the package rule below.
+    live_roots.update(go_main_entries(index, store, owner, name))
 
     # -----------------------------------------------------------------------
     # Phase 1b: render-edge reachability (#461)
