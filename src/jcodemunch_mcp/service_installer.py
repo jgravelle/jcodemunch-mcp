@@ -416,7 +416,7 @@ def _scheduled_task_state() -> Optional[str]:
     return state or None
 
 
-def _scheduled_task_exists() -> Optional[bool]:
+def _watch_task_registered() -> Optional[bool]:
     """Whether the watch task is registered: True, False, or None when that
     could not be asked. The answer is a fixed token the script prints, so it
     does not depend on the display language (the reason `State` is read from
@@ -654,7 +654,7 @@ def _status_windows() -> dict:
         # reads every task as not running), so it never earns `inactive`. A
         # task that is not registered at all is a successful answer, read
         # without display text.
-        status = "not_installed" if _scheduled_task_exists() is False else "unknown"
+        status = "not_installed" if _watch_task_registered() is False else "unknown"
     else:
         status = "active" if active else "inactive"
     out: dict = {

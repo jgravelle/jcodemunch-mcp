@@ -232,7 +232,7 @@ def test_windows_a_display_text_reading_is_unknown(monkeypatch):
     """The fallback is wrong on non-English Windows, so it never earns `inactive`."""
     monkeypatch.setattr(si, "_run_schtasks", lambda args: (0, "Status: Bereit", ""))
     monkeypatch.setattr(si, "_scheduled_task_state", lambda: None)
-    monkeypatch.setattr(si, "_scheduled_task_exists", lambda: None)
+    monkeypatch.setattr(si, "_watch_task_registered", lambda: None)
     monkeypatch.setattr(si, "_scheduled_task_settings", lambda: None)
     monkeypatch.setattr(si, "_scheduled_task_command", lambda: None)
     s = si._status_windows()
@@ -243,7 +243,7 @@ def test_windows_a_task_that_is_not_registered_is_not_installed(monkeypatch):
     """A missing task is a successful answer, read without display text."""
     monkeypatch.setattr(si, "_run_schtasks", lambda args: (1, "", "FEHLER"))
     monkeypatch.setattr(si, "_scheduled_task_state", lambda: None)
-    monkeypatch.setattr(si, "_scheduled_task_exists", lambda: False)
+    monkeypatch.setattr(si, "_watch_task_registered", lambda: False)
     monkeypatch.setattr(si, "_scheduled_task_settings", lambda: None)
     monkeypatch.setattr(si, "_scheduled_task_command", lambda: None)
     assert si._status_windows()["status"] == "not_installed"
@@ -261,7 +261,7 @@ def test_windows_task_existence_is_read_from_a_fixed_token(
         "run",
         lambda *a, **kw: subprocess.CompletedProcess(a, 0, stdout, b""),
     )
-    assert si._scheduled_task_exists() is expected
+    assert si._watch_task_registered() is expected
 
 
 def test_windows_a_measured_state_is_classified(monkeypatch):
