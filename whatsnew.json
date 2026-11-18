@@ -1,6 +1,12 @@
 {
-  "current": "1.108.461",
+  "current": "1.108.462",
   "entries": [
+    {
+      "version": "1.108.462",
+      "date": "2026-11-18",
+      "title": "a Go program is an entry point, a review capsule says what changed, and a forced summary refresh keeps stored summaries",
+      "summary": "The dead-code tools treat a Go package main program as an entry point. A review-mode assemble_task_context names the symbols that changed. A forced summarize_repo whose configured provider cannot start keeps stored AI summaries and names the provider."
+    },
     {
       "version": "1.108.461",
       "date": "2026-11-18",
