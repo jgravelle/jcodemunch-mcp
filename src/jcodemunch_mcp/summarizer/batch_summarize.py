@@ -860,6 +860,17 @@ def _create_summarizer(repo: Optional[str] = None) -> Optional[BaseSummarizer]:
     so `.jcodemunch.jsonc` overrides for `summarizer_model`, `summarizer_provider`,
     and `use_ai_summaries` are honored at runtime (#304).
     """
+    name = _named_provider(repo=repo)
+    if name is None:
+        return None
+    return _build_summarizer(name, repo=repo)
+
+
+def _named_provider(repo: Optional[str] = None) -> Optional[str]:
+    """The provider the configuration selects, or None when AI summaries are off
+    or no provider is selected. `_create_summarizer` builds its client from this
+    name; when that build fails, `summarize_symbols` reports the name as
+    unavailable (L-274), so both read one answer to "which provider"."""
     raw = _config.get("use_ai_summaries", "auto", repo=repo)
 
     # Normalize to disabled / explicit / auto
@@ -873,8 +884,6 @@ def _create_summarizer(repo: Optional[str] = None) -> Optional[BaseSummarizer]:
 
     if disabled:
         return None
-
-    model_override = get_model_name(repo=repo)
 
     if explicit_mode:
         # Use summarizer_provider from config; fall back to auto-detect if unset
@@ -896,7 +905,12 @@ def _create_summarizer(repo: Optional[str] = None) -> Optional[BaseSummarizer]:
             name = None if explicit_provider == "none" else explicit_provider
     else:
         name = get_provider_name(repo=repo)
+    return name
 
+
+def _build_summarizer(name: str, repo: Optional[str] = None) -> Optional[BaseSummarizer]:
+    """A summarizer for `name`, or None when its client cannot be built."""
+    model_override = get_model_name(repo=repo)
     if name == "anthropic":
         s = BatchSummarizer(repo=repo)
         return s if s.client else None
@@ -1071,7 +1085,10 @@ def summarize_symbols(
     `report`, when given, receives `provider_failed`: the ids of the symbols
     the provider was asked to summarize and did not (#1282). It is empty when
     no provider was called, so a signature fallback outside it is the
-    pipeline's answer, never a provider failure.
+    pipeline's answer, never a provider failure. When the configuration names
+    a provider whose client cannot be built (a missing key, a remote base the
+    localhost rule refuses), `report` receives `provider_unavailable`: that
+    name (L-274). No request was sent, so nothing is in `provider_failed`.
     """
     # Tier 1: Extract from docstrings (gated by summarize_from_docstrings, P1.5)
     if _docstring_summaries_enabled(repo=repo):
@@ -1087,6 +1104,10 @@ def summarize_symbols(
             symbols = summarizer.summarize_batch(symbols)
             if report is not None:
                 report["provider_failed"] = summarizer.failed_ids()
+        elif report is not None:
+            unavailable = _named_provider(repo=repo)
+            if unavailable:
+                report["provider_unavailable"] = unavailable
 
     # Tier 3: Signature fallback for any still missing
     for sym in symbols:
