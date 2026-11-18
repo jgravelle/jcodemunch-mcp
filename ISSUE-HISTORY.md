@@ -3368,3 +3368,9 @@ The 1.108.456 entry, verbatim as it stood in `CLAUDE.md`:
 The 1.108.457 entry, verbatim as it stood in `CLAUDE.md`:
 
 - **Prior (1.108.457):** **a tool count is kept when servers stop together** (#1470): the exit flush of `_tool_counters.json` writes what it could not add to a `.pending` sibling, and the next write claims each one before adding it; the protocol is `storage/pending_files.py`, shared with the Cursor read counter. Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-18, release 1.108.461)
+
+The 1.108.458 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.458):** **a compact answer gives back a list or dict inside a table row** (#1472): the generic encoder `gen1` types a column holding any list or dict cell `json`, dumps it on encode and loads it in `_coerce`; the id stays `gen1`, and the TS decoder and SPEC_MUNCH know the type. Full text: `CHANGELOG.md`.

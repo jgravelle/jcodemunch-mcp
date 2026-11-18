@@ -1,6 +1,12 @@
 {
-  "current": "1.108.460",
+  "current": "1.108.461",
   "entries": [
+    {
+      "version": "1.108.461",
+      "date": "2026-11-18",
+      "title": "the agent selector's top OpenAI model is no longer one OpenAI retires on 2026-12-11",
+      "summary": "With agent_selector on, the top OpenAI default is gpt-6.1-sol, the model OpenAI names to replace o3 when o3 shuts down on 2026-12-11."
+    },
     {
       "version": "1.108.460",
       "date": "2026-11-17",
