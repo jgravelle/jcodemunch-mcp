@@ -168,6 +168,7 @@ CALLS = {
 _STAMP = re.compile(
     r"\.annotate\(|attach_runtime_confidence|RuntimeConfidenceProbe"
     r"|\[\"_(?:freshness|runtime_confidence|runtime_body)\"\]\s*="
+    r"|\"_(?:freshness|runtime_confidence|runtime_body)\"\s*:"
 )
 
 

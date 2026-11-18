@@ -27,7 +27,11 @@ _JSON = ("results", _EMPTY_GROUPS_KEY, _EMPTY_VERDICTS_KEY)
 
 def _group_verdicts(group: dict) -> dict:
     """The row verdicts a references group carries (L-325)."""
-    return {k: group[k] for k in sd.UNIVERSAL_ROW_VERDICTS if group.get(k) not in (None, "")}
+    return {
+        k: group[k]
+        for k, default in sd.UNIVERSAL_ROW_VERDICTS.items()
+        if group.get(k) not in (None, "", default)
+    }
 
 
 def _flatten(response: dict) -> dict:
