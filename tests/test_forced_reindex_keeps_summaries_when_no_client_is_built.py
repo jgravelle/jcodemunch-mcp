@@ -262,3 +262,30 @@ def test_a_reparse_keeps_a_summary_whose_hash_matches():
     )
     assert sym.summary == "AI summary"
     assert counts["unavailable_kept"] == 1
+
+
+@pytest.mark.parametrize("stored_hash", ["deadbeef", ""], ids=["stored-hashed", "stored-unhashed"])
+def test_the_reparse_path_itself_refuses_a_hashless_keep(monkeypatch, stored_hash):
+    """The pipeline call site, not the helper: a re-parse of a symbol with no
+    content hash (an extractor that records none) keeps no stored summary.
+    Python symbols always carry a hash, so the index-level tests cannot see this."""
+    from jcodemunch_mcp.tools import _indexing_pipeline as pipeline
+
+    def failing(symbols, use_ai=True, repo=None, source_for=None, report=None):
+        for sym in symbols:
+            sym.summary = bs.signature_fallback(sym)
+        if report is not None:
+            report["provider_failed"] = {s.id for s in symbols}
+        return symbols
+
+    monkeypatch.setattr(pipeline, "summarize_symbols", failing)
+    sym = _bare("")
+    sym.summary = ""
+    report: dict = {}
+    out = pipeline.summarize_with_kept(
+        [sym], True, None, None, {sym.id: ("AI summary of the old body", stored_hash)}, report,
+    )
+
+    assert out[0].summary == bs.signature_fallback(sym)
+    assert report.get("failed_kept", 0) == 0, report
+    assert report["provider_fallbacks"] == 1, report
