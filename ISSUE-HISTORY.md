@@ -3392,3 +3392,9 @@ The 1.108.460 entry, verbatim as it stood in `CLAUDE.md`:
 The 1.108.461 entry, verbatim as it stood in `CLAUDE.md`:
 
 - **Prior (1.108.461):** **the agent selector's top OpenAI model is no longer one OpenAI retires on 2026-12-11** (#1481): `agent_selector.DEFAULT_PROVIDERS["openai"]["high"]` is `gpt-6.1-sol`, OpenAI's named replacement for `o3`; `tests/test_no_default_names_a_retired_openai_model.py` also fails on `o3`/`o3-pro`, bare or dated. Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-18, release 1.108.465)
+
+The 1.108.462 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.462):** **a Go program is an entry point, a review capsule says what changed, and a forced summary refresh keeps what a provider that cannot run would overwrite** (#1484-#1486): `_entry_points.go_main_entries` roots `package main` for both dead-code tools; the changed stage reads `get_changed_symbols`' keys; `provider_unavailable` keeps stored summaries. Full text: `CHANGELOG.md`.
