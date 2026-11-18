@@ -29,6 +29,10 @@ on:
         description: "With reference=true only: space-separated owner/repo whose token rise a maintainer approved; printed, not judged, while the reference is replaced. Every other repo and the grep ratio are still judged."
         type: string
         default: ""
+      capture_served:
+        description: "Also write gin's served lookup texts (search plus the 3 fetches, per task), the environment variable NAMES and the resolved config path, as the benchmark-served-capture artifact. Diagnostic only; judges nothing."
+        type: boolean
+        default: false
   push:
     paths:
       - "benchmarks/tasks.json"
@@ -94,6 +98,21 @@ jobs:
           print(sys.argv[1], '->', r.get('repo'), r.get('error') or '')
           " "$dir"
           done
+
+      - name: Capture gin's served lookup texts (dispatch with capture_served=true)
+        if: ${{ github.event.inputs.capture_served == 'true' }}
+        env:
+          CODE_INDEX_PATH: ${{ runner.temp }}/bench-index
+        run: |
+          set -euo pipefail
+          uv run python benchmarks/harness/capture_served_lookup.py --repo "${RUNNER_TEMP}/bench-corpus/gin-gonic__gin" --out "${RUNNER_TEMP}/served-capture"
+
+      - name: Upload the served capture
+        if: ${{ github.event.inputs.capture_served == 'true' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
+        with:
+          name: benchmark-served-capture
+          path: ${{ runner.temp }}/served-capture/
 
       - name: Run the benchmark
         env:
