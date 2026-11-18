@@ -8,6 +8,28 @@ On Linux, `get_watch_status` asks `systemctl --user is-active` whether the watch
 
 The service answer now carries `status`: `active`, `inactive`, `not_installed` or `unknown`. On Linux and macOS `active` is `None` for `unknown`, with a stable `probe_error` class (`no_user_bus`, `permission_denied`, `timeout`, `probe_failed`) and the diagnostic kept in `detail`. The state is read from what `is-active` printed, never from its exit code. A successful query for an inactive or failed unit is `inactive` when the unit file exists and `not_installed` when it does not. The probe now has a 5 second timeout, and a probe that raises is `unknown` too. The macOS probe follows the same rule: a label `launchctl` does not know is `inactive` or `not_installed` by whether our plist exists, a loaded job with no process is `inactive`, and any other failure is `unknown`. On Windows, a reading taken from the task's display text, which is wrong on non-English Windows, is `unknown`, never `inactive`, and a task that is not registered is `not_installed`; there `active` keeps its display-text reading, named by `state_source`, so `suggest_corrections` reads `status`. `suggest_corrections` says the state could not be read instead of saying the service is stopped. The cases are the reporter's: an active query, an inactive or missing unit, a missing user bus, a permission failure and a timeout.
 
+## [1.108.462] - 2026-11-18 - a Go program is an entry point, a review capsule says what changed, and a forced summary refresh keeps what a provider that cannot run would overwrite
+
+### Fixed - a Go program is an entry point to the dead-code tools
+
+Go runs a program from the `func main` of a `package main`, and nothing imports it. The dead-code tools knew only Python's entry-point file names, so every file of a `cmd/` program was reported dead: `find_dead_code` gave it `zero_importers` at confidence 1.0, and `get_dead_code_v2` saw no entry point on most Go repositories, so its `unreachable_file` signal fired on almost every symbol and could not tell anything apart.
+
+A Go file that holds a top-level `func main` and opens with `package main` is now an entry point to both tools, and the other files of its package are live with it. A `main.go` in a library package is not a program, and neither is a `func main` in a `_test.go` file, so both are still reported when nothing reaches them. A generator marked `//go:build ignore` (or `// +build ignore`) is not one either: `go build` leaves it out of its package, and counting it would have kept a dead library package in the same directory live. Only the file's own `package` clause counts, not a comment above it.
+
+On prometheus (49c815a0), Go files `find_dead_code` reports went from 24 to 4, and on hugo (afb2d9ac) from 9 to 4. In `get_dead_code_v2`, the entry points found went from 0 to 9 on prometheus and from 1 to 5 on hugo, and the share of symbols `unreachable_file` fires on went from 1.0 to 0.0856 and from 0.999 to 0.0703. On gin, cobra and six corpora in other languages every number is the same before and after. The `get_repo_health` grade is withheld on all ten corpora, before and after.
+
+### Fixed - a review capsule says what changed
+
+`assemble_task_context` in review mode runs `get_changed_symbols` and puts what it found in a `changed` entry. That entry read the keys `added`, `modified`, `removed` and `renamed`, which `get_changed_symbols` has never published: it publishes `added_symbols`, `removed_symbols` and `changed_symbols`, and each changed row names its `change_type`. So all four lists were empty for every diff, and a review capsule told the agent nothing had changed, on a change that touched code.
+
+The entry now carries those three lists, at most five rows each, with each row's `symbol_id`, its `change_type` and, for a rename, its `previous_name`. Beside them it carries the producer's own `added_count`, `removed_count` and `changed_count`, so a cut list never reads as the whole diff, and `symbol_diff_complete`, so a diff with a file that could not be parsed says so. The test runs the real `get_changed_symbols` and fails if the entry carries a key that it does not publish; a mock would hand the stage whatever keys it asked for, which is how this stayed hidden.
+
+### Fixed - a forced summary refresh keeps what it had when the named provider cannot run
+
+`summarize_repo(force=true)` clears every summary and runs the pipeline again. Since 1.108.404 (#1282), a symbol the provider was asked for and did not answer keeps its stored summary. A provider that is configured but never gets a client was not covered, because it is never asked: a missing key under an explicit `minimax`, `glm` or `openrouter`, or a remote `OPENAI_API_BASE` that the localhost rule refuses without `allow_remote_summarizer`. The run then saved a signature fallback over every stored AI summary, and the result read like a healthy run, so the user had no sign that the summaries they paid for were gone.
+
+Now a provider the configuration names but cannot build is reported as `provider_unavailable`, with a `provider_unavailable_reason` naming the likely cause. Each symbol whose new summary would be only its signature fallback keeps what was stored, and `previous_summaries_kept` counts them. A docstring summary is still written, and with no provider configured at all a forced run resets to the fallback as before. `_create_summarizer` and the new report read one function for which provider the configuration selects, so the two cannot disagree.
+
 ## [1.108.461] - 2026-11-18 - the agent selector's top OpenAI model is no longer one OpenAI retires on 2026-12-11
 
 ### Fixed - the agent selector's top OpenAI model is no longer one OpenAI retires on 2026-12-11

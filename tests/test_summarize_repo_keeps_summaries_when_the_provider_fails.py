@@ -12,9 +12,11 @@ Now the summarizer names the symbols it asked the provider for and got no
 summary back (`summarize_symbols(report=...)`), each of those keeps its stored
 summary, `updated` counts summaries that differ from what was stored, and the
 result names the provider fallbacks. A fallback the summarizer did not name is
-the pipeline's own answer and is written as before: no provider, a provider
-whose client could not be built, or a docstring symbol with the docstring tier
-switched off (which the provider is never sent).
+the pipeline's own answer and is written as before: no provider, or a
+docstring symbol with the docstring tier switched off (which the provider is
+never sent). A provider whose client could not be built is not named here
+either; since L-274 it keeps stored summaries under its own key
+(`tests/test_summarize_repo_keeps_summaries_when_no_client_is_built.py`).
 
 The fake summarizers fill `report` the way `summarize_symbols` does; the last
 tests run the real summarizer against a local endpoint.

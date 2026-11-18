@@ -3374,3 +3374,9 @@ The 1.108.457 entry, verbatim as it stood in `CLAUDE.md`:
 The 1.108.458 entry, verbatim as it stood in `CLAUDE.md`:
 
 - **Prior (1.108.458):** **a compact answer gives back a list or dict inside a table row** (#1472): the generic encoder `gen1` types a column holding any list or dict cell `json`, dumps it on encode and loads it in `_coerce`; the id stays `gen1`, and the TS decoder and SPEC_MUNCH know the type. Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-18, release 1.108.462)
+
+The 1.108.459 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.459):** **a savings count is kept when servers stop together** (#1473): the savings meter's exit flush writes what it could not add to a `.pending` file beside the savings file, through the shared `storage/pending_files.py` protocol, and the next write folds it in. Full text: `CHANGELOG.md`.

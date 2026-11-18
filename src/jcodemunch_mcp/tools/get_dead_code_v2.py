@@ -39,6 +39,7 @@ from ._entry_points import (
     entry_point_spec,
     has_dotnet_evidence,
     is_host_invoked,
+    go_main_entries,
     package_json_entries as _package_json_entries,
     unseen_consumer,
 )
@@ -1268,11 +1269,16 @@ def get_dead_code_v2(
         if f in source_files
     }
 
-    extra_entries = pkg_entries | declared_entries | dynamic_entries
+    # (L-321) a Go `package main` program; `rev`/`forward` already carry
+    # its same-package peers. ⚠ Kept apart from `pkg_entries`, which `_meta`
+    # publishes as `package_json_entries`.
+    go_main = go_main_entries(index, store, owner, name)
+
+    extra_entries = pkg_entries | go_main | declared_entries | dynamic_entries
     entry_point_count = (
         sum(1 for f in index.source_files
             if _is_entry_point(f) or f in declared_entries)
-        + len(pkg_entries - declared_entries)
+        + len((pkg_entries | go_main) - declared_entries)
     )
     reachable_files = _reachable_from_entry_points(
         list(index.source_files), rev, forward, extra_entries=extra_entries
