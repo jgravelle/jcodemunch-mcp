@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed - the agent selector's top OpenAI model is no longer one OpenAI retires on 2026-12-11
+
+When `agent_selector` is on and names the model for a task, its built-in OpenAI order ended in `o3` for the hardest tasks. OpenAI shuts `o3` down on 2026-12-11 and names `gpt-6.1-sol` as its replacement (OpenAI's deprecations page, notice of 2026-06-11). The 1.108.443 change that moved the summarizer and the selector off the 2027-01-14 retirements kept `o3`, because its guard test matched only the `gpt-4o` and `gpt-4.1` names, so from 2026-12-11 the selector would have recommended a model that no longer answers. The order is now `gpt-6-luna` / `gpt-6-sol` / `gpt-6.1-sol`. A batting order set in your `agent_selector` config is used as written. The guard test now also fails on `o3` and `o3-pro`, bare or as a dated snapshot, anywhere in `src/`.
+
 ## [1.108.460] - 2026-11-17 - Go imports between packages of one module resolve through go.mod
 
 ### Fixed - Go imports between packages of one module now resolve through go.mod
