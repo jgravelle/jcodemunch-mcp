@@ -421,12 +421,14 @@ def _scheduled_task_exists() -> Optional[bool]:
     could not be asked. The answer is a fixed token the script prints, so it
     does not depend on the display language (the reason `State` is read from
     the enum above)."""
-    # `absent` only for ObjectNotFound, an invariant enum: an access, CIM or
-    # module-load failure prints `error` and reads as unknown, never as a
-    # task that is not there.
+    # `absent` only for Get-ScheduledTask's own not-found error id, which is
+    # invariant across display languages. A missing cmdlet is also category
+    # ObjectNotFound (CommandNotFoundException), so the category alone is not
+    # enough. An access, CIM or module-load failure prints `error` and reads
+    # as unknown, never as a task that is not there.
     script = (
         f"try {{ $null = Get-ScheduledTask -TaskName '{SERVICE_NAME}' -ErrorAction Stop; 'present' }}"
-        " catch { if ($_.CategoryInfo.Category -eq 'ObjectNotFound') { 'absent' } else { 'error' } }"
+        " catch { if ($_.FullyQualifiedErrorId -like '*_NotFound_*,Get-ScheduledTask') { 'absent' } else { 'error' } }"
     )
     try:
         result = subprocess.run(
