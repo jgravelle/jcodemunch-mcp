@@ -89,6 +89,48 @@ def is_universal_body_key(key: str) -> bool:
     return key in UNIVERSAL_BODY_JSON or "warning" in key.lower()
 
 
+# Per-row verdicts every table carries when a row's value is not the default
+# (LEDGER L-325), the row-level twin of UNIVERSAL_META_JSON. On the shipped
+# default the dispatcher deletes `_meta`, so a row's `_freshness` is the only
+# place a stale answer says it is stale; a table that did not declare it
+# dropped it, and a stale answer reached the agent byte-identical to a fresh
+# one. The value is each verdict's default: `fresh` for `_freshness`, absent
+# (None) for the runtime pair, which are stamped only when traces exist.
+#
+# ⚠ A column appears only when some row is off its default, so an all-default
+# answer keeps the bytes it had and no figure measured on a fresh corpus moves.
+# The columns follow the declared ones and are named in `__tables`, so a
+# decoder that reads the declared columns by position reads them unchanged.
+UNIVERSAL_ROW_VERDICTS: dict[str, str | None] = {
+    "_freshness": "fresh",
+    "_runtime_confidence": None,
+    "_runtime_body": None,
+}
+
+
+def _row_verdict_cols(rows: Iterable[Any], declared: Iterable[str]) -> list[str]:
+    """The verdict columns a table needs: those some row holds off its default."""
+    declared = set(declared)
+    rows = [r for r in rows if isinstance(r, dict)]
+    out: list[str] = []
+    for key, default in UNIVERSAL_ROW_VERDICTS.items():
+        if key in declared:
+            continue
+        if any(r.get(key) not in (None, "", default) for r in rows):
+            out.append(key)
+    return out
+
+
+def _header_cols(raw_tables: str) -> dict[str, list[str]]:
+    """`__tables` as {tag: columns}, the columns the payload actually wrote."""
+    out: dict[str, list[str]] = {}
+    for part in (raw_tables or "").split(","):
+        bits = part.split(":", 2)
+        if len(bits) == 3 and bits[0]:
+            out[bits[0]] = [c for c in bits[2].split("|") if c]
+    return out
+
+
 @dataclass
 class TableSpec:
     key: str                       # response dict key holding list[dict]
@@ -216,6 +258,10 @@ def encode(
             for sk in subkeys:
                 if sk in sub:
                     scalar_payload[f"{key}.{sk}"] = sub[sk]
+            # (L-325) A nested row (a focal `symbol`) is a row too: its verdict
+            # rides as one more prefixed scalar when it is off its default.
+            for vk in _row_verdict_cols([sub], subkeys):
+                scalar_payload[f"{key}.{vk}"] = sub[vk]
     meta = response.get("_meta") or {}
     for k in meta_keys:
         if k in meta:
@@ -247,8 +293,14 @@ def encode(
     if scalar_types_out:
         scalar_payload["__stypes"] = "|".join(f"{k}:{t}" for k, t in scalar_types_out.items())
     # Encode the table schema into the payload so decode is self-sufficient.
+    # A row verdict off its default (L-325) rides as a column after the
+    # declared ones, named here so the decoder can read it back.
+    table_cols = {
+        t.tag: list(t.cols) + _row_verdict_cols(response.get(t.key, []) or [], t.cols)
+        for t in tables
+    }
     scalar_payload["__tables"] = ",".join(
-        f"{t.tag}:{t.key}:{'|'.join(t.cols)}" for t in tables
+        f"{t.tag}:{t.key}:{'|'.join(table_cols[t.tag])}" for t in tables
     )
 
     sections: list[str] = []
@@ -273,6 +325,10 @@ def encode(
                 if c in intern_set and isinstance(v, str):
                     v = legend.encode_prefix(v)
                 encoded_row.append(v)
+            # Verdict columns carry the row's own value, a default included:
+            # beside a stale row, a fresh one says `fresh` rather than blank.
+            for c in table_cols[t.tag][len(t.cols):]:
+                encoded_row.append(row.get(c))
             out_rows.append(encoded_row)
         # Fail closed (#354): a producer dict whose keys don't match any declared
         # column encodes to all-blank cells, so the agent sees "N items" with no
@@ -321,7 +377,7 @@ def decode(
             table_block_text.append(b)
 
     raw_scalars = parse_scalars(scalar_block) if scalar_block else {}
-    raw_scalars.pop("__tables", None)
+    written_cols = _header_cols(raw_scalars.pop("__tables", "") or "")
     stypes_text = raw_scalars.pop("__stypes", "")
     for part in [p for p in stypes_text.split("|") if p]:
         name, _, hint = part.partition(":")
@@ -342,6 +398,10 @@ def decode(
             prefixed = f"{key}.{sk}"
             if prefixed in raw_scalars:
                 sub[sk] = _coerce(raw_scalars[prefixed], stypes.get(prefixed, "str"))
+        for vk in UNIVERSAL_ROW_VERDICTS:
+            prefixed = f"{key}.{vk}"
+            if vk not in subkeys and raw_scalars.get(prefixed):
+                sub[vk] = raw_scalars[prefixed]
         if sub:
             result[key] = sub
     # Meta
@@ -384,6 +444,13 @@ def decode(
     for t in tables:
         decoded_rows: list[dict[str, Any]] = []
         intern_set = set(t.intern)
+        # (L-325) Row verdict columns the encoder appended after the declared ones.
+        written = written_cols.get(t.tag, [])
+        verdict_cols = [
+            (len(t.cols) + j, c)
+            for j, c in enumerate(written[len(t.cols):])
+            if written[: len(t.cols)] == list(t.cols) and c in UNIVERSAL_ROW_VERDICTS
+        ]
         for block in table_block_text:
             rows = read_table(block, t.tag)
             if not rows:
@@ -395,6 +462,10 @@ def decode(
                     if c in intern_set and isinstance(raw, str):
                         raw = legend.decode_prefix(raw)
                     row_dict[c] = _coerce(raw, t.types.get(c, "str"))
+                for i, c in verdict_cols:
+                    raw = r[i] if i < len(r) else ""
+                    if raw != "":
+                        row_dict[c] = raw
                 decoded_rows.append(row_dict)
         result[t.key] = decoded_rows
 

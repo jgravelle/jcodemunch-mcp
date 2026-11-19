@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+### Fixed - a compact answer says when a row's code changed since the index read it
+
+Each search row carries `_freshness`, which says whether the file it points at changed after the index read it (`edited_uncommitted`, `stale_index`, `unknown`). On a default install the server deletes `_meta`, so that row field is the only place a stale answer says it is stale. The compact encoding, which a default install sends whenever it is smaller, wrote only the columns each tool's table declares, and no table declared `_freshness`. So a `search_symbols` or `get_ranked_context` answer about a file edited since indexing reached the agent byte for byte the same as an answer about a current file, and the agent read changed code as current. The runtime verdicts `_runtime_confidence` and `_runtime_body` were dropped the same way.
+
+The shared encoder now carries these verdicts wherever a compact answer holds a row: in every table, in a nested row such as the focal `symbol` of `get_blast_radius` and `get_call_hierarchy`, and in `find_references`' per-file groups, which its encoder flattens before encoding. A tool written later inherits the rule, and a test fails if a tool that stamps a row verdict is not driven through it. A verdict column appears only when some row is off its default: `fresh` for `_freshness`, absent for the runtime pair. An answer where every row is fresh keeps exactly the bytes it had, so no token count measured on a fresh corpus moves. When the column does appear, it follows the declared columns and is named in the table header, so a decoder that reads the declared columns by position reads them as before. With read refresh on, the default since 1.108.431, a read re-indexes most edited files first, so this mostly reaches answers where that refresh was off or could not run (LEDGER L-325).
+
+
 ## [1.108.466] - 2026-11-18 - a forced re-index keeps the AI summaries a provider could not replace
 
 ### Fixed - a forced re-index keeps the AI summaries a provider could not replace
