@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.467] - 2026-11-18 - a compact answer says when a row's code changed since the index read it
+
 ### Fixed - a compact answer says when a row's code changed since the index read it
 
 Each search row carries `_freshness`, which says whether the file it points at changed after the index read it (`edited_uncommitted`, `stale_index`, `unknown`). On a default install the server deletes `_meta`, so that row field is the only place a stale answer says it is stale. The compact encoding, which a default install sends whenever it is smaller, wrote only the columns each tool's table declares, and no table declared `_freshness`. So a `search_symbols` or `get_ranked_context` answer about a file edited since indexing reached the agent byte for byte the same as an answer about a current file, and the agent read changed code as current. The runtime verdicts `_runtime_confidence` and `_runtime_body` were dropped the same way.
