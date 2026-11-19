@@ -39,23 +39,30 @@ _DECL_HEAD_RE = re.compile(
 # not a comment.
 _DQ = r'"(?:\\.|[^"\\\n])*"'
 # A single-quoted string or character literal is kept too, where `'` opens one
-# (`@Get('//x')`, `#[Route('http://x')]`, `class A(B, tag='#')`). Not in Rust,
-# F#, OCaml, Haskell or a Lisp, where a lone `'` is a lifetime, a type variable
-# or a quote, so pairing two of them would keep a real comment.
-_SQ = r"'(?:\\.|[^'\\\n])*'"
+# (`@Get('//x')`, `#[Route('http://x')]`, `class A(B, tag='#')`). Only in a
+# language listed below, or an unknown one; any other labelled language keeps
+# the double-quote rule alone. Not in Rust, F#, OCaml, Haskell, Verilog or a
+# Lisp, where a lone `'` is a lifetime, a type variable, a width or a quote, so
+# pairing two of them would keep a real comment. A `'` right after a digit opens
+# nothing either: it is a C++14 digit separator (`B<1'000>`), and in C, C++ and
+# Objective-C a hex digit counts too (`0xFF'FF`).
+_SQ = r"(?<![0-9])'(?:\\.|[^'\\\n])*'"
+_SQ_C = r"(?<![0-9A-Fa-f])'(?:\\.|[^'\\\n])*'"
 _SLASH_TAIL = r'|/\*.*?\*/|//[^\n]*'
 _SLASH_COMMENT_RE = re.compile('(' + _DQ + ')' + _SLASH_TAIL, re.DOTALL)
 _HASH_COMMENT_RE = re.compile('(' + _DQ + ')' + _SLASH_TAIL + r'|#[^\n]*', re.DOTALL)
 _SLASH_COMMENT_SQ_RE = re.compile('(' + _DQ + '|' + _SQ + ')' + _SLASH_TAIL, re.DOTALL)
 _HASH_COMMENT_SQ_RE = re.compile('(' + _DQ + '|' + _SQ + ')' + _SLASH_TAIL + r'|#[^\n]*', re.DOTALL)
 # PHP: `#` starts a comment, but `#[` opens a PHP 8 attribute (`#[Attr] class A`).
+_SLASH_COMMENT_SQ_C_RE = re.compile('(' + _DQ + '|' + _SQ_C + ')' + _SLASH_TAIL, re.DOTALL)
 _PHP_COMMENT_RE = re.compile('(' + _DQ + '|' + _SQ + ')' + _SLASH_TAIL + r'|#(?!\[)[^\n]*', re.DOTALL)
+_C_FAMILY_LANGUAGES = frozenset({"c", "cpp", "arduino", "objc"})
 _SINGLE_QUOTE_STRING_LANGUAGES = frozenset({
     "python", "ruby", "nim", "gdscript", "elixir", "julia", "r", "perl",
-    "powershell", "bash", "javascript", "typescript", "tsx", "jsx", "vue",
-    "svelte", "dart", "java", "kotlin", "scala", "groovy", "csharp", "c",
-    "cpp", "arduino", "objc", "swift", "go", "lua", "luau", "apex", "solidity",
-    "dlang", "pascal",
+    "powershell", "bash", "javascript", "typescript", "tsx", "vue", "svelte",
+    "astro", "dart", "java", "kotlin", "scala", "groovy", "csharp", "razor",
+    "c", "cpp", "arduino", "objc", "swift", "go", "lua", "luau", "apex",
+    "solidity", "dlang", "pascal", "al", "sql", "erlang", "fortran",
 })
 # Languages where `#` starts a comment. In C#, Kotlin, Swift, C++ and Rust it does
 # not (`[Sep('#')]`, `#[derive]`, `#if`), so there it is left alone.
@@ -77,6 +84,8 @@ def _strip_comments(text: str, language: Optional[str] = None) -> str:
         pattern = _PHP_COMMENT_RE
     elif not lang or lang in _HASH_COMMENT_LANGUAGES:
         pattern = _HASH_COMMENT_SQ_RE if single else _HASH_COMMENT_RE
+    elif lang in _C_FAMILY_LANGUAGES:
+        pattern = _SLASH_COMMENT_SQ_C_RE
     else:
         pattern = _SLASH_COMMENT_SQ_RE if single else _SLASH_COMMENT_RE
     return pattern.sub(lambda m: m.group(1) or " ", text)

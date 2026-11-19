@@ -111,6 +111,34 @@ def test_the_call_graph_reads_the_base_past_a_comment(signature):
     assert {row["name"] for row in rows if row["id"] == "m.ts::B.constructor#method"} == {"A", "B"}
 
 
+@pytest.mark.parametrize(
+    ("signature", "expected"),
+    [
+        # A C++14 digit separator is not an opening quote: paired with an
+        # apostrophe in a later comment it kept the comment as a "string",
+        # which invented a base or lost one (review round 2 of L-261).
+        ("class A : public B<1'000> // don't, public Evil", ["B"]),
+        ("class E : public B<1'0>, /* it's */ public C", ["B", "C"]),
+        ("class A : public B<1'000> // , public X 'y", ["B"]),
+        ("class A : public B<0xFF'FF>, /* it's */ public C", ["B", "C"]),
+        # A character literal is still a literal.
+        ("class A : public B<'/'>, public C // c", ["B", "C"]),
+    ],
+)
+def test_a_cpp_digit_separator_opens_no_string(signature, expected):
+    assert _parse_bases(signature, "cpp") == expected
+
+
+def test_a_spaced_php_hash_is_a_comment_not_an_attribute():
+    # `#[` must be contiguous; `# [Attr]` comments out the rest of the line.
+    assert _parse_bases("# [Attr] class A extends B", "php") == []
+
+
+@pytest.mark.parametrize("language", ["astro", "razor", "al", "sql", "erlang", "fortran"])
+def test_a_single_quote_language_keeps_its_strings(language):
+    assert _parse_bases("@Get('//x') class A extends B", language) == ["B"]
+
+
 def test_a_signature_without_a_comment_is_unchanged():
     assert _parse_bases("class A extends B implements C, D {", "java") == ["B", "C", "D"]
     assert _parse_bases("class A extends B<T> with M {", "dart") == ["B", "M"]
