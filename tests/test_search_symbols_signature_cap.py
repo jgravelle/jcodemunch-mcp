@@ -133,20 +133,121 @@ def test_a_payload_written_by_the_old_encoder_still_decodes():
     assert back["results"][0]["signature"] == "def f()"
 
 
+# The reported shape: five rows, one of them carrying a FastAPI-sized
+# multi-line signature (that lookup carried 29,748 characters).
+_HUGE_PARAMS = ",\n".join(
+    f"    widget_parameter_{i}: Annotated[str, Doc('The widget parameter number {i}.')] = 'x'"
+    for i in range(380)
+)
+GATE_FILES = {
+    "app/widgets.py": (
+        f"def add_widget_huge(\n{_HUGE_PARAMS},\n) -> None:\n    return None\n\n\n"
+        + "".join(
+            f"def add_widget_{n}(path: str) -> None:\n    return None\n\n\n"
+            for n in ("alpha", "beta", "gamma", "delta")
+        )
+    ),
+}
+
+
+def test_a_reply_with_a_huge_signature_passes_the_savings_gate(tmp_path: Path, monkeypatch):
+    """On the default (gated) path the reply is served compact. Before the cap
+    the one signature was nearly the whole reply, the compact form saved less
+    than the gate's threshold, and the reply was served as JSON."""
+    from jcodemunch_mcp import config as _config
+
+    monkeypatch.setitem(_config._GLOBAL_CONFIG, "refresh_on_read", False)
+    root = tmp_path / "repo"
+    for rel, text in GATE_FILES.items():
+        p = root / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(text, encoding="utf-8")
+    storage = str(tmp_path / "store")
+    res = index_folder(str(root), use_ai_summaries=False, storage_path=storage)
+    assert res.get("success"), res
+    resp = _search(res["repo"], storage)
+    assert len(resp["results"]) == 5
+    sid = next(r["id"] for r in resp["results"] if r["name"] == "add_widget_huge")
+    whole = get_symbol_source(repo=res["repo"], symbol_id=sid, storage_path=storage)["signature"]
+    assert len(whole) > 25000, len(whole)
+    for fmt in (None, "auto"):
+        _, meta = encode_response("search_symbols", resp, fmt)
+        assert meta["encoding"] == "ss2", (fmt, meta)
+
+
+# Reads of a symbol's signature are allowed only inside these functions: the
+# cap itself, the summary dedupe (reads the whole signature on purpose) and the
+# BM25 breakdown (scores it, never serves it).
+_SIGNATURE_READERS = {"_row_signature", "_row_summary", "_bm25_breakdown"}
+
+
+def _signature_reads_outside_the_cap(source: str) -> list[int]:
+    """Lines that read `x["signature"]` or `x.get("signature", ...)` outside
+    `_SIGNATURE_READERS`. Any spelling that serves a raw signature reads it
+    first, so this catches a dict literal, an assignment to a row key and a
+    read into a local alike."""
+    tree = ast.parse(source)
+    parents: dict[ast.AST, ast.AST] = {}
+    for node in ast.walk(tree):
+        for child in ast.iter_child_nodes(node):
+            parents[child] = node
+
+    def owner(node: ast.AST) -> str:
+        while node in parents:
+            node = parents[node]
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                return node.name
+        return ""
+
+    out = []
+    for node in ast.walk(tree):
+        is_read = (
+            isinstance(node, ast.Subscript)
+            and isinstance(node.ctx, ast.Load)
+            and isinstance(node.slice, ast.Constant)
+            and node.slice.value == "signature"
+        ) or (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "get"
+            and bool(node.args)
+            and isinstance(node.args[0], ast.Constant)
+            and node.args[0].value == "signature"
+        )
+        if is_read and owner(node) not in _SIGNATURE_READERS:
+            out.append(node.lineno)
+    return out
+
+
+def test_the_reuse_audit_candidate_keeps_the_flag():
+    from jcodemunch_mcp.investigator.reuse_audit import _collect
+
+    into: dict = {}
+    rows = [
+        {"id": "a.py::f#function", "name": "f", "kind": "function", "file": "a.py",
+         "line": 1, "signature": "def f(" + "x" * 194, "signature_truncated": True},
+        {"id": "a.py::g#function", "name": "g", "kind": "function", "file": "a.py",
+         "line": 9, "signature": "def g()"},
+    ]
+    _collect(rows, channel="lexical", ceiling=1.0, why="t", include_tests=True, into=into)
+    assert into["a.py::f#function"].to_dict()["signature_truncated"] is True
+    assert "signature_truncated" not in into["a.py::g#function"].to_dict()
+
+
+@pytest.mark.parametrize("spelling", [
+    'def build(sym):\n    return {"signature": sym["signature"]}\n',
+    'def build(sym):\n    s = sym["signature"]\n    return {"signature": s}\n',
+    'def build(sym, entry):\n    entry["signature"] = sym["signature"]\n',
+    'def build(sym):\n    return {"signature": sym.get("signature", "")}\n',
+])
+def test_the_ratchet_catches_each_spelling_of_the_defect(spelling):
+    assert _signature_reads_outside_the_cap(spelling) == [2]
+
+
 def test_no_row_builder_copies_the_raw_signature():
     """Every row search_symbols builds goes through the one cap (BM25, fuzzy,
     semantic and fusion paths), so a fifth path cannot ship uncapped."""
-    tree = ast.parse(SRC.read_text(encoding="utf-8"))
-    offenders = []
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.Dict):
-            continue
-        for k, v in zip(node.keys, node.values):
-            if (
-                isinstance(k, ast.Constant) and k.value == "signature"
-                and isinstance(v, (ast.Subscript, ast.Call))
-                and "signature" in ast.unparse(v)
-                and "_row_signature" not in ast.unparse(v)
-            ):
-                offenders.append(node.lineno)
-    assert offenders == [], f"raw signature copied into a row at lines {offenders}"
+    offenders = _signature_reads_outside_the_cap(SRC.read_text(encoding="utf-8"))
+    assert offenders == [], f"raw signature read outside the cap at lines {offenders}"
+
+
