@@ -1,6 +1,12 @@
 {
-  "current": "1.108.467",
+  "current": "1.108.468",
   "entries": [
+    {
+      "version": "1.108.468",
+      "date": "2026-11-19",
+      "title": "a comment after a base list no longer hides the base",
+      "summary": "Class hierarchy, implementation and call-graph answers now find a class's base when a comment follows the extends or implements list, or sits inside a multi-line Python base list. Before, such a class had no base and dropped out of its parent's subtree."
+    },
     {
       "version": "1.108.467",
       "date": "2026-11-18",
