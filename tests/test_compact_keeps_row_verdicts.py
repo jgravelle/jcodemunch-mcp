@@ -277,9 +277,9 @@ def test_the_search_answer_bytes_are_frozen_for_a_fresh_corpus():
     payload, meta = encode_response(
         "search_symbols", {"result_count": 4, "results": rows}, "compact"
     )
-    assert meta["encoding"] == "ss1"
+    assert meta["encoding"] == "ss2"
     assert payload == (
-        "#MUNCH/1 tool=search_symbols enc=ss1\n\n"
+        "#MUNCH/1 tool=search_symbols enc=ss2\n\n"
         "@1=routes_0.go\n@2=routes_1.go\n\n"
         "result_count=4 __stypes=result_count:int "
         "__tables=s:results:id|name|kind|file|line|score|signature|summary\n\n"

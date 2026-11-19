@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+### Changed - a search row carries at most 200 characters of a signature, and says when it was cut
+
+**The default `search_symbols` reply changes.** A `standard` row copied the symbol's whole signature, and a multi-line signature can be most of a reply: on a local FastAPI index the `middleware` lookup (five rows) carried a 29,748-character signature and served 32,829 bytes. It also lost the compact encoding. That form shortens keys and repeated paths, not signature text, so when one signature is nearly the whole reply the compact form saves too little to pass the encoder's savings gate (4.3% against the 15% default), and the server sent JSON.
+
+A `standard` row now carries the first 200 characters of a longer signature and `signature_truncated: true`. A row that was not cut has no such key, the way a row with no decorators has no `decorators`. `get_symbol_source` still returns the whole signature, and `detail_level: "full"` keeps it whole because that shape inlines the source anyway. Every row builder in `search_symbols` (lexical, fuzzy, semantic and fusion) goes through one function, and a test fails if a row copies the raw signature again. With `token_budget`, a cut row costs less, so more rows can fit the same budget.
+
+The compact encoding writes the `signature_truncated` column only when some row was cut. A reply where no row was cut keeps the bytes it had, apart from the encoding id, which moves from `ss1` to `ss2` (same length; `ss1` payloads still decode). Measured on the benchmark's 15 lookups (`search_symbols`, five rows, `standard`) over local copies of the three indexes: FastAPI 37,269 to 5,863 bytes (8,169 to 1,459 tokens), gin 6,243 to 5,232 bytes, express unchanged. The `middleware` reply is 1,450 bytes and is served compact again.
+
 ## [1.108.468] - 2026-11-19 - a comment after a base list no longer hides the base
 
 ### Fixed - a comment after a base list no longer hides the base
