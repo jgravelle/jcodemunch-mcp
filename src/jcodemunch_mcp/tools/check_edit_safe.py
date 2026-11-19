@@ -42,6 +42,7 @@ from .check_delete_safe import (
 
 logger = logging.getLogger(__name__)
 
+
 # ---------------------------------------------------------------------------
 # Severity scoring for individual edit blockers (1-5, higher = riskier to touch)
 # ---------------------------------------------------------------------------
@@ -155,16 +156,17 @@ def check_edit_safe(
     internal_ref_count = 0
     test_ref_count = 0
     try:
-        from .check_references import check_references  # noqa: PLC0415
-        # Batch form (identifiers=[...]) so check_references returns its grouped
-        # `results` shape — singular (identifier=...) returns a flat response with
-        # no `results` key, which this loop would silently read as empty (#338).
-        ref_out = check_references(
-            repo=f"{owner}/{name}", identifiers=[target_name],
-            search_content=True, max_content_results=20,
-            storage_path=storage_path,
-        )
-        for entry in ref_out.get("results", []) or []:
+        from .check_references import _check_single, first_match_line, target_span_of  # noqa: PLC0415
+        # (LEDGER L-91) The core check, given the TARGET's span, so only its own
+        # lines are excluded: a same-named method elsewhere that calls the
+        # target is a call site, not "a definition". The list keeps the old
+        # loop's shape (#338: a flat response read as a batch was empty).
+        ref_entries = [_check_single(
+            identifier=target_name, index=index, search_content=True,
+            max_content_results=20, owner=owner, name=name, store=store,
+            start=time.perf_counter(), target_span=target_span_of(target),
+        )]
+        for entry in ref_entries:
             for ref in entry.get("content_references", []) or []:
                 ref_file = ref.get("file", "")
                 if not ref_file:
@@ -182,7 +184,7 @@ def check_edit_safe(
                         blockers.append({
                             "kind": "internal_reference",
                             "file": ref_file,
-                            "line": ref.get("line", 0),
+                            "line": first_match_line(ref),
                             "severity": _SEVERITY_INTERNAL_REF,
                             "info": "internal call site that may rely on current behavior",
                         })

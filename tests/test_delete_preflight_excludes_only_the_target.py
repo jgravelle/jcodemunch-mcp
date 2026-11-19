@@ -1,0 +1,107 @@
+"""A delete preflight excludes the TARGET's own lines, not every same-named definition (LEDGER L-91).
+
+`check_references` hides the line span of every definition spelled exactly like
+the identifier, so a declaration is not counted as a use of itself (#406, L-88).
+For the public tool, which knows only a name, that is the best it can do. A
+preflight knows WHICH symbol it is asking about, and hiding every same-named
+definition there hides real callers: Java `B.file()` whose body calls
+`new A().file()` lost that call when `check_delete_safe` asked about `A.file`,
+and the used method graded as an absence verdict.
+
+The preflights now exclude only the target's own span. The cost runs in the
+blocking direction: a same-named sibling's declaration line reads as a
+reference, which can hold a delete back and never licenses one.
+"""
+from __future__ import annotations
+
+from jcodemunch_mcp.storage import IndexStore
+from jcodemunch_mcp.tools.check_delete_safe import check_delete_safe
+from jcodemunch_mcp.tools.check_edit_safe import check_edit_safe
+from jcodemunch_mcp.tools.check_references import check_references
+from jcodemunch_mcp.tools.index_folder import index_folder
+
+_ABSENCE = ("safe_to_delete", "internal_only", "test_coverage_only")
+
+_A = (
+    "public class A {\n"
+    "    public int file() {\n"
+    "        return 1;\n"
+    "    }\n"
+    "}\n"
+)
+_B = (
+    "public class B {\n"
+    "    public int file() {\n"
+    "        return new A().file();\n"
+    "    }\n"
+    "}\n"
+)
+
+
+def _repo(tmp_path, files):
+    for rel, text in files.items():
+        (tmp_path / rel).write_text(text, encoding="utf-8")
+    storage = str(tmp_path / "idx")
+    repo = index_folder(path=str(tmp_path), use_ai_summaries=False, storage_path=storage)["repo"]
+    return repo, storage
+
+
+def _symbol_id(repo, storage, file, name):
+    owner, name_ = repo.split("/", 1)
+    index = IndexStore(base_path=storage).load_index(owner, name_)
+    ids = [s["id"] for s in index.symbols if s.get("file") == file and s.get("name") == name]
+    assert len(ids) == 1, ids
+    return ids[0]
+
+
+def test_a_call_inside_a_same_named_method_elsewhere_blocks_the_delete(tmp_path):
+    repo, sp = _repo(tmp_path, {"A.java": _A, "B.java": _B})
+    target = _symbol_id(repo, sp, "A.java", "file")
+    got = check_delete_safe(repo, target, storage_path=sp)
+    assert got["verdict"] not in _ABSENCE, (got["verdict"], got.get("blockers"))
+    files = {b.get("file") for b in got.get("blockers", []) if b.get("kind") == "internal_reference"}
+    assert "B.java" in files, got.get("blockers")
+
+
+def test_the_edit_preflight_sees_the_same_caller(tmp_path):
+    repo, sp = _repo(tmp_path, {"A.java": _A, "B.java": _B})
+    target = _symbol_id(repo, sp, "A.java", "file")
+    got = check_edit_safe(repo, target, storage_path=sp)
+    files = {b.get("file") for b in got.get("blockers", []) if b.get("kind") == "internal_reference"}
+    assert "B.java" in files, got.get("blockers")
+
+
+def test_the_call_line_itself_is_a_match_given_the_target_span(tmp_path):
+    """The reference the preflights read carries the call on line 3, and its
+    blocker names a real line, never 0 (every blocker read 0 before: the
+    file-level entry has `matches`, not a `line`)."""
+    from jcodemunch_mcp.tools.check_references import _check_single, target_span_of
+    import time
+    repo, sp = _repo(tmp_path, {"A.java": _A, "B.java": _B})
+    owner, name = repo.split("/", 1)
+    store = IndexStore(base_path=sp)
+    index = store.load_index(owner, name)
+    target = next(s for s in index.symbols if s["id"] == _symbol_id(repo, sp, "A.java", "file"))
+    got = _check_single("file", index, True, 20, owner, name, store, time.perf_counter(),
+                        target_span=target_span_of(target))
+    lines = {(f["file"], m["line"]) for f in got["content_references"] for m in f["matches"]}
+    assert ("B.java", 3) in lines, lines
+    blockers = check_delete_safe(repo, target["id"], storage_path=sp)["blockers"]
+    assert all(b.get("line") for b in blockers if b.get("kind") == "internal_reference"), blockers
+
+
+def test_control_the_targets_own_lines_stay_excluded(tmp_path):
+    repo, sp = _repo(tmp_path, {"A.java": _A, "B.java": _B})
+    target = _symbol_id(repo, sp, "A.java", "file")
+    got = check_delete_safe(repo, target, storage_path=sp)
+    lines = {(b.get("file"), b.get("line")) for b in got.get("blockers", [])}
+    assert not {("A.java", n) for n in (2, 3, 4)} & lines, got.get("blockers")
+
+
+def test_control_the_public_tool_still_hides_every_same_named_definition(tmp_path):
+    """`check_references` knows only a name, so it keeps excluding every
+    definition so spelled; only the preflights, which know the target, narrow."""
+    repo, sp = _repo(tmp_path, {"A.java": _A, "B.java": _B})
+    got = check_references(repo, identifier="file", storage_path=sp)
+    lines = {(f["file"], m["line"]) for f in got.get("content_references", []) for m in f["matches"]}
+    assert ("B.java", 3) not in lines, lines

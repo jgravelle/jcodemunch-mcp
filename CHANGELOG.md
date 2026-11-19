@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+### Fixed - a delete preflight no longer hides a caller inside a same-named method
+
+`check_delete_safe` and `check_edit_safe` ask `check_references` where a name is used, and that search left out the lines of every definition spelled like the name, so a declaration is not counted as a use of itself. The preflights know which symbol they are asking about, but they took the same name-only exclusion, so a call inside a same-named method elsewhere was skipped as "a definition". Java `B.file()` whose body calls `new A().file()` hid that call, and `check_delete_safe` graded the used `A.file` `safe_to_delete` with no blockers (LEDGER L-91).
+
+Both preflights now leave out only the target's own lines. The public `check_references`, which knows only a name, keeps its exclusion. The narrower one can only add matches, so it can hold a delete back and never licenses one; a same-named sibling's declaration line now counts as a reference. Over the 705 functions and methods in this repository's `src/` whose name another definition shares, no `check_delete_safe` verdict changed.
+
+Every `internal_reference` and `test_reference` blocker also reported `line: 0`: the preflights read a `line` off a file-level entry that only has `matches`. A blocker now names its first matching line.
+
 ## [1.108.468] - 2026-11-19 - a comment after a base list no longer hides the base
 
 ### Fixed - a comment after a base list no longer hides the base

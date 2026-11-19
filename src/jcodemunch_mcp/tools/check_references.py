@@ -80,6 +80,33 @@ def _decode_escapes(text: str) -> str:
     return out.encode("utf-16-le", "surrogatepass").decode("utf-16-le", "replace")
 
 
+def first_match_line(ref: dict) -> int:
+    """The first matching line of one `content_references` entry.
+
+    The entry is `{file, matches: [{line, text}]}` and has no `line` of its
+    own; the preflights read one anyway, so every blocker said line 0.
+    """
+    matches = ref.get("matches") or []
+    return int(matches[0].get("line", 0) or 0) if matches else 0
+
+
+def target_span_of(sym: dict) -> Optional[tuple[str, int, int]]:
+    """``(file, first_line, last_line)`` of one symbol, or None when it has none.
+
+    None sends ``_check_single`` back to excluding every same-named definition,
+    the honest answer when the target's own lines are unknown.
+    """
+    file_path = sym.get("file") or ""
+    try:
+        lo = int(sym.get("line") or 0)
+        hi = int(sym.get("end_line") or lo)
+    except (TypeError, ValueError):
+        return None
+    if not file_path or lo <= 0:
+        return None
+    return (file_path, lo, max(lo, hi))
+
+
 def _check_single(
     identifier: str,
     index,
@@ -89,8 +116,15 @@ def _check_single(
     name: str,
     store: "IndexStore",
     start: float,
+    target_span: Optional[tuple[str, int, int]] = None,
 ) -> dict:
-    """Core logic for checking a single identifier against import + content data."""
+    """Core logic for checking a single identifier against import + content data.
+
+    ``target_span`` is ``(file, first_line, last_line)`` of the ONE symbol a
+    caller is asking about. Given it, only that span is excluded from the
+    content search; without it, every definition spelled like the identifier
+    is (LEDGER L-91).
+    """
     ident_lower = _fold(identifier)
     # The exclusion's key: the EXACT declared spelling, case included. An
     # exclusion REMOVES matches, so it must never widen (see `_fold`'s ⚠⚠):
@@ -175,6 +209,18 @@ def _check_single(
         # itself; `lo > hi` would match nothing and report the signature as a
         # reference to itself.
         defining_spans.setdefault(file_path, []).append((lo, max(lo, hi)))
+
+    # ⚠⚠ (LEDGER L-91) A caller that knows WHICH symbol it asks about excludes
+    # that symbol's span alone. Hiding every same-named definition hid real
+    # callers: Java `B.file()` calling `new A().file()` was skipped as "a
+    # definition of `file`", and `check_delete_safe` graded the used `A.file`
+    # `safe_to_delete` with zero blockers. The narrower exclusion only ADDS
+    # matches (a sibling's declaration line now counts), so it can hold a
+    # delete back and never licenses one.
+    if target_span is not None:
+        t_file, t_lo, t_hi = target_span
+        defining_spans = {t_file: [(t_lo, max(t_lo, t_hi))]}
+        unspanned_files = set()
 
     content_references = []
     # True once a matching file beyond the cap is seen: the scan reads one
