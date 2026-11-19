@@ -491,7 +491,7 @@ def constructors_as_their_classes(symbols, importers: dict[str, list[str]]) -> l
     subclass constructor that never calls up still counts for its ancestors
     (JavaScript requires the call; Python does not). Toward not reporting.
     """
-    from .get_class_hierarchy import _parse_bases  # noqa: PLC0415  (it imports nothing of ours)
+    from .get_class_hierarchy import _parse_bases, _strip_comments  # noqa: PLC0415  (it imports nothing of ours)
 
     classes_by_id: dict[str, dict] = {}
     # (base name, file of the subclass) -> the subclasses
@@ -502,7 +502,9 @@ def constructors_as_their_classes(symbols, importers: dict[str, list[str]]) -> l
         if (sym.get("language") or "") not in CONSTRUCTOR_WORDS or not sym.get("id") or not sym.get("name"):
             continue
         classes_by_id[sym["id"]] = sym
-        extends = (sym.get("signature") or "").split(" implements ", 1)[0]
+        # Cut `implements` off the comment-free text: a comment naming the word
+        # (`/* not implements X */`) must not end the base list (L-261).
+        extends = re.split(r"\simplements\s", _strip_comments(sym.get("signature") or "", sym.get("language")), maxsplit=1)[0]
         for base in _parse_bases(extends, sym.get("language")):
             children.setdefault((base, sym.get("file") or ""), []).append(sym)
     if not classes_by_id:
