@@ -80,6 +80,44 @@ def _decode_escapes(text: str) -> str:
     return out.encode("utf-16-le", "surrogatepass").decode("utf-16-le", "replace")
 
 
+def _name_through(lines: list[str], lo: int, hi: int, ident_lower: str) -> tuple[int, int]:
+    """A sibling definition's declaration: its first line through the first line
+    that names the identifier, so an annotation above the name does not leave
+    the name line counting. Only the first line when no line in the span names
+    it (LEDGER L-91)."""
+    for line_no in range(lo, min(max(lo, hi), len(lines)) + 1):
+        if ident_lower in _fold(lines[line_no - 1]):
+            return (lo, line_no)
+    return (lo, lo)
+
+
+def first_match_line(ref: dict) -> int:
+    """The first matching line of one `content_references` entry.
+
+    The entry is `{file, matches: [{line, text}]}` and has no `line` of its
+    own; the preflights read one anyway, so every blocker said line 0.
+    """
+    matches = ref.get("matches") or []
+    return int(matches[0].get("line", 0) or 0) if matches else 0
+
+
+def target_span_of(sym: dict) -> Optional[tuple[str, int, int]]:
+    """``(file, first_line, last_line)`` of one symbol, or None when it has none.
+
+    None sends ``_check_single`` back to excluding every same-named definition,
+    the honest answer when the target's own lines are unknown.
+    """
+    file_path = sym.get("file") or ""
+    try:
+        lo = int(sym.get("line") or 0)
+        hi = int(sym.get("end_line") or lo)
+    except (TypeError, ValueError):
+        return None
+    if not file_path or lo <= 0:
+        return None
+    return (file_path, lo, max(lo, hi))
+
+
 def _check_single(
     identifier: str,
     index,
@@ -89,8 +127,15 @@ def _check_single(
     name: str,
     store: "IndexStore",
     start: float,
+    target_span: Optional[tuple[str, int, int]] = None,
 ) -> dict:
-    """Core logic for checking a single identifier against import + content data."""
+    """Core logic for checking a single identifier against import + content data.
+
+    ``target_span`` is ``(file, first_line, last_line)`` of the ONE symbol a
+    caller is asking about. Given it, only that span is excluded from the
+    content search; without it, every definition spelled like the identifier
+    is (LEDGER L-91).
+    """
     ident_lower = _fold(identifier)
     # The exclusion's key: the EXACT declared spelling, case included. An
     # exclusion REMOVES matches, so it must never widen (see `_fold`'s ⚠⚠):
@@ -176,6 +221,33 @@ def _check_single(
         # reference to itself.
         defining_spans.setdefault(file_path, []).append((lo, max(lo, hi)))
 
+    # ⚠⚠ (LEDGER L-91) A caller that knows WHICH symbol it asks about excludes
+    # that symbol's whole span, and of every other same-named definition only
+    # its DECLARATION: from its first line through the first line that names
+    # the identifier (`_name_through`), so an `@Override` or `[Attr]` line
+    # above it does not leave the name line counting. Hiding each sibling's
+    # whole body hid real callers: Java `B.file()` calling `new A().file()`
+    # was skipped as "a definition of `file`", and `check_delete_safe` graded
+    # the used `A.file` `safe_to_delete` with zero blockers. Hiding nothing of
+    # the siblings counted their declarations as uses instead (a partial
+    # class, an overload's signature, `def show` in another controller) and
+    # moved pinned verdicts. The narrower rule only ADDS matches, so it can
+    # hold a delete back and never licenses one. A sibling with no line no
+    # longer hides its whole file: a call there counts, at the cost of its
+    # declaration. ⚠ A call on a sibling's NAME line (a one-line method) is
+    # still hidden, as it was before this rule (LEDGER L-329).
+    sibling_spans: dict[str, list[tuple[int, int]]] = {}
+    if target_span is not None:
+        t_file, t_lo, t_hi = target_span
+        t_hi = max(t_lo, t_hi)
+        for file_path, spans in defining_spans.items():
+            for lo, hi in spans:
+                if file_path == t_file and lo == t_lo:
+                    continue
+                sibling_spans.setdefault(file_path, []).append((lo, hi))
+        defining_spans = {t_file: [(t_lo, t_hi)]}
+        unspanned_files = set()
+
     content_references = []
     # True once a matching file beyond the cap is seen: the scan reads one
     # matching file past `max_content_results` to know the page was cut.
@@ -198,8 +270,15 @@ def _check_single(
             except OSError:
                 continue
 
+            file_lines = content.split("\n")
+            siblings = sibling_spans.get(file_path)
+            if siblings:
+                spans = list(spans) + [
+                    _name_through(file_lines, lo, hi, ident_lower) for lo, hi in siblings
+                ]
+
             file_matches = []
-            for line_index, line in enumerate(content.split("\n")):
+            for line_index, line in enumerate(file_lines):
                 if ident_lower not in _fold(line):
                     continue
                 line_no = line_index + 1
