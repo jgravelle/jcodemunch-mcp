@@ -256,24 +256,24 @@ details.
 ## Common Misreadings
 
 **"The claim is up to 99%."**
-The primary claim is **96.2% fewer tokens per lookup on average** across all 15
+The primary claim is **96.3% fewer tokens per lookup on average** across all 15
 task-runs, measured against Baseline B: an agent that greps and opens the top 3
 files. It is the mean of the 15 per-lookup reductions in `results.md`. Pooled,
-the totals are 670,032 → 17,581 tokens (pooled total tokens: 97.4%, 38.1x); the pooled figure is
+the totals are 670,032 → 16,955 tokens (pooled total tokens: 97.5%, 39.5x); the pooled figure is
 higher because the lookups with the largest grep baselines weigh the most. Against Baseline A, the read-everything ceiling, the same run
-gives 99.7% / 321.9x (5,658,685 → 17,581). Both are published; B is the one to
+gives 99.7% / 333.7x (5,658,685 → 16,955). Both are published; B is the one to
 quote.
 
-⚠ **Per-query results span 10.4x to 132.5x** (median 29.4x). No single multiple
+⚠ **Per-query results span 11.3x to 132.5x** (median 29.4x). No single multiple
 describes every query, and the floor — `middleware` on gin — is a number a real
 user can hit.
 
 ⚠ The read-all aggregate is dominated by one repo: fastapi contributes 72.9% of
-its baseline tokens, so 321.9x is largely a statement about fastapi (aggregate
-321.9x vs median 232.9x). **That objection is weaker for Baseline B**, whose
-aggregate and median sit closer together (38.1x pooled total tokens vs 29.4x median, fastapi share 64.7%), because
+its baseline tokens, so 333.7x is largely a statement about fastapi (aggregate
+333.7x vs median 239.6x). **That objection is weaker for Baseline B**, whose
+aggregate and median sit closer together (39.5x pooled total tokens vs 29.4x median, fastapi share 64.7%), because
 grep cost tracks matches rather than repository size. It does not go away: the
-aggregate is 1.30 times the median, so the typical query saves less than the
+aggregate is 1.34 times the median, so the typical query saves less than the
 headline says. Quote the per-query spread beside it.
 
 Every number above is re-measured by the same run, and the machine-readable copy lives in
@@ -301,31 +301,31 @@ measures that agent**, on the same corpus in the same run:
 
 | Against | Baseline tokens | Ratio | Reduction |
 |---|--:|--:|--:|
-| Read-all (Baseline A) | 5,658,685 | 321.9x | 99.7% |
-| **Grep-top-3 (Baseline B)** | **670,032** | 38.1x | 97.4% (pooled total tokens) |
+| Read-all (Baseline A) | 5,658,685 | 333.7x | 99.7% |
+| **Grep-top-3 (Baseline B)** | **670,032** | 39.5x | 97.5% (pooled total tokens) |
 
 **Baseline B is 11.8% of Baseline A, so measuring against read-all overstates the
-advantage by roughly 8.4x.** Quote Baseline B's per-lookup mean, 96.2%; this
+advantage by roughly 8.4x.** Quote Baseline B's per-lookup mean, 96.3%; this
 table pools the totals.
 
-⚠ **The per-query spread on B is 10.4x to 132.5x** (median 29.4x), so no single
-multiple describes every query. The floor, `middleware` on gin at **10.4x**, is
+⚠ **The per-query spread on B is 11.3x to 132.5x** (median 29.4x), so no single
+multiple describes every query. The floor, `middleware` on gin at **11.3x**, is
 the honest worst case and is published here rather than left in the JSON.
 
 ⚠ One thing that improved under the realistic baseline, and it is worth saying
 because it cuts our way: the read-all aggregate is badly distorted by the largest
-repo (aggregate 321.9x vs median 232.9x, with fastapi contributing 72.9% of
-baseline tokens). Baseline B's aggregate and median sit closer together (**38.1x pooled total tokens
+repo (aggregate 333.7x vs median 239.6x, with fastapi contributing 72.9% of
+baseline tokens). Baseline B's aggregate and median sit closer together (**39.5x pooled total tokens
 vs 29.4x median**, fastapi share 64.7%), because grep cost tracks *matches* rather than
-repository size. The gap that remains (aggregate 1.30 times the median, against
-1.38 for read-all) comes from the fastapi queries with the largest grep
+repository size. The gap that remains (aggregate 1.34 times the median, against
+1.39 for read-all) comes from the fastapi queries with the largest grep
 baselines, `request response` and `error exception`: without those two the
-aggregate is 35.3x. The median is the better guide to a typical query.
+aggregate is 37.0x. The median is the better guide to a typical query.
 
 So 99.7% measures **what symbol-level retrieval avoids relative to loading the
 corpus** — a ceiling on removable waste, and the right answer to "how much of a
 repository does an agent actually need in context." It is not a prediction of
-anyone's bill. The 96.2% per-lookup mean against Baseline B is the closer thing
+anyone's bill. The 96.3% per-lookup mean against Baseline B is the closer thing
 to that, and it still does not
 model an agent that was already retrieving selectively.
 
