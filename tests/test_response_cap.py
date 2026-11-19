@@ -68,7 +68,7 @@ class TestCapBehaviour:
         from jcodemunch_mcp import config as c
         monkeypatch.setitem(c._GLOBAL_CONFIG, "response_max_bytes", 500)
         out = S._enforce_response_cap("get_file_content", _result("x" * 5000))
-        assert isinstance(out, CallToolResult) and out.isError
+        assert isinstance(out, CallToolResult) and out.is_error
         b = _body(out)
         assert b["response_bytes"] == 5000
         assert b["response_max_bytes"] == 500

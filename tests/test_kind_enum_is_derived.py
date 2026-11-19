@@ -124,7 +124,7 @@ async def test_the_wire_schema_serves_every_valid_kind():
     by_name = {t.name: t for t in tools}
     if "search_symbols" not in by_name:
         pytest.skip("search_symbols not on this surface")
-    schema = by_name["search_symbols"].inputSchema
+    schema = by_name["search_symbols"].input_schema
     kind = schema.get("properties", {}).get("kind", {})
     if "enum" not in kind:
         pytest.skip("kind enum demoted on this surface (compact schemas)")

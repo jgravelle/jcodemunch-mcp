@@ -321,7 +321,7 @@ def test_scan_limit_is_not_an_mcp_argument():
     tool = next(
         t for t in _build_tools_list(surface_override="full") if t.name == "search_text"
     )
-    assert "scan_limit" not in tool.inputSchema.get("properties", {})
+    assert "scan_limit" not in tool.input_schema.get("properties", {})
 
 
 @pytest.mark.parametrize("raw", ["", " ", "0", "-3", "abc", "2.5", "1e3", "²", "٣"])

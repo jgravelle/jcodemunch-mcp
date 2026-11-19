@@ -280,7 +280,7 @@ async def test_set_tool_tier_rejects_invalid_tier():
         result = await call_tool("set_tool_tier", {"tier": "enormous"})
         from mcp.types import CallToolResult
         assert isinstance(result, CallToolResult)  # errors now carry isError (F-P01)
-        assert result.isError is True
+        assert result.is_error is True
         import json
         data = json.loads(result.content[0].text)
         assert "error" in data

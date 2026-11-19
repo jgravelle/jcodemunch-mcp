@@ -165,6 +165,6 @@ def test_the_policy_and_the_tool_surface_never_carry_it():
     texts = [policy.active_policy(), server._mcp_instructions()]
     for tool in server._build_tools_list():
         texts.append(tool.description or "")
-        texts.append(str(tool.inputSchema))
+        texts.append(str(tool.input_schema))
     for text in texts:
         assert not any(m in text for m in _MARKERS)

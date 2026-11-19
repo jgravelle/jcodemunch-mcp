@@ -41,7 +41,7 @@ from jcodemunch_mcp.server import _build_tools_list, _raw_catalog_tools, call_to
 async def test_retired_name_error_names_the_replacement(old, new, arg):
     res = await call_tool(old, {"repo": "owner/repo", arg: "x"})
     assert isinstance(res, CallToolResult)
-    assert res.isError is True
+    assert res.is_error is True
     body = json.loads(res.content[0].text)
     assert body["error"].startswith(f"Unknown tool: {old}")
     assert new in body["error"]
@@ -75,7 +75,7 @@ def test_every_replacement_is_a_published_tool_and_no_retired_name_is():
 async def test_order_names_the_replacement_too(old, new, arg):
     res = await call_tool("order", {"action": old, "args": {"repo": "owner/repo"}})
     assert isinstance(res, CallToolResult)
-    assert res.isError is True
+    assert res.is_error is True
     err = json.loads(res.content[0].text)["error"]
     assert err.startswith(f"Unknown action '{old}'")
     assert new in err and arg in err

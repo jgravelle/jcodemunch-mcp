@@ -33,6 +33,8 @@ import threading
 import time
 from typing import Callable, Optional
 
+from . import request_context
+
 logger = logging.getLogger(__name__)
 
 # Type alias: (progress, total, message) → future-or-None
@@ -371,16 +373,25 @@ def make_progress_notify(server_obj) -> Optional[ProgressNotify]:
     so ProgressReporter can track in-flight sends for drain_reporter().
     """
     try:
-        ctx = server_obj.request_context
-    except LookupError:
+        ctx = request_context.resolve(server_obj)
+    except (LookupError, AttributeError):
         return None
 
-    if ctx.meta is None or ctx.meta.progressToken is None:
+    if ctx is None:
+        return None
+
+    meta = getattr(ctx, "meta", None)
+    if meta is None:
+        return None
+
+    # 2.x spells it `progress_token`; 1.x spelled it `progressToken`.
+    token = meta.progress_token if hasattr(meta, "progress_token") else getattr(meta, "progressToken", None)
+    if token is None:
         return None
 
     loop = asyncio.get_running_loop()
     session = ctx.session
-    progress_token = ctx.meta.progressToken
+    progress_token = token
 
     def _notify(progress: float, total: float | None, message: str | None):
         async def _send() -> None:

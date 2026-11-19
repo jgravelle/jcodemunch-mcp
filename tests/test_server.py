@@ -68,9 +68,9 @@ async def test_index_repo_tool_schema():
 
     index_repo = next(t for t in tools if t.name == "index_repo")
 
-    assert "url" in index_repo.inputSchema["properties"]
-    assert "use_ai_summaries" in index_repo.inputSchema["properties"]
-    assert "url" in index_repo.inputSchema["required"]
+    assert "url" in index_repo.input_schema["properties"]
+    assert "use_ai_summaries" in index_repo.input_schema["properties"]
+    assert "url" in index_repo.input_schema["required"]
 
 
 @pytest.mark.asyncio
@@ -80,7 +80,7 @@ async def test_search_symbols_tool_schema():
 
     search = next(t for t in tools if t.name == "search_symbols")
 
-    props = search.inputSchema["properties"]
+    props = search.input_schema["properties"]
     assert "repo" in props
     assert "query" in props
     assert "kind" in props
@@ -110,7 +110,7 @@ async def test_search_text_tool_schema():
     tools = await list_tools()
 
     search_text = next(t for t in tools if t.name == "search_text")
-    props = search_text.inputSchema["properties"]
+    props = search_text.input_schema["properties"]
 
     assert "repo" in props
     assert "query" in props
@@ -126,7 +126,7 @@ async def test_get_file_content_tool_schema():
     tools = await list_tools()
 
     get_file_content = next(t for t in tools if t.name == "get_file_content")
-    props = get_file_content.inputSchema["properties"]
+    props = get_file_content.input_schema["properties"]
 
     assert "repo" in props
     assert "file_path" in props
@@ -440,7 +440,7 @@ async def test_call_tool_validation_error_returns_json_error():
 
     from mcp.types import CallToolResult
     assert isinstance(result, CallToolResult)  # errors now carry isError (F-P01)
-    assert result.isError is True
+    assert result.is_error is True
     payload = json.loads(result.content[0].text)
     assert "error" in payload
     assert "Input validation error" in payload["error"]
@@ -454,7 +454,7 @@ async def test_call_tool_unexpected_coerce_error_returns_json():
 
     from mcp.types import CallToolResult
     assert isinstance(result, CallToolResult)
-    assert result.isError is True
+    assert result.is_error is True
     payload = json.loads(result.content[0].text)
     assert "error" in payload
     assert payload["summary"] == "RuntimeError: boom"
@@ -496,7 +496,7 @@ async def test_descriptions_shared_applied_to_all_tools(monkeypatch):
         for tool_name in ["search_symbols", "get_file_tree", "get_symbol_source"]:
             tool = next((t for t in tools if t.name == tool_name), None)
             if tool:
-                repo_param = tool.inputSchema.get("properties", {}).get("repo", {})
+                repo_param = tool.input_schema.get("properties", {}).get("repo", {})
                 if repo_param:
                     assert "Custom shared repo description" in repo_param.get("description", "")
     finally:
@@ -523,12 +523,12 @@ async def test_descriptions_tool_specific_overrides_shared(monkeypatch):
 
         search_tool = next((t for t in tools if t.name == "search_symbols"), None)
         assert search_tool is not None
-        repo_param = search_tool.inputSchema.get("properties", {}).get("repo", {})
+        repo_param = search_tool.input_schema.get("properties", {}).get("repo", {})
         assert "search_symbols specific desc" in repo_param.get("description", "")
 
         tree_tool = next((t for t in tools if t.name == "get_file_tree"), None)
         assert tree_tool is not None
-        repo_param = tree_tool.inputSchema.get("properties", {}).get("repo", {})
+        repo_param = tree_tool.input_schema.get("properties", {}).get("repo", {})
         assert "Shared description" in repo_param.get("description", "")
         assert "search_symbols specific" not in repo_param.get("description", "")
     finally:
@@ -562,7 +562,7 @@ async def test_descriptions_config_overrides_tool_descriptions(monkeypatch):
         assert search_symbols.description == "Custom search_symbols description"
 
         # Param description should also be overridden
-        repo_param = search_symbols.inputSchema.get("properties", {}).get("repo", {})
+        repo_param = search_symbols.input_schema.get("properties", {}).get("repo", {})
         assert repo_param.get("description") == "Custom repo description"
     finally:
         config_module._GLOBAL_CONFIG.clear()
@@ -719,7 +719,7 @@ async def test_language_enum_reflects_config_limited(monkeypatch):
         search_symbols_tool = next((t for t in tools if t.name == "search_symbols"), None)
         assert search_symbols_tool is not None
 
-        lang_param = search_symbols_tool.inputSchema.get("properties", {}).get("language", {})
+        lang_param = search_symbols_tool.input_schema.get("properties", {}).get("language", {})
         enum_values = lang_param.get("enum", [])
 
         assert "python" in enum_values
@@ -748,7 +748,7 @@ async def test_language_enum_all_languages_when_config_none(monkeypatch):
 
         tools = await list_tools()
         search_symbols_tool = next((t for t in tools if t.name == "search_symbols"), None)
-        lang_param = search_symbols_tool.inputSchema.get("properties", {}).get("language", {})
+        lang_param = search_symbols_tool.input_schema.get("properties", {}).get("language", {})
         enum_values = lang_param.get("enum", [])
 
         for lang in LANGUAGE_REGISTRY.keys():
@@ -864,7 +864,7 @@ async def test_tier_controls_call_time_rejection_with_escape_hatch():
 
         result = await call_tool("set_tool_tier", {"tier": "core"})
         from mcp.types import CallToolResult
-        assert isinstance(result, CallToolResult) and result.isError is True
+        assert isinstance(result, CallToolResult) and result.is_error is True
         payload = json.loads(result.content[0].text)
         assert "error" in payload
         assert "disabled" in payload["error"].lower()
@@ -944,7 +944,7 @@ async def test_list_tools_no_suppress_meta_param():
     """No tool schema exposes suppress_meta (replaced by meta_fields config)."""
     tools = await list_tools()
     for tool in tools:
-        props = (tool.inputSchema or {}).get("properties", {})
+        props = (tool.input_schema or {}).get("properties", {})
         assert "suppress_meta" not in props, f"{tool.name} should not have suppress_meta"
 
 
@@ -1044,7 +1044,7 @@ async def test_descriptions_empty_string_param_clears_description():
         assert search_symbols is not None
 
         # repo param description should be cleared to empty string
-        repo_param = search_symbols.inputSchema.get("properties", {}).get("repo", {})
+        repo_param = search_symbols.input_schema.get("properties", {}).get("repo", {})
         assert repo_param.get("description") == ""
     finally:
         config_module._GLOBAL_CONFIG.clear()
@@ -1070,7 +1070,7 @@ async def test_descriptions_flat_string_overrides_tool_description():
         assert search_symbols.description == "Find symbols in this Python project"
 
         # Param descriptions should be unchanged (flat format doesn't touch params)
-        repo_param = search_symbols.inputSchema.get("properties", {}).get("repo", {})
+        repo_param = search_symbols.input_schema.get("properties", {}).get("repo", {})
         assert repo_param.get("description")  # should still have original description
     finally:
         config_module._GLOBAL_CONFIG.clear()
@@ -1156,7 +1156,7 @@ async def test_project_tool_disabled_rejected_in_call_tool():
 
         from mcp.types import CallToolResult
         assert isinstance(result, CallToolResult)
-        assert result.isError is True
+        assert result.is_error is True
         payload = json.loads(result.content[0].text)
         assert "error" in payload
         assert "index_folder" in payload["error"]
@@ -1298,7 +1298,7 @@ async def test_compact_schemas_strips_advanced_params():
     try:
         tools = await list_tools()
         search = next(t for t in tools if t.name == "search_symbols")
-        props = search.inputSchema["properties"]
+        props = search.input_schema["properties"]
         # Core params still present
         assert "repo" in props
         assert "query" in props
@@ -1330,7 +1330,7 @@ async def test_compact_schemas_off_preserves_all_params():
     try:
         tools = await list_tools()
         search = next(t for t in tools if t.name == "search_symbols")
-        props = search.inputSchema["properties"]
+        props = search.input_schema["properties"]
         assert "debug" in props
         assert "fusion" in props
         assert "semantic" in props

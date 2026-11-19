@@ -117,7 +117,7 @@ def _full_schema_props() -> dict[str, set[str]]:
         cfg["render_diagram_viewer_enabled"] = True
         tools = _build_tools_list()
         return {
-            t.name: set((t.inputSchema or {}).get("properties", {}).keys())
+            t.name: set((t.input_schema or {}).get("properties", {}).keys())
             for t in tools
         }
     finally:

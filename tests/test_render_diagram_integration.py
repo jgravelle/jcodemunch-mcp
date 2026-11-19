@@ -67,7 +67,7 @@ async def test_render_diagram_opens_real_viewer(tmp_path):
 
         tools = await server_mod.list_tools()
         render_tool = next(t for t in tools if t.name == "render_diagram")
-        assert "open_in_viewer" in render_tool.inputSchema["properties"]
+        assert "open_in_viewer" in render_tool.input_schema["properties"]
 
         source = _call_hierarchy_source()
         result = await server_mod.call_tool("render_diagram", {

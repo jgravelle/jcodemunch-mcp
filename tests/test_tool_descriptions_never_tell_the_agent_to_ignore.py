@@ -51,7 +51,7 @@ def _offenders(tools):
     found = []
     for tool in tools:
         texts = [("(tool)", tool.description or "")]
-        texts += list(_descriptions(tool.inputSchema or {}))
+        texts += list(_descriptions(tool.input_schema or {}))
         for where, text in texts:
             if _offends(text):
                 found.append(f"{tool.name} {where}: {text.strip()[:120]}")
@@ -77,7 +77,7 @@ def test_the_rule_tells_an_imperative_from_a_passive():
         def __init__(self, description, schema=None):
             self.name = "t"
             self.description = description
-            self.inputSchema = schema or {}
+            self.input_schema = schema or {}
 
     assert _offenders([_T("Ignore the window and analyze the full ledger.")])
     assert _offenders([_T("Counts rows. Disregard the cache.")])

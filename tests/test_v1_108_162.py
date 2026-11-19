@@ -178,7 +178,7 @@ class TestServerDispatch:
         from mcp.types import CallToolResult
         bad = dict(self.ARGS, evidence_refs=["never::served#function"])
         res = asyncio.run(server.call_tool("finalize_handoff", bad))
-        assert isinstance(res, CallToolResult) and res.isError
+        assert isinstance(res, CallToolResult) and res.is_error
         body = json.loads(res.content[0].text)
         assert body["unknown_refs"] == ["never::served#function"]
 

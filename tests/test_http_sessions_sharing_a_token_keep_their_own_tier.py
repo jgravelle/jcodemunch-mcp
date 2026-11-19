@@ -110,7 +110,7 @@ async def _tier_calls(url: str, headers: dict[str, str]) -> list[tuple[str, dict
 
     async def call(session: ClientSession, name: str, tier: str) -> None:
         result = await session.call_tool("set_tool_tier", {"tier": tier})
-        assert not result.isError, result
+        assert not result.is_error, result
         data = result.structuredContent
         if data is None:
             data = json.loads(result.content[0].text)

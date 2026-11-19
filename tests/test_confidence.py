@@ -144,5 +144,5 @@ class TestServerSchemaHasCompareRelease:
         tools = await list_tools()
         target = next((t for t in tools if t.name == "analyze_perf"), None)
         assert target is not None
-        props = target.inputSchema["properties"]
+        props = target.input_schema["properties"]
         assert "compare_release" in props

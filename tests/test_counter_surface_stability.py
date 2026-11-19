@@ -75,7 +75,7 @@ def _canonical(tool) -> bytes:
         {
             "name": tool.name,
             "description": tool.description or "",
-            "inputSchema": tool.inputSchema or {},
+            "inputSchema": tool.input_schema or {},
         },
         sort_keys=True,
         separators=(",", ":"),

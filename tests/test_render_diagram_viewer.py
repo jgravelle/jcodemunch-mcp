@@ -354,7 +354,7 @@ class TestSchemaGate:
             importlib.reload(server_module)
             tools = server_module._build_tools_list()
             render_tool = next(t for t in tools if t.name == "render_diagram")
-            assert "open_in_viewer" not in render_tool.inputSchema["properties"]
+            assert "open_in_viewer" not in render_tool.input_schema["properties"]
         finally:
             config_module.get = original_get
 
@@ -369,8 +369,8 @@ class TestSchemaGate:
             importlib.reload(server_module)
             tools = server_module._build_tools_list()
             render_tool = next(t for t in tools if t.name == "render_diagram")
-            assert "open_in_viewer" in render_tool.inputSchema["properties"]
-            prop = render_tool.inputSchema["properties"]["open_in_viewer"]
+            assert "open_in_viewer" in render_tool.input_schema["properties"]
+            prop = render_tool.input_schema["properties"]["open_in_viewer"]
             assert prop["type"] == "boolean"
             assert prop["default"] is False
         finally:

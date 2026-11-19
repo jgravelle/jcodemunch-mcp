@@ -642,7 +642,7 @@ class TestProducerRegistration:
         try:
             cfg["tool_profile"] = "core"
             cfg["compact_schemas"] = True
-            published = {t.name: t.inputSchema for t in _build_tools_list()}
+            published = {t.name: t.input_schema for t in _build_tools_list()}
             for tool in _r183_producers.PRODUCERS:
                 if tool in published:
                     assert "receipt" not in (published[tool].get("properties") or {}), tool

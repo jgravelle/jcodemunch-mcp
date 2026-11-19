@@ -3,6 +3,7 @@
 import argparse
 import asyncio
 import atexit
+import contextlib
 import errno
 import functools
 import hmac
@@ -22,11 +23,26 @@ from . import parent_watch as _parent_watch_origin  # noqa: F401,E402
 
 from mcp.server import Server
 from mcp.server.lowlevel.helper_types import ReadResourceContents
-from mcp.types import Tool, ToolAnnotations, TextContent, Resource, Prompt, PromptMessage, GetPromptResult, CallToolResult
+from mcp.types import (
+    Tool,
+    ToolAnnotations,
+    TextContent,
+    Resource,
+    Prompt,
+    PromptMessage,
+    GetPromptResult,
+    CallToolResult,
+    ListToolsResult,
+    ListResourcesResult,
+    ListPromptsResult,
+    ReadResourceResult,
+    TextResourceContents,
+)
 
 from .cli._stdio import _force_utf8_stdio
 from . import __version__
 from . import config as config_module
+from . import request_context
 from .embeddings.advice import PROVIDER_HINT as _PROVIDER_HINT
 from . import runtime_identity
 from .tools import _arg_contract
@@ -649,7 +665,7 @@ def _catalog_rows() -> "list[dict]":
     for t in _raw_catalog_tools():
         if t.name in _COUNTER_FRONT_DOOR:
             continue
-        row = _counter.catalog_entry(t.name, t.description or "", t.inputSchema or {})
+        row = _counter.catalog_entry(t.name, t.description or "", t.input_schema or {})
         row["_description"] = t.description or ""
         rows.append(row)
     return rows
@@ -673,7 +689,7 @@ def _schema_weight(tool) -> int:
         {
             "name": tool.name,
             "description": tool.description or "",
-            "inputSchema": tool.inputSchema or {},
+            "inputSchema": tool.input_schema or {},
         },
         separators=(",", ":"),
         default=str,
@@ -1193,12 +1209,12 @@ def _get_mcp_session(mcp_server: Server | None = None) -> Any | None:
     if srv is None:
         return None
     try:
-        request_context = srv.request_context
+        ctx = request_context.resolve(srv)
     except (LookupError, AttributeError):
         return None
-    if request_context is None:
+    if ctx is None:
         return None
-    return getattr(request_context, "session", None)
+    return getattr(ctx, "session", None)
 
 
 def _note_adaptive_tiering_transport(transport: str) -> None:
@@ -1762,7 +1778,7 @@ async def _ensure_tool_schemas() -> dict[str, dict]:
     global _TOOL_SCHEMAS
     if _TOOL_SCHEMAS is None:
         tools = await list_tools()
-        _TOOL_SCHEMAS = {t.name: t.inputSchema for t in tools if t.inputSchema}
+        _TOOL_SCHEMAS = {t.name: t.input_schema for t in tools if t.input_schema}
     return _TOOL_SCHEMAS
 
 
@@ -1772,7 +1788,77 @@ async def _ensure_tool_schemas() -> dict[str, dict]:
 # mcp package number (1.26.0) while we shipped 1.108.x. Nothing errors, nothing
 # logs, and the field is wrong on every handshake. Pinned by
 # tests/test_mcp_instructions.py.
-server = Server("jcodemunch-mcp", version=__version__)
+# mcp 2.x registers handlers as constructor kwargs. The functions below keep
+# their bodies and signatures (internal callers such as the `order`/`route`
+# front door re-enter `call_tool` directly); each adapter only reshapes the
+# request into the handler's arguments and the result into the 2.x model.
+#
+# `_in_request` publishes the request's context for helpers that are not handed
+# it (progress notifications, session lookups); 1.x did that for us through
+# `Server.request_context`, which 2.x removed.
+@contextlib.contextmanager
+def _in_request(ctx):
+    token = request_context.REQUEST_CTX.set(ctx)
+    try:
+        yield ctx
+    finally:
+        request_context.REQUEST_CTX.reset(token)
+
+
+async def _mcp_list_tools(ctx, params):
+    with _in_request(ctx):
+        return ListToolsResult(tools=await list_tools())
+
+
+async def _mcp_list_resources(ctx, params):
+    with _in_request(ctx):
+        return ListResourcesResult(resources=await list_resources())
+
+
+async def _mcp_read_resource(ctx, params):
+    with _in_request(ctx):
+        uri = str(params.uri)
+        contents = await read_resource(uri)
+        return ReadResourceResult(
+            contents=[
+                TextResourceContents(
+                    uri=uri,
+                    text=item.content
+                    if isinstance(item.content, str)
+                    else item.content.decode("utf-8", "replace"),
+                    mimeType=item.mime_type,
+                )
+                for item in contents
+            ]
+        )
+
+
+async def _mcp_list_prompts(ctx, params):
+    with _in_request(ctx):
+        return ListPromptsResult(prompts=await list_prompts())
+
+
+async def _mcp_get_prompt(ctx, params):
+    with _in_request(ctx):
+        return await get_prompt(params.name, params.arguments)
+
+
+async def _mcp_call_tool(ctx, params):
+    with _in_request(ctx):
+        result = await call_tool(params.name, params.arguments or {})
+        return result if isinstance(result, CallToolResult) else CallToolResult(content=result)
+
+
+server = Server(
+    "jcodemunch-mcp",
+    version=__version__,
+    on_list_tools=_mcp_list_tools,
+    on_call_tool=_mcp_call_tool,
+    on_list_resources=_mcp_list_resources,
+    on_read_resource=_mcp_read_resource,
+    on_list_prompts=_mcp_list_prompts,
+    on_get_prompt=_mcp_get_prompt,
+)
 
 
 # Handshake watchdog: a stderr diagnostic that fires when the client never
@@ -1793,7 +1879,6 @@ def _signal_handshake() -> None:
         ev.set()
 
 
-@server.list_tools()
 async def list_tools() -> list[Tool]:
     """List all available tools."""
     _signal_handshake()
@@ -5154,7 +5239,7 @@ def _build_tools_list(
     _DECLARED_ARG_KEYS = {
         t.name: frozenset(props)
         for t in all_tools
-        if isinstance((props := (t.inputSchema or {}).get("properties")), dict) and props
+        if isinstance((props := (t.input_schema or {}).get("properties")), dict) and props
     }
     surface = surface_override or _effective_surface()
     if surface == "counter":
@@ -5205,9 +5290,9 @@ def _build_tools_list(
     # --- Compact schemas: strip rarely-used params ---------------------------
     if config_module.get("compact_schemas", False):
         for tool in tools:
-            if not isinstance(tool.inputSchema, dict):
+            if not isinstance(tool.input_schema, dict):
                 continue
-            props = tool.inputSchema.get("properties")
+            props = tool.input_schema.get("properties")
             if not props:
                 continue
             strip_set = _COMPACT_STRIP_PARAMS.get(tool.name)
@@ -5252,8 +5337,8 @@ def _apply_description_overrides(tools: list) -> None:
             tool.description = tool_desc["_tool"]
 
         # Override parameter descriptions (applies even if only _shared is set)
-        if isinstance(tool.inputSchema, dict):
-            props = tool.inputSchema.get("properties", {})
+        if isinstance(tool.input_schema, dict):
+            props = tool.input_schema.get("properties", {})
             for param_name, param_schema in props.items():
                 if not isinstance(param_schema, dict):
                     continue
@@ -5266,7 +5351,6 @@ def _apply_description_overrides(tools: list) -> None:
                     props[param_name] = {**param_schema, "description": desc_override}
 
 
-@server.list_resources()
 async def list_resources() -> list[Resource]:
     """Advertise the runtime identity resource (munch.runtime.identity/v1, #371)
     plus any session-finalized canonical handoffs (jcodemunch.handoff/v1, #374)."""
@@ -5312,7 +5396,6 @@ async def list_resources() -> list[Resource]:
     return resources
 
 
-@server.read_resource()
 async def read_resource(uri) -> "list[ReadResourceContents]":
     _signal_handshake()
     if str(uri) == runtime_identity.IDENTITY_URI:
@@ -5444,7 +5527,6 @@ Goal: Follow a suspected bug from symptom to root cause.
 """
 
 
-@server.list_prompts()
 async def list_prompts() -> list[Prompt]:
     """Return available workflow guidance prompts."""
     _signal_handshake()
@@ -5481,7 +5563,6 @@ _PROMPT_MAP: dict[str, tuple[str, str]] = {
 }
 
 
-@server.get_prompt()
 async def get_prompt(name: str, arguments: dict | None = None) -> GetPromptResult:
     """Return the requested prompt content."""
     _signal_handshake()
@@ -5813,7 +5894,7 @@ def _order_action_properties(action: str) -> dict:
     (under tool_surface=counter, list_tools only carries the front door)."""
     for t in _raw_catalog_tools():
         if t.name == action:
-            schema = t.inputSchema or {}
+            schema = t.input_schema or {}
             props = schema.get("properties")
             return props if isinstance(props, dict) else {}
     return {}
@@ -5986,7 +6067,7 @@ async def _handle_route(arguments: dict) -> list[TextContent] | CallToolResult:
             # The routed action failed (isError); surface its content under the
             # route envelope and propagate the error signal rather than list()-ing
             # a non-iterable CallToolResult.
-            return CallToolResult(content=[head, *result.content], isError=result.isError)
+            return CallToolResult(content=[head, *result.content], isError=getattr(result, "is_error", getattr(result, "is_error", getattr(result, "isError", False))))
         return [head] + list(result)
     return [TextContent(type="text", text=json.dumps(payload, separators=(",", ":")))]
 
@@ -6189,7 +6270,7 @@ def _enforce_response_cap(
         size = _response_text_bytes(result)
         if size <= limit:
             return result
-        if getattr(result, "isError", False):
+        if getattr(result, "is_error", getattr(result, "isError", False)):
             return result
         logger.warning(
             "response_cap: %s produced %d bytes, over the %d-byte limit", name, size, limit
@@ -6225,7 +6306,6 @@ def _unknown_tool_error(name: str) -> dict:
     return {"error": f"Unknown tool: {name}. {hint}", "replaced_by": RETIRED_TOOL_NAMES[name][0]}
 
 
-@server.call_tool(validate_input=False)
 async def call_tool(name: str, arguments: dict) -> list[TextContent] | CallToolResult:
     """Dispatch a tool call, then bound the reply it produced.
 
@@ -6277,7 +6357,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent] | CallToolR
             _bm25_outer_calls[0] += 1
             _outer_counted = True
         result = _enforce_response_cap(name, await _call_tool_impl(name, arguments))
-        _dispatch_ok = not bool(getattr(result, "isError", False))
+        _dispatch_ok = not bool(getattr(result, "is_error", getattr(result, "isError", False)))
         _counted_result = result
         return result
     finally:
@@ -6428,7 +6508,7 @@ async def _call_tool_impl(name: str, arguments: dict) -> list[TextContent] | Cal
         # re-enters call_tool for the real action, which then runs those hooks).
         if name in _COUNTER_FRONT_DOOR:
             _front = await _handle_counter_tool(name, arguments)
-            if getattr(_front, "isError", False):
+            if getattr(_front, "is_error", getattr(_front, "isError", False)):
                 # A relayed child refusal IS this call's outcome. The relay
                 # itself succeeded, which is exactly why this was missed.
                 _call_ok = False

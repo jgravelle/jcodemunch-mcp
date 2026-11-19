@@ -58,7 +58,7 @@ def _with_config(global_disabled, project=None):
 
 
 def _error_of(result) -> str:
-    assert result.isError is True
+    assert result.is_error is True
     return json.loads(result.content[0].text)["error"]
 
 

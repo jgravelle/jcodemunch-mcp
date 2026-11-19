@@ -55,7 +55,7 @@ def test_schema_tokens_within_baseline_tolerance():
                 cfg["compact_schemas"] = compact
                 tools = _build_tools_list()
                 payload = [
-                    {"name": t.name, "description": t.description, "inputSchema": t.inputSchema}
+                    {"name": t.name, "description": t.description, "inputSchema": t.input_schema}
                     for t in tools
                 ]
                 text = json.dumps(payload, separators=(",", ":"))
@@ -115,7 +115,7 @@ def test_counter_surface_within_baseline_tolerance():
             cfg["compact_schemas"] = compact
             tools = _build_tools_list()
             payload = [
-                {"name": t.name, "description": t.description, "inputSchema": t.inputSchema}
+                {"name": t.name, "description": t.description, "inputSchema": t.input_schema}
                 for t in tools
             ]
             count = len(encoding.encode(json.dumps(payload, separators=(",", ":"))))
@@ -213,7 +213,7 @@ def test_live_core_compact_under_4000_hard_ceiling():
         cfg["compact_schemas"] = True
         tools = _build_tools_list()
         payload = [
-            {"name": t.name, "description": t.description, "inputSchema": t.inputSchema}
+            {"name": t.name, "description": t.description, "inputSchema": t.input_schema}
             for t in tools
         ]
         count = len(encoding.encode(json.dumps(payload, separators=(",", ":"))))
@@ -247,14 +247,14 @@ def test_compact_demotes_language_enum_keeps_capability():
 
         cfg["compact_schemas"] = True
         ss = next(t for t in _build_tools_list() if t.name == "search_symbols")
-        lang = ss.inputSchema["properties"]["language"]
+        lang = ss.input_schema["properties"]["language"]
         assert "enum" not in lang, "language enum must be demoted under compact"
         assert lang.get("type") == "string", "demoted language must remain a string filter"
         assert lang.get("description"), "demoted language must keep its description"
 
         cfg["compact_schemas"] = False
         ss_full = next(t for t in _build_tools_list() if t.name == "search_symbols")
-        assert len(ss_full.inputSchema["properties"]["language"].get("enum", [])) > 10, (
+        assert len(ss_full.input_schema["properties"]["language"].get("enum", [])) > 10, (
             "full surface must keep the language enum"
         )
     finally:
@@ -286,14 +286,14 @@ def test_compact_demotes_kind_enum_keeps_capability():
 
         cfg["compact_schemas"] = True
         ss = next(t for t in _build_tools_list() if t.name == "search_symbols")
-        kind = ss.inputSchema["properties"]["kind"]
+        kind = ss.input_schema["properties"]["kind"]
         assert "enum" not in kind, "kind enum must be demoted under compact"
         assert kind.get("type") == "string", "demoted kind must remain a string filter"
         assert kind.get("description"), "demoted kind must keep its description"
 
         cfg["compact_schemas"] = False
         ss_full = next(t for t in _build_tools_list() if t.name == "search_symbols")
-        full_enum = ss_full.inputSchema["properties"]["kind"].get("enum", [])
+        full_enum = ss_full.input_schema["properties"]["kind"].get("enum", [])
         assert set(full_enum) == set(VALID_KINDS), (
             "the full surface must keep the kind enum, derived from VALID_KINDS"
         )

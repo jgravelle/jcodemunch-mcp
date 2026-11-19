@@ -24,7 +24,7 @@ from jcodemunch_mcp.server import call_tool
 async def test_unknown_tool_sets_iserror_and_preserves_body():
     res = await call_tool("no_such_tool_xyz", {})
     assert isinstance(res, CallToolResult)
-    assert res.isError is True
+    assert res.is_error is True
     body = json.loads(res.content[0].text)  # body preserved (v1.108.30 in-band contract)
     assert "error" in body
     assert "Unknown tool" in body["error"]
@@ -36,7 +36,7 @@ async def test_input_validation_error_sets_iserror():
         "search_symbols", {"repo": "owner/repo", "query": "x", "max_results": "NaN"}
     )
     assert isinstance(res, CallToolResult)
-    assert res.isError is True
+    assert res.is_error is True
     assert "Input validation error" in json.loads(res.content[0].text)["error"]
 
 
@@ -47,7 +47,7 @@ async def test_disabled_tool_path_is_error(monkeypatch):
     monkeypatch.setitem(cfg._GLOBAL_CONFIG, "disabled_tools", ["get_repo_outline"])
     res = await call_tool("get_repo_outline", {"repo": "owner/repo"})
     assert isinstance(res, CallToolResult)
-    assert res.isError is True
+    assert res.is_error is True
     assert "disabled" in json.loads(res.content[0].text)["error"].lower()
 
 

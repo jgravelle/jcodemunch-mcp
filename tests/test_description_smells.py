@@ -37,7 +37,7 @@ async def test_no_unclear_purpose_or_underspecified_descriptions():
 
     scorer = _load_scorer()
     tools = [
-        {"name": t.name, "description": t.description or "", "inputSchema": t.inputSchema}
+        {"name": t.name, "description": t.description or "", "inputSchema": t.input_schema}
         for t in await list_tools()
     ]
     scored = [scorer.score_tool(t, "schema") for t in tools]

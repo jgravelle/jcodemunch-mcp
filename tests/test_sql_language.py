@@ -689,7 +689,7 @@ def test_search_symbols_kind_enum_is_derived_from_valid_kinds():
     from jcodemunch_mcp.server import _build_tools_list
 
     tool = next(t for t in _build_tools_list() if t.name == "search_symbols")
-    enum = tool.inputSchema["properties"]["kind"]["enum"]
+    enum = tool.input_schema["properties"]["kind"]["enum"]
     assert sorted(enum) == sorted(VALID_KINDS)
 
 

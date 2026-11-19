@@ -44,7 +44,7 @@ def _semantic_description():
         cfg["compact_schemas"] = False
         for tool in _build_tools_list():
             if tool.name == "search_symbols":
-                props = tool.inputSchema.get("properties", {}) or {}
+                props = tool.input_schema.get("properties", {}) or {}
                 return (props.get("semantic") or {}).get("description", "")
     finally:
         for k, v in original.items():
@@ -187,7 +187,7 @@ class TestTheBudgetIsUnchanged:
             props = {}
             for tool in _build_tools_list():
                 if tool.name == "search_symbols":
-                    props = tool.inputSchema.get("properties", {}) or {}
+                    props = tool.input_schema.get("properties", {}) or {}
                     break
         finally:
             for k, v in original.items():

@@ -283,7 +283,7 @@ def test_state_changing_set_is_subset_of_catalog():
 def _catalog_schemas():
     """{action_name: inputSchema} for every real (non-front-door) tool."""
     return {
-        t.name: (t.inputSchema or {})
+        t.name: (t.input_schema or {})
         for t in server._raw_catalog_tools()
         if t.name not in counter.FRONT_DOOR
     }

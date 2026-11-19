@@ -46,7 +46,7 @@ class TestParameterReachable:
         every real user is on, which was half of #429's lesson too."""
         from jcodemunch_mcp import server
         tools = {t.name: t for t in server._build_tools_list()}
-        props = tools["get_dead_code_v2"].inputSchema["properties"]
+        props = tools["get_dead_code_v2"].input_schema["properties"]
         assert "entry_point_patterns" in props
         assert props["entry_point_patterns"]["type"] == "array"
 

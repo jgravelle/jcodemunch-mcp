@@ -332,7 +332,7 @@ class TestMaxSizeReachesTheToolSchema:
 
         for tool in _build_tools_list():
             if tool.name == name:
-                return tool.inputSchema
+                return tool.input_schema
         raise AssertionError(f"{name} not in the tool list")
 
     @pytest.mark.parametrize("tool_name", ["index_folder", "index_repo"])

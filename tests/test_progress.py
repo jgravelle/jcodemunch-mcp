@@ -187,7 +187,7 @@ class TestMakeProgressNotifyNoToken:
     def test_no_token_returns_none(self):
         mock_server = MagicMock()
         mock_ctx = MagicMock()
-        mock_ctx.meta.progressToken = None
+        mock_ctx.meta.progress_token = None
         mock_server.request_context = mock_ctx
         assert make_progress_notify(mock_server) is None
 
@@ -198,7 +198,7 @@ class TestMakeProgressNotifyWithToken:
     def test_with_token_returns_callable(self):
         mock_server = MagicMock()
         mock_ctx = MagicMock()
-        mock_ctx.meta.progressToken = "tok-123"
+        mock_ctx.meta.progress_token = "tok-123"
         mock_ctx.session = MagicMock()
         mock_ctx.session.send_progress_notification = AsyncMock()
         mock_server.request_context = mock_ctx
