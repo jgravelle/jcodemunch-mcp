@@ -462,6 +462,70 @@ def _get_symbols_near_references(
     return result
 
 
+def _attach_runtime_to_blast(result: dict, store, owner: str, name: str) -> dict:
+    """Stamp runtime confidence on a blast-radius response, on the hit path too.
+
+    Runs AFTER the result cache, as `find_references` does: runtime ingest
+    (`import-trace`, the HTTP endpoints) writes no symbol and so never moves
+    the index load identity the cache checks (LEDGER L-330). Stamped before
+    the put, a cached answer kept the confidence of the call that filled it
+    after another process ingested new traces.
+    """
+    # Phase 2: runtime confidence — zero-cost no-op when no traces ingested.
+    # We stamp three surfaces:
+    #   1. `result["symbol"]._runtime_confidence` — the focal symbol's status
+    #   2. `result["confirmed"][i]._runtime_confidence` — file-level for downstream importers
+    #   3. `result["callers"][i]._runtime_confidence` — per-symbol when call_depth > 0
+    from ..runtime.confidence import (
+        attach_runtime_confidence as _attach_runtime,
+        attach_runtime_confidence_by_file as _attach_runtime_files,
+    )
+    _db_path_str = str(store._sqlite._db_path(owner, name))
+    # Focal symbol — wrap so the helper can stamp _runtime_confidence in-place
+    _focal_list = [result["symbol"]]
+    _focal_summary = _attach_runtime(_focal_list, _db_path_str, id_field="id")
+    # File-level on confirmed importers
+    _file_summary = _attach_runtime_files(result["confirmed"], _db_path_str, file_field="file")
+    # Symbol-level on callers (when present)
+    _caller_summary: dict = {}
+    if "callers" in result and result["callers"]:
+        _caller_summary = _attach_runtime(result["callers"], _db_path_str, id_field="id")
+    if _focal_summary or _file_summary or _caller_summary:
+        # Merge sources + take the freshest last_seen across the surfaces
+        _all_sources: set[str] = set()
+        _last_seen = ""
+        for s in (_focal_summary, _file_summary, _caller_summary):
+            for src in s.get("sources", []):
+                _all_sources.add(src)
+            if s.get("last_seen", "") > _last_seen:
+                _last_seen = s["last_seen"]
+        # Coverage = focal + caller per-symbol confirmations / total surfaces stamped
+        _stamped = (
+            len(_focal_list)
+            + len(result.get("confirmed", []))
+            + (len(result.get("callers", [])) if "callers" in result else 0)
+        )
+        _confirmed_count = sum(
+            1 for items in (_focal_list, result.get("confirmed", []), result.get("callers", []) if "callers" in result else [])
+            for e in items if isinstance(e, dict) and e.get("_runtime_confidence") == "confirmed"
+        )
+        from ..runtime.confidence import BODY_BASIS as _BODY_BASIS
+        from ..runtime.confidence import body_counts as _body_counts
+
+        result["_meta"]["runtime_freshness"] = {
+            "sources": sorted(_all_sources),
+            "last_seen": _last_seen,
+            "coverage_pct": round(100 * _confirmed_count / max(1, _stamped)),
+            # (#875 review) The probe's count, not a second one: this block is
+            # assembled from several stamped lists and dropped `body` before.
+            "body": _body_counts(
+                [*_focal_list, *result.get("confirmed", []), *result.get("callers", [])]
+            ),
+            "body_basis": _BODY_BASIS,
+        }
+    return result
+
+
 def get_blast_radius(
     repo: str,
     symbol: str,
@@ -541,7 +605,8 @@ def get_blast_radius(
     specific_key = (symbol, depth, call_depth, bool(cross_repo), include_depth_scores, decorator_filter, include_source, source_budget, include_decisions)
     # The index is loaded first: the cache answers only for the load it was
     # filled from, which is how another process's write reaches it (LEDGER
-    # L-330). A load that is already cached costs a stat of the .db.
+    # L-330). A load already in memory costs path resolution and two stats,
+    # plus a read-only meta read when the .db stamp moved.
     index = store.load_index(owner, name)
     if not index:
         return index_status_to_tool_error(store.inspect_index(owner, name))
@@ -552,7 +617,9 @@ def get_blast_radius(
         result["_meta"] = {**cached.get("_meta", {}),
                            "timing_ms": round((time.perf_counter() - start) * 1000, 1),
                            "cache_hit": True}
-        return _attach_scip_to_blast(result, store, owner, name)
+        return _attach_scip_to_blast(
+            _attach_runtime_to_blast(result, store, owner, name), store, owner, name
+        )
 
     if index.imports is None:
         return {
@@ -886,58 +953,6 @@ def get_blast_radius(
             for d in sorted(files_by_depth)
         ]
 
-    # Phase 2: runtime confidence — zero-cost no-op when no traces ingested.
-    # We stamp three surfaces:
-    #   1. `result["symbol"]._runtime_confidence` — the focal symbol's status
-    #   2. `result["confirmed"][i]._runtime_confidence` — file-level for downstream importers
-    #   3. `result["callers"][i]._runtime_confidence` — per-symbol when call_depth > 0
-    from ..runtime.confidence import (
-        attach_runtime_confidence as _attach_runtime,
-        attach_runtime_confidence_by_file as _attach_runtime_files,
-    )
-    _db_path_str = str(store._sqlite._db_path(owner, name))
-    # Focal symbol — wrap so the helper can stamp _runtime_confidence in-place
-    _focal_list = [result["symbol"]]
-    _focal_summary = _attach_runtime(_focal_list, _db_path_str, id_field="id")
-    # File-level on confirmed importers
-    _file_summary = _attach_runtime_files(result["confirmed"], _db_path_str, file_field="file")
-    # Symbol-level on callers (when present)
-    _caller_summary: dict = {}
-    if "callers" in result and result["callers"]:
-        _caller_summary = _attach_runtime(result["callers"], _db_path_str, id_field="id")
-    if _focal_summary or _file_summary or _caller_summary:
-        # Merge sources + take the freshest last_seen across the surfaces
-        _all_sources: set[str] = set()
-        _last_seen = ""
-        for s in (_focal_summary, _file_summary, _caller_summary):
-            for src in s.get("sources", []):
-                _all_sources.add(src)
-            if s.get("last_seen", "") > _last_seen:
-                _last_seen = s["last_seen"]
-        # Coverage = focal + caller per-symbol confirmations / total surfaces stamped
-        _stamped = (
-            len(_focal_list)
-            + len(result.get("confirmed", []))
-            + (len(result.get("callers", [])) if "callers" in result else 0)
-        )
-        _confirmed_count = sum(
-            1 for items in (_focal_list, result.get("confirmed", []), result.get("callers", []) if "callers" in result else [])
-            for e in items if isinstance(e, dict) and e.get("_runtime_confidence") == "confirmed"
-        )
-        from ..runtime.confidence import BODY_BASIS as _BODY_BASIS
-        from ..runtime.confidence import body_counts as _body_counts
-
-        result["_meta"]["runtime_freshness"] = {
-            "sources": sorted(_all_sources),
-            "last_seen": _last_seen,
-            "coverage_pct": round(100 * _confirmed_count / max(1, _stamped)),
-            # (#875 review) The probe's count, not a second one: this block is
-            # assembled from several stamped lists and dropped `body` before.
-            "body": _body_counts(
-                [*_focal_list, *result.get("confirmed", []), *result.get("callers", [])]
-            ),
-            "body_basis": _BODY_BASIS,
-        }
     # Decision context (read-only git archaeology) on request: focal symbol's
     # file first, then the confirmed affected files. Additive — absent the flag
     # the response is byte-identical to prior behavior. Computed before the cache
@@ -949,4 +964,6 @@ def get_blast_radius(
         )
 
     result_cache_put("get_blast_radius", repo_key, specific_key, result, index=index)
-    return _attach_scip_to_blast(result, store, owner, name)
+    return _attach_scip_to_blast(
+        _attach_runtime_to_blast(result, store, owner, name), store, owner, name
+    )

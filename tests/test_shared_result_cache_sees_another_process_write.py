@@ -116,6 +116,51 @@ def test_get_blast_radius_serves_the_index_another_process_wrote(repo):
     assert not second["_meta"].get("cache_hit"), second
 
 
+RUNTIME_CHILD = """
+import json, sys
+from jcodemunch_mcp.runtime.ingest import ingest_otel_file
+db, trace = sys.argv[1:3]
+res = ingest_otel_file(db_path=db, file_path=trace)
+print("OK" if res.get("mapped") else "FAIL " + json.dumps(res))
+"""
+
+
+def test_a_cached_blast_radius_shows_runtime_data_another_process_ingested(repo, tmp_path):
+    """Runtime ingest writes no symbol, so the index load identity does not
+    move and the cached answer is served. Its runtime confidence must still be
+    today's: the stamp is applied after the cache, on the hit path too."""
+    repo_id, _root, store = repo
+    first = get_blast_radius(repo_id, "helper", storage_path=str(store))
+    assert first["symbol"].get("_runtime_confidence") != "confirmed", first
+
+    owner, name = repo_id.split("/", 1)
+    db_path = IndexStore(base_path=str(store))._sqlite._db_path(owner, name)
+    trace = tmp_path / "trace.json"
+    span = {
+        "traceId": "x", "spanId": "y", "name": "helper",
+        "startTimeUnixNano": "0", "endTimeUnixNano": "1000000",
+        "attributes": [
+            {"key": "code.filepath", "value": {"stringValue": "a.py"}},
+            {"key": "code.lineno", "value": {"intValue": "1"}},
+            {"key": "code.function", "value": {"stringValue": "helper"}},
+        ],
+    }
+    trace.write_text(json.dumps({"resourceSpans": [{"resource": {"attributes": []},
+        "scopeSpans": [{"scope": {"name": "t"}, "spans": [span]}]}]}), encoding="utf-8")
+    env = dict(os.environ, CODE_INDEX_PATH=str(store), PYTHONPATH=str(SRC))
+    out = subprocess.run(
+        [sys.executable, "-c", RUNTIME_CHILD, str(db_path), str(trace)],
+        env=env, capture_output=True, text=True, timeout=180,
+    )
+    assert out.returncode == 0, out.stderr
+    assert out.stdout.strip().splitlines()[-1] == "OK", out.stdout + out.stderr
+
+    second = get_blast_radius(repo_id, "helper", storage_path=str(store))
+    assert second["_meta"].get("cache_hit") is True, second
+    assert second["symbol"].get("_runtime_confidence") == "confirmed", json.dumps(second)
+    assert "runtime_freshness" in second["_meta"], second["_meta"]
+
+
 # --- the cache contract itself ------------------------------------------------
 
 
@@ -143,7 +188,10 @@ def test_an_unknown_load_identity_is_a_miss_and_is_never_stored(repo):
     repo_id = repo[0]
     held = _index(repo_id)
     assert load_token(None) is None
+    before = token_tracker.result_cache_stats()["cached_entries"]
     token_tracker.result_cache_put("t", repo_id, ("u",), {"v": 1}, index=None)
+    # Never stored: an entry no lookup can hit would only push a live one out.
+    assert token_tracker.result_cache_stats()["cached_entries"] == before
     assert token_tracker.result_cache_get("t", repo_id, ("u",), index=None) is None
     assert token_tracker.result_cache_get("t", repo_id, ("u",), index=held) is None
 
