@@ -111,7 +111,7 @@ def test_control_the_public_tool_still_hides_every_same_named_definition(tmp_pat
 
 
 def test_a_same_named_siblings_declaration_line_is_not_a_reference(tmp_path):
-    """Of a same-named sibling, only its declaration line is left out: `B.file`'s
+    """Of a same-named sibling, only its declaration is left out: `B.file`'s
     signature (line 2) is not a use of `A.file`, while the call on line 3 is."""
     repo, sp = _repo(tmp_path, {"A.java": _A, "B.java": _B})
     target = _symbol_id(repo, sp, "A.java", "file")

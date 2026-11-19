@@ -234,7 +234,8 @@ def _check_single(
     # moved pinned verdicts. The narrower rule only ADDS matches, so it can
     # hold a delete back and never licenses one. A sibling with no line no
     # longer hides its whole file: a call there counts, at the cost of its
-    # declaration.
+    # declaration. ⚠ A call on a sibling's NAME line (a one-line method) is
+    # still hidden, as it was before this rule (LEDGER L-329).
     sibling_spans: dict[str, list[tuple[int, int]]] = {}
     if target_span is not None:
         t_file, t_lo, t_hi = target_span
