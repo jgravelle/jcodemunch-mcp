@@ -24,6 +24,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -35,22 +36,50 @@ REQUIRED_DOCS = ("README.md", "CLAUDE.md", "CHANGELOG.md")
 # name -> description map and the name -> inputSchema map (L-276: a
 # parameter description is published text too). Two snippets would mean two worktrees of the base
 # ref for one question.
+#
+# The schema field is read under both SDK majors. The two trees of a dependency-major PR do not
+# share one spelling (`mcp` 2.x renamed the attribute to `input_schema`), and a snippet that only
+# knows the head's spelling cannot read the base -- which is the half that has to be trusted.
 SNIPPET = (
     "import json,sys;"
     "from jcodemunch_mcp import server;"
     "ts=server._build_tools_list(profile_override='full', surface_override='full');"
     "print(json.dumps({'names': sorted(t.name for t in ts), "
     "'descriptions': {t.name: t.description for t in ts}, "
-    "'schemas': {t.name: t.input_schema or {} for t in ts}}))"
+    "'schemas': {t.name: (t.input_schema if hasattr(t, 'input_schema') else t.inputSchema) or {} "
+    "for t in ts}}))"
 )
 
 
-def _surface(src_root: Path) -> dict:
+def _surface(src_root: Path, own_environment: bool = False) -> dict:
+    """List one tree's `full` surface.
+
+    `own_environment` runs the tree through `uv run --project`, so it is measured
+    with the dependencies it declares rather than with the caller's. The base needs
+    it: a PR that moves an SDK major leaves the base unable to import under the
+    head's environment (mcp 2.x dropped the decorator registration the 1.x tree is
+    built on), and reading the base in the head's environment would report "could
+    not list" instead of the surface the base actually publishes. The head keeps the
+    calling interpreter, which is the one CI just synced from `uv.lock`.
+    """
     env = dict(
         os.environ, PYTHONPATH=str(src_root / "src"), JCODEMUNCH_TOOL_SURFACE="full"
     )
+    cmd = [sys.executable, "-c", SNIPPET]
+    if own_environment and shutil.which("uv"):
+        cmd = [
+            "uv",
+            "run",
+            "--project",
+            str(src_root),
+            "--locked",
+            "--no-dev",
+            "python",
+            "-c",
+            SNIPPET,
+        ]
     p = subprocess.run(
-        [sys.executable, "-c", SNIPPET],
+        cmd,
         cwd=src_root,
         env=env,
         text=True,
@@ -74,7 +103,7 @@ def base_surface(base_ref: str) -> dict:
         check=True,
     )
     try:
-        return _surface(wt)
+        return _surface(wt, own_environment=True)
     finally:
         subprocess.run(["git", "worktree", "remove", "--force", str(wt)], cwd=REPO)
 

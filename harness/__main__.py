@@ -593,7 +593,11 @@ def _m_core_compact() -> int:
         cfg["compact_schemas"] = True
         tools = _build_tools_list()
         payload = [
-            {"name": t.name, "description": t.description, "inputSchema": t.input_schema}
+            {
+                "name": t.name,
+                "description": t.description,
+                "inputSchema": t.input_schema,
+            }
             for t in tools
         ]
         return len(enc.encode(json.dumps(payload, separators=(",", ":"))))
