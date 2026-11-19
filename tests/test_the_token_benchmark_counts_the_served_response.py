@@ -168,6 +168,28 @@ def test_each_lookup_stands_alone(R, repo):
         assert again == first
 
 
+def test_a_lookup_after_a_long_session_costs_what_the_first_did(R, repo):
+    """The turn budget is per process and resets only after an idle gap, so a run
+    that measures repo after repo without a pause used to carry its warning into
+    every later answer. A repo's count then depended on which repos ran before it
+    (LEDGER L-326). A lookup measured after the budget is spent costs what the
+    first did."""
+    from jcodemunch_mcp.tools.turn_budget import get_turn_budget
+
+    _served(R)
+    tb = get_turn_budget()
+    try:
+        first = R.measure_jmunch(repo, "register route")["tokens"]
+        tb.record_output(10 * 20000)  # far past the default budget
+        assert "budget_warning" in tb.record_output(0), "precondition: the budget is spent"
+        again = R.measure_jmunch(repo, "register route")["tokens"]
+        assert again == first, (
+            f"the turn-budget warning reached a measured lookup: {again} vs {first} tokens"
+        )
+    finally:
+        tb.reset()
+
+
 def test_the_one_session_cost_left_out_of_each_lookup_is_measured(R, repo):
     """The same lookups as ONE session, recomputed here without the harness's helpers:
     `served_one_session_extra` reports that total minus the per-lookup total. The
