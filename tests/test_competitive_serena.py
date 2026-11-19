@@ -81,7 +81,7 @@ def test_the_call_plan_follows_the_fairness_note_and_charges_every_call():
 
 def test_the_captured_tools_list_is_the_default_surface_in_the_zhang_liz_shape():
     tl = json.loads(FIX["tools_list_json"])
-    assert len(tl) == 29 and {"name", "description", "input_schema"} == set(tl[0])
+    assert len(tl) == 29 and {"name", "description", "inputSchema"} == set(tl[0])
     assert {"find_symbol", "find_referencing_symbols", "search_for_pattern", "get_current_config"} <= {t["name"] for t in tl}
     assert FIX["server_info"]["name"] == "Serena"
 

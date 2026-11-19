@@ -127,8 +127,8 @@ def test_prepare_reads_the_drivers_file_into_index_and_answers(tmp_path, monkeyp
 
 def test_the_captured_tools_list_is_the_one_documented_tool_and_the_pin_is_the_lockfiles_hash():
     tl = json.loads(FIX["tools_list_json"])
-    assert [t["name"] for t in tl] == ["search"] and {"name", "description", "input_schema"} <= set(tl[0])
-    assert set(tl[0]["input_schema"]["properties"]) >= {"query", "limit", "offset", "refresh_index"}
+    assert [t["name"] for t in tl] == ["search"] and {"name", "description", "inputSchema"} <= set(tl[0])
+    assert set(tl[0]["inputSchema"]["properties"]) >= {"query", "limit", "offset", "refresh_index"}
     assert FIX["server_info"] == {"name": "cocoindex-code", "version": "0.2.41"}
     with pytest.raises(RuntimeError):
         cc.make("none")

@@ -84,7 +84,7 @@ def test_the_call_plan_follows_the_fairness_note_and_charges_every_call():
 
 def test_the_captured_tools_list_is_the_thirty_tool_default_in_the_zhang_liz_shape():
     tl = json.loads(FIX["tools_list_json"])
-    assert len(tl) == 30 and {"name", "description", "input_schema"} == set(tl[0])
+    assert len(tl) == 30 and {"name", "description", "inputSchema"} == set(tl[0])
     names = {t["name"] for t in tl}
     assert {"semantic_search_nodes_tool", "query_graph_tool", "build_or_update_graph_tool"} <= names
     assert FIX["server_info"]["name"] == "code-review-graph"

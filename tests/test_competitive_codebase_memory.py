@@ -92,14 +92,14 @@ def test_the_root_is_tried_first_then_each_top_level_directory(tmp_path):
 
 def test_the_driver_serialises_tools_list_in_the_zhang_liz_shape_and_flattens_results():
     tl = json.loads(FIX["tools_list_json"])
-    assert {"name", "description", "input_schema"} == set(tl[0])
+    assert {"name", "description", "inputSchema"} == set(tl[0])
     assert "search_graph" in {t["name"] for t in tl}
     text, err = mcp_driver.result_text({"result": {"content": [{"type": "text", "text": "a"}, {"type": "text", "text": "b"}]}})
     assert text == "ab" and err is False
     text, err = mcp_driver.result_text({"error": {"code": -1, "message": "x"}})
     assert err is True and "x" in text
     assert mcp_driver.result_text(None) == ("", True)
-    text, err = mcp_driver.result_text({"result": {"content": [], "structuredContent": {"k": 1}, "is_error": True}})
+    text, err = mcp_driver.result_text({"result": {"content": [], "structuredContent": {"k": 1}, "isError": True}})
     assert text == '{"k":1}' and err is True
 
 

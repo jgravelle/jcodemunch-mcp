@@ -101,7 +101,7 @@ def test_the_index_report_reads_init_wall_and_status_file_count(tmp_path):
 def test_the_captured_tools_list_is_the_readme_allowlist_and_the_default_is_one_tool():
     tl = json.loads(FIX["tools_list_json"])
     assert {t["name"] for t in tl} == {"codegraph_explore", "codegraph_node", "codegraph_search", "codegraph_callers"}
-    assert {"name", "description", "input_schema"} == set(tl[0])
+    assert {"name", "description", "inputSchema"} == set(tl[0])
     assert [t["name"] for t in json.loads(FIX["default_surface_tools_list_json"])] == ["codegraph_explore"]
     assert FIX["server_info"] == {"name": "codegraph", "version": "1.6.0"}
     assert codegraph.MCP_TOOLS == "explore,node,search,callers"

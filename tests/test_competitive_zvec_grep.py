@@ -94,7 +94,7 @@ def test_the_captured_tools_list_is_the_one_default_tool():
     assert d.get("tools_list_json"), f"the capture carries no tools list: {d.get('error')}"
     tools = json.loads(d["tools_list_json"])
     assert [t["name"] for t in tools] == ["zvec_grep_search"]
-    assert all(set(t) == {"name", "description", "input_schema"} for t in tools)
+    assert all(set(t) == {"name", "description", "inputSchema"} for t in tools)
 
 
 # ---- the call plan and the script -----------------------------------------------
