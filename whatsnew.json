@@ -1,6 +1,12 @@
 {
-  "current": "1.108.468",
+  "current": "1.108.469",
   "entries": [
+    {
+      "version": "1.108.469",
+      "date": "2026-11-19",
+      "title": "a delete preflight no longer hides a caller inside a same-named method",
+      "summary": "check_delete_safe and check_edit_safe now count a call inside another method that shares the target's name, so a used method is no longer graded safe to delete. Their blockers also name the line of the first use instead of line 0."
+    },
     {
       "version": "1.108.468",
       "date": "2026-11-19",

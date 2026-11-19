@@ -10,6 +10,8 @@ The cache now records which load of the index each answer came from, and answers
 
 Not covered: `get_blast_radius(cross_repo=True)` also reads other repositories' indexes, and a write to one of those is still not seen by a cached answer.
 
+## [1.108.469] - 2026-11-19 - a delete preflight no longer hides a caller inside a same-named method
+
 ### Fixed - a delete preflight no longer hides a caller inside a same-named method
 
 `check_delete_safe` and `check_edit_safe` ask `check_references` where a name is used, and that search left out the lines of every definition spelled like the name, so a declaration is not counted as a use of itself. The preflights know which symbol they are asking about, but they took the same name-only exclusion, so a call inside a same-named method elsewhere was skipped as "a definition". Java `B.file()` whose body calls `new A().file()` hid that call, and `check_delete_safe` graded the used `A.file` `safe_to_delete` with no blockers (LEDGER L-91).

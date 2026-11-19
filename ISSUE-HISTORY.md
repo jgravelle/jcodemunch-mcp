@@ -3416,3 +3416,9 @@ The 1.108.464 entry, verbatim as it stood in `CLAUDE.md`:
 The 1.108.465 entry, verbatim as it stood in `CLAUDE.md`:
 
 - **Prior (1.108.465):** **two HTTP sessions that send the same token keep their own tool tier** (#1491, @lilubot): `_session_key()` prefers the streamable-http transport's id (`_HTTP_TRANSPORT_SESSION`) to the shared principal, and `_forget_http_session` drops it when the session ends. Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-19, release 1.108.469)
+
+The 1.108.466 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.466):** **a forced re-index keeps the AI summaries a provider could not replace** (L-323): `keep_stored_summaries` is the one keep rule, applied by `summarize_repo`, both `index_folder` paths and `index_file`; a re-parse keeps only on a matching non-empty `content_hash` (`require_hash`). `index_repo` and `deferred_summarize` are open residue. Full text: `CHANGELOG.md`.
