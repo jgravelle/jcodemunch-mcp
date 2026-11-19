@@ -27,6 +27,7 @@ import copy
 import inspect
 import json
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -159,6 +160,65 @@ def test_a_cached_blast_radius_shows_runtime_data_another_process_ingested(repo,
     assert second["_meta"].get("cache_hit") is True, second
     assert second["symbol"].get("_runtime_confidence") == "confirmed", json.dumps(second)
     assert "runtime_freshness" in second["_meta"], second["_meta"]
+
+
+def _git(root: Path, *args: str) -> None:
+    subprocess.run(
+        ["git", "-c", "user.name=t", "-c", "user.email=t@example.invalid",
+         "-c", "commit.gpgsign=false", *args],
+        cwd=root, check=True, capture_output=True,
+    )
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="needs git")
+def test_a_cached_blast_radius_shows_a_commit_made_after_it(tmp_path, monkeypatch):
+    """`decisions` comes from git, and a commit that is not re-indexed leaves
+    the index load identity alone. The live HEAD is in the key, so the commit
+    reaches the next answer; an unchanged HEAD still hits."""
+    store = tmp_path / "store"
+    monkeypatch.setenv("CODE_INDEX_PATH", str(store))
+    root = tmp_path / "git_repo"
+    root.mkdir()
+    (root / "a.py").write_text("def helper():\n    return 1\n", encoding="utf-8")
+    (root / "b.py").write_text("from a import helper\n\nhelper()\n", encoding="utf-8")
+    _git(root, "init", "-q")
+    _git(root, "add", ".")
+    _git(root, "commit", "-qm", "init")
+    token_tracker.result_cache_invalidate()
+    repo_id = index_folder(str(root), use_ai_summaries=False, storage_path=str(store))["repo"]
+
+    first = get_blast_radius(repo_id, "helper", storage_path=str(store), include_decisions=True)
+    assert first["decisions"]["decision_count"] == 0, first["decisions"]
+    again = get_blast_radius(repo_id, "helper", storage_path=str(store), include_decisions=True)
+    assert again["_meta"].get("cache_hit") is True, again
+
+    (root / "a.py").write_text("def helper():\n    return 2\n", encoding="utf-8")
+    _git(root, "commit", "-qam", "revert: undo the helper change")
+
+    second = get_blast_radius(repo_id, "helper", storage_path=str(store), include_decisions=True)
+    subjects = [d["subject"] for d in second["decisions"]["decisions"]]
+    assert subjects == ["revert: undo the helper change"], second["decisions"]
+    third = get_blast_radius(repo_id, "helper", storage_path=str(store), include_decisions=True)
+    assert third["_meta"].get("cache_hit") is True, third
+    token_tracker.result_cache_invalidate()
+
+
+def test_an_unreadable_runtime_table_is_not_remembered_as_empty(tmp_path):
+    """UNKNOWN is never none: only a query that ran and found no row is kept."""
+    from jcodemunch_mcp.runtime import confidence
+
+    db = tmp_path / "x.db"
+    import sqlite3
+
+    sqlite3.connect(str(db)).close()  # no runtime_calls table: the query fails
+    assert confidence.attach_runtime_confidence([{"id": "a"}], str(db)) == {}
+    assert str(db) not in confidence._EMPTY_AT
+    conn = sqlite3.connect(str(db))
+    conn.execute("CREATE TABLE runtime_calls (symbol_id TEXT)")
+    conn.commit()
+    conn.close()
+    assert confidence.attach_runtime_confidence([{"id": "a"}], str(db)) == {}
+    assert str(db) in confidence._EMPTY_AT, "an established empty table is remembered"
 
 
 # --- the cache contract itself ------------------------------------------------

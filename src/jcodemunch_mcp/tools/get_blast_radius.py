@@ -605,13 +605,30 @@ def get_blast_radius(
     specific_key = (symbol, depth, call_depth, bool(cross_repo), include_depth_scores, decorator_filter, include_source, source_budget, include_decisions)
     # The index is loaded first: the cache answers only for the load it was
     # filled from, which is how another process's write reaches it (LEDGER
-    # L-330). A load already in memory costs path resolution and two stats,
-    # plus a read-only meta read when the .db stamp moved.
+    # L-330). A load already in memory costs path resolution and stats of two
+    # files, plus a read-only meta read when the .db stamp moved.
     index = store.load_index(owner, name)
     if not index:
         return index_status_to_tool_error(store.inspect_index(owner, name))
 
-    cached = result_cache_get("get_blast_radius", repo_key, specific_key, index=index)
+    # `decisions` is read from git, and a commit that changes nothing indexed
+    # leaves the load identity alone, so the live HEAD joins the key. An
+    # unreadable HEAD is UNKNOWN: the call neither reads nor fills the cache.
+    use_cache = True
+    if include_decisions:
+        from ..retrieval.subject_state import capture as _capture_subject
+
+        _live_head = _capture_subject(index).get("live_sha")
+        if _live_head:
+            specific_key = specific_key + (_live_head,)
+        else:
+            use_cache = False
+
+    cached = (
+        result_cache_get("get_blast_radius", repo_key, specific_key, index=index)
+        if use_cache
+        else None
+    )
     if cached is not None:
         result = dict(cached)
         result["_meta"] = {**cached.get("_meta", {}),
@@ -956,14 +973,15 @@ def get_blast_radius(
     # Decision context (read-only git archaeology) on request: focal symbol's
     # file first, then the confirmed affected files. Additive — absent the flag
     # the response is byte-identical to prior behavior. Computed before the cache
-    # write so a cached hit (keyed on include_decisions) carries it too.
+    # write so a cached hit carries it too; the key then holds the live HEAD.
     if include_decisions:
         decision_files = [sym_file] + [c["file"] for c in confirmed]
         result["decisions"] = resolve_decision_context(
             getattr(index, "source_root", None), decision_files,
         )
 
-    result_cache_put("get_blast_radius", repo_key, specific_key, result, index=index)
+    if use_cache:
+        result_cache_put("get_blast_radius", repo_key, specific_key, result, index=index)
     return _attach_scip_to_blast(
         _attach_runtime_to_blast(result, store, owner, name), store, owner, name
     )
