@@ -181,17 +181,37 @@ def test_a_reply_with_a_huge_signature_passes_the_savings_gate(tmp_path: Path, m
 _SIGNATURE_READERS = {"_row_signature", "_row_summary", "_bm25_breakdown"}
 
 
+def _is_signature_key(node: ast.AST) -> bool:
+    return isinstance(node, ast.Constant) and node.value == "signature"
+
+
+def _call_arguments(call: ast.Call) -> list[ast.AST]:
+    """Every positional and keyword argument of a call, with a starred list or
+    tuple (`f(*["signature"])`) opened one level."""
+    out: list[ast.AST] = []
+    for a in call.args:
+        if isinstance(a, ast.Starred) and isinstance(a.value, (ast.List, ast.Tuple)):
+            out.extend(a.value.elts)
+        else:
+            out.append(a)
+    out.extend(k.value for k in call.keywords)
+    return out
+
+
 def _signature_reads_outside_the_cap(source: str) -> list[int]:
     """Lines outside `_SIGNATURE_READERS` that read a signature by its literal
     key, or unpack a whole symbol into a dict.
 
-    What it checks: a load subscript `x["signature"]`; any call whose first
-    argument is the constant "signature" (`.get`, `.setdefault`, `.pop`,
-    `.__getitem__`, `itemgetter`); and a `**name` unpack, or any `**` in a dict
-    literal that also has an "id" key (a row). What it cannot see: a key held
-    in a variable, a comprehension over a key tuple, `entry.update(sym)`, or a
-    builder passing "full" to `_row_signature`. The behavioural tests cover
-    the lexical and fuzzy builders for those."""
+    What it checks: a load subscript `x["signature"]`; any call with the
+    constant "signature" in any positional or keyword argument (`.get`,
+    `.setdefault`, `.pop`, `.__getitem__`, `itemgetter`, `operator.getitem`,
+    `dict.get(sym, ...)`, `f(*["signature"])`); and a `**` in a dict literal,
+    when it unpacks a plain name or sits beside an "id" key (a row). What it
+    cannot see: a key held in a variable, a comprehension over a key tuple,
+    `entry.update(sym)`, `dict(**sym)`, `dict(sym)`, `sym.copy()`,
+    `sym | {}`, or a builder passing "full" to `_row_signature`. The lexical
+    and fuzzy builders are also tested by calling them; the semantic and
+    fusion builders rest on this scan alone."""
     tree = ast.parse(source)
     parents: dict[ast.AST, ast.AST] = {}
     for node in ast.walk(tree):
@@ -214,9 +234,7 @@ def _signature_reads_outside_the_cap(source: str) -> list[int]:
             and node.slice.value == "signature"
         ) or (
             isinstance(node, ast.Call)
-            and bool(node.args)
-            and isinstance(node.args[0], ast.Constant)
-            and node.args[0].value == "signature"
+            and any(_is_signature_key(a) for a in _call_arguments(node))
         ) or (
             isinstance(node, ast.Dict)
             and any(
@@ -276,14 +294,21 @@ def test_the_reuse_audit_candidate_keeps_the_flag():
     'def build(sym):\n    return {"signature": itemgetter("signature")(sym)}\n',
     'def build(sym):\n    return {"id": sym["id"], **sym}\n',
     'def build(sym):\n    return {**sym}\n',
+    'def build(sym):\n    return {"signature": operator.getitem(sym, "signature")}\n',
+    'def build(sym):\n    return {"signature": dict.get(sym, "signature", "")}\n',
+    'def build(sym):\n    return {"signature": dict.__getitem__(sym, "signature")}\n',
+    'def build(sym):\n    return {"signature": sym.get(*["signature"])}\n',
+    'def build(sym):\n    return {"signature": getter(key="signature")(sym)}\n',
 ])
 def test_the_ratchet_catches_each_spelling_of_the_defect(spelling):
     assert _signature_reads_outside_the_cap(spelling) == [2]
 
 
 def test_no_row_builder_copies_the_raw_signature():
-    """Every row search_symbols builds goes through the one cap (BM25, fuzzy,
-    semantic and fusion paths), so a fifth path cannot ship uncapped."""
+    """No code in search_symbols.py outside the cap reads a signature by its
+    literal key or unpacks a symbol into a dict literal. For the semantic and
+    fusion builders this scan is the only check; see the limits named in
+    `_signature_reads_outside_the_cap`."""
     offenders = _signature_reads_outside_the_cap(SRC.read_text(encoding="utf-8"))
     assert offenders == [], f"raw signature read outside the cap at lines {offenders}"
 
