@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+### Changed - the server speaks MCP 2026-07-28, so a host can share one connection across project folders
+
+The `mcp` dependency was pinned `>=1.10.0,<2.0.0`, which caps the protocol revision this server can negotiate at `2025-11-25`. A host that gates a feature on the modern per-request era therefore never sees it here. opencode is one: `"pool": true` shares a single connection to a server across every project directory that configures it identically, and it will not pool a server that answers below `2026-07-28`. It logs `mcp pool ignored: server speaks an older protocol` and starts one process per directory instead — measured at eight processes for eight open folders.
+
+The floor is now `mcp>=2.0.0,<3.0.0`, the first line that serves `2026-07-28` (`server/discover`, the stateless per-request envelope). This is the port #609 measured, not a version bump. 2.x registers handlers as constructor kwargs instead of decorators, so the six handler functions keep their bodies and signatures behind thin adapters — the `order`/`route` front door re-enters `call_tool` directly, so renaming them was not open. `Server.request_context` is gone, so the adapters publish the request context themselves for progress notifications and session lookups, with the 1.x property kept as a fallback for embedders. The model attributes are snake_case now (`input_schema`, `is_error`, `progress_token`, `read_only_hint`, `open_world_hint`, `mime_type`). The JSON names did not move, so no wire shape changes and the published tool surface keeps its bytes.
+
+A client that offers only `2025-11-25` still gets `2025-11-25`: the handshake era is served alongside the modern one, and every tool, resource and prompt answers on both. Measured over stdio with the SDK's own client: `mode="auto"` negotiates `2026-07-28`, lists and calls tools, reads `munch://runtime/identity` and serves the workflow prompts; `mode="legacy"` negotiates `2025-11-25` and does the same. 2.x installs an OpenTelemetry middleware on every request; with no OTel SDK configured the spans are non-recording (no exporter, no network, no thread), and SECURITY.md now says so under "Background behavior, fully disclosed" (mcp 2.x, #609).
+
 ### Fixed - a comment after a base list no longer hides the base
 
 `get_class_hierarchy`, `find_implementations` and the call graph read a class's bases from its signature. The `extends` and `implements` patterns ran on the signature with its comments still in it, so the list never reached its end anchor: `class A extends B // c` in PHP, TypeScript, JavaScript, Java, Dart or Scala, `class A extends B # c` in PHP, and `class A extends B /* c */` all answered with no base, and the class vanished from its parent's subtree. #1284 had removed comments for the `:` and Ruby `<` branches only. Python's parenthesised branch had the same defect inside a multi-line list: in `class A(\n B,  # one\n C,\n):` the comment swallowed `C`.
