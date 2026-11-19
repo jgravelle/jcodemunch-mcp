@@ -387,17 +387,28 @@
     {
       "id": "suite.fast_seconds",
       "criterion": "N1",
-      "metric": "wall-clock of the fast tier (79 files, -n auto) on the measuring box",
+      "metric": "wall-clock of the fast tier (92 files, -n auto) on the measuring box",
       "comparator": "<=",
-      "floor": 90,
+      "floor": 100,
       "unit": "seconds",
       "set_at": {
-        "commit": "457a758",
-        "date": "2026-09-03",
-        "reason": "DESIGN s2; measured 49.35 s"
+        "commit": "cbd2862",
+        "date": "2026-11-19",
+        "reason": "Raised for the mcp 2.x floor (PR #1505, the port #609 measured), which is the only way this server can serve protocol 2026-07-28. The added cost is startup, not tests: `import jcodemunch_mcp.server` measures 1.03 s on mcp 2.3.0 against 0.78 s on 1.30.0 (+0.25 s per process, x4 `-n auto` workers on the ubuntu runner), and no new test file was added to this tier. 93.43 s observed on CI at this commit. The 90 it replaces was already inside the base branch's own spread -- three consecutive `main` pr-gate runs measured 61.49, 73.55 and 88.12 s -- so 2 % of headroom stood between a green run and a failing one before this change. 100 still fails the shapes the ceiling exists for: a serial fallback (113.55 s measured on the reporting box for the same 92 files) and the 2026-08-28 rebuilt-venv shape."
       },
-      "measured": null,
-      "history": [],
+      "measured": 93.43,
+      "history": [
+        {
+          "floor": 90,
+          "commit": "457a758",
+          "date": "2026-09-03",
+          "reason": "DESIGN s2; measured 49.35 s"
+        }
+      ],
+      "loosened": {
+        "by": "herbkk, cbd2862, 2026-11-19",
+        "reason": "raised 90 -> 100 for the mcp 2.x floor (PR #1505), whose only added cost here is startup: `import jcodemunch_mcp.server` 1.03 s on mcp 2.3.0 vs 0.78 s on 1.30.0 (+0.25 s per worker, x4 on the ubuntu runner), and no new file joined this tier. CI observed 93.43 s; the 90 it replaces already sat inside main's own spread (61.49, 73.55, 88.12 s across three consecutive pr-gate runs), leaving 2 % of headroom. Tighten again once the port has produced three CI runs of its own."
+      },
       "enforced_by": [
         "harness/__main__.py"
       ]
