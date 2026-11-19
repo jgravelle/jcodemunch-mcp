@@ -3410,3 +3410,9 @@ The 1.108.463 entry, verbatim as it stood in `CLAUDE.md`:
 The 1.108.464 entry, verbatim as it stood in `CLAUDE.md`:
 
 - **Prior (1.108.464):** **a review capsule names the symbol a renamed function was** (#1492, L-322): `assemble_task_context._CHANGED_ROW_KEYS` keeps `previous_symbol_id` beside `previous_name`. Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-19, release 1.108.468)
+
+The 1.108.465 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.465):** **two HTTP sessions that send the same token keep their own tool tier** (#1491, @lilubot): `_session_key()` prefers the streamable-http transport's id (`_HTTP_TRANSPORT_SESSION`) to the shared principal, and `_forget_http_session` drops it when the session ends. Full text: `CHANGELOG.md`.
