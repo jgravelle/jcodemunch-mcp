@@ -82,7 +82,7 @@ worth checking on your hardware rather than taking on faith.
 
 ## What you should get
 
-Captured on CI 2026-11-08 (benchmark.yml run 42525783321, reference=true) at jcodemunch-mcp 1.108.426 with the served-response count of #1361 (the benchmark counts the text the server sends on a default install) (the symbol counts move with the
+Captured on CI 2026-11-19 (benchmark.yml run 44456873749, reference=true) at jcodemunch-mcp 1.108.467 with the served-response count of #1361 (the benchmark counts the text the server sends on a default install) (the symbol counts move with the
 extractor; the files and baseline tokens are fixed by the pins):
 
 | Repo | Commit | Files | Symbols | Baseline tokens |
@@ -95,10 +95,10 @@ Grand total across 15 task-runs, both baselines measured in the same run:
 
 | Baseline | Tokens | jCodeMunch |
 |---|--:|--:|
-| **Grep-top-3, total tokens** | **670,032** | 17,581 |
-| Read-all (ceiling) | 5,658,685 | 17,581 |
+| **Grep-top-3, total tokens** | **670,032** | 16,955 |
+| Read-all (ceiling) | 5,658,685 | 16,955 |
 
-This table sums the totals; `results.md` has the pooled reduction and ratio. The figure to quote is 96.2% fewer tokens per
+This table sums the totals; `results.md` has the pooled reduction and ratio. The figure to quote is 96.3% fewer tokens per
 lookup on average against grep-top-3, from the Grand Summary of `results.md`.
 
 Small differences in `file_count` are expected across installations and are not
