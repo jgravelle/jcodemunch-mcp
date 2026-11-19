@@ -208,6 +208,8 @@ def _signature_reads_outside_the_cap(source: str) -> list[int]:
     `dict.get(sym, ...)`, `f(*["signature"])`); and a `**` in a dict literal,
     when it unpacks a plain name or sits beside an "id" key (a row). What it
     cannot see: a key held in a variable, a comprehension over a key tuple,
+    a `**` of a subscript or attribute (`{**pair[0]}`), a reader nested
+    inside an allowed helper,
     `entry.update(sym)`, `dict(**sym)`, `dict(sym)`, `sym.copy()`,
     `sym | {}`, or a builder passing "full" to `_row_signature`. The lexical
     and fuzzy builders are also tested by calling them; the semantic and
