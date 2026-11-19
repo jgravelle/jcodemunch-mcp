@@ -8,9 +8,12 @@ definition there hides real callers: Java `B.file()` whose body calls
 `new A().file()` lost that call when `check_delete_safe` asked about `A.file`,
 and the used method graded as an absence verdict.
 
-The preflights now exclude only the target's own span. The cost runs in the
-blocking direction: a same-named sibling's declaration line reads as a
-reference, which can hold a delete back and never licenses one.
+The preflights now exclude the target's own span whole and, of every other
+same-named definition, only its declaration: from its first line through the
+first line that names the identifier, so an annotation above the name
+(`@Override`, `[Attr]`) hides the name line too. A call inside a sibling's
+body counts. The rule only adds matches, so it can hold a delete back and
+never licenses one.
 """
 from __future__ import annotations
 
@@ -140,3 +143,47 @@ def test_a_target_with_no_line_keeps_the_name_wide_exclusion():
     assert target_span_of({"file": "a.py", "line": "x"}) is None
     assert target_span_of({"file": "a.py", "line": 5, "end_line": 2}) == ("a.py", 5, 5)
     assert target_span_of({"file": "a.py", "line": 5, "end_line": 9}) == ("a.py", 5, 9)
+
+
+import pytest  # noqa: E402
+
+_ANNOTATED = {
+    "java": (
+        "C.java", "public class C {\n    public int file() {\n        return 1;\n    }\n}\n",
+        "D.java", "public class D extends Base {\n    @Override\n    public int file() {\n        return 2;\n    }\n}\n",
+    ),
+    "csharp": (
+        "C.cs", "public class C {\n    public int file() {\n        return 1;\n    }\n}\n",
+        "D.cs", "public class D {\n    [Obsolete]\n    public int file() {\n        return 2;\n    }\n}\n",
+    ),
+    "kotlin": (
+        "C.kt", "class C {\n    fun file(): Int {\n        return 1\n    }\n}\n",
+        "D.kt", "class D {\n    @JvmStatic\n    fun file(): Int {\n        return 2\n    }\n}\n",
+    ),
+}
+
+
+@pytest.mark.parametrize("lang", sorted(_ANNOTATED))
+def test_an_annotated_siblings_name_line_is_not_a_reference(tmp_path, lang):
+    """An annotation above a same-named sibling is its first indexed line; the
+    line that names the method comes after it and must not count as a use of
+    the target (round 2 of the L-91 review: `@Override` reopened the
+    declaration-as-use move for Java, C# and Kotlin)."""
+    c_name, c_src, d_name, d_src = _ANNOTATED[lang]
+    repo, sp = _repo(tmp_path, {c_name: c_src, d_name: d_src})
+    got = check_delete_safe(repo, _symbol_id(repo, sp, c_name, "file"), storage_path=sp)
+    refs = [b for b in got.get("blockers", []) if b.get("kind") == "internal_reference"]
+    assert not refs, (lang, got["verdict"], got.get("blockers"))
+
+
+def test_a_call_inside_an_annotated_sibling_still_counts(tmp_path):
+    """Excluding through the name line stops there: the body of an `@Override`
+    sibling that calls the target is still a call site."""
+    a = "public class A {\n    public int file() {\n        return 1;\n    }\n}\n"
+    b = ("public class B extends Base {\n    @Override\n    public int file() {\n"
+         "        return new A().file();\n    }\n}\n")
+    repo, sp = _repo(tmp_path, {"A.java": a, "B.java": b})
+    got = check_delete_safe(repo, _symbol_id(repo, sp, "A.java", "file"), storage_path=sp)
+    lines = {(x.get("file"), x.get("line")) for x in got.get("blockers", [])}
+    assert ("B.java", 4) in lines, got.get("blockers")
+    assert got["verdict"] not in _ABSENCE, got["verdict"]

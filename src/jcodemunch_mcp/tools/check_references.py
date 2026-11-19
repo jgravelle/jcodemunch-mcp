@@ -80,6 +80,17 @@ def _decode_escapes(text: str) -> str:
     return out.encode("utf-16-le", "surrogatepass").decode("utf-16-le", "replace")
 
 
+def _name_through(lines: list[str], lo: int, hi: int, ident_lower: str) -> tuple[int, int]:
+    """A sibling definition's declaration: its first line through the first line
+    that names the identifier, so an annotation above the name does not leave
+    the name line counting. Only the first line when no line in the span names
+    it (LEDGER L-91)."""
+    for line_no in range(lo, min(max(lo, hi), len(lines)) + 1):
+        if ident_lower in _fold(lines[line_no - 1]):
+            return (lo, line_no)
+    return (lo, lo)
+
+
 def first_match_line(ref: dict) -> int:
     """The first matching line of one `content_references` entry.
 
@@ -212,25 +223,28 @@ def _check_single(
 
     # ⚠⚠ (LEDGER L-91) A caller that knows WHICH symbol it asks about excludes
     # that symbol's whole span, and of every other same-named definition only
-    # its DECLARATION line. Hiding each sibling's whole body hid real callers:
-    # Java `B.file()` calling `new A().file()` was skipped as "a definition of
-    # `file`", and `check_delete_safe` graded the used `A.file`
-    # `safe_to_delete` with zero blockers. Hiding nothing of the siblings
-    # counted their declarations as uses instead (a partial class, an
-    # overload's signature, `def show` in another controller) and moved pinned
-    # verdicts. The narrower rule only ADDS matches, so it can hold a delete
-    # back and never licenses one. A sibling with no line no longer hides its
-    # whole file: a call there counts, at the cost of its declaration.
+    # its DECLARATION: from its first line through the first line that names
+    # the identifier (`_name_through`), so an `@Override` or `[Attr]` line
+    # above it does not leave the name line counting. Hiding each sibling's
+    # whole body hid real callers: Java `B.file()` calling `new A().file()`
+    # was skipped as "a definition of `file`", and `check_delete_safe` graded
+    # the used `A.file` `safe_to_delete` with zero blockers. Hiding nothing of
+    # the siblings counted their declarations as uses instead (a partial
+    # class, an overload's signature, `def show` in another controller) and
+    # moved pinned verdicts. The narrower rule only ADDS matches, so it can
+    # hold a delete back and never licenses one. A sibling with no line no
+    # longer hides its whole file: a call there counts, at the cost of its
+    # declaration.
+    sibling_spans: dict[str, list[tuple[int, int]]] = {}
     if target_span is not None:
         t_file, t_lo, t_hi = target_span
         t_hi = max(t_lo, t_hi)
-        narrowed: dict[str, list[tuple[int, int]]] = {t_file: [(t_lo, t_hi)]}
         for file_path, spans in defining_spans.items():
-            for lo, _hi in spans:
+            for lo, hi in spans:
                 if file_path == t_file and lo == t_lo:
                     continue
-                narrowed.setdefault(file_path, []).append((lo, lo))
-        defining_spans = narrowed
+                sibling_spans.setdefault(file_path, []).append((lo, hi))
+        defining_spans = {t_file: [(t_lo, t_hi)]}
         unspanned_files = set()
 
     content_references = []
@@ -255,8 +269,15 @@ def _check_single(
             except OSError:
                 continue
 
+            file_lines = content.split("\n")
+            siblings = sibling_spans.get(file_path)
+            if siblings:
+                spans = list(spans) + [
+                    _name_through(file_lines, lo, hi, ident_lower) for lo, hi in siblings
+                ]
+
             file_matches = []
-            for line_index, line in enumerate(content.split("\n")):
+            for line_index, line in enumerate(file_lines):
                 if ident_lower not in _fold(line):
                     continue
                 line_no = line_index + 1
