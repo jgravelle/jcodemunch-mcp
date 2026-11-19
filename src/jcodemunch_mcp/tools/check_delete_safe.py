@@ -58,6 +58,7 @@ from ._utils import index_status_to_tool_error, resolve_repo
 
 logger = logging.getLogger(__name__)
 
+
 # ---------------------------------------------------------------------------
 # Severity scoring for individual blockers (1-5, higher = more dangerous)
 # ---------------------------------------------------------------------------
@@ -274,10 +275,13 @@ def check_delete_safe(
         # `test_coverage_only`. An absence claim needs the whole corpus -- a
         # count taken after the page is cut describes the page (#559). The
         # cost is at most one full scan, which a no-match search pays anyway.
+        # (LEDGER L-91) Exclude the TARGET's span only: a same-named method
+        # elsewhere that calls the target is a caller, not "a definition".
         ref_entries = [check_references._check_single(
             identifier=target_name, index=index, search_content=True,
             max_content_results=max(1, len(index.source_files)),
             owner=owner, name=name, store=store, start=time.perf_counter(),
+            target_span=check_references.target_span_of(target),
         )]
         for entry in ref_entries:
             for ref in entry.get("content_references", []) or []:
@@ -303,7 +307,7 @@ def check_delete_safe(
                         blockers.append({
                             "kind": "test_reference",
                             "file": ref_file,
-                            "line": ref.get("line", 0),
+                            "line": check_references.first_match_line(ref),
                             "severity": _SEVERITY_TEST_ONLY,
                         })
                 else:
@@ -312,7 +316,7 @@ def check_delete_safe(
                         blockers.append({
                             "kind": "internal_reference",
                             "file": ref_file,
-                            "line": ref.get("line", 0),
+                            "line": check_references.first_match_line(ref),
                             "severity": _SEVERITY_INTERNAL_REF,
                         })
     except Exception as exc:  # noqa: BLE001
