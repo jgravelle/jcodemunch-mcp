@@ -237,17 +237,24 @@ def _start_lookup_session() -> None:
 
     The server keeps per-session state that would otherwise leak from one
     lookup into the next: the steering counters (a one-time hint after a few
-    search and read calls) and the already-delivered ledger (a note on a symbol
-    an earlier lookup fetched). Both are real costs of a long session; neither
-    belongs to a single lookup. `served_session_costs` and
-    `served_one_session_extra` measure both.
+    search and read calls), the already-delivered ledger (a note on a symbol
+    an earlier lookup fetched) and the turn budget (a warning once a run of
+    calls without a 30 s pause passes `turn_budget_tokens`). Each is a real
+    cost of a long session; none belongs to a single lookup.
+    `served_session_costs` and `served_one_session_extra` measure the first
+    two. The turn budget is reset here because a run measures repo after repo
+    with no pause: without the reset its warning reached every answer of the
+    later repos (gin and part of fastapi on the pinned corpora), so a repo's
+    count depended on which repos ran before it.
     """
     from jcodemunch_mcp import server
     from jcodemunch_mcp.storage import token_tracker
+    from jcodemunch_mcp.tools.turn_budget import get_turn_budget
 
     server._steer_state.update({"hops": 0, "bundles": 0, "nudged": False, "repos": []})
     with token_tracker._state._lock:
         token_tracker._state._delivered.clear()
+    get_turn_budget().reset()
 
 
 def _quiet_once_per_process_notices() -> None:
