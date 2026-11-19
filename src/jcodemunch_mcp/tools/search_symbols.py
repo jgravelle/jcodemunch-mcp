@@ -729,8 +729,8 @@ def _packing_cost_bytes(entry: dict, detail_level: str) -> int:
 
 
 # The most characters of a signature a standard row carries. A multi-line
-# signature (FastAPI's route decorators run to tens of thousands of characters)
-# was copied whole into every row, so one row could be most of a reply. The
+# signature was copied whole into every row, so one row could be most of a
+# reply: FastAPI's `middleware` lookup carried a 29,748-character one. The
 # whole signature is one `get_symbol_source` call away; `full` keeps it whole,
 # since that shape inlines the source anyway.
 SIGNATURE_MAX_CHARS = 200

@@ -182,10 +182,16 @@ _SIGNATURE_READERS = {"_row_signature", "_row_summary", "_bm25_breakdown"}
 
 
 def _signature_reads_outside_the_cap(source: str) -> list[int]:
-    """Lines that read `x["signature"]` or `x.get("signature", ...)` outside
-    `_SIGNATURE_READERS`. Any spelling that serves a raw signature reads it
-    first, so this catches a dict literal, an assignment to a row key and a
-    read into a local alike."""
+    """Lines outside `_SIGNATURE_READERS` that read a signature by its literal
+    key, or unpack a whole symbol into a dict.
+
+    What it checks: a load subscript `x["signature"]`; any call whose first
+    argument is the constant "signature" (`.get`, `.setdefault`, `.pop`,
+    `.__getitem__`, `itemgetter`); and a `**name` unpack, or any `**` in a dict
+    literal that also has an "id" key (a row). What it cannot see: a key held
+    in a variable, a comprehension over a key tuple, `entry.update(sym)`, or a
+    builder passing "full" to `_row_signature`. The behavioural tests cover
+    the lexical and fuzzy builders for those."""
     tree = ast.parse(source)
     parents: dict[ast.AST, ast.AST] = {}
     for node in ast.walk(tree):
@@ -208,15 +214,40 @@ def _signature_reads_outside_the_cap(source: str) -> list[int]:
             and node.slice.value == "signature"
         ) or (
             isinstance(node, ast.Call)
-            and isinstance(node.func, ast.Attribute)
-            and node.func.attr == "get"
             and bool(node.args)
             and isinstance(node.args[0], ast.Constant)
             and node.args[0].value == "signature"
+        ) or (
+            isinstance(node, ast.Dict)
+            and any(
+                k is None and (
+                    isinstance(v, ast.Name)
+                    or any(isinstance(k2, ast.Constant) and k2.value == "id" for k2 in node.keys)
+                )
+                for k, v in zip(node.keys, node.values)
+            )
         )
         if is_read and owner(node) not in _SIGNATURE_READERS:
             out.append(node.lineno)
     return out
+
+
+def test_the_fuzzy_builder_caps_the_signature(repo):
+    """A builder the scan alone vouches for is not enough: the fuzzy path is
+    driven here, so a spelling the scan cannot see still fails a test."""
+    from jcodemunch_mcp.tools.search_symbols import SIGNATURE_MAX_CHARS
+
+    r, s = repo
+    resp = search_symbols(
+        repo=r, query="adwidgetroute", fuzzy=True, fuzzy_threshold=0.2,
+        max_edit_distance=4, detail_level="standard", max_results=5, storage_path=s,
+    )
+    fuzzy = [row for row in resp["results"] if row.get("match_type") == "fuzzy"]
+    long_rows = [row for row in fuzzy if row["name"] == "add_widget_route"]
+    assert long_rows, resp["results"]
+    row = long_rows[0]
+    assert len(row["signature"]) == SIGNATURE_MAX_CHARS
+    assert row["signature_truncated"] is True
 
 
 def test_the_reuse_audit_candidate_keeps_the_flag():
@@ -239,6 +270,12 @@ def test_the_reuse_audit_candidate_keeps_the_flag():
     'def build(sym):\n    s = sym["signature"]\n    return {"signature": s}\n',
     'def build(sym, entry):\n    entry["signature"] = sym["signature"]\n',
     'def build(sym):\n    return {"signature": sym.get("signature", "")}\n',
+    'def build(sym):\n    return {"signature": sym.setdefault("signature", "")}\n',
+    'def build(sym):\n    return {"signature": sym.pop("signature")}\n',
+    'def build(sym):\n    return {"signature": sym.__getitem__("signature")}\n',
+    'def build(sym):\n    return {"signature": itemgetter("signature")(sym)}\n',
+    'def build(sym):\n    return {"id": sym["id"], **sym}\n',
+    'def build(sym):\n    return {**sym}\n',
 ])
 def test_the_ratchet_catches_each_spelling_of_the_defect(spelling):
     assert _signature_reads_outside_the_cap(spelling) == [2]
