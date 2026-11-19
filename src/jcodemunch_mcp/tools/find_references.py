@@ -462,7 +462,7 @@ def find_references(
     else:
         repo_key = f"{owner}/{name}"
         specific_key = (identifier, max_results, include_call_chain)
-        cached = result_cache_get("find_references", repo_key, specific_key)
+        cached = result_cache_get("find_references", repo_key, specific_key, index=index)
         if cached is not None:
             result = dict(cached)
             result["_meta"] = {**cached["_meta"],
@@ -477,7 +477,7 @@ def find_references(
             include_call_chain=include_call_chain,
             store=store,
         )
-        result_cache_put("find_references", repo_key, specific_key, result)
+        result_cache_put("find_references", repo_key, specific_key, result, index=index)
         return _attach_scip_to_response(
             _attach_runtime_to_response(result, store, owner, name),
             store, owner, name,

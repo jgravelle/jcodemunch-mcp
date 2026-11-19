@@ -539,17 +539,20 @@ def get_blast_radius(
     # Check session cache before the expensive BFS + content scans
     repo_key = f"{owner}/{name}"
     specific_key = (symbol, depth, call_depth, bool(cross_repo), include_depth_scores, decorator_filter, include_source, source_budget, include_decisions)
-    cached = result_cache_get("get_blast_radius", repo_key, specific_key)
+    # The index is loaded first: the cache answers only for the load it was
+    # filled from, which is how another process's write reaches it (LEDGER
+    # L-330). A load that is already cached costs a stat of the .db.
+    index = store.load_index(owner, name)
+    if not index:
+        return index_status_to_tool_error(store.inspect_index(owner, name))
+
+    cached = result_cache_get("get_blast_radius", repo_key, specific_key, index=index)
     if cached is not None:
         result = dict(cached)
         result["_meta"] = {**cached.get("_meta", {}),
                            "timing_ms": round((time.perf_counter() - start) * 1000, 1),
                            "cache_hit": True}
         return _attach_scip_to_blast(result, store, owner, name)
-
-    index = store.load_index(owner, name)
-    if not index:
-        return index_status_to_tool_error(store.inspect_index(owner, name))
 
     if index.imports is None:
         return {
@@ -945,5 +948,5 @@ def get_blast_radius(
             getattr(index, "source_root", None), decision_files,
         )
 
-    result_cache_put("get_blast_radius", repo_key, specific_key, result)
+    result_cache_put("get_blast_radius", repo_key, specific_key, result, index=index)
     return _attach_scip_to_blast(result, store, owner, name)

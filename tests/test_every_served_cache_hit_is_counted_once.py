@@ -70,9 +70,12 @@ def test_a_search_symbols_hit_is_a_hit(_indexed):
 
 
 def test_another_tools_unvalidated_hit_is_not_absorbed(_indexed):
-    """The mixed case: `find_references` serves a hit nobody validates, and
-    `search_symbols` a validated one. The unvalidated bucket must hold exactly
-    the former; the clamp at zero used to hide the subtraction."""
+    """The mixed case: `find_references` and `search_symbols` each serve a hit.
+    Each tool's validation must land in its OWN column; the clamp at zero used
+    to hide a subtraction across tools. Until LEDGER L-330 the shared LRU's hit
+    went unvalidated and this test asserted that; it now checks each hit
+    against the caller's index load and counts it fresh, so no hit is left
+    unvalidated and the per-tool columns still sum to the total."""
     for tool, args in (
         ("search_symbols", {"query": "refresh_token"}),
         ("find_references", {"identifier": "refresh_token"}),
@@ -84,8 +87,12 @@ def test_another_tools_unvalidated_hit_is_not_absorbed(_indexed):
     stats = token_tracker.result_cache_stats()
 
     assert stats["total_hits"] == 2, stats
-    assert stats["hits_unvalidated"] == 1, stats
-    assert stats["by_tool"]["find_references"]["hits_unvalidated"] == 1, stats
+    assert stats["hits_unvalidated"] == 0, stats
+    fr = stats["by_tool"]["find_references"]
+    ss = stats["by_tool"]["search_symbols"]
+    assert (fr["hits"], fr["hits_validated_fresh"], fr["hits_unvalidated"]) == (1, 1, 0), stats
+    assert ss["hits_validated_fresh"] + ss["hits_validated_stale"] == 1, stats
+    assert ss["hits_unvalidated"] == 0, stats
     _assert_validated_within_hits(stats)
 
 
