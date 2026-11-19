@@ -171,9 +171,9 @@ def test_each_lookup_stands_alone(R, repo):
 def test_a_lookup_after_a_long_session_costs_what_the_first_did(R, repo):
     """The turn budget is per process and resets only after an idle gap, so a run
     that measures repo after repo without a pause used to carry its warning into
-    every later answer. On the pinned corpora that put 475 tokens on gin and 145
-    on fastapi in the multi-repo benchmark step, which a run of gin alone never
-    saw. A lookup measured after the budget is spent costs what the first did."""
+    every later answer. A repo's count then depended on which repos ran before it
+    (LEDGER L-326). A lookup measured after the budget is spent costs what the
+    first did."""
     from jcodemunch_mcp.tools.turn_budget import get_turn_budget
 
     _served(R)
