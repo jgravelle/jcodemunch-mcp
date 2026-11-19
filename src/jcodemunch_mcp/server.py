@@ -6067,7 +6067,7 @@ async def _handle_route(arguments: dict) -> list[TextContent] | CallToolResult:
             # The routed action failed (isError); surface its content under the
             # route envelope and propagate the error signal rather than list()-ing
             # a non-iterable CallToolResult.
-            return CallToolResult(content=[head, *result.content], isError=getattr(result, "is_error", getattr(result, "is_error", getattr(result, "is_error", False))))
+            return CallToolResult(content=[head, *result.content], isError=getattr(result, "is_error", False))
         return [head] + list(result)
     return [TextContent(type="text", text=json.dumps(payload, separators=(",", ":")))]
 
@@ -6270,7 +6270,7 @@ def _enforce_response_cap(
         size = _response_text_bytes(result)
         if size <= limit:
             return result
-        if getattr(result, "is_error", getattr(result, "is_error", False)):
+        if getattr(result, "is_error", False):
             return result
         logger.warning(
             "response_cap: %s produced %d bytes, over the %d-byte limit", name, size, limit
@@ -6357,7 +6357,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent] | CallToolR
             _bm25_outer_calls[0] += 1
             _outer_counted = True
         result = _enforce_response_cap(name, await _call_tool_impl(name, arguments))
-        _dispatch_ok = not bool(getattr(result, "is_error", getattr(result, "is_error", False)))
+        _dispatch_ok = not bool(getattr(result, "is_error", False))
         _counted_result = result
         return result
     finally:
@@ -6508,7 +6508,7 @@ async def _call_tool_impl(name: str, arguments: dict) -> list[TextContent] | Cal
         # re-enters call_tool for the real action, which then runs those hooks).
         if name in _COUNTER_FRONT_DOOR:
             _front = await _handle_counter_tool(name, arguments)
-            if getattr(_front, "is_error", getattr(_front, "is_error", False)):
+            if getattr(_front, "is_error", False):
                 # A relayed child refusal IS this call's outcome. The relay
                 # itself succeeded, which is exactly why this was missed.
                 _call_ok = False
