@@ -1,6 +1,12 @@
 {
-  "current": "1.108.466",
+  "current": "1.108.467",
   "entries": [
+    {
+      "version": "1.108.467",
+      "date": "2026-11-18",
+      "title": "a compact answer says when a row's code changed since the index read it",
+      "summary": "A compact search or symbol answer now says when the file a row points at was edited after indexing, where before it reached the agent byte for byte the same as an answer about current code. Answers where every row is current keep exactly the bytes they had."
+    },
     {
       "version": "1.108.466",
       "date": "2026-11-18",

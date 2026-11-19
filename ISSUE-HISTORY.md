@@ -3404,3 +3404,9 @@ The 1.108.462 entry, verbatim as it stood in `CLAUDE.md`:
 The 1.108.463 entry, verbatim as it stood in `CLAUDE.md`:
 
 - **Prior (1.108.463):** **a watch-service probe that could not ask reads as unknown, and a renamed function reads as renamed** (#1488, #1489): `service_status()` carries `status`, never read from an exit code alone; `get_changed_symbols._pair_renames` pairs unmatched symbols by kind, parent and name-masked body, unique matches only. Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-18, release 1.108.467)
+
+The 1.108.464 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.464):** **a review capsule names the symbol a renamed function was** (#1492, L-322): `assemble_task_context._CHANGED_ROW_KEYS` keeps `previous_symbol_id` beside `previous_name`. Full text: `CHANGELOG.md`.
