@@ -156,15 +156,17 @@ def check_edit_safe(
     internal_ref_count = 0
     test_ref_count = 0
     try:
-        from .check_references import _check_single, first_match_line, target_span_of  # noqa: PLC0415
-        # (LEDGER L-91) The core check, given the TARGET's span, so only its own
-        # lines are excluded: a same-named method elsewhere that calls the
-        # target is a call site, not "a definition". The list keeps the old
-        # loop's shape (#338: a flat response read as a batch was empty).
-        ref_entries = [_check_single(
+        from . import check_references  # noqa: PLC0415
+        # (LEDGER L-91) The core check, given the TARGET's span: its own lines
+        # are excluded whole, a same-named sibling's only at its declaration,
+        # so a call inside that sibling is a call site, not "a definition".
+        # The list keeps the old loop's shape (#338: a flat response read as a
+        # batch was empty).
+        ref_entries = [check_references._check_single(
             identifier=target_name, index=index, search_content=True,
             max_content_results=20, owner=owner, name=name, store=store,
-            start=time.perf_counter(), target_span=target_span_of(target),
+            start=time.perf_counter(),
+            target_span=check_references.target_span_of(target),
         )]
         for entry in ref_entries:
             for ref in entry.get("content_references", []) or []:
@@ -184,7 +186,7 @@ def check_edit_safe(
                         blockers.append({
                             "kind": "internal_reference",
                             "file": ref_file,
-                            "line": first_match_line(ref),
+                            "line": check_references.first_match_line(ref),
                             "severity": _SEVERITY_INTERNAL_REF,
                             "info": "internal call site that may rely on current behavior",
                         })

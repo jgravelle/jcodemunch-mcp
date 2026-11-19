@@ -211,15 +211,26 @@ def _check_single(
         defining_spans.setdefault(file_path, []).append((lo, max(lo, hi)))
 
     # ⚠⚠ (LEDGER L-91) A caller that knows WHICH symbol it asks about excludes
-    # that symbol's span alone. Hiding every same-named definition hid real
-    # callers: Java `B.file()` calling `new A().file()` was skipped as "a
-    # definition of `file`", and `check_delete_safe` graded the used `A.file`
-    # `safe_to_delete` with zero blockers. The narrower exclusion only ADDS
-    # matches (a sibling's declaration line now counts), so it can hold a
-    # delete back and never licenses one.
+    # that symbol's whole span, and of every other same-named definition only
+    # its DECLARATION line. Hiding each sibling's whole body hid real callers:
+    # Java `B.file()` calling `new A().file()` was skipped as "a definition of
+    # `file`", and `check_delete_safe` graded the used `A.file`
+    # `safe_to_delete` with zero blockers. Hiding nothing of the siblings
+    # counted their declarations as uses instead (a partial class, an
+    # overload's signature, `def show` in another controller) and moved pinned
+    # verdicts. The narrower rule only ADDS matches, so it can hold a delete
+    # back and never licenses one. A sibling with no line no longer hides its
+    # whole file: a call there counts, at the cost of its declaration.
     if target_span is not None:
         t_file, t_lo, t_hi = target_span
-        defining_spans = {t_file: [(t_lo, max(t_lo, t_hi))]}
+        t_hi = max(t_lo, t_hi)
+        narrowed: dict[str, list[tuple[int, int]]] = {t_file: [(t_lo, t_hi)]}
+        for file_path, spans in defining_spans.items():
+            for lo, _hi in spans:
+                if file_path == t_file and lo == t_lo:
+                    continue
+                narrowed.setdefault(file_path, []).append((lo, lo))
+        defining_spans = narrowed
         unspanned_files = set()
 
     content_references = []

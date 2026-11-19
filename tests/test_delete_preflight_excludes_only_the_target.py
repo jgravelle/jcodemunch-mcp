@@ -105,3 +105,38 @@ def test_control_the_public_tool_still_hides_every_same_named_definition(tmp_pat
     got = check_references(repo, identifier="file", storage_path=sp)
     lines = {(f["file"], m["line"]) for f in got.get("content_references", []) for m in f["matches"]}
     assert ("B.java", 3) not in lines, lines
+
+
+def test_a_same_named_siblings_declaration_line_is_not_a_reference(tmp_path):
+    """Of a same-named sibling, only its declaration line is left out: `B.file`'s
+    signature (line 2) is not a use of `A.file`, while the call on line 3 is."""
+    repo, sp = _repo(tmp_path, {"A.java": _A, "B.java": _B})
+    target = _symbol_id(repo, sp, "A.java", "file")
+    got = check_delete_safe(repo, target, storage_path=sp)
+    lines = {(b.get("file"), b.get("line")) for b in got.get("blockers", [])}
+    assert ("B.java", 3) in lines, got.get("blockers")
+    assert ("B.java", 2) not in lines, got.get("blockers")
+
+
+def test_an_unused_method_beside_a_same_named_sibling_stays_deletable(tmp_path):
+    """A sibling that only DECLARES the name blocks nothing: `C.file` is used by
+    no one, and `D.file`'s declaration is not a reference to it."""
+    c = "public class C {\n    public int file() {\n        return 1;\n    }\n}\n"
+    d = "public class D {\n    public int file() {\n        return 2;\n    }\n}\n"
+    repo, sp = _repo(tmp_path, {"C.java": c, "D.java": d})
+    got = check_delete_safe(repo, _symbol_id(repo, sp, "C.java", "file"), storage_path=sp)
+    refs = [b for b in got.get("blockers", []) if b.get("kind") == "internal_reference"]
+    assert not refs, got.get("blockers")
+
+
+def test_a_target_with_no_line_keeps_the_name_wide_exclusion():
+    """`target_span_of` gives None when the symbol carries no usable line, which
+    sends `_check_single` back to excluding every same-named definition, so a
+    line-less target is never counted as a reference to itself."""
+    from jcodemunch_mcp.tools.check_references import target_span_of
+    assert target_span_of({"file": "a.py", "line": None}) is None
+    assert target_span_of({"file": "a.py"}) is None
+    assert target_span_of({"file": "", "line": 3}) is None
+    assert target_span_of({"file": "a.py", "line": "x"}) is None
+    assert target_span_of({"file": "a.py", "line": 5, "end_line": 2}) == ("a.py", 5, 5)
+    assert target_span_of({"file": "a.py", "line": 5, "end_line": 9}) == ("a.py", 5, 9)
