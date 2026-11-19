@@ -151,7 +151,7 @@ async def check_tool_gating(list_tools):
     lang_enum = []
     for t in tools:
         if t.name == "search_symbols":
-            lang_enum = t.inputSchema.get("properties", {}).get("language", {}).get("enum", [])
+            lang_enum = t.input_schema.get("properties", {}).get("language", {}).get("enum", [])
             break
 
     return {

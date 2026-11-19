@@ -144,7 +144,7 @@ class TestOpenWorldHint:
         from jcodemunch_mcp.server import _apply_readonly_annotations, _build_tools_list
         tools = _apply_readonly_annotations(_build_tools_list())
         missing = [t.name for t in tools
-                   if t.annotations is None or t.annotations.openWorldHint is None]
+                   if t.annotations is None or t.annotations.open_world_hint is None]
         assert not missing, f"tools missing openWorldHint: {missing}"
 
     def test_hint_matches_network_set(self):
@@ -157,13 +157,13 @@ class TestOpenWorldHint:
         by_name = {t.name: t for t in tools}
         for name, tool in by_name.items():
             expected = name in _OPEN_WORLD_TOOLS
-            assert tool.annotations.openWorldHint is expected, (
-                f"{name}: openWorldHint={tool.annotations.openWorldHint}, expected {expected}"
+            assert tool.annotations.open_world_hint is expected, (
+                f"{name}: openWorldHint={tool.annotations.open_world_hint}, expected {expected}"
             )
         # Spot-check both directions on tools that must exist.
-        assert by_name["index_repo"].annotations.openWorldHint is True
-        assert by_name["search_symbols"].annotations.openWorldHint is False
-        assert by_name["get_ranked_context"].annotations.openWorldHint is False
+        assert by_name["index_repo"].annotations.open_world_hint is True
+        assert by_name["search_symbols"].annotations.open_world_hint is False
+        assert by_name["get_ranked_context"].annotations.open_world_hint is False
 
 
 class TestWalBound:

@@ -84,8 +84,8 @@ def main(argv: list[str]) -> int:
         from jcodemunch_mcp import server as _server
 
         tools = _server._build_tools_list()
-        out["tools_list_chars"] = len(ser([{"name": x.name, "description": x.description, "inputSchema": x.inputSchema} for x in tools]))
-        out["tools_list_json"] = ser([{"name": x.name, "description": x.description, "inputSchema": x.inputSchema} for x in tools])
+        out["tools_list_chars"] = len(ser([{"name": x.name, "description": x.description, "inputSchema": x.input_schema} for x in tools]))
+        out["tools_list_json"] = ser([{"name": x.name, "description": x.description, "inputSchema": x.input_schema} for x in tools])
     except Exception as e:  # reported, never fatal
         out["tools_list_error"] = f"{type(e).__name__}: {e}"
     if idx["success"] and idx["repo"]:

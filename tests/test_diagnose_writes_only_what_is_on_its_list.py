@@ -106,7 +106,7 @@ def test_a_counter_failure_leaves_the_answer_alone(store, monkeypatch):
 
     monkeypatch.setattr(tool_counters, "record", boom)
     again = _call("list_repos", {})
-    assert not getattr(again, "isError", False)
+    assert not getattr(again, "is_error", False)
     assert json.loads(again[0].text)["count"] == json.loads(plain)["count"]
 
 

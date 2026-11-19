@@ -186,17 +186,33 @@ class TestTheHelperItself:
 class TestTheMcpTransportIsNotAffected:
     """⚠ The reason this fix is safe to apply unconditionally in main().
 
-    The MCP stdio transport wraps `sys.stdout.buffer` in its own TextIOWrapper,
-    so it never reads the text layer reconfigured here. If that ever changes,
-    forcing the text layer could corrupt the JSON-RPC stream, which is why this
-    is asserted rather than remembered.
+    `_force_utf8_stdio()` reconfigures the *text* layer of `sys.stdin`/`sys.stdout`.
+    The MCP stdio transport must therefore never read that layer for the JSON-RPC
+    wire. In `mcp` 1.x it wrapped `sys.stdout.buffer`; in 2.x it claims the file
+    descriptor instead (`_claim_fd(1, ...)`): the wire becomes a private duplicate,
+    fd 1 is diverted to stderr while serving, and the transport builds its own
+    `TextIOWrapper(encoding="utf-8")` over the duplicate. Either way the wire is
+    UTF-8 and independent of the process's locale-configured text layer, which is
+    why forcing that layer stays safe. Asserted, not remembered: if a future SDK
+    routes the wire through `sys.stdout`, this fails before a corrupted stream does.
     """
 
-    def test_stdio_transport_uses_the_binary_layer(self):
+    def test_stdio_transport_owns_the_wire_encoding(self):
         import inspect
         import mcp.server.stdio as stdio_mod
         src = inspect.getsource(stdio_mod)
-        assert "sys.stdout.buffer" in src, (
-            "the MCP stdio transport no longer wraps the binary layer; "
+        assert "_claim_fd(1" in src, (
+            "the MCP stdio transport no longer claims fd 1 for the wire; "
             "re-check whether _force_utf8_stdio can still run for `serve`"
+        )
+        assert 'encoding="utf-8"' in src, (
+            "the transport no longer sets the wire encoding itself, so the "
+            "process's text layer would decide it"
+        )
+        # The writer must target the claimed stream, never sys.stdout.
+        writer = src[src.index("async def stdout_writer"):]
+        writer = writer[: writer.index("async with anyio.create_task_group")]
+        assert "sys.stdout" not in writer, (
+            "the wire writer reaches for sys.stdout, the text layer _force_utf8_stdio "
+            "reconfigures; that would put the JSON-RPC stream on the locale encoding"
         )

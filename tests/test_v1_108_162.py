@@ -205,4 +205,4 @@ class TestRegistration:
         from jcodemunch_mcp import server
         tools = server._build_tools_list()
         t = next(t for t in tools if t.name == "finalize_handoff")
-        assert t.annotations is not None and t.annotations.readOnlyHint is False
+        assert t.annotations is not None and t.annotations.read_only_hint is False

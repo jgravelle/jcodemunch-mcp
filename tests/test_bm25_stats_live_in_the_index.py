@@ -385,7 +385,7 @@ def test_the_call_dispatcher_stores_the_stats_after_the_call(indexed, monkeypatc
         return out
 
     out = asyncio.run(call_then_drain())
-    assert not getattr(out, "isError", False), out
+    assert not getattr(out, "is_error", False), out
     assert _row(db), "the dispatcher did not store the statistics the call computed"
     assert _stats().pending_count() == 0
 

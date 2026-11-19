@@ -17,7 +17,7 @@ from jcodemunch_mcp import counter
 def test_check_embedding_drift_marked_mutating():
     by_name = {t.name: t for t in server._build_tools_list()}
     assert "check_embedding_drift" in by_name
-    assert by_name["check_embedding_drift"].annotations.readOnlyHint is False
+    assert by_name["check_embedding_drift"].annotations.read_only_hint is False
 
 
 def test_check_embedding_drift_not_in_state_changing_actions():

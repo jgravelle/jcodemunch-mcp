@@ -145,7 +145,7 @@ def test_an_alias_is_honored_only_for_its_own_tool():
 async def _call(name, arguments):
     out = await server.call_tool(name, arguments)
     content = out.content if hasattr(out, "content") else out
-    return json.loads(content[0].text), getattr(out, "isError", False)
+    return json.loads(content[0].text), getattr(out, "is_error", False)
 
 
 @pytest.fixture

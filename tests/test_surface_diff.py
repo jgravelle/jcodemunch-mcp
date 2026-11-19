@@ -308,7 +308,7 @@ def test_report_lists_a_parameter_only_change(sd):
 def test_the_snippet_publishes_each_tools_input_schema(sd):
     # main() can compare only what the subprocess prints
     assert "'schemas'" in sd.SNIPPET
-    assert "inputSchema" in sd.SNIPPET
+    assert "input_schema" in sd.SNIPPET
 
 
 def test_schema_diff_reads_a_property_named_description(sd):

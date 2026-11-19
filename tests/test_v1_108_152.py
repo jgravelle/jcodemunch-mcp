@@ -135,7 +135,7 @@ def test_list_resources_advertises_identity():
     resources = asyncio.run(list_resources())
     assert len(resources) == 1
     assert str(resources[0].uri) == runtime_identity.IDENTITY_URI
-    assert resources[0].mimeType == "application/json"
+    assert resources[0].mime_type == "application/json"
 
 
 def test_read_resource_returns_identity_json():

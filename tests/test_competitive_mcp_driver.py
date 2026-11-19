@@ -44,7 +44,7 @@ for line in sys.stdin:
     if m["method"] == "initialize":
         r = {"protocolVersion": "2025-06-18", "capabilities": {}, "serverInfo": {"name": "stub", "version": "0"}}
     elif m["method"] == "tools/list":
-        r = {"tools": [{"name": "echo", "description": "echo", "inputSchema": {"type": "object"}}]}
+        r = {"tools": [{"name": "echo", "description": "echo", "input_schema": {"type": "object"}}]}
     elif m["method"] == "tools/call":
         sys.stderr.write(NOISE)
         sys.stderr.flush()
@@ -86,7 +86,7 @@ def test_the_driver_records_the_tail_and_the_calls_through_main(tmp_path):
     rc = mcp_driver.main(["mcp_driver.py", str(out), str(calls), "--", *_stub(tmp_path)])
     d = json.loads(out.read_text(encoding="utf-8"))
     assert rc == 0 and d["error"] is None
-    assert d["tool_names"] == ["echo"] and json.loads(d["tools_list_json"])[0]["inputSchema"] == {"type": "object"}
+    assert d["tool_names"] == ["echo"] and json.loads(d["tools_list_json"])[0]["input_schema"] == {"type": "object"}
     assert d["calls"][0]["result_text"] == 'answer:{"q": 1}' and d["calls"][0]["timed_out"] is False
     assert 0 < len(d["stderr_tail"]) <= 2000
 

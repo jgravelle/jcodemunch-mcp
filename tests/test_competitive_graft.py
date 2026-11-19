@@ -105,7 +105,7 @@ def test_the_index_report_reads_the_build_wall_and_its_parsed_line(tmp_path):
 def test_the_captured_tools_list_is_the_six_documented_tools():
     tl = json.loads(FIX["tools_list_json"])
     assert {t["name"] for t in tl} == {"graft_find_code", "graft_file_api", "graft_check_freshness", "graft_trace_calls", "graft_find_all", "graft_repo_map"}
-    assert {"name", "description", "inputSchema"} == set(tl[0]) and FIX["server_info"] == {"name": "graft", "version": "0.16.0"}
+    assert {"name", "description", "input_schema"} == set(tl[0]) and FIX["server_info"] == {"name": "graft", "version": "0.16.0"}
 
 
 def test_a_competitor_refuses_the_none_sandbox_and_the_lockfile_pins_the_named_integrity():

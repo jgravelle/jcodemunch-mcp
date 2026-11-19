@@ -41,7 +41,7 @@ SNIPPET = (
     "ts=server._build_tools_list(profile_override='full', surface_override='full');"
     "print(json.dumps({'names': sorted(t.name for t in ts), "
     "'descriptions': {t.name: t.description for t in ts}, "
-    "'schemas': {t.name: t.inputSchema or {} for t in ts}}))"
+    "'schemas': {t.name: t.input_schema or {} for t in ts}}))"
 )
 
 

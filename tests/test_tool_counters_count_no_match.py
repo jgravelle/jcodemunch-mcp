@@ -155,7 +155,7 @@ def test_a_refused_answer_is_not_a_no_match(store, repo, monkeypatch):
 
     monkeypatch.setattr(server, "_enforce_response_cap", lambda name, result: server._error_call_result("refused"))
     _search_raw = asyncio.run(server.call_tool("search_symbols", {"repo": repo, "query": ABSENT, "format": "json"}))
-    assert getattr(_search_raw, "isError", False)
+    assert getattr(_search_raw, "is_error", False)
     assert _counters(store)["tools"]["search_symbols"]["no_match"] == 0
 
 

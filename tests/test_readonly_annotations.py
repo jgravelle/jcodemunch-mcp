@@ -37,7 +37,7 @@ def test_every_tool_has_a_readonly_hint():
     missing = [
         t.name
         for t in tools
-        if t.annotations is None or t.annotations.readOnlyHint is None
+        if t.annotations is None or t.annotations.read_only_hint is None
     ]
     assert not missing, f"tools missing readOnlyHint: {missing}"
 
@@ -49,8 +49,8 @@ def test_readonly_hint_matches_write_set():
     tools = server._build_tools_list()
     for tool in tools:
         expected_readonly = tool.name not in server._NON_READONLY_TOOLS
-        assert tool.annotations.readOnlyHint is expected_readonly, (
-            f"{tool.name}: readOnlyHint={tool.annotations.readOnlyHint} "
+        assert tool.annotations.read_only_hint is expected_readonly, (
+            f"{tool.name}: readOnlyHint={tool.annotations.read_only_hint} "
             f"but expected {expected_readonly}"
         )
 
@@ -62,7 +62,7 @@ def test_representative_read_and_write_tools():
 
     for read_tool in ("get_symbol_source", "search_symbols", "search_text", "plan_turn"):
         assert read_tool in by_name, f"{read_tool} unexpectedly absent"
-        assert by_name[read_tool].annotations.readOnlyHint is True, (
+        assert by_name[read_tool].annotations.read_only_hint is True, (
             f"{read_tool} should be read-only"
         )
 
@@ -74,7 +74,7 @@ def test_representative_read_and_write_tools():
         "set_tool_tier", "check_embedding_drift",
     ):
         assert write_tool in by_name, f"{write_tool} unexpectedly absent"
-        assert by_name[write_tool].annotations.readOnlyHint is False, (
+        assert by_name[write_tool].annotations.read_only_hint is False, (
             f"{write_tool} should be marked mutating"
         )
 

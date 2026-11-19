@@ -100,7 +100,7 @@ def test_the_telemetry_row_is_derived_from_the_returned_result(module):
         "call_tool no longer records the latency row. It was moved here from "
         "_call_tool_impl because only this frame sees the capped result (#551)."
     )
-    assert re.search(r"isError", src), (
+    assert re.search(r"is_error", src), (
         "call_tool no longer derives the outcome from the returned result's isError"
     )
     impl = ast.unparse(_function(module, "_call_tool_impl"))

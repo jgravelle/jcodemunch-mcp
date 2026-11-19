@@ -60,7 +60,7 @@ _CFG_KEYS = ("tool_profile", "compact_schemas", "tool_surface")
 
 def _tools_to_serialized(tools) -> str:
     payload = [
-        {"name": t.name, "description": t.description, "inputSchema": t.inputSchema}
+        {"name": t.name, "description": t.description, "inputSchema": t.input_schema}
         for t in tools
     ]
     return json.dumps(payload, separators=(",", ":"))
@@ -138,7 +138,7 @@ def breakdown() -> None:
             names = sum(_count_tokens(t.name, encoding) for t in tools)
             descs = sum(_count_tokens(t.description or "", encoding) for t in tools)
             schemas = sum(
-                _count_tokens(json.dumps(t.inputSchema, separators=(",", ":")), encoding)
+                _count_tokens(json.dumps(t.input_schema, separators=(",", ":")), encoding)
                 for t in tools
             )
             total = names + descs + schemas
@@ -150,7 +150,7 @@ def breakdown() -> None:
         per_tool = {
             t.name: _count_tokens(
                 json.dumps(
-                    {"name": t.name, "description": t.description, "inputSchema": t.inputSchema},
+                    {"name": t.name, "description": t.description, "inputSchema": t.input_schema},
                     separators=(",", ":"),
                 ),
                 encoding,

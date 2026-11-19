@@ -108,25 +108,44 @@ async def _tier_calls(url: str, headers: dict[str, str]) -> list[tuple[str, dict
     """The issue's steps 3-4: two concurrent sessions, the same headers on both."""
     log: list[tuple[str, dict]] = []
 
+    def session_ids(client) -> list[str]:
+        """Collect `Mcp-Session-Id` from the response headers.
+
+        `streamable_http_client` stopped handing back a session-id getter in
+        `mcp` 2.x, but the transport still mints one per session over the
+        handshake era, and the header is where it arrives.
+        """
+        seen: list[str] = []
+
+        async def hook(response):
+            value = response.headers.get("mcp-session-id")
+            if value and value not in seen:
+                seen.append(value)
+
+        client.event_hooks["response"].append(hook)
+        return seen
+
     async def call(session: ClientSession, name: str, tier: str) -> None:
         result = await session.call_tool("set_tool_tier", {"tier": tier})
         assert not result.is_error, result
-        data = result.structuredContent
+        data = result.structured_content
         if data is None:
             data = json.loads(result.content[0].text)
         log.append((name, data))
 
     async with create_mcp_http_client(headers=headers) as ca, streamable_http_client(
         url, http_client=ca
-    ) as (ra, wa, sid_a):
+    ) as (ra, wa):
+        sid_a = session_ids(ca)
         async with ClientSession(ra, wa) as a:
             await a.initialize()
             async with create_mcp_http_client(headers=headers) as cb, streamable_http_client(
                 url, http_client=cb
-            ) as (rb, wb, sid_b):
+            ) as (rb, wb):
+                sid_b = session_ids(cb)
                 async with ClientSession(rb, wb) as b:
                     await b.initialize()
-                    assert sid_a() and sid_b() and sid_a() != sid_b()
+                    assert sid_a and sid_b and sid_a != sid_b
                     await call(a, "A", "core")
                     await call(b, "B", "full")
     return log

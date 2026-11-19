@@ -113,7 +113,7 @@ class TestCapBehaviour:
         monkeypatch.setitem(c._GLOBAL_CONFIG, "response_max_bytes", 150)
         text = "é" * 100  # 100 chars, 200 UTF-8 bytes
         out = S._enforce_response_cap("t", _result(text))
-        assert getattr(out, "isError", False), "measured characters instead of bytes"
+        assert getattr(out, "is_error", False), "measured characters instead of bytes"
         assert _body(out)["response_bytes"] == 200
 
     def test_sums_across_multiple_content_items(self, monkeypatch):
@@ -217,7 +217,7 @@ class TestEndToEndThroughCallTool:
         from jcodemunch_mcp import config as c
         monkeypatch.setitem(c._GLOBAL_CONFIG, "response_max_bytes", 200)
         out = await S.call_tool("menu", {"query": "search"})
-        assert getattr(out, "isError", False), "cap did not fire through call_tool"
+        assert getattr(out, "is_error", False), "cap did not fire through call_tool"
         b = _body(out)
         assert b["response_max_bytes"] == 200
         assert b["response_bytes"] > 200
@@ -228,5 +228,5 @@ class TestEndToEndThroughCallTool:
         from jcodemunch_mcp import config as c
         monkeypatch.setitem(c._GLOBAL_CONFIG, "response_max_bytes", 10_000_000)
         out = await S.call_tool("menu", {"query": "search"})
-        assert not getattr(out, "isError", False)
+        assert not getattr(out, "is_error", False)
         assert "Response too large" not in getattr(out, "content", out)[0].text

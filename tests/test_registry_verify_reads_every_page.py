@@ -1,7 +1,7 @@
 """The registry verify reads every page, and a row it cannot read is not an answer (LEDGER L-99, L-98).
 
 The registry returns `limit` rows a page, ordered by version string, with
-`metadata.nextCursor` naming the next page. `scripts/registry_verify.py` read
+`metadata.next_cursor` naming the next page. `scripts/registry_verify.py` read
 one page of 100 and followed no cursor: 66 rows on 2026-10-01, one more per
 release, so past the page size the latest row can be on a page nobody asked
 for and a good publish reads "none marked isLatest".

@@ -55,7 +55,7 @@ def test_schema_tokens_within_baseline_tolerance():
                 cfg["compact_schemas"] = compact
                 tools = _build_tools_list()
                 payload = [
-                    {"name": t.name, "description": t.description, "inputSchema": t.input_schema}
+                    {"name": t.name, "description": t.description, "input_schema": t.input_schema}
                     for t in tools
                 ]
                 text = json.dumps(payload, separators=(",", ":"))
@@ -115,7 +115,7 @@ def test_counter_surface_within_baseline_tolerance():
             cfg["compact_schemas"] = compact
             tools = _build_tools_list()
             payload = [
-                {"name": t.name, "description": t.description, "inputSchema": t.input_schema}
+                {"name": t.name, "description": t.description, "input_schema": t.input_schema}
                 for t in tools
             ]
             count = len(encoding.encode(json.dumps(payload, separators=(",", ":"))))
@@ -213,7 +213,7 @@ def test_live_core_compact_under_4000_hard_ceiling():
         cfg["compact_schemas"] = True
         tools = _build_tools_list()
         payload = [
-            {"name": t.name, "description": t.description, "inputSchema": t.input_schema}
+            {"name": t.name, "description": t.description, "input_schema": t.input_schema}
             for t in tools
         ]
         count = len(encoding.encode(json.dumps(payload, separators=(",", ":"))))
