@@ -66,6 +66,51 @@ def test_a_comment_inside_a_python_base_list_keeps_the_bases(signature, language
     assert _parse_bases(signature, language) == expected
 
 
+@pytest.mark.parametrize(
+    ("signature", "language", "expected"),
+    [
+        # A `//` or `#` inside a single-quoted string is not a comment
+        # (review of the first L-261 fix: each kept its base on origin/main).
+        ("@Get('//x') class C extends B", "typescript", ["B"]),
+        ("@Component({selector: 'a', template: '<a href=//x>'}) class D extends B", "typescript", ["B"]),
+        ("#[Route('http://x')] class A extends B", "php", ["B"]),
+        ("#[Attr('#')] class A extends B", "php", ["B"]),
+        ("class A(B, tag='#')", "python", ["B"]),
+        ("class A(B, Literal['#'])", "python", ["B"]),
+        ("class A(B, tag='x#y', C)", "python", ["B", "C"]),
+        ("class A(B, tag='#'):  # c", None, ["B"]),
+        ("@Ann('//x') public class A extends B // c", "java", ["B"]),
+    ],
+)
+def test_a_comment_marker_inside_a_single_quoted_string_is_kept(signature, language, expected):
+    assert _parse_bases(signature, language) == expected
+
+
+@pytest.mark.parametrize(
+    "signature",
+    [
+        "class A extends B /* not implements X */ {",
+        "class A extends B // c\n    implements X {",
+    ],
+)
+def test_the_call_graph_reads_the_base_past_a_comment(signature):
+    """`constructors_as_their_classes` cut `implements` off the raw text, so a
+    comment naming the word ended the base list (review of the L-261 fix)."""
+    from jcodemunch_mcp.tools._call_graph import constructors_as_their_classes
+
+    symbols = [
+        {"id": "m.ts::B#class", "kind": "class", "name": "B", "file": "m.ts",
+         "language": "typescript", "signature": "class B {"},
+        {"id": "m.ts::B.constructor#method", "kind": "method", "name": "constructor",
+         "file": "m.ts", "language": "typescript", "parent": "m.ts::B#class"},
+        {"id": "m.ts::A#class", "kind": "class", "name": "A", "file": "m.ts",
+         "language": "typescript", "signature": signature},
+    ]
+    rows = constructors_as_their_classes(symbols, {})
+    # B's constructor runs when A is created: one row for B, one for A.
+    assert {row["name"] for row in rows if row["id"] == "m.ts::B.constructor#method"} == {"A", "B"}
+
+
 def test_a_signature_without_a_comment_is_unchanged():
     assert _parse_bases("class A extends B implements C, D {", "java") == ["B", "C", "D"]
     assert _parse_bases("class A extends B<T> with M {", "dart") == ["B", "M"]

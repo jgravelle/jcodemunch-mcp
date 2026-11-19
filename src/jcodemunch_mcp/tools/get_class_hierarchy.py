@@ -37,10 +37,26 @@ _DECL_HEAD_RE = re.compile(
 # line in a language where `#` starts a comment. A double-quoted string is matched
 # first and kept, so `//` inside an annotation argument (`[Url("http://a")]`) is
 # not a comment.
-_SLASH_COMMENT_RE = re.compile(r'("(?:\\.|[^"\\\n])*")|/\*.*?\*/|//[^\n]*', re.DOTALL)
-_HASH_COMMENT_RE = re.compile(r'("(?:\\.|[^"\\\n])*")|/\*.*?\*/|//[^\n]*|#[^\n]*', re.DOTALL)
+_DQ = r'"(?:\\.|[^"\\\n])*"'
+# A single-quoted string or character literal is kept too, where `'` opens one
+# (`@Get('//x')`, `#[Route('http://x')]`, `class A(B, tag='#')`). Not in Rust,
+# F#, OCaml, Haskell or a Lisp, where a lone `'` is a lifetime, a type variable
+# or a quote, so pairing two of them would keep a real comment.
+_SQ = r"'(?:\\.|[^'\\\n])*'"
+_SLASH_TAIL = r'|/\*.*?\*/|//[^\n]*'
+_SLASH_COMMENT_RE = re.compile('(' + _DQ + ')' + _SLASH_TAIL, re.DOTALL)
+_HASH_COMMENT_RE = re.compile('(' + _DQ + ')' + _SLASH_TAIL + r'|#[^\n]*', re.DOTALL)
+_SLASH_COMMENT_SQ_RE = re.compile('(' + _DQ + '|' + _SQ + ')' + _SLASH_TAIL, re.DOTALL)
+_HASH_COMMENT_SQ_RE = re.compile('(' + _DQ + '|' + _SQ + ')' + _SLASH_TAIL + r'|#[^\n]*', re.DOTALL)
 # PHP: `#` starts a comment, but `#[` opens a PHP 8 attribute (`#[Attr] class A`).
-_PHP_COMMENT_RE = re.compile(r'("(?:\\.|[^"\\\n])*")|/\*.*?\*/|//[^\n]*|#(?!\[)[^\n]*', re.DOTALL)
+_PHP_COMMENT_RE = re.compile('(' + _DQ + '|' + _SQ + ')' + _SLASH_TAIL + r'|#(?!\[)[^\n]*', re.DOTALL)
+_SINGLE_QUOTE_STRING_LANGUAGES = frozenset({
+    "python", "ruby", "nim", "gdscript", "elixir", "julia", "r", "perl",
+    "powershell", "bash", "javascript", "typescript", "tsx", "jsx", "vue",
+    "svelte", "dart", "java", "kotlin", "scala", "groovy", "csharp", "c",
+    "cpp", "arduino", "objc", "swift", "go", "lua", "luau", "apex", "solidity",
+    "dlang", "pascal",
+})
 # Languages where `#` starts a comment. In C#, Kotlin, Swift, C++ and Rust it does
 # not (`[Sep('#')]`, `#[derive]`, `#if`), so there it is left alone.
 _HASH_COMMENT_LANGUAGES = frozenset({
@@ -56,12 +72,13 @@ def _strip_comments(text: str, language: Optional[str] = None) -> str:
     unknown (an unlabelled Python `class X:` signature carries its comment lines).
     """
     lang = (language or "").lower()
+    single = not lang or lang in _SINGLE_QUOTE_STRING_LANGUAGES
     if lang == "php":
         pattern = _PHP_COMMENT_RE
     elif not lang or lang in _HASH_COMMENT_LANGUAGES:
-        pattern = _HASH_COMMENT_RE
+        pattern = _HASH_COMMENT_SQ_RE if single else _HASH_COMMENT_RE
     else:
-        pattern = _SLASH_COMMENT_RE
+        pattern = _SLASH_COMMENT_SQ_RE if single else _SLASH_COMMENT_RE
     return pattern.sub(lambda m: m.group(1) or " ", text)
 # Languages whose `:` after the head opens a block, never a base list.
 _BLOCK_COLON_LANGUAGES = frozenset({"python"})
