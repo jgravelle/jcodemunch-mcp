@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+### Fixed - a comment after a base list no longer hides the base
+
+`get_class_hierarchy`, `find_implementations` and the call graph read a class's bases from its signature. The `extends` and `implements` patterns ran on the signature with its comments still in it, so the list never reached its end anchor: `class A extends B // c` in PHP, TypeScript, JavaScript, Java, Dart or Scala, `class A extends B # c` in PHP, and `class A extends B /* c */` all answered with no base, and the class vanished from its parent's subtree. #1284 had removed comments for the `:` and Ruby `<` branches only. Python's parenthesised branch had the same defect inside a multi-line list: in `class A(\n B,  # one\n C,\n):` the comment swallowed `C`.
+
+Every branch now reads the signature with its comments removed, through the one comment rule the `:` branch already used. PHP gets its own spelling of that rule, because `#` starts a PHP comment while `#[` opens a PHP 8 attribute (`#[Attr] class A extends B` keeps its base). Found in review of the #1284 fix (LEDGER L-261).
+
 ## [1.108.467] - 2026-11-18 - a compact answer says when a row's code changed since the index read it
 
 ### Fixed - a compact answer says when a row's code changed since the index read it

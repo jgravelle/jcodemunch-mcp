@@ -39,6 +39,8 @@ _DECL_HEAD_RE = re.compile(
 # not a comment.
 _SLASH_COMMENT_RE = re.compile(r'("(?:\\.|[^"\\\n])*")|/\*.*?\*/|//[^\n]*', re.DOTALL)
 _HASH_COMMENT_RE = re.compile(r'("(?:\\.|[^"\\\n])*")|/\*.*?\*/|//[^\n]*|#[^\n]*', re.DOTALL)
+# PHP: `#` starts a comment, but `#[` opens a PHP 8 attribute (`#[Attr] class A`).
+_PHP_COMMENT_RE = re.compile(r'("(?:\\.|[^"\\\n])*")|/\*.*?\*/|//[^\n]*|#(?!\[)[^\n]*', re.DOTALL)
 # Languages where `#` starts a comment. In C#, Kotlin, Swift, C++ and Rust it does
 # not (`[Sep('#')]`, `#[derive]`, `#if`), so there it is left alone.
 _HASH_COMMENT_LANGUAGES = frozenset({
@@ -54,7 +56,12 @@ def _strip_comments(text: str, language: Optional[str] = None) -> str:
     unknown (an unlabelled Python `class X:` signature carries its comment lines).
     """
     lang = (language or "").lower()
-    pattern = _HASH_COMMENT_RE if not lang or lang in _HASH_COMMENT_LANGUAGES else _SLASH_COMMENT_RE
+    if lang == "php":
+        pattern = _PHP_COMMENT_RE
+    elif not lang or lang in _HASH_COMMENT_LANGUAGES:
+        pattern = _HASH_COMMENT_RE
+    else:
+        pattern = _SLASH_COMMENT_RE
     return pattern.sub(lambda m: m.group(1) or " ", text)
 # Languages whose `:` after the head opens a block, never a base list.
 _BLOCK_COLON_LANGUAGES = frozenset({"python"})
@@ -217,7 +224,9 @@ def _parse_bases(signature: str, language: Optional[str] = None) -> list[str]:
     class body, and the stored signature can carry the comment lines under it.
     """
     bases: list[str] = []
-    flat = _strip_type_args(signature)
+    # Comments go first: a trailing `// c` kept the `extends` list from reaching
+    # its end anchor, so the base was dropped (L-261; #1284 fixed the `:` branch).
+    flat = _strip_type_args(_strip_comments(signature, language))
 
     # extends Foo, Bar   (Scala/Dart: extends Foo with Bar)
     m = _EXTENDS_RE.search(flat)
@@ -229,9 +238,10 @@ def _parse_bases(signature: str, language: Optional[str] = None) -> list[str]:
     if m:
         bases += [n.strip() for n in m.group(1).split(",") if n.strip()]
 
-    # class Foo(Bar, Baz)  - Python
+    # class Foo(Bar, Baz)  - Python; a `# ...` inside a multi-line base list
+    # (or a `(` in that comment) must not hide the bases after it
     if not bases:
-        m = _PAREN_BASES_RE.search(signature)
+        m = _PAREN_BASES_RE.search(_strip_comments(signature, language))
         if m:
             candidates = [n.strip() for n in m.group(1).split(",") if n.strip()]
             # Filter out obviously non-class args (e.g. Generic[T], *args)
