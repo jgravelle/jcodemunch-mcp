@@ -27,6 +27,20 @@ import sys
 import tempfile
 
 
+def _field(obj, *names):
+    """Read the first name this SDK major actually has on the model.
+
+    `mcp` 2.x renamed the model attributes to snake_case while the wire kept
+    camelCase, so a probe that hardcodes one spelling cannot read the other era.
+    """
+    for name in names:
+        try:
+            return getattr(obj, name)
+        except AttributeError:
+            continue
+    raise AttributeError(f"none of {names} on {type(obj).__name__}")
+
+
 async def probe(command: str, timeout: float, fixture: str | None = None) -> dict:
     from mcp import ClientSession, StdioServerParameters
     from mcp.client.stdio import stdio_client
@@ -51,13 +65,17 @@ async def probe(command: str, timeout: float, fixture: str | None = None) -> dic
             fixture_result = None
             if fixture:
                 fixture_result = await _exercise_fixture(session, fixture, timeout)
+    # The two SDK majors spell these differently on the model (`mcp` 2.x moved to
+    # snake_case; the JSON names on the wire did not move). The probe is run against
+    # a built wheel, so it must read whichever era it installed.
+    info = _field(init, "server_info", "serverInfo")
     return {
         "serverInfo": {
-            "name": init.serverInfo.name,
-            "version": init.serverInfo.version,
+            "name": info.name,
+            "version": info.version,
         },
         "instructions": init.instructions or "",
-        "protocolVersion": init.protocolVersion,
+        "protocolVersion": _field(init, "protocol_version", "protocolVersion"),
         "tool_count": len(tools.tools),
         "fixture": fixture_result,
     }
