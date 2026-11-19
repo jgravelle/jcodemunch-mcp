@@ -43,18 +43,19 @@ _DQ = r'"(?:\\.|[^"\\\n])*"'
 # language listed below, or an unknown one; any other labelled language keeps
 # the double-quote rule alone. Not in Rust, F#, OCaml, Haskell, Verilog or a
 # Lisp, where a lone `'` is a lifetime, a type variable, a width or a quote, so
-# pairing two of them would keep a real comment. A `'` right after a digit opens
-# nothing either: it is a C++14 digit separator (`B<1'000>`), and in C, C++ and
-# Objective-C a hex digit counts too (`0xFF'FF`).
-_SQ = r"(?<![0-9])'(?:\\.|[^'\\\n])*'"
-_SQ_C = r"(?<![0-9A-Fa-f])'(?:\\.|[^'\\\n])*'"
+# pairing two of them would keep a real comment. In C, C++ and Objective-C a
+# number literal is read as one token first, so a C++14 digit separator inside it
+# (`B<1'000>`, `0xFF'FF`) never opens a string, while a character literal with an
+# encoding prefix (`u8'x'`, `L'x'`) still does.
+_SQ = r"'(?:\\.|[^'\\\n])*'"
+_C_NUMBER = r"\b[0-9](?:[0-9A-Za-z_.]|'(?=[0-9A-Za-z_]))*"
 _SLASH_TAIL = r'|/\*.*?\*/|//[^\n]*'
 _SLASH_COMMENT_RE = re.compile('(' + _DQ + ')' + _SLASH_TAIL, re.DOTALL)
 _HASH_COMMENT_RE = re.compile('(' + _DQ + ')' + _SLASH_TAIL + r'|#[^\n]*', re.DOTALL)
 _SLASH_COMMENT_SQ_RE = re.compile('(' + _DQ + '|' + _SQ + ')' + _SLASH_TAIL, re.DOTALL)
 _HASH_COMMENT_SQ_RE = re.compile('(' + _DQ + '|' + _SQ + ')' + _SLASH_TAIL + r'|#[^\n]*', re.DOTALL)
 # PHP: `#` starts a comment, but `#[` opens a PHP 8 attribute (`#[Attr] class A`).
-_SLASH_COMMENT_SQ_C_RE = re.compile('(' + _DQ + '|' + _SQ_C + ')' + _SLASH_TAIL, re.DOTALL)
+_SLASH_COMMENT_SQ_C_RE = re.compile('(' + _C_NUMBER + '|' + _DQ + '|' + _SQ + ')' + _SLASH_TAIL, re.DOTALL)
 _PHP_COMMENT_RE = re.compile('(' + _DQ + '|' + _SQ + ')' + _SLASH_TAIL + r'|#(?!\[)[^\n]*', re.DOTALL)
 _C_FAMILY_LANGUAGES = frozenset({"c", "cpp", "arduino", "objc"})
 _SINGLE_QUOTE_STRING_LANGUAGES = frozenset({

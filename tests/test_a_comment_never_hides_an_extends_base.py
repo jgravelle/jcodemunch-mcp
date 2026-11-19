@@ -121,8 +121,15 @@ def test_the_call_graph_reads_the_base_past_a_comment(signature):
         ("class E : public B<1'0>, /* it's */ public C", ["B", "C"]),
         ("class A : public B<1'000> // , public X 'y", ["B"]),
         ("class A : public B<0xFF'FF>, /* it's */ public C", ["B", "C"]),
-        # A character literal is still a literal.
+        ("class A : public B<0b1010'1010>, /* it's */ public C", ["B", "C"]),
+        ("class A : public B<1'000'000.5>, /* it's */ public C", ["B", "C"]),
+        # A character literal is still a literal, with or without an encoding
+        # prefix (review round 3: `u8'x'` paired its closing quote with a comment).
         ("class A : public B<'/'>, public C // c", ["B", "C"]),
+        ("class A : public B<u8'x'> // don't, public Evil", ["B"]),
+        ("class A : public B<u8'x'>, /* it's */ public C", ["B", "C"]),
+        ("class A : public B<L'x'>, /* it's */ public C", ["B", "C"]),
+        ("class A : public B<u8'/'>, public C // c", ["B", "C"]),
     ],
 )
 def test_a_cpp_digit_separator_opens_no_string(signature, expected):
