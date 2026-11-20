@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+## [1.108.474] - 2026-11-20 - get_call_hierarchy with no depth returns the direct callers and callees
+
+### Fixed - `get_call_hierarchy` with no `depth` returns the direct callers and callees, not three hops
+
+The default was three hops in both directions, so an agent asking "who calls this function" without naming a depth paid for every row two hops further out. Measured on this repository's own index: one default call for a small helper returned 20,494 tokens, 176 of its 194 caller rows at depth 3; with one hop, its six direct callers and the reply around them came to 899 tokens. For `resolve_repo` the default call returned 499,342 tokens, larger than most context windows, and 12,656 with one hop. The direct rows are the answer to the question the tool's description opens with.
+
+The default is now one hop, in the published schema, in the server's dispatch and in the Python function, and a test pins all three to the same value. A deeper walk is `depth=2` to `5`, unchanged, and the reply still states the `depth` it used. Callers that pass `depth` get the same answer as before; `assemble_task_context` passes it and is unaffected. A reply with no `depth` now counts direct rows only in `caller_count` and `callee_count`; the reply's `depth: 1` says so. The trace guide prompt no longer asks for three hops. The schema text grows by 7 tokens on the `standard` and `full` profiles (`benchmarks/schema_baseline.json`); `core` does not carry this tool.
+
 ## [1.108.473] - 2026-11-20 - an annotation that spells the target's name no longer makes a same-named declaration count as a use
 
 ### Fixed - an annotation that spells the target's name no longer makes a same-named declaration count as a use
