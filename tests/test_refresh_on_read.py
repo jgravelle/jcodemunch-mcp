@@ -11,6 +11,7 @@ per repository per cooldown.
 
 from __future__ import annotations
 
+import types
 import json
 import re
 import subprocess
@@ -472,15 +473,16 @@ async def test_an_answer_cached_after_the_workers_eviction_does_not_survive(
     monkeypatch.setattr(ror, "refresh_before_read", lambda *a, **k: ror._in_progress(1))
     owner, name = repo.split("/", 1)
     key = ("helper",)
+    _IDX = types.SimpleNamespace()  # stand-in load identity (L-330)
     order = []
 
     def tool_reads_then_worker_commits_then_tool_caches(**kw):
-        assert result_cache_get("find_references", repo, key) is None
+        assert result_cache_get("find_references", repo, key, index=_IDX) is None
         order.append("tool read the old index")
         sqlite_store._evict_result_cache(owner, name)  # the worker's commit
         order.append("worker committed and evicted")
         stale = {"references": [{"file": "old.py"}], "total": 1}
-        result_cache_put("find_references", repo, key, stale)
+        result_cache_put("find_references", repo, key, stale, index=_IDX)
         order.append("tool cached its answer")
         return stale
 
@@ -493,7 +495,7 @@ async def test_an_answer_cached_after_the_workers_eviction_does_not_survive(
         "worker committed and evicted",
         "tool cached its answer",
     ]
-    assert result_cache_get("find_references", repo, key) is None, (
+    assert result_cache_get("find_references", repo, key, index=_IDX) is None, (
         "an answer computed from the pre-write index survived the write's eviction"
     )
 

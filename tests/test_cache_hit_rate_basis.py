@@ -12,11 +12,16 @@ of **51-60%** fell to quality-adjusted rates of **1.1-2.2%** once validity was
 checked. Publishing the raw number as a performance result is the defect that
 paper names, and `analyze_perf` published exactly that number bare.
 
-⚠⚠ **Three buckets, not two.** Of the three result-cache consumers only
-`search_symbols` revalidates against `subject_state`; `find_references` and
-`get_blast_radius` serve cached entries with no check at all. So a hit nobody
-validated is UNKNOWN -- it is reported in its own bucket and never folded into
-fresh or stale, the same rule `ledger_trust` applies to unseparable ledger rows.
+⚠⚠ **Three buckets, not two.** `search_symbols` revalidates its private
+cache against `subject_state` and reports each check; the shared LRU
+(`find_references`, `get_blast_radius`) checks every hit against the caller's
+index load inside `cache_get` and counts it fresh there (LEDGER L-330; until
+then it served hits with no check at all, and this file asserted that). A hit
+nobody validated is UNKNOWN -- it is reported in its own bucket and never
+folded into fresh or stale, the same rule `ledger_trust` applies to
+unseparable ledger rows. A private-cache hit reported without a check is that
+case, so the tests below build it with `cache_lookup_recorded`, the call a
+private cache makes.
 
 ⚠ The raw rate is deliberately KEPT. It answers a real question, and replacing
 it would trade one misleading number for another. What changes is that it now
@@ -25,9 +30,14 @@ carries a basis label and cannot be read alone.
 
 from __future__ import annotations
 
+import types
 import pytest
 
 from jcodemunch_mcp.storage import token_tracker as tt
+
+# The shared cache answers only for the index load it was filled from
+# (LEDGER L-330); one stable stand-in object plays that index here.
+_IDX = types.SimpleNamespace()
 
 
 @pytest.fixture
@@ -39,14 +49,14 @@ def state(monkeypatch):
 
 
 def _fill(state, tool="search_symbols", repo="o/r", key=("q",)):
-    state.cache_put(tool, repo, key, {"results": []})
+    state.cache_put(tool, repo, key, {"results": []}, index=_IDX)
 
 
 def test_raw_rate_still_measures_key_presence(state):
     """The raw number is not the thing being removed."""
     _fill(state)
-    state.cache_get("search_symbols", "o/r", ("q",))
-    state.cache_get("search_symbols", "o/r", ("absent",))
+    state.cache_get("search_symbols", "o/r", ("q",), index=_IDX)
+    state.cache_get("search_symbols", "o/r", ("absent",), index=_IDX)
 
     stats = state.cache_stats()
     assert stats["hit_rate"] == 0.5
@@ -55,9 +65,8 @@ def test_raw_rate_still_measures_key_presence(state):
 
 def test_unvalidated_hits_are_unknown_not_fresh(state):
     """The defect: nobody checked, so nobody may claim it was fresh."""
-    _fill(state)
     for _ in range(4):
-        state.cache_get("search_symbols", "o/r", ("q",))
+        state.cache_lookup_recorded("search_symbols", hit=True)
 
     stats = state.cache_stats()
     assert stats["hit_rate"] == 1.0, "raw rate unchanged"
@@ -71,9 +80,8 @@ def test_unvalidated_hits_are_unknown_not_fresh(state):
 
 def test_a_stale_hit_is_not_a_fresh_hit(state):
     """The number the paper is about: served, counted, and wrong."""
-    _fill(state)
     for _ in range(4):
-        state.cache_get("search_symbols", "o/r", ("q",))
+        state.cache_lookup_recorded("search_symbols", hit=True)
     state.cache_hit_validated("search_symbols", stale=False)
     for _ in range(3):
         state.cache_hit_validated("search_symbols", stale=True)
@@ -92,8 +100,7 @@ def test_a_stale_hit_is_not_a_fresh_hit(state):
 
 def test_validation_never_inflates_the_hit_count(state):
     """Reporting a verdict must not double-count the hit it describes."""
-    _fill(state)
-    state.cache_get("search_symbols", "o/r", ("q",))
+    state.cache_lookup_recorded("search_symbols", hit=True)
     before = state.cache_stats()["total_hits"]
     state.cache_hit_validated("search_symbols", stale=True)
     assert state.cache_stats()["total_hits"] == before
@@ -101,12 +108,11 @@ def test_validation_never_inflates_the_hit_count(state):
 
 def test_buckets_account_for_every_hit(state):
     """The three buckets partition the hits. No hit is lost or counted twice."""
-    _fill(state, key=("a",))
     _fill(state, tool="find_references", key=("b",))
     for _ in range(5):
-        state.cache_get("search_symbols", "o/r", ("a",))
+        state.cache_lookup_recorded("search_symbols", hit=True)
     for _ in range(2):
-        state.cache_get("find_references", "o/r", ("b",))
+        state.cache_get("find_references", "o/r", ("b",), index=_IDX)
     state.cache_hit_validated("search_symbols", stale=False)
     state.cache_hit_validated("search_symbols", stale=True)
 
@@ -117,10 +123,14 @@ def test_buckets_account_for_every_hit(state):
         + stats["hits_unvalidated"]
         == stats["total_hits"] == 7
     )
-    # find_references never validates, so its whole column is unknown.
+    # The shared LRU checks each hit it serves against the caller's index
+    # load (L-330), so its column is validated fresh, never unknown.
     fr = stats["by_tool"]["find_references"]
-    assert fr["hits"] == 2 and fr["hits_unvalidated"] == 2
-    assert fr["hit_rate_revalidated"] is None
+    assert fr["hits"] == 2 and fr["hits_validated_fresh"] == 2
+    assert fr["hits_unvalidated"] == 0 and fr["hit_rate_revalidated"] == 1.0
+    # search_symbols reported 5 hits and checked 2 of them.
+    ss = stats["by_tool"]["search_symbols"]
+    assert ss["hits_unvalidated"] == 3
 
 
 def test_analyze_perf_cannot_publish_the_raw_rate_alone():

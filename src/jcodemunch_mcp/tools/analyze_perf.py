@@ -363,13 +363,15 @@ def analyze_perf(
             # a hit that still describes the current index. The cache is
             # invalidated only by index-mutating tools IN THIS PROCESS, so an
             # out-of-process reindex (the PostToolUse `index-file` spawn, the
-            # watcher, a second server instance) leaves entries serving.
+            # watcher, a second server instance) is seen only by a consumer
+            # that checks its hit.
             # arXiv:2608.20280 measured raw rates of 51-60% falling to 1.1-2.2%
             # once validity was checked, so the raw number is published only
             # WITH the revalidated view beside it and a basis label on it.
-            # ⚠ `hits_unvalidated` is UNKNOWN, never folded into either bucket:
-            # of the three result-cache consumers only `search_symbols`
-            # revalidates, so it is a reported number, not an edge case.
+            # ⚠ `hits_unvalidated` is UNKNOWN, never folded into either bucket.
+            # `search_symbols` reports its own checks, and the shared LRU checks
+            # each hit against the caller's index load (L-330); a hit nobody
+            # checked stays here.
             "totals": {
                 "hits": cache_stats.get("total_hits", 0),
                 "misses": cache_stats.get("total_misses", 0),

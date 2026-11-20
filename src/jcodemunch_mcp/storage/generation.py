@@ -23,6 +23,7 @@ generation without changing it.
 
 from __future__ import annotations
 
+import itertools
 import logging
 import sqlite3
 import threading
@@ -224,6 +225,55 @@ def describe(index) -> IndexGeneration:
     except Exception:
         logger.debug("Generation describe failed", exc_info=True)
         return IndexGeneration()
+
+
+# --- load identity -----------------------------------------------------------
+
+_LOAD_TOKENS = itertools.count(1)
+_LOAD_TOKEN_LOCK = threading.Lock()
+
+
+def load_token(index) -> Optional[int]:
+    """A token naming this loaded index OBJECT, or None when it cannot have one.
+
+    ``IndexStore.load_index`` returns the SAME object for as long as its own
+    rule says the copy still describes the .db: the stamp did not move, or it
+    moved and every meta row, ``content_generation`` included, is what the
+    load read (``sqlite_store._revalidate_cached``). Any other write,
+    including one from another process, makes the next load build a new
+    object. So "same token" is that rule's verdict, read for free, and a
+    cache keyed on it needs no second answer to "did the index change?"
+    (LEDGER L-330: the shared tool-result cache had no answer at all).
+
+    The token is minted once per object and records the object's ``id``, so a
+    ``copy.copy`` of an index, which carries the attribute over, is
+    recognised as a different object and gets its own. The counter never
+    repeats within a process, so an ``id`` reused after garbage collection
+    cannot revive an old token.
+
+    ``None`` (no index, or an object that cannot carry an attribute, such as
+    a ``__slots__`` view) is UNKNOWN, and a cache must treat it as a miss.
+    """
+    if index is None:
+        return None
+    try:
+        attrs = vars(index)
+    except TypeError:
+        return None
+    held = attrs.get("_load_token")
+    if isinstance(held, tuple) and len(held) == 2 and held[0] == id(index):
+        return held[1]
+    with _LOAD_TOKEN_LOCK:
+        held = attrs.get("_load_token")
+        if isinstance(held, tuple) and len(held) == 2 and held[0] == id(index):
+            return held[1]
+        token = next(_LOAD_TOKENS)
+        try:
+            attrs["_load_token"] = (id(index), token)
+        except Exception:
+            logger.debug("Could not stamp a load token", exc_info=True)
+            return None
+        return token
 
 
 # --- our own write-backs -----------------------------------------------------

@@ -300,7 +300,7 @@ class _State:
         # measures tool-borne waste separately from token-borne waste.
         self._session_tool_calls: dict = {}
         # Session-level tool-result cache (LRU, evicted at _RESULT_CACHE_MAXSIZE)
-        self._result_cache: OrderedDict = OrderedDict()  # (tool, repo, key) -> result
+        self._result_cache: OrderedDict = OrderedDict()  # (tool, repo, key) -> (load token, result)
         # Counts every eviction. A caller that reads it before a tool runs and
         # again after can tell whether an index was written DURING the call:
         # the tool may then have read the old index and `cache_put` the answer
@@ -465,22 +465,52 @@ class _State:
         self._write_session_stats_file(item)
         return stats
 
-    def cache_get(self, tool_name: str, repo: str, specific_key: tuple):
-        """Return cached result for (tool, repo, key), or None on miss. Thread-safe."""
+    def cache_get(self, tool_name: str, repo: str, specific_key: tuple, *, index) -> Optional[dict]:
+        """Return cached result for (tool, repo, key), or None on miss. Thread-safe.
+
+        ⚠⚠ ``index`` is the index the caller holds NOW, and an entry hits only
+        when it was stored from that same load (``generation.load_token``).
+        The key alone named the question and not the index, and this cache is
+        emptied only by index writes in THIS process, so a write from the
+        watcher, the ``index-file`` hook, ``refresh``, a second server or a
+        script left entries answering from the index before it (LEDGER
+        L-330). An index whose load identity cannot be read is UNKNOWN and is
+        a miss. Every served hit is therefore checked, and is counted as a
+        validated fresh hit.
+        """
+        from .generation import load_token
+
+        token = load_token(index)
         with self._lock:
             full_key = (tool_name, repo, specific_key)
-            if full_key in self._result_cache:
+            entry = self._result_cache.get(full_key) if token is not None else None
+            if entry is not None and entry[0] == token:
                 self._result_cache.move_to_end(full_key)
                 self._cache_hits[tool_name] = self._cache_hits.get(tool_name, 0) + 1
-                return _isolate(self._result_cache[full_key])
+                self._cache_hits_fresh[tool_name] = self._cache_hits_fresh.get(tool_name, 0) + 1
+                return _isolate(entry[1])
+            if entry is not None:
+                # Recorded against another load; that load never comes back.
+                del self._result_cache[full_key]
             self._cache_misses[tool_name] = self._cache_misses.get(tool_name, 0) + 1
             return None
 
-    def cache_put(self, tool_name: str, repo: str, specific_key: tuple, result: dict) -> None:
-        """Store result in LRU cache. Evicts oldest entry when full. Thread-safe."""
+    def cache_put(
+        self, tool_name: str, repo: str, specific_key: tuple, result: dict, *, index
+    ) -> None:
+        """Store result in LRU cache. Evicts oldest entry when full. Thread-safe.
+
+        ``index`` is the index the result was computed from. An unknown load
+        identity stores nothing, since no lookup could ever hit it.
+        """
+        from .generation import load_token
+
+        token = load_token(index)
+        if token is None:
+            return
         with self._lock:
             full_key = (tool_name, repo, specific_key)
-            self._result_cache[full_key] = _isolate(result)
+            self._result_cache[full_key] = (token, _isolate(result))
             self._result_cache.move_to_end(full_key)
             if len(self._result_cache) > _RESULT_CACHE_MAXSIZE:
                 self._result_cache.popitem(last=False)
@@ -544,10 +574,11 @@ class _State:
         counted the hit breaks ``validated <= hits`` (#864);
         ``tests/test_every_served_cache_hit_is_counted_once.py`` fails on it.
 
-        ⚠ Exactly ONE of the three result-cache consumers does this today:
-        ``search_symbols``. ``find_references`` and ``get_blast_radius`` serve
-        cached entries with no check at all, which is why `hits_unvalidated`
-        is a reported number rather than an edge case.
+        ⚠ Only ``search_symbols``, which keeps a private cache, reports here.
+        The shared LRU (``find_references``, ``get_blast_radius``) checks every
+        hit against the caller's load identity inside ``cache_get`` and counts
+        it fresh there (LEDGER L-330); it never serves a stale entry, so it
+        never adds to the stale bucket.
         """
         with self._lock:
             bucket = self._cache_hits_stale if stale else self._cache_hits_fresh
@@ -576,9 +607,10 @@ class _State:
 
         ⚠⚠ ``hit_rate`` is the RAW rate: a hit is key-presence in the LRU, which
         is not the same as a hit that still describes the current index. The
-        cache is invalidated only by index-mutating tools **in this process**,
-        so an out-of-process reindex (the PostToolUse ``index-file`` spawn, the
-        watcher, a second server instance) leaves entries serving happily.
+        cache is invalidated only by index-mutating tools **in this process**;
+        an out-of-process reindex (the PostToolUse ``index-file`` spawn, the
+        watcher, a second server instance) is caught only by a consumer that
+        checks its hit (the shared LRU does, by load identity, since L-330).
         arXiv:2608.20280 measured raw rates of 51-60% falling to 1.1-2.2% once
         validity was checked; quoting a raw rate as a performance result is the
         defect it names.
@@ -586,11 +618,11 @@ class _State:
         ⚠ So the raw rate is kept (it is the right measure of how often the LRU
         answered) and the revalidated view is reported BESIDE it, never instead:
         ``hits_validated_fresh`` / ``hits_validated_stale`` / ``hits_unvalidated``.
-        ⚠⚠ **Three buckets, not two.** Of the three result-cache consumers only
-        ``search_symbols`` revalidates; ``find_references`` and
-        ``get_blast_radius`` serve cached hits with no check at all. The
-        unvalidated bucket is therefore non-empty by construction, and folding
-        it into either real bucket would be inventing a measurement.
+        ⚠⚠ **Three buckets, not two.** The shared LRU now checks each hit
+        against the caller's load identity and counts it fresh (LEDGER L-330),
+        and ``search_symbols`` reports its own checks. A hit nobody checked
+        stays in ``hits_unvalidated``; folding it into either real bucket would
+        be inventing a measurement.
         """
         with self._lock:
             total_hits = sum(self._cache_hits.values())
@@ -2317,14 +2349,23 @@ def get_total_saved(base_path: Optional[str] = None) -> int:
     return _state.get_total(base_path)
 
 
-def result_cache_get(tool_name: str, repo: str, specific_key: tuple):
-    """Return a cached tool result, or None on miss. Updates hit/miss counters."""
-    return _state.cache_get(tool_name, repo, specific_key)
+def result_cache_get(tool_name: str, repo: str, specific_key: tuple, *, index) -> Optional[dict]:
+    """Return a cached tool result, or None on miss. Updates hit/miss counters.
+
+    ``index`` is the index the caller holds now; an entry stored from another
+    load of it is a miss (``_State.cache_get``).
+    """
+    return _state.cache_get(tool_name, repo, specific_key, index=index)
 
 
-def result_cache_put(tool_name: str, repo: str, specific_key: tuple, result: dict) -> None:
-    """Store a tool result in the session LRU cache (max 256 entries)."""
-    _state.cache_put(tool_name, repo, specific_key, result)
+def result_cache_put(
+    tool_name: str, repo: str, specific_key: tuple, result: dict, *, index
+) -> None:
+    """Store a tool result in the session LRU cache (max 256 entries).
+
+    ``index`` is the index the result was computed from.
+    """
+    _state.cache_put(tool_name, repo, specific_key, result, index=index)
 
 
 def result_cache_invalidate(repo: Optional[str] = None) -> int:

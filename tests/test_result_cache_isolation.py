@@ -36,10 +36,12 @@ leave the mechanism.*
 
 from __future__ import annotations
 
+import types
 import json
 
 import pytest
 
+from jcodemunch_mcp.storage import IndexStore
 from jcodemunch_mcp.storage.token_tracker import (
     _isolate,
     _state,
@@ -49,6 +51,10 @@ from jcodemunch_mcp.storage.token_tracker import (
 )
 
 KEY = ("sym", 1, 0, False, False)
+
+# The shared cache answers only for the index load it was filled from
+# (LEDGER L-330); one stable stand-in object plays that index here.
+_IDX = types.SimpleNamespace()
 
 
 def _clear():
@@ -71,20 +77,20 @@ class TestTheCacheKeepsItsOwnCopy:
     def test_the_caller_may_mutate_what_it_handed_over(self):
         """The MISS path: a tool returns the very dict it just cached."""
         payload = {"symbol": "foo", "_meta": {"timing_ms": 42.0}}
-        result_cache_put("get_blast_radius", "o/r", KEY, payload)
+        result_cache_put("get_blast_radius", "o/r", KEY, payload, index=_IDX)
         payload.pop("_meta")  # exactly what the dispatcher's meta strip does
 
-        got = result_cache_get("get_blast_radius", "o/r", KEY)
+        got = result_cache_get("get_blast_radius", "o/r", KEY, index=_IDX)
         assert got["_meta"] == {"timing_ms": 42.0}
 
     def test_the_caller_may_mutate_what_it_was_served(self):
         """The HIT path. Both current tools copy defensively themselves, so
         this is about the tool written next -- the reason the fix is here."""
-        result_cache_put("find_references", "o/r", KEY, {"_meta": {"a": 1}})
-        first = result_cache_get("find_references", "o/r", KEY)
+        result_cache_put("find_references", "o/r", KEY, {"_meta": {"a": 1}}, index=_IDX)
+        first = result_cache_get("find_references", "o/r", KEY, index=_IDX)
         first.pop("_meta")
 
-        second = result_cache_get("find_references", "o/r", KEY)
+        second = result_cache_get("find_references", "o/r", KEY, index=_IDX)
         assert second["_meta"] == {"a": 1}
 
     def test_the_isolation_is_not_only_top_level(self):
@@ -101,14 +107,14 @@ class TestTheCacheKeepsItsOwnCopy:
             "references": [{"file": "a.py", "line": 1}],
             "results": [{"_meta": {"nested": True}}],
         }
-        result_cache_put("find_references", "o/r", KEY, payload)
-        got = result_cache_get("find_references", "o/r", KEY)
+        result_cache_put("find_references", "o/r", KEY, payload, index=_IDX)
+        got = result_cache_get("find_references", "o/r", KEY, index=_IDX)
 
         got["_meta"]["budget_warning"] = "spent"
         got["references"][0]["_runtime_confidence"] = "confirmed"
         got["results"][0].pop("_meta")
 
-        fresh = result_cache_get("find_references", "o/r", KEY)
+        fresh = result_cache_get("find_references", "o/r", KEY, index=_IDX)
         assert "budget_warning" not in fresh["_meta"]
         assert "_runtime_confidence" not in fresh["references"][0]
         assert fresh["results"][0]["_meta"] == {"nested": True}
@@ -122,8 +128,8 @@ class TestTheCacheKeepsItsOwnCopy:
         untouched.
         """
         payload = {"depth": 1, "rows": [{"a": 1}]}
-        result_cache_put("get_blast_radius", "o/r", KEY, payload)
-        got = result_cache_get("get_blast_radius", "o/r", KEY)
+        result_cache_put("get_blast_radius", "o/r", KEY, payload, index=_IDX)
+        got = result_cache_get("get_blast_radius", "o/r", KEY, index=_IDX)
         assert got == payload
         assert got is not payload
         assert got["rows"] is not payload["rows"]
@@ -279,7 +285,8 @@ async def test_a_partial_meta_filter_does_not_shrink_the_stored_entry(dispatcher
     assert set(payload["_meta"]) == {"powered_by"}
 
     cached = result_cache_get(
-        "find_references", repo, ("target_symbol", 50, False)
+        "find_references", repo, ("target_symbol", 50, False),
+        index=IndexStore().load_index(*repo.split("/", 1)),
     )
     assert cached is not None, "the call did not fill the cache; the key shape moved"
     assert "timing_ms" in cached["_meta"], cached["_meta"]

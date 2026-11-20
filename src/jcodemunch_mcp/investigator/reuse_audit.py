@@ -624,8 +624,7 @@ def investigate_reuse_before_write(
     # `strong_match` and `adapt_floor` would be parameters that grade nothing
     # and every verdict would ride on obligation status alone. It also disables
     # the result cache (`_cacheable = not debug`), which is correct rather than
-    # incidental: of the three result-cache consumers only `search_symbols`
-    # revalidates, and an absence claim replayed from a cached row is the exact
+    # incidental: an absence claim replayed from a cached row is the exact
     # shape #377 item 3 exists to refuse.
     #
     # Cost, measured on this repository's own index (~25k symbols): a debug
