@@ -152,8 +152,8 @@ def get_call_hierarchy(
         repo: Repository identifier (owner/repo or just repo name).
         symbol_id: Symbol name or full ID to analyse. Use search_symbols to find IDs.
         direction: 'callers' | 'callees' | 'both'. Default 'both'.
-        depth: Maximum hops to traverse (1–5). Default 1, the direct rows;
-            three hops returned 20,494 tokens for one small helper here.
+        depth: Maximum hops to traverse (1–5). Default 1, the direct rows:
+            each further hop can multiply the reply (CHANGELOG, this fix).
         storage_path: Custom storage path.
 
     Returns:

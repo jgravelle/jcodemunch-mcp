@@ -43,7 +43,7 @@
     "deferred_name_tokens": 1095,
     "instructions_tokens": 254,
     "deferring_total": 1349,
-    "non_deferring_total": 24502,
+    "non_deferring_total": 24509,
     "schema_tokens_per_tool": {
       "index_repo": 279,
       "index_folder": 400,
@@ -91,7 +91,7 @@
       "get_related_symbols": 145,
       "suggest_queries": 100,
       "get_blast_radius": 599,
-      "get_call_hierarchy": 301,
+      "get_call_hierarchy": 308,
       "get_impact_preview": 248,
       "get_symbol_provenance": 199,
       "get_pr_risk_profile": 268,

@@ -3,8 +3,9 @@
 ``get_call_hierarchy`` defaulted to three hops in both directions. Measured on
 this repository's own index (1.108.473), one default call for a small helper
 (``_name_through``) returned 20,494 tokens, 176 of its 194 caller rows at depth
-3; for ``resolve_repo`` it returned 499,227 tokens. The direct callers, which
-answer "who calls this function", were 900 tokens for the first. An agent that
+3; for ``resolve_repo`` it returned 499,342 tokens. One hop in both
+directions, the direct rows that answer "who calls this function", returned
+899 tokens for the first. An agent that
 omits ``depth`` pays for every hop it did not ask for, so the default is one
 hop, and a deeper walk is one argument away.
 """
