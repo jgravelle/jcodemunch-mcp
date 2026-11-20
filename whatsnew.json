@@ -1,6 +1,12 @@
 {
-  "current": "1.108.473",
+  "current": "1.108.474",
   "entries": [
+    {
+      "version": "1.108.474",
+      "date": "2026-11-20",
+      "title": "get_call_hierarchy with no depth returns the direct callers and callees",
+      "summary": "get_call_hierarchy called without depth walks one hop, the direct callers and callees, instead of three; pass depth (2 to 5) to walk further."
+    },
     {
       "version": "1.108.473",
       "date": "2026-11-20",

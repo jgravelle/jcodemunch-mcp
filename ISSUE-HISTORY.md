@@ -3446,3 +3446,9 @@ The 1.108.469 entry, verbatim as it stood in `CLAUDE.md`:
 The 1.108.470 entry, verbatim as it stood in `CLAUDE.md`:
 
 - **Prior (1.108.470):** **a search row caps its signature at 200 characters and says when it was cut**: `search_symbols._row_signature` (`SIGNATURE_MAX_CHARS`) is the one path for every row builder, a cut row carries `signature_truncated`, the compact column is optional (`ss1` -> `ss2`, `ss1` still decodes). Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-20, release 1.108.474)
+
+The 1.108.471 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.471):** **a repeated `find_references` or `get_blast_radius` answers from the index another process just wrote** (L-330): `cache_get`/`cache_put` take `index=` and answer only a caller holding the same load of the index; runtime confidence is stamped after the cache. Full text: `CHANGELOG.md`.
