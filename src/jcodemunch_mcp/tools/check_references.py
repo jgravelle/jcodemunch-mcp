@@ -81,13 +81,28 @@ def _decode_escapes(text: str) -> str:
     return out.encode("utf-16-le", "surrogatepass").decode("utf-16-le", "replace")
 
 
-def _name_through(lines: list[str], lo: int, hi: int, ident_lower: str) -> tuple[int, int]:
+def _name_through(lines: list[str], lo: int, hi: int, ident_exact: str) -> tuple[int, int]:
     """A sibling definition's declaration: its first line through the first line
     that names the identifier, so an annotation above the name does not leave
     the name line counting. Only the first line when no line in the span names
-    it (LEDGER L-91)."""
+    it (LEDGER L-91).
+
+    ⚠⚠ The name line is the first line holding the EXACT declared spelling as
+    a whole token (the word rule), after decoding Unicode escapes (LEDGER
+    L-331). It was a case-folded substring, so `@FileAnno` or `@Profile` above
+    `public int file()` was taken as the name line and the real declaration
+    below it counted as a use of the target. This span is an EXCLUSION, and
+    the rule on `_fold` holds: never fold a step that removes matches. The
+    escapes are decoded because without that an escaped declaration
+    (`int \\u0066ile()`) is passed over and the search stops at a call in
+    the body, hiding it.
+    """
+    word = re.compile(word_pattern(ident_exact))
     for line_no in range(lo, min(max(lo, hi), len(lines)) + 1):
-        if ident_lower in _fold(lines[line_no - 1]):
+        line = lines[line_no - 1]
+        if "\\" in line:
+            line = _decode_escapes(line)
+        if word.search(line):
             return (lo, line_no)
     return (lo, lo)
 
@@ -114,7 +129,7 @@ def _calls_beyond_declarations(line: str, ident_exact: str, declarations: int) -
 
 
 def _sibling_declarations(
-    lines: list[str], siblings: list[tuple[int, int]], ident_lower: str, ident_exact: str
+    lines: list[str], siblings: list[tuple[int, int]], ident_exact: str
 ) -> list[tuple[int, int]]:
     """The lines of each same-named sibling that are its declaration and nothing else.
 
@@ -134,7 +149,7 @@ def _sibling_declarations(
     (name-based, not resolved). A call spelled with an escape or in another
     case on that line stays hidden, as it was before this rule.
     """
-    decls = [_name_through(lines, lo, hi, ident_lower) for lo, hi in siblings]
+    decls = [_name_through(lines, lo, hi, ident_exact) for lo, hi in siblings]
     per_line: dict[int, int] = {}
     for _lo, name_line in decls:
         per_line[name_line] = per_line.get(name_line, 0) + 1
@@ -282,8 +297,9 @@ def _check_single(
     # ⚠⚠ (LEDGER L-91) A caller that knows WHICH symbol it asks about excludes
     # that symbol's whole span, and of every other same-named definition only
     # its DECLARATION: from its first line through the first line that names
-    # the identifier (`_name_through`), so an `@Override` or `[Attr]` line
-    # above it does not leave the name line counting. Hiding each sibling's
+    # the identifier (`_name_through`, by its exact spelling as a token,
+    # LEDGER L-331), so an `@Override` or `[Attr]` line above it does not
+    # leave the name line counting. Hiding each sibling's
     # whole body hid real callers: Java `B.file()` calling `new A().file()`
     # was skipped as "a definition of `file`", and `check_delete_safe` graded
     # the used `A.file` `safe_to_delete` with zero blockers. Hiding nothing of
@@ -334,7 +350,7 @@ def _check_single(
             siblings = sibling_spans.get(file_path)
             if siblings:
                 spans = list(spans) + _sibling_declarations(
-                    file_lines, siblings, ident_lower, ident_exact
+                    file_lines, siblings, ident_exact
                 )
 
             file_matches = []
