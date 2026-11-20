@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.471] - 2026-11-20 - a repeated find_references or get_blast_radius answers from the index another process just wrote
+
 ### Fixed - a repeated `find_references` or `get_blast_radius` answers from the index another process just wrote
 
 Both tools keep their answers in one shared session cache, keyed on the question alone. Only an index write made inside the same server process emptied it. The file watcher, the PostToolUse `index-file` hook, `refresh`, a second server and any script calling `incremental_save` all write from another process, so after any of them the server kept answering from the index as it was before the write, with `cache_hit: true`, until the entry aged out. An importer added and indexed by the watcher stayed missing from `find_references` and from the blast radius of the function it imports.

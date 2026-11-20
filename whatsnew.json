@@ -1,6 +1,12 @@
 {
-  "current": "1.108.470",
+  "current": "1.108.471",
   "entries": [
+    {
+      "version": "1.108.471",
+      "date": "2026-11-20",
+      "title": "a repeated find_references or get_blast_radius answers from the index another process just wrote",
+      "summary": "A repeated find_references or get_blast_radius call no longer answers from a cached result after the file watcher, the index-file hook, refresh or a second server rewrote the index; the cached answer is tied to the load of the index it came from."
+    },
     {
       "version": "1.108.470",
       "date": "2026-11-20",
