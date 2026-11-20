@@ -92,34 +92,61 @@ def _name_through(lines: list[str], lo: int, hi: int, ident_lower: str) -> tuple
     return (lo, lo)
 
 
-def _calls_on_line(line: str, ident_exact: str) -> int:
-    """How many times *line* spells the exact declared name as a call: the
-    name as a whole token, then optional space and `(` (LEDGER L-329)."""
-    return len(re.findall(word_pattern(ident_exact) + r"\s*\(", line))
+def _calls_beyond_declarations(line: str, ident_exact: str, declarations: int) -> bool:
+    """True when *line* calls the exact declared name beyond the *declarations*
+    same-named siblings whose name line it is (LEDGER L-329).
+
+    A call is the name as a whole token (the word rule) followed by optional
+    space and `(`. The declarations are taken to be the first *declarations*
+    tokens on the line, and each of those that is call-shaped (`int file()`,
+    `def file(self)`) is subtracted from the calls; one that is not
+    (`int file = ...`, Kotlin `val file get() = ...`) subtracts nothing, so a
+    call after it still counts. Two declarations sharing a line (an interface
+    overload pair, minified JS) are two call-shaped tokens and no call.
+    """
+    word = word_pattern(ident_exact)
+    tokens = list(re.finditer(word, line))
+    if len(tokens) <= declarations:
+        return False
+    call_after = re.compile(r"\s*\(")
+    calls = [bool(call_after.match(line, m.end())) for m in tokens]
+    return sum(calls) > sum(calls[:declarations])
 
 
-def _sibling_declaration(
-    lines: list[str], lo: int, hi: int, ident_lower: str, ident_exact: str
-) -> tuple[int, int]:
-    """The lines of a same-named sibling that are its declaration and nothing else.
+def _sibling_declarations(
+    lines: list[str], siblings: list[tuple[int, int]], ident_lower: str, ident_exact: str
+) -> list[tuple[int, int]]:
+    """The lines of each same-named sibling that are its declaration and nothing else.
 
-    `_name_through`'s span, except that the name line is given back when it
-    calls the name a second time beyond the declaration's own, as a one-line
+    `_name_through`'s span, except that a name line is given back when it calls
+    the name beyond the declarations whose name line it is, as a one-line
     method does: `@Override public int file() { return new C().file(); }`,
-    Kotlin's `fun file() = C().file()`, a Python one-liner (LEDGER L-329).
-    Hiding that line hid the call, and `check_delete_safe` graded the unused-
-    looking `C.file` `safe_to_delete` with no blockers.
+    Kotlin's `fun file() = C().file()`, a Python one-liner, or a field
+    initialised by a call (`int file = new C().file();`) (LEDGER L-329). Hiding
+    that line hid the call, and `check_delete_safe` graded the unused-looking
+    `C.file` `safe_to_delete` with no blockers.
 
     ⚠ Exact case and call shape only. A parameter (`def file(self, file)`), a
     type (`File file()`), a constructor in another case (`new File(...)`) or a
-    comment spelling the name is not a second call, so the declaration stays
-    out and no pinned verdict moves. A call spelled with an escape or in
-    another case on that line stays hidden, as it was before this rule.
+    comment naming the name without `(` is not a call, so the declaration
+    stays out. A comment that writes `file()` IS counted, and so is a one-line
+    sibling that calls itself, the way a sibling's body lines already are
+    (name-based, not resolved). A call spelled with an escape or in another
+    case on that line stays hidden, as it was before this rule.
     """
-    decl_lo, name_line = _name_through(lines, lo, hi, ident_lower)
-    if name_line > len(lines) or _calls_on_line(lines[name_line - 1], ident_exact) < 2:
-        return (decl_lo, name_line)
-    return (decl_lo, name_line - 1)
+    decls = [_name_through(lines, lo, hi, ident_lower) for lo, hi in siblings]
+    per_line: dict[int, int] = {}
+    for _lo, name_line in decls:
+        per_line[name_line] = per_line.get(name_line, 0) + 1
+    out = []
+    for decl_lo, name_line in decls:
+        if name_line <= len(lines) and _calls_beyond_declarations(
+            lines[name_line - 1], ident_exact, per_line[name_line]
+        ):
+            out.append((decl_lo, name_line - 1))
+        else:
+            out.append((decl_lo, name_line))
+    return out
 
 
 def first_match_line(ref: dict) -> int:
@@ -265,8 +292,9 @@ def _check_single(
     # moved pinned verdicts. The narrower rule only ADDS matches, so it can
     # hold a delete back and never licenses one. A sibling with no line no
     # longer hides its whole file: a call there counts, at the cost of its
-    # declaration. A sibling's NAME line counts when it calls the name a
-    # second time, as a one-line method does (`_sibling_declaration`, LEDGER
+    # declaration. A sibling's NAME line counts when it calls the name
+    # beyond its declarations, as a one-line method does
+    # (`_sibling_declarations`, LEDGER
     # L-329).
     sibling_spans: dict[str, list[tuple[int, int]]] = {}
     if target_span is not None:
@@ -305,10 +333,9 @@ def _check_single(
             file_lines = content.split("\n")
             siblings = sibling_spans.get(file_path)
             if siblings:
-                spans = list(spans) + [
-                    _sibling_declaration(file_lines, lo, hi, ident_lower, ident_exact)
-                    for lo, hi in siblings
-                ]
+                spans = list(spans) + _sibling_declarations(
+                    file_lines, siblings, ident_lower, ident_exact
+                )
 
             file_matches = []
             for line_index, line in enumerate(file_lines):

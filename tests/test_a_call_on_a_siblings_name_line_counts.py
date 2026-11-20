@@ -7,10 +7,11 @@ one-line method that calls the target hid the call:
 `@Override public int file() { return new C().file(); }` left an unused-looking
 `C.file` graded `safe_to_delete` with no blockers.
 
-The name line now counts when it carries a second call-shaped occurrence of
-the exact declared name (the name, then `(`) beyond the declaration's own. A
-parameter, a type or a mention spelled like the name does not make the
-declaration a use.
+The name line now counts when it calls the exact declared name (the name,
+then `(`) beyond the declarations whose name line it is. A parameter, a type,
+a mention without `(`, or a second declaration sharing the line does not make
+the declaration a use; a declaration that is not call-shaped (a field, a
+Kotlin property) does not swallow the call after it.
 """
 from __future__ import annotations
 
@@ -64,6 +65,21 @@ _ONE_LINE_CALLERS = {
         "d.py", "class D:\n    def file(self): return C().file()\n",
         2,
     ),
+    "java_annotation_above": (
+        "C.java", "public class C {\n    public int file() {\n        return 1;\n    }\n}\n",
+        "D.java", "public class D extends Base {\n    @Override\n    public int file() { return new C().file(); }\n}\n",
+        3,
+    ),
+    "java_field": (
+        "C.java", "public class C {\n    public int file() {\n        return 1;\n    }\n}\n",
+        "D.java", "public class D {\n    int file = new C().file();\n}\n",
+        2,
+    ),
+    "kotlin_property": (
+        "C.kt", "class C {\n    fun file(): Int {\n        return 1\n    }\n}\n",
+        "D.kt", "class D {\n    val file get() = C().file()\n}\n",
+        2,
+    ),
 }
 
 
@@ -76,8 +92,9 @@ def test_a_one_line_sibling_calling_the_target_blocks_the_delete(tmp_path, lang)
     assert (d_name, line) in _refs(got), (lang, got.get("blockers"))
 
 
-def test_the_edit_preflight_sees_the_one_line_caller(tmp_path):
-    c_name, c_src, d_name, d_src, line = _ONE_LINE_CALLERS["java"]
+@pytest.mark.parametrize("lang", ["java", "kotlin", "python"])
+def test_the_edit_preflight_sees_the_one_line_caller(tmp_path, lang):
+    c_name, c_src, d_name, d_src, line = _ONE_LINE_CALLERS[lang]
     repo, sp = _repo(tmp_path, {c_name: c_src, d_name: d_src})
     got = check_edit_safe(repo, _symbol_id(repo, sp, c_name, "file"), storage_path=sp)
     assert (d_name, line) in _refs(got), got.get("blockers")
@@ -91,6 +108,9 @@ _NOT_A_CALL = {
     "java_type": ("D.java", "public class D {\n    public File file() { return null; }\n}\n"),
     "java_other_case": ("D.java", "public class D {\n    public File file() { return new File(\"x\"); }\n}\n"),
     "java_comment_mention": ("D.java", "public class D {\n    public int file() { return 2; } // file\n}\n"),
+    "java_overloads_on_one_line": ("D.java", "interface D { int file(); int file(int x); }\n"),
+    "js_two_classes_on_one_line": (
+        "d.js", "class A { file() { return 2; } } class B { file() { return 3; } }\n"),
 }
 
 
@@ -99,6 +119,8 @@ def test_control_a_name_line_without_a_second_call_stays_excluded(tmp_path, case
     d_name, d_src = _NOT_A_CALL[case]
     if d_name.endswith(".py"):
         c_name, c_src = "c.py", "class C:\n    def file(self):\n        return 1\n"
+    elif d_name.endswith(".js"):
+        c_name, c_src = "c.js", "class C {\n  file() {\n    return 1;\n  }\n}\n"
     else:
         c_name, c_src = "C.java", "public class C {\n    public int file() {\n        return 1;\n    }\n}\n"
     repo, sp = _repo(tmp_path, {c_name: c_src, d_name: d_src})
@@ -123,3 +145,13 @@ def test_control_the_public_tool_still_hides_every_same_named_definition(tmp_pat
     got = check_references(repo, identifier="file", storage_path=sp)
     lines = {(f["file"], m["line"]) for f in got.get("content_references", []) for m in f["matches"]}
     assert (d_name, line) not in lines, lines
+
+
+def test_a_one_line_sibling_that_calls_itself_counts_like_a_body_line(tmp_path):
+    """Name-based, not resolved: a one-line sibling calling its own name is
+    counted, as a call in a sibling's body already is (L-91)."""
+    c = "class C:\n    def file(self):\n        return 1\n"
+    d = "class D:\n    def file(self, n): return self.file(n - 1) if n else 0\n"
+    repo, sp = _repo(tmp_path, {"c.py": c, "d.py": d})
+    got = check_delete_safe(repo, _symbol_id(repo, sp, "c.py", "file"), storage_path=sp)
+    assert ("d.py", 2) in _refs(got), got.get("blockers")
