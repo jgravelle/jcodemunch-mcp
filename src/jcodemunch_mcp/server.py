@@ -339,10 +339,10 @@ _MCP_TOOL_PREFIX = "mcp__jcodemunch__"
 _INSTRUCTION_TOOLS_FULL: tuple = (
     ("resolve_repo", "is it indexed? Once, before the first index call."),
     ("get_ranked_context", '"how does X work" in one budgeted call.'),
-    ("search_symbols", "a symbol by name; search_text for strings and config."),
+    ("search_symbols", "a symbol by name."),
     ("get_file_outline", "a file's shape without reading it."),
     ("get_symbol_source", "one id, or an array to batch."),
-    ("find_references", "who imports a name; check_references: where it's used."),
+    ("find_references", "who imports a name."),
 )
 
 # A row's second tool and the clause naming it, said only while that tool is
@@ -365,6 +365,11 @@ def _instruction_rows(surface: str, published: "Optional[set]" = None) -> list:
     On `full`, a row or clause is kept only for a tool `_build_tools_list`
     publishes (or `published`, when given), so the string never names a tool the
     session cannot load. `counter` publishes its three verbs always.
+
+    ⚠ The `counter` return comes BEFORE `_build_tools_list` is called, and it
+    must stay first: `_build_tools_list` -> `_apply_always_load` ->
+    `_instruction_tool_names("counter")` lands here, so a counter branch that
+    read the published list would recurse without end.
     """
     if surface == "counter":
         return list(_INSTRUCTION_TOOLS_COUNTER)
@@ -376,8 +381,7 @@ def _instruction_rows(surface: str, published: "Optional[set]" = None) -> list:
             continue
         clauses = _INSTRUCTION_CLAUSES.get(name)
         if clauses:
-            head = why.split(";", 1)[0].rstrip(".")
-            why = head + "".join(c for tool, c in clauses if tool in published) + "."
+            why = why.rstrip(".") + "".join(c for tool, c in clauses if tool in published) + "."
         rows.append((name, why))
     return rows
 
@@ -555,11 +559,14 @@ def _mcp_instructions(
     # (tests/test_instructions_first_512.py).
     lines.append("")
     lines += ["- %s: %s" % (name, why) for name, why in rows]
-    lines += [
-        "",
-        "**Tools deferred? Load all in ONE lookup:** ToolSearch "
-        '"%s".' % _tool_search_query(surface, prefix, published),
-    ]
+    # With every row tool unpublished (`disabled_tools`, a custom bundle) the
+    # lookup would read `select:` and load nothing, so the line is left out.
+    if rows:
+        lines += [
+            "",
+            "**Tools deferred? Load all in ONE lookup:** ToolSearch "
+            '"%s".' % _tool_search_query(surface, prefix, published),
+        ]
     return "\n".join(lines)
 
 

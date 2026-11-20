@@ -86,6 +86,31 @@ def test_the_served_string_reads_the_published_list(monkeypatch):
     assert "get_call_hierarchy" not in text
 
 
+def test_no_row_tool_published_sends_no_empty_lookup():
+    published = _published("full") - {name for name, _ in server._INSTRUCTION_TOOLS_FULL}
+    text = _mcp_instructions("full", published=published)
+    assert "select:" not in text
+    assert "ToolSearch" not in text
+
+
+def test_a_core_profile_in_config_reaches_the_default_path(monkeypatch):
+    """The real producer, no mock: `tool_profile: core` set in config."""
+    from jcodemunch_mcp import config as config_module
+
+    real_get = config_module.get
+
+    def fake_get(key, default=None, repo=None):
+        if key == "tool_profile":
+            return "core"
+        return real_get(key, default, repo)
+
+    monkeypatch.setattr(config_module, "get", fake_get)
+    assert "check_references" not in {t.name for t in server._build_tools_list()}
+    text = _mcp_instructions("full")
+    assert "check_references" not in text
+    assert "get_call_hierarchy" not in text
+
+
 def test_the_call_graph_description_names_no_other_tool():
     tool = next(
         t
