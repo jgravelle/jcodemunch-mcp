@@ -23,6 +23,8 @@ from jcodemunch_mcp.tools.check_delete_safe import check_delete_safe
 from jcodemunch_mcp.tools.check_edit_safe import check_edit_safe
 from jcodemunch_mcp.tools.check_references import _name_through
 
+NL = chr(10)
+
 _TARGET = ("C.java", "public class C {\n    public int file() {\n        return 1;\n    }\n}\n")
 
 
@@ -92,32 +94,62 @@ def test_a_body_call_under_such_an_annotation_still_blocks(tmp_path):
     assert got.get("verdict") not in ("safe_to_delete", "internal_only", "test_coverage_only")
 
 
-# _name_through(lines, lo, hi, ident_exact) -> (lo, name_line)
+# _name_through(lines, lo, hi, ident_lower, ident_exact, signature) -> (lo, name_line)
 _LINES = [
     "    @FileAnno",                      # 1
-    "    @Profile(\"x\")",                # 2
+    "    @Profile(" + '"x"' + ")",                 # 2
     "    public int file() {",            # 3
     "        return new C().file();",     # 4
     "    }",                              # 5
 ]
+_SIG = "@FileAnno" + NL + "    @Profile(" + '"x"' + ")" + NL + "    public int file()"
 
 
-def test_the_name_line_is_the_first_exact_token():
-    assert _name_through(_LINES, 1, 5, "file") == (1, 3)
+def test_the_name_line_is_the_first_exact_token_in_the_signature():
+    assert _name_through(_LINES, 1, 5, "file", "file", _SIG) == (1, 3)
 
 
-def test_a_declaration_spelled_with_an_escape_is_found_on_its_own_line():
-    # Without decoding, the search would run past the escaped declaration to
-    # the body call on line 3 and hide it.
-    lines = ["    public int \\u0066ile() {", "        int x = 1;", "        return new C().file();", "    }"]
-    assert _name_through(lines, 1, 4, "file") == (1, 1)
+def test_without_a_signature_the_folded_rule_is_kept():
+    assert _name_through(_LINES, 1, 5, "file", "file", "") == (1, 1)
 
 
-def test_no_exact_token_in_the_span_keeps_only_the_first_line():
-    lines = ["    @FILE", "    int FILE() {", "    }"]
-    assert _name_through(lines, 1, 3, "file") == (1, 1)
+def test_the_search_never_runs_past_the_signature():
+    # A signature one line long that does not hold the exact token on that
+    # line: the body call on line 4 must not become the name line.
+    assert _name_through(_LINES, 1, 5, "file", "file", "@FileAnno file") == (1, 1)
+
+
+def test_a_signature_without_the_exact_name_keeps_the_folded_rule():
+    # A name derived from the file name (Razor's `view Counter`) where the
+    # signature is synthetic: the folded rule decides, as on main.
+    lines = ['@page "/counter"', "@code {", "    int n = App.Counter.Next();", "}"]
+    assert _name_through(lines, 1, 4, "counter", "Counter", "view Counter") == (1, 1)
+
+
+def test_an_escaped_name_under_an_annotation_is_found():
+    # Without decoding the line, the exact search misses line 2 and the folded
+    # rule takes the annotation on line 1.
+    lines = ["    @FileAnno", "    public int \\u0066ile() {", "        return 1;", "    }"]
+    sig = "@FileAnno" + NL + "    public int \\u0066ile()"
+    assert _name_through(lines, 1, 4, "file", "file", sig) == (1, 2)
 
 
 def test_a_name_ending_in_a_mark_is_matched_as_a_token():
     lines = ["  # valid?x", "  def valid?", "  end"]
-    assert _name_through(lines, 1, 3, "valid?") == (1, 2)
+    assert _name_through(lines, 1, 3, "valid?", "valid?", "# valid?x" + NL + "  def valid?") == (1, 2)
+
+
+def test_a_razor_component_named_like_a_class_does_not_hide_a_use(tmp_path):
+    # The component's name comes from its file name and its span is the whole
+    # file, so it has no declaration line spelling `Counter`. A search not
+    # bounded by the signature stopped at the call on line 3 and graded the
+    # used class `safe_to_delete` (L-331 review).
+    files = {
+        "Widget.cs": NL.join(["namespace App {", " public static class Counter {",
+                              "  public static int Next() { return 1; }", " }", "}", ""]),
+        "Counter.razor": NL.join(['@page "/counter"', "@code {", "    int n = App.Counter.Next();", "}", ""]),
+    }
+    repo, sp = _repo(tmp_path, files)
+    got = check_delete_safe(repo, _symbol_id(repo, sp, "Widget.cs", "Counter"), storage_path=sp)
+    assert got.get("verdict") not in ("safe_to_delete", "internal_only", "test_coverage_only"), got
+    assert _refs_in(got, "Counter.razor"), got.get("blockers")
