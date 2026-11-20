@@ -221,6 +221,38 @@ def test_an_unreadable_runtime_table_is_not_remembered_as_empty(tmp_path):
     assert str(db) in confidence._EMPTY_AT, "an established empty table is remembered"
 
 
+def test_a_write_inside_one_mtime_tick_still_ends_the_empty_memo(tmp_path):
+    """Two commits in one filesystem tick leave every mtime where it was. The
+    tick is pinned by putting both files' mtimes back after the second commit;
+    the -wal size still moves, so the memo must not answer "no traces"."""
+    import sqlite3
+
+    from jcodemunch_mcp.runtime import confidence
+
+    db = tmp_path / "tick.db"
+    wal = Path(str(db) + "-wal")
+    writer = sqlite3.connect(str(db))
+    try:
+        writer.execute("PRAGMA journal_mode=WAL")
+        writer.execute("PRAGMA wal_autocheckpoint=0")
+        writer.execute("CREATE TABLE runtime_calls (symbol_id TEXT)")
+        writer.commit()
+        assert wal.stat().st_size > 0
+        assert confidence.attach_runtime_confidence([{"id": "a"}], str(db)) == {}
+        assert confidence._empty_known(str(db))[0] is True
+        before = {p: p.stat().st_mtime_ns for p in (db, wal)}
+
+        writer.execute("INSERT INTO runtime_calls VALUES ('a')")
+        writer.commit()
+        for p, ns in before.items():
+            os.utime(p, ns=(ns, ns))
+        assert {p: p.stat().st_mtime_ns for p in (db, wal)} == before
+
+        assert confidence._empty_known(str(db))[0] is False
+    finally:
+        writer.close()
+
+
 # --- the cache contract itself ------------------------------------------------
 
 

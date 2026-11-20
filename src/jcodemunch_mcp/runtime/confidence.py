@@ -42,6 +42,7 @@ from __future__ import annotations
 import logging
 import sqlite3
 import threading
+from pathlib import Path
 from typing import Iterable, Optional
 
 from ..storage import generation as _generation
@@ -66,7 +67,8 @@ BODY_BASIS = "index_body_at_ingest"
 # empty. A blast-radius or find_references cache hit stamps runtime confidence
 # on every call, and with no traces ingested that was a read-only open and a
 # query per surface for an answer that cannot change until the database is
-# written. The stamp (`.db` and a committed `-wal`) is sampled BEFORE the
+# written. The stamp (mtime and size of the `.db` and a committed `-wal`,
+# `_memo_stamp`) is sampled BEFORE the
 # probe, so a write landing during it moves the stamp and the next call reads
 # again; an ingest from any process moves it too. Only an answer the query
 # established is kept: an unreadable stamp or a failed query is UNKNOWN, and
@@ -76,9 +78,32 @@ _EMPTY_LOCK = threading.Lock()
 _EMPTY_MAX = 64
 
 
+def _memo_stamp(db_path: str):
+    """``(.db mtime, .db size, -wal mtime, -wal size)``, or None when unreadable.
+
+    The sizes are what an mtime alone misses: two commits inside one
+    filesystem mtime tick leave every mtime where it was, and a read between
+    them would keep "no traces" until some later write. A commit appends
+    WAL frames (or, after a checkpoint, grows the .db), so the size moves
+    even when the tick does not. ``committed_wal_stat`` is the one rule for
+    which ``-wal`` counts as a write.
+    """
+    try:
+        st = Path(str(db_path)).stat()
+    except OSError:
+        return None
+    wal = _generation.committed_wal_stat(db_path)
+    return (
+        st.st_mtime_ns,
+        st.st_size,
+        wal.st_mtime_ns if wal is not None else None,
+        wal.st_size if wal is not None else None,
+    )
+
+
 def _empty_known(db_path: str):
     """``(True, stamp)`` when this stamp was read and found empty, else ``(False, stamp)``."""
-    stamp = _generation.db_mtime_ns(db_path)
+    stamp = _memo_stamp(db_path)
     if stamp is None:
         return False, None
     with _EMPTY_LOCK:
