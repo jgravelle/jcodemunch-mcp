@@ -3422,3 +3422,9 @@ The 1.108.465 entry, verbatim as it stood in `CLAUDE.md`:
 The 1.108.466 entry, verbatim as it stood in `CLAUDE.md`:
 
 - **Prior (1.108.466):** **a forced re-index keeps the AI summaries a provider could not replace** (L-323): `keep_stored_summaries` is the one keep rule, applied by `summarize_repo`, both `index_folder` paths and `index_file`; a re-parse keeps only on a matching non-empty `content_hash` (`require_hash`). `index_repo` and `deferred_summarize` are open residue. Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-20, release 1.108.470)
+
+The 1.108.467 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.467):** **a compact answer says when a row's code changed since the index read it** (L-325): `schema_driven.UNIVERSAL_ROW_VERDICTS` (`_freshness`, `_runtime_confidence`, `_runtime_body`) rides a compact table as a header-named column, a nested row as a `<key>.<verdict>` scalar, and `find_references`' flattened groups, only when some row is off its default; an all-default answer keeps its bytes and `ENCODING_ID` is unchanged. Full text: `CHANGELOG.md`.
