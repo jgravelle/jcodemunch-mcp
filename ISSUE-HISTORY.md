@@ -3440,3 +3440,9 @@ The 1.108.468 entry, verbatim as it stood in `CLAUDE.md`:
 The 1.108.469 entry, verbatim as it stood in `CLAUDE.md`:
 
 - **Prior (1.108.469):** **a delete preflight no longer hides a caller inside a same-named method** (L-91): `check_references._check_single(target_span=)` lets `check_delete_safe`/`check_edit_safe` exclude the target's own span whole and, of a same-named sibling, only its declaration through its name line (`_name_through`); a blocker's `line` is its first match. A call on a sibling's name line is still hidden (L-329). Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-20, release 1.108.473)
+
+The 1.108.470 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.470):** **a search row caps its signature at 200 characters and says when it was cut**: `search_symbols._row_signature` (`SIGNATURE_MAX_CHARS`) is the one path for every row builder, a cut row carries `signature_truncated`, the compact column is optional (`ss1` -> `ss2`, `ss1` still decodes). Full text: `CHANGELOG.md`.
