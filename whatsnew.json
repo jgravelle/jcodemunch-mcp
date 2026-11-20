@@ -1,6 +1,12 @@
 {
-  "current": "1.108.471",
+  "current": "1.108.472",
   "entries": [
+    {
+      "version": "1.108.472",
+      "date": "2026-11-20",
+      "title": "a delete preflight counts a call on a one-line method that shares the target's name",
+      "summary": "check_delete_safe and check_edit_safe no longer hide a call on the one line of a same-named method, field or property; a declaration line counts when it calls the name beyond the declarations on it."
+    },
     {
       "version": "1.108.471",
       "date": "2026-11-20",

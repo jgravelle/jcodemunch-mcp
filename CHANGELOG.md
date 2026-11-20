@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.472] - 2026-11-20 - a delete preflight counts a call on a one-line method that shares the target's name
+
 ### Fixed - a delete preflight counts a call on a one-line method that shares the target's name
 
 `check_delete_safe` and `check_edit_safe` leave out, of every other definition spelled like the target, its declaration: its first line through the first line that names the identifier. That name line was left out whole, so a one-line method calling the target hid the call. An unused-looking Java `C.file` beside `@Override public int file() { return new C().file(); }` graded `safe_to_delete` with no blockers, and a Kotlin expression body (`fun file() = C().file()`), a Python one-liner, a Java field initialised by a call (`int file = new C().file();`) and a Kotlin property getter did the same (LEDGER L-329, found in the L-91 review).
