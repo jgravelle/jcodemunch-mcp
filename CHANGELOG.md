@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+### Changed - a search row carries at most 200 characters of a signature, and says when it was cut
+
+**The default `search_symbols` reply changes.** A `standard` row copied the symbol's whole signature, and a multi-line signature can be most of a reply: on a local FastAPI index the `middleware` lookup (five rows) carried a 29,748-character signature and served 32,829 bytes. It also lost the compact encoding. That form shortens keys and repeated paths, not signature text, so when one signature is nearly the whole reply the compact form saves too little to pass the encoder's savings gate (4.3% against the 15% default), and the server sent JSON.
+
+A `standard` row now carries the first 200 characters of a longer signature and `signature_truncated: true`. A row that was not cut has no such key, the way a row with no decorators has no `decorators`. `get_symbol_source` still returns the whole signature, and `detail_level: "full"` keeps it whole because that shape inlines the source anyway. Every row builder in `search_symbols` (lexical, fuzzy, semantic and fusion) goes through one function. A source scan fails if anything else in the module reads a signature by its literal key (a subscript, or any call given `"signature"` in any argument, such as `.get`, `.pop` or `operator.getitem`) or has a `**` in a dict literal that unpacks a plain name or sits beside an `"id"` key. It cannot see a key held in a variable, a `**` of a subscript or attribute (`{**pair[0]}`), `entry.update(sym)`, `dict(**sym)`, `dict(sym)`, `.copy()`, `sym | {}`, a reader nested inside an allowed helper, or a builder passing `"full"` to the cap, so the lexical and fuzzy builders are also tested by calling them; the semantic and fusion builders rest on the scan. `reuse_audit` candidates carry the flag too. With `token_budget`, a cut row costs less, so more rows can fit the same budget.
+
+The compact encoding writes the `signature_truncated` column only when some row was cut. A reply where no row was cut keeps the bytes it had, apart from the encoding id, which moves from `ss1` to `ss2` (same length; `ss1` payloads still decode). Measured on the benchmark's 15 lookups (`search_symbols`, five rows, `standard`). The indexes were local copies that record no commit, so they are not proven to be the pinned corpus commits in `benchmarks/tasks.json`, and these are not benchmark figures; they compare before and after on the same copy: FastAPI 37,269 to 5,863 bytes (8,169 to 1,459 tokens), gin 6,243 to 5,232 bytes, express unchanged. The `middleware` reply is 1,450 bytes and is served compact again.
+
 ## [1.108.469] - 2026-11-19 - a delete preflight no longer hides a caller inside a same-named method
 
 ### Fixed - a delete preflight no longer hides a caller inside a same-named method

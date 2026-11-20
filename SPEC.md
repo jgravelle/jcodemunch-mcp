@@ -414,6 +414,7 @@ Searches the symbol index using a structured ranking pipeline.
 * **fuzzy matching** — `fuzzy=true` enables a trigram Jaccard + Levenshtein fallback when BM25 confidence is low (`top score < 0.1`) or when explicitly requested. Fuzzy results carry `match_type="fuzzy"`, `fuzzy_similarity`, and `edit_distance` fields. Zero behavioral change when `fuzzy=false` (default).
 * **centrality-aware ranking** — `sort_by`: `"relevance"` (default, BM25), `"centrality"` (filter by query match, rank by PageRank), `"combined"` (BM25 + PageRank weighted sum)
 * **semantic search** — `semantic=true` enables hybrid BM25 + embedding ranking. Requires an embedding provider. `semantic_weight` (float, default 0.5) controls the blend. `semantic_only=true` skips BM25 entirely. `semantic=false` (default) has zero performance impact and zero new imports. `semantic=true` with no provider configured returns a structured error (`error: "no_embedding_provider"`).
+* **signature cap**: a `standard` row carries at most 200 characters of a signature; a longer one is cut and flagged `signature_truncated: true`, and `get_symbol_source` returns it whole. `detail_level="full"` keeps the whole signature.
 * intended as the primary entry point for locating code by meaningfully named program elements
 
 ---
