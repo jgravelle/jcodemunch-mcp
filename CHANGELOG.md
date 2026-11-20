@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.470] - 2026-11-20 - a search row caps its signature at 200 characters and says when it was cut
+
 ### Changed - a search row carries at most 200 characters of a signature, and says when it was cut
 
 **The default `search_symbols` reply changes.** A `standard` row copied the symbol's whole signature, and a multi-line signature can be most of a reply: on a local FastAPI index the `middleware` lookup (five rows) carried a 29,748-character signature and served 32,829 bytes. It also lost the compact encoding. That form shortens keys and repeated paths, not signature text, so when one signature is nearly the whole reply the compact form saves too little to pass the encoder's savings gate (4.3% against the 15% default), and the server sent JSON.
