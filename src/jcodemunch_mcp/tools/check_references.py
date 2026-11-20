@@ -81,15 +81,52 @@ def _decode_escapes(text: str) -> str:
     return out.encode("utf-16-le", "surrogatepass").decode("utf-16-le", "replace")
 
 
-def _name_through(lines: list[str], lo: int, hi: int, ident_lower: str) -> tuple[int, int]:
+def _name_through(
+    lines: list[str], lo: int, hi: int, ident_lower: str, ident_exact: str, signature: str = ""
+) -> tuple[int, int]:
     """A sibling definition's declaration: its first line through the first line
     that names the identifier, so an annotation above the name does not leave
     the name line counting. Only the first line when no line in the span names
-    it (LEDGER L-91)."""
+    it (LEDGER L-91).
+
+    ⚠⚠ The first line that names it is found two ways (LEDGER L-331):
+
+    - Within the lines the stored SIGNATURE spans, when the signature holds
+      the exact declared name as a token: the first line holding that exact
+      spelling as a whole token (the word rule), after decoding Unicode
+      escapes. A case-folded substring took `@FileAnno` or `@Profile` above
+      `public int file()` as the name line, and the declaration below it
+      counted as a use of the target. The escapes are decoded so an escaped
+      declaration (`int \\u0066ile()`) is found on its own line.
+    - Otherwise main's rule, unchanged: the first line whose folded text holds
+      the folded name.
+
+    ⚠⚠ The signature is the BOUND, and it is load-bearing: the exact search
+    finds a line at or after the folded one, so the excluded span can only
+    grow, and a span that grows past the declaration hides a call. A name
+    derived from the file name (a Razor component, `view Counter`, spanning
+    the whole file) has no declaration line spelling it, and an unbounded
+    search stopped at `App.Counter.Next()` in the body and licensed a delete
+    main blocks (L-331 review). The signature never includes the body, so a
+    line inside it is declaration.
+    """
     for line_no in range(lo, min(max(lo, hi), len(lines)) + 1):
         if ident_lower in _fold(lines[line_no - 1]):
+            folded = (lo, line_no)
+            break
+    else:
+        folded = (lo, lo)
+    word = re.compile(word_pattern(ident_exact))
+    if not signature or not word.search(_decode_escapes(signature)):
+        return folded
+    last = min(lo + signature.count("\n"), max(lo, hi), len(lines))
+    for line_no in range(lo, last + 1):
+        line = lines[line_no - 1]
+        if "\\" in line:
+            line = _decode_escapes(line)
+        if word.search(line):
             return (lo, line_no)
-    return (lo, lo)
+    return folded
 
 
 def _calls_beyond_declarations(line: str, ident_exact: str, declarations: int) -> bool:
@@ -114,7 +151,7 @@ def _calls_beyond_declarations(line: str, ident_exact: str, declarations: int) -
 
 
 def _sibling_declarations(
-    lines: list[str], siblings: list[tuple[int, int]], ident_lower: str, ident_exact: str
+    lines: list[str], siblings: list[tuple[int, int, str]], ident_lower: str, ident_exact: str
 ) -> list[tuple[int, int]]:
     """The lines of each same-named sibling that are its declaration and nothing else.
 
@@ -134,7 +171,7 @@ def _sibling_declarations(
     (name-based, not resolved). A call spelled with an escape or in another
     case on that line stays hidden, as it was before this rule.
     """
-    decls = [_name_through(lines, lo, hi, ident_lower) for lo, hi in siblings]
+    decls = [_name_through(lines, lo, hi, ident_lower, ident_exact, sig) for lo, hi, sig in siblings]
     per_line: dict[int, int] = {}
     for _lo, name_line in decls:
         per_line[name_line] = per_line.get(name_line, 0) + 1
@@ -257,6 +294,9 @@ def _check_single(
     # the evidence is missing we degrade to the pre-v1.108.226 behaviour and
     # skip the file, which is the honest answer rather than a guess.
     defining_spans: dict[str, list[tuple[int, int]]] = {}
+    # The stored signature of each definition, by (file, first line): the
+    # bound on a sibling's declaration (`_name_through`, LEDGER L-331).
+    signatures: dict[tuple[str, int], str] = {}
     unspanned_files: set[str] = set()
     for sym in index.symbols:
         if sym.get("name", "") != ident_exact:
@@ -278,12 +318,14 @@ def _check_single(
         # itself; `lo > hi` would match nothing and report the signature as a
         # reference to itself.
         defining_spans.setdefault(file_path, []).append((lo, max(lo, hi)))
+        signatures.setdefault((file_path, lo), str(sym.get("signature") or ""))
 
     # ⚠⚠ (LEDGER L-91) A caller that knows WHICH symbol it asks about excludes
     # that symbol's whole span, and of every other same-named definition only
     # its DECLARATION: from its first line through the first line that names
-    # the identifier (`_name_through`), so an `@Override` or `[Attr]` line
-    # above it does not leave the name line counting. Hiding each sibling's
+    # the identifier (`_name_through`: by its exact spelling as a token
+    # within the stored signature's lines, LEDGER L-331), so an `@Override` or
+    # `[Attr]` line above it does not leave the name line counting. Hiding each sibling's
     # whole body hid real callers: Java `B.file()` calling `new A().file()`
     # was skipped as "a definition of `file`", and `check_delete_safe` graded
     # the used `A.file` `safe_to_delete` with zero blockers. Hiding nothing of
@@ -296,7 +338,7 @@ def _check_single(
     # beyond its declarations, as a one-line method does
     # (`_sibling_declarations`, LEDGER
     # L-329).
-    sibling_spans: dict[str, list[tuple[int, int]]] = {}
+    sibling_spans: dict[str, list[tuple[int, int, str]]] = {}
     if target_span is not None:
         t_file, t_lo, t_hi = target_span
         t_hi = max(t_lo, t_hi)
@@ -304,7 +346,9 @@ def _check_single(
             for lo, hi in spans:
                 if file_path == t_file and lo == t_lo:
                     continue
-                sibling_spans.setdefault(file_path, []).append((lo, hi))
+                sibling_spans.setdefault(file_path, []).append(
+                    (lo, hi, signatures.get((file_path, lo), ""))
+                )
         defining_spans = {t_file: [(t_lo, t_hi)]}
         unspanned_files = set()
 

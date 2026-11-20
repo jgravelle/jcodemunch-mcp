@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+### Fixed - an annotation that spells the target's name no longer makes a same-named declaration count as a use
+
+`check_delete_safe` and `check_edit_safe` leave out, of every other definition spelled like the target, its declaration: its first line through the first line that names the identifier. That line was found by a case-folded substring, so an annotation such as `@FileAnno`, `@Profile` or `@File` above `public int file()` was taken as the name line, and the declaration line below it counted as a reference. An unused Java `C.file` graded `internal_uses_blocking` with a blocker on the other class's declaration (LEDGER L-331, found in the L-329 review). The error ran toward blocking, so no delete was wrongly licensed.
+
+The name line is now found within the lines the stored signature spans: the first of them holding the exact declared spelling as a whole token, after decoding Unicode escapes (`int \u0066ile()`). The declaration span removes matches, so it is not case-folded. The signature never includes the body, so the span cannot grow past the declaration and hide a call. Where the signature does not spell the name (a Razor component named after its file, `view Counter`), the earlier folded rule decides, unchanged. An unbounded search there stopped at a use in the body, so the bound is what keeps this fix from licensing a delete.
+
 ## [1.108.472] - 2026-11-20 - a delete preflight counts a call on a one-line method that shares the target's name
 
 ### Fixed - a delete preflight counts a call on a one-line method that shares the target's name
