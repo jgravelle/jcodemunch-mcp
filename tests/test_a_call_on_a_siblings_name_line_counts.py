@@ -102,7 +102,7 @@ def test_the_edit_preflight_sees_the_one_line_caller(tmp_path, lang):
 
 # A sibling whose name line spells the name again without calling it: none of
 # these is a use of the target, and each stayed deletable before this change.
-_NOT_A_CALL = {
+_DECLARATION_ONLY_LINES = {
     "python_param": ("d.py", "class D:\n    def file(self, file): return file\n"),
     "python_attr": ("d.py", "class D:\n    def file(self): return self.file_\n"),
     "java_type": ("D.java", "public class D {\n    public File file() { return null; }\n}\n"),
@@ -114,9 +114,9 @@ _NOT_A_CALL = {
 }
 
 
-@pytest.mark.parametrize("case", sorted(_NOT_A_CALL))
+@pytest.mark.parametrize("case", sorted(_DECLARATION_ONLY_LINES))
 def test_control_a_name_line_without_a_second_call_stays_excluded(tmp_path, case):
-    d_name, d_src = _NOT_A_CALL[case]
+    d_name, d_src = _DECLARATION_ONLY_LINES[case]
     if d_name.endswith(".py"):
         c_name, c_src = "c.py", "class C:\n    def file(self):\n        return 1\n"
     elif d_name.endswith(".js"):
