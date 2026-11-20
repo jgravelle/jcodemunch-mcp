@@ -61,7 +61,7 @@ Full per-task tables are in [`results.md`](results.md).
 
 **96.3% fewer tokens per lookup on average** against grep-and-read. The grand total
 row sums the tokens of all 15 lookups; the pooled reduction is in [`results.md`](results.md),
-labelled as total tokens. Against read-all the pooled figure is 99.7% · 338.5x.
+labeled as total tokens. Against read-all the pooled figure is 99.7% · 338.5x.
 tiktoken cl100k_base, counting the text the server sends on a default install.
 
 ⚠ **This table was stale until 2026-08-03** — it carried a pre-v1.108.222 corpus
