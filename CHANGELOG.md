@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+### Fixed - the server's instructions name a tool only while the session is served it, and name the call graph when it is
+
+The `instructions` string sent at `initialize` is the one piece of steering a client keeps when it defers tool schemas. Its last row named `check_references` on every install, and `tool_profile: "core"` publishes neither `check_references` nor `get_call_hierarchy`, so a core session was told to look up a name its tool lookup could not find. In the other direction, a team that added `get_call_hierarchy` to answer structural questions found it loaded in every session and never called, with Grep doing that work: nothing in the string said which question it answers.
+
+Each row and each clause naming a second tool now follows the list the session is actually served (`_build_tools_list`, including `disabled_tools`). A core session reads "find_references: who imports a name."; a session that serves both tools reads "check_references: where it's used; get_call_hierarchy: who calls it". The one-lookup ToolSearch line loads only published tools. To stay under the string's 1,000-character budget, the closing "One round trip for the session." was dropped.
+
+`get_call_hierarchy`'s description no longer sends "what breaks if I delete this?" to `get_impact_preview`, a tool not every profile serves.
+
 ## [1.108.474] - 2026-11-20 - get_call_hierarchy with no depth returns the direct callers and callees
 
 ### Fixed - `get_call_hierarchy` with no `depth` returns the direct callers and callees, not three hops

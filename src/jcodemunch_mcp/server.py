@@ -342,8 +342,44 @@ _INSTRUCTION_TOOLS_FULL: tuple = (
     ("search_symbols", "a symbol by name; search_text for strings and config."),
     ("get_file_outline", "a file's shape without reading it."),
     ("get_symbol_source", "one id, or an array to batch."),
-    ("find_references", "who imports a name; check_references: where it is used."),
+    ("find_references", "who imports a name; check_references: where it's used."),
 )
+
+# A row's second tool and the clause naming it, said only while that tool is
+# published. `core` serves neither `check_references` nor `get_call_hierarchy`,
+# so a fixed row sent a deferred session to look up a name the lookup cannot
+# find; and where the call graph IS published, nothing here named it, so a
+# "who calls X" question went to Grep with the tool loaded and unused.
+_INSTRUCTION_CLAUSES: dict = {
+    "search_symbols": (("search_text", "; search_text for strings and config"),),
+    "find_references": (
+        ("check_references", "; check_references: where it's used"),
+        ("get_call_hierarchy", "; get_call_hierarchy: who calls it"),
+    ),
+}
+
+
+def _instruction_rows(surface: str, published: "Optional[set]" = None) -> list:
+    """The (name, why) rows the instructions name on `surface`.
+
+    On `full`, a row or clause is kept only for a tool `_build_tools_list`
+    publishes (or `published`, when given), so the string never names a tool the
+    session cannot load. `counter` publishes its three verbs always.
+    """
+    if surface == "counter":
+        return list(_INSTRUCTION_TOOLS_COUNTER)
+    if published is None:
+        published = {t.name for t in _build_tools_list(surface_override=surface)}
+    rows = []
+    for name, why in _INSTRUCTION_TOOLS_FULL:
+        if name not in published:
+            continue
+        clauses = _INSTRUCTION_CLAUSES.get(name)
+        if clauses:
+            head = why.split(";", 1)[0].rstrip(".")
+            why = head + "".join(c for tool, c in clauses if tool in published) + "."
+        rows.append((name, why))
+    return rows
 
 _INSTRUCTION_TOOLS_COUNTER: tuple = (
     ("route", "start here: the task in plain words, back an action to run."),
@@ -352,15 +388,16 @@ _INSTRUCTION_TOOLS_COUNTER: tuple = (
 )
 
 
-def _instruction_tool_names(surface: str) -> list:
+def _instruction_tool_names(surface: str, published: "Optional[set]" = None) -> list:
     """Tool names named in the instructions for `surface`, in reach-for order."""
-    rows = _INSTRUCTION_TOOLS_COUNTER if surface == "counter" else _INSTRUCTION_TOOLS_FULL
-    return [name for name, _ in rows]
+    return [name for name, _ in _instruction_rows(surface, published)]
 
 
-def _tool_search_query(surface: str, prefix: str = _MCP_TOOL_PREFIX) -> str:
+def _tool_search_query(
+    surface: str, prefix: str = _MCP_TOOL_PREFIX, published: "Optional[set]" = None
+) -> str:
     """The `select:` argument that loads every named tool in one lookup."""
-    names = _instruction_tool_names(surface)
+    names = _instruction_tool_names(surface, published)
     return "select:" + ",".join(prefix + n for n in names)
 
 
@@ -457,8 +494,12 @@ def _mcp_instructions(
     prefix: str = _MCP_TOOL_PREFIX,
     indexed_files: "Optional[int]" = None,
     separate_copy: bool = False,
+    published: "Optional[set]" = None,
 ) -> str:
     """The `instructions` string for the initialize response, surface-aware.
+
+    `published` is the set of tool names the session is served; None asks
+    `_build_tools_list`. A tool that is not published is not named.
 
     `indexed_files` is the working directory's index size when the caller has
     established it (`_indexed_here`); the opening then says the repo IS indexed
@@ -470,7 +511,9 @@ def _mcp_instructions(
     so it keeps its text and the server log carries the sentence.
     """
     surface = surface or _effective_surface()
-    rows = _INSTRUCTION_TOOLS_COUNTER if surface == "counter" else _INSTRUCTION_TOOLS_FULL
+    if surface != "counter" and published is None:
+        published = {t.name for t in _build_tools_list(surface_override=surface)}
+    rows = _instruction_rows(surface, published)
     # (2026-10-14, owner's ruling) The opening said "Prefer it/them over
     # Read/Grep/Glob/Bash" and the first row "Call it first", after the policy
     # (1.108.357) had stopped saying either: on a small repository that steering
@@ -515,7 +558,7 @@ def _mcp_instructions(
     lines += [
         "",
         "**Tools deferred? Load all in ONE lookup:** ToolSearch "
-        '"%s". One round trip for the session.' % _tool_search_query(surface, prefix),
+        '"%s".' % _tool_search_query(surface, prefix, published),
     ]
     return "\n".join(lines)
 
@@ -3432,9 +3475,7 @@ def _build_tools_list(
                 "Who calls this function or method, and what does it call: incoming callers and outgoing callees for a symbol, N levels deep. "
                 "Uses AST-derived call detection: callers = symbols in importing files that "
                 "mention this name; callees = imported symbols mentioned in this symbol's body. "
-                "Useful for understanding how a symbol fits into the call graph before refactoring. "
-                "For a 'what breaks if I delete this?' answer, use get_impact_preview instead."
-            
+                "Useful for understanding how a symbol fits into the call graph before refactoring."
                 " Detection is name-based, so same-name symbols in different modules can merge and dynamic dispatch is missed."
                 " Only depth-1 rows are direct callers; on a deeper row, `via` names the row it is reached from. `caller_count` counts every depth, `direct_caller_count` depth 1."
             ),
