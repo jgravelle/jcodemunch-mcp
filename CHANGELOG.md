@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+### Fixed - a delete preflight counts a call on a one-line method that shares the target's name
+
+`check_delete_safe` and `check_edit_safe` leave out, of every other definition spelled like the target, its declaration: its first line through the first line that names the identifier. That name line was left out whole, so a one-line method calling the target hid the call. An unused-looking Java `C.file` beside `@Override public int file() { return new C().file(); }` graded `safe_to_delete` with no blockers, and a Kotlin expression body (`fun file() = C().file()`), a Python one-liner, a Java field initialised by a call (`int file = new C().file();`) and a Kotlin property getter did the same (LEDGER L-329, found in the L-91 review).
+
+The name line now counts when it calls the exact declared name (the name, then `(`) beyond the declarations whose name line it is. A call-shaped declaration (`int file()`) uses up one call; one that is not (a field, a Kotlin property) uses up none, so the call after it counts. Two declarations sharing a line (an interface overload pair, minified JavaScript) are not a use. A parameter (`def file(self, file)`), a type (`File file()`), a constructor in another case (`new File(...)`) or a comment naming the name without `(` is not a call, so the declaration still stays out. A comment that writes `file()`, and a one-line sibling calling its own name, do count, the way a sibling's body lines already do. The rule only adds matches, so it can hold a delete back and never licenses one. The public `check_references` is unchanged.
+
+Not covered: a call on that line spelled with an escape, in another case, or without `(` (a Java method reference `C::file`) is still hidden, as it was before.
+
 ## [1.108.471] - 2026-11-20 - a repeated find_references or get_blast_radius answers from the index another process just wrote
 
 ### Fixed - a repeated `find_references` or `get_blast_radius` answers from the index another process just wrote
