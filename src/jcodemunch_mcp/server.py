@@ -3457,8 +3457,8 @@ def _build_tools_list(
                     },
                     "depth": {
                         "type": "integer",
-                        "description": "Maximum hops to traverse (1–5). Default 3.",
-                        "default": 3,
+                        "description": "Maximum hops to traverse (1–5). Default 1: the direct callers and callees.",
+                        "default": 1,
                     },
                 },
                 "required": ["repo", "symbol_id"],
@@ -7145,7 +7145,7 @@ async def _call_tool_impl(name: str, arguments: dict) -> list[TextContent] | Cal
                     repo=arguments["repo"],
                     symbol_id=arguments["symbol_id"],
                     direction=arguments.get("direction", "both"),
-                    depth=arguments.get("depth", 3),
+                    depth=arguments.get("depth", 1),
                     storage_path=storage_path,
                 )
             )
