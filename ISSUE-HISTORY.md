@@ -3434,3 +3434,9 @@ The 1.108.467 entry, verbatim as it stood in `CLAUDE.md`:
 The 1.108.468 entry, verbatim as it stood in `CLAUDE.md`:
 
 - **Prior (1.108.468):** **a comment after a base list no longer hides the base** (L-261): every `_parse_bases` branch and `_call_graph`'s `implements` cut read `_strip_comments` text; a single-quoted string is kept where `'` opens one, a C-family number literal is read whole (`1'000`, `u8'x'`), and PHP keeps `#[`. Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-20, release 1.108.472)
+
+The 1.108.469 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.469):** **a delete preflight no longer hides a caller inside a same-named method** (L-91): `check_references._check_single(target_span=)` lets `check_delete_safe`/`check_edit_safe` exclude the target's own span whole and, of a same-named sibling, only its declaration through its name line (`_name_through`); a blocker's `line` is its first match. A call on a sibling's name line is still hidden (L-329). Full text: `CHANGELOG.md`.
