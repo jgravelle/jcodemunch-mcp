@@ -55,13 +55,13 @@ Full per-task tables are in [`results.md`](results.md).
 | Repo | Files | Grep-top-3 baseline | Read-all baseline | jCodeMunch | vs grep | vs read-all |
 |------|------:|--------------------:|------------------:|-----------:|--------:|------------:|
 | expressjs/express | 186 | 15,040 avg | 154,569 | 743 avg | **20.2x** | 208.0x |
-| fastapi/fastapi | 1,186 | 86,713 avg | 825,326 | 1,749 avg | **49.6x** | 471.9x |
-| gin-gonic/gin | 98 | 32,253 avg | 151,842 | 899 avg | **35.9x** | 168.9x |
-| **Grand total, pooled (15 task-runs)** | — | **670,032** | **5,658,685** | **16,955** |  | 333.7x |
+| fastapi/fastapi | 1,186 | 86,713 avg | 825,326 | 1,720 avg | **50.4x** | 479.8x |
+| gin-gonic/gin | 98 | 32,253 avg | 151,842 | 880 avg | **36.7x** | 172.5x |
+| **Grand total, pooled (15 task-runs)** | — | **670,032** | **5,658,685** | **16,716** |  | 338.5x |
 
 **96.3% fewer tokens per lookup on average** against grep-and-read. The grand total
 row sums the tokens of all 15 lookups; the pooled reduction is in [`results.md`](results.md),
-labelled as total tokens. Against read-all the pooled figure is 99.7% · 333.7x.
+labeled as total tokens. Against read-all the pooled figure is 99.7% · 338.5x.
 tiktoken cl100k_base, counting the text the server sends on a default install.
 
 ⚠ **This table was stale until 2026-08-03** — it carried a pre-v1.108.222 corpus

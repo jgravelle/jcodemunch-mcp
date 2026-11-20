@@ -10,7 +10,7 @@ The retrieval axis is the big number: **90-99% on code-reading tasks, 96.3%
 fewer tokens per lookup on average** against a grep-and-read agent across 15 tasks and 3 pinned
 repositories. Quote the range, not the average alone: per-query results span
 11.3x to 132.5x, so the average on its own overstates the low end. The larger
-99.7% / 333.7x figure is against a *read-every-file* baseline, which is a
+99.7% / 338.5x figure is against a *read-every-file* baseline, which is a
 ceiling nobody actually pays; see `benchmarks/METHODOLOGY.md` for why both are
 published and which one to lead with. Encoding is a smaller-but-independent
 multiplier on whatever traffic remains.

@@ -2,7 +2,7 @@
 
 **An MCP server that retrieves source code by symbol, not by file, using tree-sitter AST parsing.** It uses 96.3% fewer tokens per lookup on average than grep-and-read on our 15-lookup benchmark (91.1% to 99.2% across the lookups, at pinned commits), so your agent stops spending its context window on whole files.
 
-<sub>Benchmark: 5 queries on each of express, fastapi and gin at pinned commits, tokens counted with tiktoken `cl100k_base`, jcodemunch-mcp 1.108.467 with the served-response count of #1361 (the benchmark counts the text the server sends on a default install). A lookup is one `search_symbols` plus `get_symbol_source` on its top 3 hits, against grep-and-read (rank files by match count, read the top 3 whole). Per lookup, not per session. Reproduce with [`benchmarks/REPRODUCING.md`](benchmarks/REPRODUCING.md).</sub>
+<sub>Benchmark: 5 queries on each of express, fastapi and gin at pinned commits, tokens counted with tiktoken `cl100k_base`, jcodemunch-mcp 1.108.473 with the served-response count of #1361 (the benchmark counts the text the server sends on a default install). A lookup is one `search_symbols` plus `get_symbol_source` on its top 3 hits, against grep-and-read (rank files by match count, read the top 3 whole). Per lookup, not per session. Reproduce with [`benchmarks/REPRODUCING.md`](benchmarks/REPRODUCING.md).</sub>
 
 > **Real results from production, as of 2026-08-17**
 > **838B+ tokens saved** · **136,000+ reporting installs** · **$4.2M+ in AI spend avoided** · **100,000+ kg CO₂ prevented**
@@ -50,7 +50,7 @@ Index once. Query cheaply. Keep moving. **Precision context beats brute-force co
 
 ### Reproducible token efficiency benchmark
 
-Measured with `tiktoken cl100k_base` across three public repos pinned to upstream commits, run 2026-11-19 on v1.108.467, with the benchmark counting the text the server sends on a default install (#1361). Workflow: `search_symbols` (top 5) + `get_symbol_source` × 3 per query. Two baselines, same run, same corpus, same file reader:
+Measured with `tiktoken cl100k_base` across three public repos pinned to upstream commits, run 2026-11-20 on v1.108.473, with the benchmark counting the text the server sends on a default install (#1361). Workflow: `search_symbols` (top 5) + `get_symbol_source` × 3 per query. Two baselines, same run, same corpus, same file reader:
 
 - **Grep-top-3**: `rg -l` the query terms, rank files by match count, open the top 3 whole. This is what a competent agent without the tool actually does, and it is the number to quote.
 - **Read-all**: every indexed source file concatenated. A ceiling nobody pays; retained for continuity with previously published figures.
@@ -58,9 +58,9 @@ Measured with `tiktoken cl100k_base` across three public repos pinned to upstrea
 | Repository | Files | Symbols | Grep-top-3 baseline | jCodeMunch | vs grep | vs read-all |
 |------------|------:|--------:|--------------------:|-----------:|--------:|------------:|
 | expressjs/express | 186 | 1,085 | 15,040 avg | 743 avg | **20.2x** | 208.0x |
-| fastapi/fastapi | 1,186 | 13,699 | 86,713 avg | 1,749 avg | **49.6x** | 471.9x |
-| gin-gonic/gin | 98 | 1,822 | 32,253 avg | 899 avg | **35.9x** | 168.9x |
-| **Grand total, pooled (15 task-runs)** | | | **670,032** | **16,955** |  | 333.7x |
+| fastapi/fastapi | 1,186 | 13,699 | 86,713 avg | 1,720 avg | **50.4x** | 479.8x |
+| gin-gonic/gin | 98 | 1,822 | 32,253 avg | 880 avg | **36.7x** | 172.5x |
+| **Grand total, pooled (15 task-runs)** | | | **670,032** | **16,716** |  | 338.5x |
 
 **Against a grep-and-read agent: 96.3% fewer tokens per lookup on average.** No single multiple describes every query; the per-repo rows above are the spread. Against read-all the figure is 99.7%, but nobody pays that ceiling. That count is the text the server actually sends, compact MUNCH encoding included, so it's what your agent receives on a default install.
 
