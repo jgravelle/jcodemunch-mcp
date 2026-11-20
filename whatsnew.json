@@ -1,6 +1,12 @@
 {
-  "current": "1.108.472",
+  "current": "1.108.473",
   "entries": [
+    {
+      "version": "1.108.473",
+      "date": "2026-11-20",
+      "title": "an annotation that spells the target's name no longer makes a same-named declaration count as a use",
+      "summary": "check_delete_safe and check_edit_safe find a same-named declaration's name line by its exact spelling within its signature, so an annotation such as @FileAnno above it no longer counts the declaration as a use of the target."
+    },
     {
       "version": "1.108.472",
       "date": "2026-11-20",

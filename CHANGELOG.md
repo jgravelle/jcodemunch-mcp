@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.473] - 2026-11-20 - an annotation that spells the target's name no longer makes a same-named declaration count as a use
+
 ### Fixed - an annotation that spells the target's name no longer makes a same-named declaration count as a use
 
 `check_delete_safe` and `check_edit_safe` leave out, of every other definition spelled like the target, its declaration: its first line through the first line that names the identifier. That line was found by a case-folded substring, so an annotation such as `@FileAnno`, `@Profile` or `@File` above `public int file()` was taken as the name line, and the declaration line below it counted as a reference. An unused Java `C.file` graded `internal_uses_blocking` with a blocker on the other class's declaration (LEDGER L-331, found in the L-329 review). The error ran toward blocking, so no delete was wrongly licensed.
