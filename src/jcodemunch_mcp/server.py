@@ -3457,8 +3457,8 @@ def _build_tools_list(
                     },
                     "depth": {
                         "type": "integer",
-                        "description": "Maximum hops to traverse (1–5). Default 3.",
-                        "default": 3,
+                        "description": "Maximum hops to traverse (1–5). Default 1: the direct callers and callees.",
+                        "default": 1,
                     },
                 },
                 "required": ["repo", "symbol_id"],
@@ -5435,8 +5435,8 @@ Goal: Follow a suspected bug from symptom to root cause.
 
 1. **search_symbols** for the function name or error message keyword.
 2. **get_symbol_source** on the suspect symbol → read the implementation.
-3. **get_call_hierarchy** with `direction="callers"`, `depth=3` → who calls this?
-4. **get_call_hierarchy** with `direction="callees"`, `depth=2` → what does it call?
+3. **get_call_hierarchy** with `direction="callers"` → who calls this? Raise `depth` only to follow a chain further.
+4. **get_call_hierarchy** with `direction="callees"` → what does it call?
 5. **get_context_bundle** on the suspect symbol → full source + imports in one call.
 6. **find_references** for the symbol name → all files that reference it.
 7. **get_blast_radius** on the suspect file → what else could be affected?
@@ -7145,7 +7145,7 @@ async def _call_tool_impl(name: str, arguments: dict) -> list[TextContent] | Cal
                     repo=arguments["repo"],
                     symbol_id=arguments["symbol_id"],
                     direction=arguments.get("direction", "both"),
-                    depth=arguments.get("depth", 3),
+                    depth=arguments.get("depth", 1),
                     storage_path=storage_path,
                 )
             )
