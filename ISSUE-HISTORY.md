@@ -3428,3 +3428,9 @@ The 1.108.466 entry, verbatim as it stood in `CLAUDE.md`:
 The 1.108.467 entry, verbatim as it stood in `CLAUDE.md`:
 
 - **Prior (1.108.467):** **a compact answer says when a row's code changed since the index read it** (L-325): `schema_driven.UNIVERSAL_ROW_VERDICTS` (`_freshness`, `_runtime_confidence`, `_runtime_body`) rides a compact table as a header-named column, a nested row as a `<key>.<verdict>` scalar, and `find_references`' flattened groups, only when some row is off its default; an all-default answer keeps its bytes and `ENCODING_ID` is unchanged. Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-20, release 1.108.471)
+
+The 1.108.468 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.468):** **a comment after a base list no longer hides the base** (L-261): every `_parse_bases` branch and `_call_graph`'s `implements` cut read `_strip_comments` text; a single-quoted string is kept where `'` opens one, a C-family number literal is read whole (`1'000`, `u8'x'`), and PHP keeps `#[`. Full text: `CHANGELOG.md`.
