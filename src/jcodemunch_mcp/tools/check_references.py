@@ -13,6 +13,7 @@ from typing import Optional
 
 from ..parser.imports import wildcard_edge_filter
 from ..storage import IndexStore
+from ..word_rule import word_pattern
 from ._utils import index_status_to_tool_error, resolve_repo
 
 
@@ -89,6 +90,36 @@ def _name_through(lines: list[str], lo: int, hi: int, ident_lower: str) -> tuple
         if ident_lower in _fold(lines[line_no - 1]):
             return (lo, line_no)
     return (lo, lo)
+
+
+def _calls_on_line(line: str, ident_exact: str) -> int:
+    """How many times *line* spells the exact declared name as a call: the
+    name as a whole token, then optional space and `(` (LEDGER L-329)."""
+    return len(re.findall(word_pattern(ident_exact) + r"\s*\(", line))
+
+
+def _sibling_declaration(
+    lines: list[str], lo: int, hi: int, ident_lower: str, ident_exact: str
+) -> tuple[int, int]:
+    """The lines of a same-named sibling that are its declaration and nothing else.
+
+    `_name_through`'s span, except that the name line is given back when it
+    calls the name a second time beyond the declaration's own, as a one-line
+    method does: `@Override public int file() { return new C().file(); }`,
+    Kotlin's `fun file() = C().file()`, a Python one-liner (LEDGER L-329).
+    Hiding that line hid the call, and `check_delete_safe` graded the unused-
+    looking `C.file` `safe_to_delete` with no blockers.
+
+    ⚠ Exact case and call shape only. A parameter (`def file(self, file)`), a
+    type (`File file()`), a constructor in another case (`new File(...)`) or a
+    comment spelling the name is not a second call, so the declaration stays
+    out and no pinned verdict moves. A call spelled with an escape or in
+    another case on that line stays hidden, as it was before this rule.
+    """
+    decl_lo, name_line = _name_through(lines, lo, hi, ident_lower)
+    if name_line > len(lines) or _calls_on_line(lines[name_line - 1], ident_exact) < 2:
+        return (decl_lo, name_line)
+    return (decl_lo, name_line - 1)
 
 
 def first_match_line(ref: dict) -> int:
@@ -234,8 +265,9 @@ def _check_single(
     # moved pinned verdicts. The narrower rule only ADDS matches, so it can
     # hold a delete back and never licenses one. A sibling with no line no
     # longer hides its whole file: a call there counts, at the cost of its
-    # declaration. ⚠ A call on a sibling's NAME line (a one-line method) is
-    # still hidden, as it was before this rule (LEDGER L-329).
+    # declaration. A sibling's NAME line counts when it calls the name a
+    # second time, as a one-line method does (`_sibling_declaration`, LEDGER
+    # L-329).
     sibling_spans: dict[str, list[tuple[int, int]]] = {}
     if target_span is not None:
         t_file, t_lo, t_hi = target_span
@@ -274,7 +306,8 @@ def _check_single(
             siblings = sibling_spans.get(file_path)
             if siblings:
                 spans = list(spans) + [
-                    _name_through(file_lines, lo, hi, ident_lower) for lo, hi in siblings
+                    _sibling_declaration(file_lines, lo, hi, ident_lower, ident_exact)
+                    for lo, hi in siblings
                 ]
 
             file_matches = []

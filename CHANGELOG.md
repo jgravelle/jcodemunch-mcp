@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+### Fixed - a delete preflight counts a call on a one-line method that shares the target's name
+
+`check_delete_safe` and `check_edit_safe` leave out, of every other definition spelled like the target, its declaration: its first line through the first line that names the identifier. That name line was left out whole, so a one-line method calling the target hid the call. An unused-looking Java `C.file` beside `@Override public int file() { return new C().file(); }` graded `safe_to_delete` with no blockers, and a Kotlin expression body (`fun file() = C().file()`) or a Python one-liner did the same (LEDGER L-329, found in the L-91 review).
+
+The name line now counts when it spells the exact declared name as a call (the name, then `(`) a second time beyond the declaration's own. A parameter (`def file(self, file)`), a type (`File file()`), a constructor in another case (`new File(...)`) or a comment spelling the name is not a second call, so the declaration still stays out. The rule only adds matches, so it can hold a delete back and never licenses one. Over this repository's Python, 1 name line among the 888 names defined more than once has that shape. The public `check_references` is unchanged.
+
+Not covered: a call on that line spelled with an escape, in another case, or without `(` (a Java method reference `C::file`) is still hidden, as it was before.
+
 ## [1.108.471] - 2026-11-20 - a repeated find_references or get_blast_radius answers from the index another process just wrote
 
 ### Fixed - a repeated `find_references` or `get_blast_radius` answers from the index another process just wrote
