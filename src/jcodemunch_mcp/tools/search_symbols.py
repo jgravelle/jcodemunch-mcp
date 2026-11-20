@@ -728,6 +728,27 @@ def _packing_cost_bytes(entry: dict, detail_level: str) -> int:
     return len(json.dumps(entry, default=str))
 
 
+# The most characters of a signature a standard row carries. A multi-line
+# signature was copied whole into every row, so one row could be most of a
+# reply: FastAPI's `middleware` lookup carried a 29,748-character one. The
+# whole signature is one `get_symbol_source` call away; `full` keeps it whole,
+# since that shape inlines the source anyway.
+SIGNATURE_MAX_CHARS = 200
+
+
+def _row_signature(sym: dict, detail_level: str) -> tuple[str, bool]:
+    """The signature a result row carries, and whether it was cut.
+
+    Every row builder in this module goes through here, so the BM25, fuzzy,
+    semantic and fusion paths cap the same way. A row that was cut carries
+    ``signature_truncated: True``; an uncut row omits the key.
+    """
+    sig = sym.get("signature", "") or ""
+    if detail_level != "full" and len(sig) > SIGNATURE_MAX_CHARS:
+        return sig[:SIGNATURE_MAX_CHARS], True
+    return sig, False
+
+
 def _row_summary(sym: dict) -> str:
     """Summary for a result row; empty when it merely echoes the signature.
 
@@ -894,7 +915,9 @@ def search_symbols(
             values are always honored.
             "compact" returns id/name/kind/file/line only (~15 tokens each, ideal
             for discovery).
-            "standard" returns signatures and summaries.
+            "standard" returns signatures and summaries. A signature longer
+            than SIGNATURE_MAX_CHARS is cut to that length and the row carries
+            signature_truncated=True; get_symbol_source returns it whole.
             "full" inlines source code, docstring, and end_line.
         debug: When True, include per-field score breakdown in each result.
         fuzzy: Enable fuzzy matching. When True (or when BM25 confidence is low),
@@ -1286,16 +1309,19 @@ def search_symbols(
                 "byte_length": sym.get("byte_length", 0),
             }
         else:
+            sig, sig_cut = _row_signature(sym, detail_level)
             entry = {
                 "id": sym["id"],
                 "kind": sym["kind"],
                 "name": sym["name"],
                 "file": sym["file"],
                 "line": sym["line"],
-                "signature": sym["signature"],
+                "signature": sig,
                 "summary": _row_summary(sym),
                 "byte_length": sym.get("byte_length", 0),
             }
+            if sig_cut:
+                entry["signature_truncated"] = True
         decs = sym.get("decorators") or []
         if decs:
             entry["decorators"] = decs
@@ -1400,16 +1426,19 @@ def search_symbols(
                     "byte_length": sym.get("byte_length", 0),
                 }
             else:
+                sig, sig_cut = _row_signature(sym, detail_level)
                 entry = {
                     "id": sym["id"],
                     "kind": sym["kind"],
                     "name": sym["name"],
                     "file": sym["file"],
                     "line": sym["line"],
-                    "signature": sym["signature"],
+                    "signature": sig,
                     "summary": sym.get("summary", ""),
                     "byte_length": sym.get("byte_length", 0),
                 }
+                if sig_cut:
+                    entry["signature_truncated"] = True
             decs = sym.get("decorators") or []
             if decs:
                 entry["decorators"] = decs
@@ -1924,16 +1953,19 @@ def _search_symbols_semantic(
                 "byte_length": sym.get("byte_length", 0),
             }
         else:
+            sig, sig_cut = _row_signature(sym, detail_level)
             entry = {
                 "id": sym["id"],
                 "kind": sym["kind"],
                 "name": sym["name"],
                 "file": sym["file"],
                 "line": sym["line"],
-                "signature": sym["signature"],
+                "signature": sig,
                 "summary": _row_summary(sym),
                 "byte_length": sym.get("byte_length", 0),
             }
+            if sig_cut:
+                entry["signature_truncated"] = True
         decs = sym.get("decorators") or []
         if decs:
             entry["decorators"] = decs
@@ -2381,16 +2413,19 @@ def _search_symbols_fusion(
                 "byte_length": sym.get("byte_length", 0),
             }
         else:
+            sig, sig_cut = _row_signature(sym, detail_level)
             entry = {
                 "id": sym["id"],
                 "kind": sym["kind"],
                 "name": sym["name"],
                 "file": sym["file"],
                 "line": sym["line"],
-                "signature": sym["signature"],
+                "signature": sig,
                 "summary": _row_summary(sym),
                 "byte_length": sym.get("byte_length", 0),
             }
+            if sig_cut:
+                entry["signature_truncated"] = True
         decs = sym.get("decorators") or []
         if decs:
             entry["decorators"] = decs

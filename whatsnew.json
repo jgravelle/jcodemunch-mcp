@@ -1,6 +1,12 @@
 {
-  "current": "1.108.469",
+  "current": "1.108.470",
   "entries": [
+    {
+      "version": "1.108.470",
+      "date": "2026-11-20",
+      "title": "a search row caps its signature at 200 characters and says when it was cut",
+      "summary": "search_symbols now sends at most 200 characters of a long signature in its default reply and marks a cut row signature_truncated: true; get_symbol_source still returns the whole signature. On a repository with very long multi-line signatures, a search reply is much smaller."
+    },
     {
       "version": "1.108.469",
       "date": "2026-11-19",

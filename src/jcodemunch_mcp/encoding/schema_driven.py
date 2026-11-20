@@ -138,6 +138,21 @@ class TableSpec:
     cols: list[str] = field(default_factory=list)  # column order
     intern: list[str] = field(default_factory=list)  # cols to legend-intern
     types: dict[str, str] = field(default_factory=dict)  # col -> type hint
+    # Columns written only when some row holds a value (not None, "" or False).
+    # They follow the declared columns and are named in the table header, so an
+    # answer where no row holds one keeps exactly the bytes it had, and a
+    # decoder reading the declared columns by position reads them as before.
+    # For a disclosure that is off on almost every row (`signature_truncated`).
+    optional: list[str] = field(default_factory=list)
+
+
+def _optional_cols(rows: Iterable[Any], spec: "TableSpec") -> list[str]:
+    """The optional columns a table needs: those some row holds a value for."""
+    rows = [r for r in rows if isinstance(r, dict)]
+    return [
+        c for c in spec.optional
+        if any(r.get(c) not in (None, "", False) for r in rows)
+    ]
 
 
 def _type_of(v: Any) -> str:
@@ -296,7 +311,9 @@ def encode(
     # A row verdict off its default (L-325) rides as a column after the
     # declared ones, named here so the decoder can read it back.
     table_cols = {
-        t.tag: list(t.cols) + _row_verdict_cols(response.get(t.key, []) or [], t.cols)
+        t.tag: list(t.cols)
+        + _optional_cols(response.get(t.key, []) or [], t)
+        + _row_verdict_cols(response.get(t.key, []) or [], list(t.cols) + list(t.optional))
         for t in tables
     }
     scalar_payload["__tables"] = ",".join(
@@ -325,6 +342,7 @@ def encode(
                 if c in intern_set and isinstance(v, str):
                     v = legend.encode_prefix(v)
                 encoded_row.append(v)
+            # Optional columns carry the row's value, blank where it has none.
             # Verdict columns carry the row's own value, a default included:
             # beside a stale row, a fresh one says `fresh` rather than blank.
             for c in table_cols[t.tag][len(t.cols):]:
@@ -444,13 +462,16 @@ def decode(
     for t in tables:
         decoded_rows: list[dict[str, Any]] = []
         intern_set = set(t.intern)
-        # (L-325) Row verdict columns the encoder appended after the declared ones.
+        # (L-325) Row verdict columns, and the table's optional columns, that
+        # the encoder appended after the declared ones.
         written = written_cols.get(t.tag, [])
-        verdict_cols = [
+        appended = [
             (len(t.cols) + j, c)
             for j, c in enumerate(written[len(t.cols):])
-            if written[: len(t.cols)] == list(t.cols) and c in UNIVERSAL_ROW_VERDICTS
+            if written[: len(t.cols)] == list(t.cols)
         ]
+        verdict_cols = [(i, c) for i, c in appended if c in UNIVERSAL_ROW_VERDICTS]
+        optional_cols = [(i, c) for i, c in appended if c in t.optional]
         for block in table_block_text:
             rows = read_table(block, t.tag)
             if not rows:
@@ -466,6 +487,10 @@ def decode(
                     raw = r[i] if i < len(r) else ""
                     if raw != "":
                         row_dict[c] = raw
+                for i, c in optional_cols:
+                    raw = r[i] if i < len(r) else ""
+                    if raw != "":
+                        row_dict[c] = _coerce(raw, t.types.get(c, "str"))
                 decoded_rows.append(row_dict)
         result[t.key] = decoded_rows
 
