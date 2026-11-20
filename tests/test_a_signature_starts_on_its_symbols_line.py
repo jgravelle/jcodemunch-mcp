@@ -138,6 +138,7 @@ def _corpus_files():
 
 def test_every_multi_line_signature_in_this_repository_starts_on_its_line():
     checked, wrong = 0, []
+    seen, parsed, unparsed = set(), set(), []
     for path in _corpus_files():
         language = get_language_for_path(str(path))
         try:
@@ -145,10 +146,13 @@ def test_every_multi_line_signature_in_this_repository_starts_on_its_line():
         except (OSError, UnicodeDecodeError):
             continue
         rel = path.relative_to(ROOT).as_posix()
+        seen.add(language)
         try:
             symbols = parse_file(text, rel, language)
-        except Exception:  # noqa: BLE001 - a file that does not parse has no signature to check
+        except Exception as exc:  # noqa: BLE001 - recorded below, never dropped unseen
+            unparsed.append(f"{rel}: {type(exc).__name__}")
             continue
+        parsed.add(language)
         lines = text.splitlines()
         for sym in symbols:
             if NL not in (sym.signature or "") or not sym.line:
@@ -157,7 +161,12 @@ def test_every_multi_line_signature_in_this_repository_starts_on_its_line():
             why = _misplaced(lines, sym.line, sym.signature)
             if why:
                 wrong.append(f"{rel}:{sym.line} {sym.name}: {why}")
-    # Measured 2026-11-20: 20 in tests/fixtures and 1,044 in src. A floor well
-    # under that keeps the check from passing because it read nothing.
-    assert checked >= 500, f"only {checked} multi-line signatures checked"
+    # A parser that starts raising for every file of a language would drop that
+    # language from this check without moving the count much, so it fails here.
+    dropped = sorted(seen - parsed)
+    assert not dropped, f"no file parsed for {dropped}; failures: {unparsed[:20]}"
+    # Measured on origin/main f23bfb98, 2026-11-20: 20 multi-line signatures in
+    # tests/fixtures and 1,044 in src. A floor well under that keeps the check
+    # from passing because it read nothing.
+    assert checked >= 500, f"only {checked} multi-line signatures checked; parse failures: {unparsed[:20]}"
     assert not wrong, NL.join(wrong[:20])
