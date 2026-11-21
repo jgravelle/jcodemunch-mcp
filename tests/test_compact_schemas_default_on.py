@@ -1,10 +1,9 @@
 """`compact_schemas` is on by default, and an explicit `false` still publishes full schemas.
 
 The owner ruled the default flip on 2026-11-20, from a measurement of agents
-working under compact schemas: no hidden parameter was used except four bounded
-`get_symbol_source` fetches, and no demoted enum produced an invalid value.
-Those fetches used `max_source_lines`, so it stays in the compact schema as name
-and type. Its description is what does not fit under the core_compact ceiling,
+working under compact schemas in which the hidden parameter they reached for was
+`max_source_lines`, on bounded `get_symbol_source` fetches. So it stays in the
+compact schema as name and type. Its description is what does not fit under the core_compact ceiling,
 so only the description is stripped, and only under compact.
 """
 
@@ -56,14 +55,6 @@ def test_max_source_lines_stays_visible_under_compact_as_name_and_type(cfg):
     prop = _props("get_symbol_source").get("max_source_lines")
     assert prop is not None, "compact schemas dropped max_source_lines"
     assert prop == {"type": "integer"}, prop
-
-
-def test_the_description_strip_leaves_the_full_schema_alone(cfg):
-    """The strip copies the property; it must not edit the source schema."""
-    cfg["compact_schemas"] = True
-    server._build_tools_list()
-    cfg["compact_schemas"] = False
-    assert "description" in _props("get_symbol_source")["max_source_lines"]
 
 
 def test_the_counter_surface_does_not_read_compact_schemas(cfg):

@@ -2732,7 +2732,7 @@ def generate_template() -> str:
   // "tool_counters": true,
 
   // === Compact Schemas ===
-  // On by default (1.108.476): strips rarely-used advanced parameters (debug,
+  // On by default: strips rarely-used advanced parameters (debug,
   // fusion, semantic_*, fuzzy_*, etc.) from tool schemas and demotes the long
   // `language` and `kind` enums to plain strings. The server still accepts every
   // one of them; they're only hidden from the model to save tokens. Set false to

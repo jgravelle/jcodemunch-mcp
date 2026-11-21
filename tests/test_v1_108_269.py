@@ -332,7 +332,7 @@ class TestMaxSizeReachesTheToolSchema:
         from jcodemunch_mcp.server import _build_tools_list
 
         # The full schema: compact schemas hide max_size on purpose (it stays
-        # honoured), and compact became the default in 1.108.476.
+        # honoured), and compact is the default now.
         cfg = config_module._GLOBAL_CONFIG
         before = cfg.get("compact_schemas")
         cfg["compact_schemas"] = False

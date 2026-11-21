@@ -1362,10 +1362,11 @@ _COMPACT_STRIP_PARAMS: dict[str, set[str]] = {
 }
 
 # Params that stay in the compact schema as name and type, with the description
-# stripped. `max_source_lines` is the one hidden parameter agents reached for
-# when compact schemas were measured before the default flipped (1.108.476):
-# with its description it pushed core_compact over its ceiling, and with name
-# and type alone it fits. The full schema keeps the description.
+# stripped. `max_source_lines` is the hidden parameter agents reached for when
+# compact schemas were measured before the default flipped (2026-11-20). With
+# its description core_compact came to 4,027 (capture_schema_baseline.measure()
+# with this table emptied), over the 4,000 ceiling; with name and type alone it
+# fits. The full schema keeps the description.
 # tests/test_compact_schemas_default_on.py pins it.
 _COMPACT_STRIP_DESCRIPTIONS: dict[str, set[str]] = {
     "get_symbol_source": {"max_source_lines"},
@@ -1756,8 +1757,8 @@ _TOOL_SCHEMAS: dict[str, dict] | None = None
 # The declared schema of each parameter `compact_schemas` hides, by tool. The
 # published schema no longer carries their types, and type coercion read only
 # the published schema, so a hidden boolean sent as the string "false" reached
-# its handler as a string. Coercion reads these too (1.108.476, when compact
-# became the default). Validation still runs against the published schema.
+# its handler as a string. Coercion reads these too (since compact became the
+# default). Validation still runs against the published schema.
 _COMPACT_HIDDEN_PROPS: dict[str, dict[str, dict]] = {}
 
 
@@ -5181,6 +5182,17 @@ def _build_tools_list(
         for t in all_tools
         if isinstance((props := (t.inputSchema or {}).get("properties")), dict) and props
     }
+    # The declared schema of every param the compact strip can hide, taken from
+    # the same pre-strip catalog, so coercion keeps their types (see
+    # `_COMPACT_HIDDEN_PROPS`). Rebuilt here on every build, never accumulated.
+    _COMPACT_HIDDEN_PROPS.clear()
+    for t in all_tools:
+        props = (t.inputSchema or {}).get("properties")
+        hide = _COMPACT_STRIP_PARAMS.get(t.name)
+        if isinstance(props, dict) and hide:
+            kept = {p: dict(props[p]) for p in hide if isinstance(props.get(p), dict)}
+            if kept:
+                _COMPACT_HIDDEN_PROPS[t.name] = kept
     surface = surface_override or _effective_surface()
     if surface == "counter":
         # Collapse to the front door + always-present controls. Tier filtering
@@ -5238,9 +5250,7 @@ def _build_tools_list(
             strip_set = _COMPACT_STRIP_PARAMS.get(tool.name)
             if strip_set:
                 for param in strip_set:
-                    popped = props.pop(param, None)
-                    if isinstance(popped, dict):
-                        _COMPACT_HIDDEN_PROPS.setdefault(tool.name, {})[param] = popped
+                    props.pop(param, None)
             for param in _COMPACT_STRIP_DESCRIPTIONS.get(tool.name, ()):
                 pschema = props.get(param)
                 if isinstance(pschema, dict) and "description" in pschema:

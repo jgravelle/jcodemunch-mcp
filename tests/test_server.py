@@ -1324,7 +1324,7 @@ async def test_compact_schemas_strips_advanced_params():
 
 @pytest.mark.asyncio
 async def test_compact_schemas_off_preserves_all_params():
-    """When compact_schemas is off explicitly, all params remain (1.108.476 made it the default)."""
+    """When compact_schemas is off explicitly, all params remain (compact is the default now)."""
     from jcodemunch_mcp import config as config_module
     from copy import deepcopy
 
