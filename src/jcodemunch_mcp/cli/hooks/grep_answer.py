@@ -194,17 +194,14 @@ def _complete(res) -> bool:
     """True only for a page that is the whole answer over what was searched."""
     if not isinstance(res, dict) or res.get("error") or not res.get("result_count"):
         return False
-    if res.get("timed_out") or res.get("truncated") or res.get("note"):
+    if res.get("note"):
         return False
-    verdict = (res.get("_meta") or {}).get("verdict") or {}
-    if verdict.get("incomplete"):
-        return False
-    if (verdict.get("coverage") or {}).get("complete") is False:
-        return False
-    # A capped index holds part of the tree; a count over it is not the whole.
-    if (res.get("_meta") or {}).get("index_truncated"):
-        return False
-    return True
+    # The one completeness reading, shared with the deletion investigator
+    # (L-309): a cut page, a timed-out scan, unreadable or uncovered files,
+    # a capped index and a file withheld for size are all not the whole.
+    from ...retrieval.verdict import search_text_cut_short
+
+    return not search_text_cut_short(res)
 
 
 def _open_view(repo: str):
