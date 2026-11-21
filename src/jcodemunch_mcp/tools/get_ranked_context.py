@@ -11,6 +11,7 @@ from .get_context_bundle import _count_tokens
 from ..retrieval.scoring import query_idf as _query_idf
 from ..retrieval.scoring import query_terms as _query_terms
 from ..retrieval.scoring import rank_factor
+from ..retrieval.verdict import mark_no_exact_match as _mark_no_exact_match
 from .search_symbols import (
     _bm25_score,
     _NEGATIVE_EVIDENCE_THRESHOLD,
@@ -645,6 +646,9 @@ def get_ranked_context(
                 f"(best score: {negative_evidence['best_match_score']}). "
                 f"Verify before claiming this feature exists."
             )
+    # L-284: an identifier no symbol is named, marked in the body as
+    # search_symbols does; `_meta` is stripped on a default install.
+    _mark_no_exact_match(result, query, index, rows_key="context_items")
     return result
 
 
@@ -923,4 +927,5 @@ def _get_ranked_context_fusion(
                 f"(best score: {_vres['negative_evidence']['best_match_score']}). "
                 f"Verify before claiming this feature exists."
             )
+    _mark_no_exact_match(fusion_result, query, index, rows_key="context_items")
     return fusion_result
