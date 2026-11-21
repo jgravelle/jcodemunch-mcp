@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.476] - 2026-11-21 - compact schemas are on by default, and a hidden parameter keeps its type
+
 ### Changed - **`compact_schemas` now defaults to `true`**
 
 The schemas every non-counter install publishes now hide the rarely-used advanced parameters (`debug`, `fusion`, the `semantic_*` and `fuzzy_*` families, the bounded-source controls and the rest of `_COMPACT_STRIP_PARAMS`). The `language` and `kind` enums are demoted to plain strings. The server still accepts every hidden parameter. The `core` profile's tool definitions drop from 6,208 to 3,992 tokens, and `full`'s from 24,153 to 21,603 (cl100k, `benchmarks/schema_baseline.json`, measured 2026-11-20). These definitions sit in front of every request a client makes, so a team paying for a jCodeMunch prefix on every turn pays for about a third less of it on `core`. The default changed after agents were measured working under compact schemas; the hidden parameter they reached for was `max_source_lines`, on bounded `get_symbol_source` fetches.

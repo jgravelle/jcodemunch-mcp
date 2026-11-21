@@ -1,6 +1,12 @@
 {
-  "current": "1.108.475",
+  "current": "1.108.476",
   "entries": [
+    {
+      "version": "1.108.476",
+      "date": "2026-11-21",
+      "title": "compact schemas are on by default, and a hidden parameter keeps its type",
+      "summary": "compact_schemas defaults to true: the core tool definitions drop from 6,208 to 3,992 tokens. Set it false for the full schemas. A hidden parameter sent as a string is still converted to its type."
+    },
     {
       "version": "1.108.475",
       "date": "2026-11-20",

@@ -3458,3 +3458,9 @@ The 1.108.471 entry, verbatim as it stood in `CLAUDE.md`:
 The 1.108.472 entry, verbatim as it stood in `CLAUDE.md`:
 
 - **Prior (1.108.472):** **a delete preflight counts a call on a one-line method that shares the target's name** (L-329): `check_references._sibling_declarations` gives a same-named sibling's name line back when `_calls_beyond_declarations` finds a call to the exact declared name beyond the declarations on that line. Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-21, release 1.108.476)
+
+The 1.108.473 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.473):** **an annotation that spells the target's name no longer makes a same-named declaration count as a use** (L-331): `check_references._name_through` finds the name line by the exact declared spelling as a word-rule token, only within the lines the stored signature spans, else main's folded rule. Full text: `CHANGELOG.md`.
