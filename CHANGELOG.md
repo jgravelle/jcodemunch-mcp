@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.479] - 2026-11-21 - a cut-short text search is never read as a complete one
+
 ### The deletion investigator no longer reads a cut-short text sweep as "no other use" (L-309)
 
 The investigator's `no_textual_use` obligation asked `search_text` for the

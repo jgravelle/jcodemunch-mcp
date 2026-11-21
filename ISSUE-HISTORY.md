@@ -3476,3 +3476,9 @@ The 1.108.474 entry, verbatim as it stood in `CLAUDE.md`:
 The 1.108.475 entry, verbatim as it stood in `CLAUDE.md`:
 
 - **Prior (1.108.475):** **the server's instructions name a tool only while the session is served it** (#1523): each row and clause follows `_build_tools_list`, so a `core` session is not pointed at `check_references`, and a session serving `get_call_hierarchy` reads "who calls it". Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-21, release 1.108.479)
+
+The 1.108.476 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.476):** **`compact_schemas` defaults to `true`** (#1526): `core` definitions 6,208 to 3,992 cl100k; `max_source_lines` stays as name and type; coercion reads the hidden params' declared types (`_COMPACT_HIDDEN_PROPS`). Full text: `CHANGELOG.md`.
