@@ -69,6 +69,23 @@ UNIVERSAL_META_JSON = frozenset({
     "steer_hint",
 })
 
+# `_meta` keys the dispatcher adds AFTER the `meta_fields` display filter that
+# UNIVERSAL_META_JSON does not already carry (LEDGER L-313). The server sends
+# them whatever the filter keeps, so they reach a default install
+# (`meta_fields: []`), and a schema that did not list them dropped them where
+# JSON kept them. This set is not a judgment about which keys matter:
+# `tests/test_compact_answer_keeps_dispatcher_meta.py` reads the dispatcher's
+# syntax tree between the filter and the encoding step, and the server
+# functions it calls, and fails on a `_meta` key written there that neither
+# set carries.
+DISPATCHER_META_JSON = frozenset({
+    "secrets_redacted",   # the answer was altered: a secret was redacted
+    "budget",             # the session is near or over its token budget
+    "already_delivered",  # these symbols were already served this session
+})
+
+CARRIED_META_JSON = UNIVERSAL_META_JSON | DISPATCHER_META_JSON
+
 
 # Top-level keys every encoder must carry, the body-level twin of
 # UNIVERSAL_META_JSON. A warning in the answer was dropped by every schema that
@@ -286,7 +303,7 @@ def encode(
     # verdict is the reason this exists: dropping it hands the agent a confident
     # zero-result answer with no way to know the scan was degraded (and silently
     # discards the absence evidence_ref minted in call_tool).
-    for k in set(meta_json_blobs) | UNIVERSAL_META_JSON:
+    for k in set(meta_json_blobs) | CARRIED_META_JSON:
         if k in meta:
             scalar_payload[f"__json._meta.{k}"] = json.dumps(
                 meta[k], separators=(",", ":")
@@ -428,7 +445,7 @@ def decode(
         prefixed = f"_meta.{k}"
         if prefixed in raw_scalars:
             meta_out[k] = _coerce(raw_scalars[prefixed], stypes.get(prefixed, "str"))
-    for k in set(meta_json_blobs) | UNIVERSAL_META_JSON:
+    for k in set(meta_json_blobs) | CARRIED_META_JSON:
         prefixed = f"__json._meta.{k}"
         if prefixed in raw_scalars:
             try:

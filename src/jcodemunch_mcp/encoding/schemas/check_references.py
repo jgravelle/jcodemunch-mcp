@@ -114,7 +114,7 @@ def _flatten(response: dict) -> dict:
                     "in_end": enclosing.get("end_line"),
                 })
     out[_Q_KEY], out[_I_KEY], out[_C_KEY] = q_rows, i_rows, c_rows
-    carried = set(_META) | set(_META_JSON) | set(sd.UNIVERSAL_META_JSON)
+    carried = set(_META) | set(_META_JSON) | set(sd.CARRIED_META_JSON)
     extra = {k: v for k, v in (response.get("_meta") or {}).items() if k not in carried}
     if extra:
         out[_META_EXTRA] = extra

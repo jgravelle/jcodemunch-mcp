@@ -80,7 +80,7 @@ def _flatten(response: dict) -> dict:
         })
     out[_ROWS_KEY] = rows
     out["summaries_included"] = any("summary" in n for n in nodes)
-    carried = set(_META) | set(_META_JSON) | set(sd.UNIVERSAL_META_JSON)
+    carried = set(_META) | set(_META_JSON) | set(sd.CARRIED_META_JSON)
     extra = {k: v for k, v in (response.get("_meta") or {}).items() if k not in carried}
     if extra:
         out[_META_EXTRA] = extra
