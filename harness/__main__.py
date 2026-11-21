@@ -925,8 +925,8 @@ def _fast_wall_floor_id() -> str:
     """Which fast-tier wall Floor this runner is judged by.
 
     `suite.fast_seconds` was set from one 49.35 s fast tier on the measuring
-    box. CI fast-tier legs ran 42 to 93 s over two weeks with no trend, and two
-    failed it with every test passing (#1502), so a GitHub-hosted runner has
+    box. CI fast-tier legs ran 42 to 93 s over two weeks, 48 to 93 s on one day,
+    and two failed it with every test passing (#1502), so a GitHub-hosted runner has
     its own Floor (2026-11-21). Every non-CI run keeps the tighter one.
     """
     if os.environ.get("GITHUB_ACTIONS"):

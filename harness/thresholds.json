@@ -412,7 +412,7 @@
       "set_at": {
         "commit": "32a4910b",
         "date": "2026-11-21",
-        "reason": "L-232 method (max x 1.2, rounded up to 10 s), as applied to the CI full-tier Floors. Sample: every completed CI fast-tier job that printed a suite.fast_seconds row in the last 14 nightly, 40 pr-gate and 20 main runs, 2026-11-08 to 2026-11-21: 53 measurements. nightly n=14 min 45.16 median 65.46 max 93.27; pr-gate n=39 min 42.61 median 69.96 max 93.43 (main runs no fast tier). Two legs exceeded 90 with every test passing: nightly 52a48d7d 93.27 (#1502) and pr-gate cbd2862d 93.43; 14 more sat between 85 and 90. Readings fall in two clusters, 45-60 s and 80-90 s, with no trend by day: runner speed. Floor = 93.43 x 1.2 = 112.12, rounded up to 120: it clears the slowest observed leg by 26 s."
+        "reason": "L-232 method (max x 1.2, rounded up to 10 s), as applied to the CI full-tier Floors. Sample: every completed CI fast-tier job that printed a suite.fast_seconds row in the last 14 nightly, 40 pr-gate and 20 main runs, 2026-11-08 to 2026-11-21: 53 measurements. nightly n=14 min 45.16 median 65.46 max 93.27; pr-gate n=39 min 42.61 median 69.96 max 93.43 (main runs no fast tier). Overall median 69.66. Two legs exceeded 90, both with pytest exit 0 and 1470 passed: nightly 52a48d7d 93.27 (run 44456420731, #1502) and pr-gate cbd2862d 93.43 (run 44519914235); 14 more sat between 85 and 90. On 2026-11-19 alone, 17 legs read 48.76 to 93.43 s. No same-job divisor was taken, so runner speed is the likely cause, not a measured one. Floor = 93.43 x 1.2 = 112.12, rounded up to 120: it clears the slowest observed leg by 26 s."
       },
       "measured": null,
       "history": [

@@ -1,12 +1,12 @@
 """A CI fast-tier job is judged by a Floor set from CI legs, not from one local run.
 
 `suite.fast_seconds` (90 s) was set on 2026-09-03 from one 49.35 s fast tier on
-the measuring box. Every CI fast-tier job was judged by it too. Across 53 CI
-legs from 2026-11-08 to 2026-11-21 (14 nightly, 39 pr-gate) the median was
-about 68 s and the max 93.43 s; two legs failed it with every test passing
-(nightly 52a48d7d at 93.27, #1502; pr-gate cbd2862d at 93.43), and 14 more sat
-between 85 and 90. The readings fall in two clusters, 45-60 s and 80-90 s, with
-no trend by day: runner speed, not a slower suite.
+the measuring box. Every CI fast-tier job was judged by it too.
+Across 53 CI legs from 2026-11-08 to 2026-11-21 (14 nightly, 39 pr-gate) the
+median was 69.66 s and the max 93.43 s. Two legs failed it with pytest exit 0
+and 1470 passed (nightly 52a48d7d at 93.27, #1502; pr-gate cbd2862d at
+93.43), and 14 more sat between 85 and 90. On 2026-11-19 alone, 17 legs read
+48.76 to 93.43 s.
 
 A CI fast-tier job now has its own Floor, set by the L-232 method (max x 1.2,
 rounded up to 10 s). Every local run, the Mac stamp included, keeps 90.
