@@ -3482,3 +3482,9 @@ The 1.108.475 entry, verbatim as it stood in `CLAUDE.md`:
 The 1.108.476 entry, verbatim as it stood in `CLAUDE.md`:
 
 - **Prior (1.108.476):** **`compact_schemas` defaults to `true`** (#1526): `core` definitions 6,208 to 3,992 cl100k; `max_source_lines` stays as name and type; coercion reads the hidden params' declared types (`_COMPACT_HIDDEN_PROPS`). Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-21, release 1.108.480)
+
+The 1.108.477 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.477):** **`get_symbol_source` sends a docstring once, and `announce_model` is listed only while `adaptive_tiering` is on** (#1528): a docstring already inside the served source leaves `docstring` empty with `docstring_in_source: true`; `announce_model` stays callable; the written policy keeps the flag's explanation on its own line. Full text: `CHANGELOG.md`.

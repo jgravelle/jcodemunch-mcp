@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.480] - 2026-11-21 - get_ranked_context says when no symbol has the name you asked for
+
 ### `get_ranked_context` says when no symbol has the name you asked for (L-284)
 
 `search_symbols` has marked an identifier query that no symbol is named in
