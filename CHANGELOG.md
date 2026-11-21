@@ -2,6 +2,20 @@
 
 ## [Unreleased]
 
+### The `mcp` dependency floor admits no SDK release with a published advisory
+
+The lock has resolved `mcp` 1.30.0 since before this release, and 1.30.0
+carries no advisory. The declared floor was still `mcp>=1.10.0`, so an
+installer that kept an older `mcp` already in the environment, or a scanner
+that reads the declared range, got an SDK affected by advisories fixed in
+1.23.0, 1.27.2, 1.28.1 and 1.30.0: GHSA-9h52-p55h-vw2f, GHSA-jpw9-pfvf-9f58,
+GHSA-vj7q-gjh5-988w and GHSA-qx49-fqc8-xw99 (high), and GHSA-5h93-6whr-6q8j,
+GHSA-84m7-p3x7-pcfv, GHSA-rwrf-2pqf-9j8j and GHSA-w4fh-qvv9-3v23 (moderate).
+The floor is `mcp>=1.30.0` in `pyproject.toml` and in the specifier `uv.lock`
+records. The locked version and the `<2.0.0` ceiling are unchanged, so the
+SDK every test and the handshake run against is the one they ran against
+before.
+
 ## [1.108.480] - 2026-11-21 - get_ranked_context says when no symbol has the name you asked for
 
 ### `get_ranked_context` says when no symbol has the name you asked for (L-284)
