@@ -33,10 +33,12 @@ def _floor(spec: str) -> tuple[int, ...]:
 
 
 def test_the_declared_floor_admits_no_advised_release():
-    line = next(
+    lines = [
         ln for ln in (ROOT / "pyproject.toml").read_text(encoding="utf-8").splitlines()
         if re.match(r'^\s*"mcp[<>=]', ln)
-    )
+    ]
+    assert len(lines) == 1, f"expected one mcp dependency line in pyproject.toml: {lines}"
+    line = lines[0]
     assert _floor(line) >= FIRST_UNADVISED, line
 
 

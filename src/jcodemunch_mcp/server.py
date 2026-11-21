@@ -584,8 +584,9 @@ def _initialization_options(indexed_files: "Optional[int]" = None, separate_copy
     """
     opts = server.create_initialization_options()
     if "instructions" not in type(opts).model_fields:
-        # mcp SDK predates the field (we allow >=1.10.0). Nothing to say, and
-        # nowhere to say it.
+        # An mcp SDK without the field. The declared floor (>=1.30.0) has it;
+        # this guard stays for an SDK installed past the declared range.
+        # Nothing to say, and nowhere to say it.
         logger.debug("InitializationOptions has no `instructions` field; skipping")
         return opts
     return opts.model_copy(
