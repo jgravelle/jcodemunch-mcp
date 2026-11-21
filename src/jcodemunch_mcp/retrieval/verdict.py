@@ -231,10 +231,14 @@ def search_text_cut_short(res: Optional[dict]) -> list[str]:
     (``verdict.coverage`` is attached only to an absent or degraded answer).
 
     Read from the body and from ``_meta``, which only the dispatcher strips.
-    An unknown (a missing key, ``complete is None``) is not a cut.
+    Unknown coverage (``complete is None``) is not a cut. A withheld file is
+    a cut unless ``index_withheld.in_scope`` is False: the count is repo-wide,
+    and search_text names whether any withheld file matches its scope.
     """
     if not isinstance(res, dict):
         return ["the answer is not a search result"]
+    if res.get("error"):
+        return ["the search returned an error"]
     meta = res.get("_meta") or {}
     verdict = meta.get("verdict") or {}
     reasons: list[str] = []
@@ -250,8 +254,11 @@ def search_text_cut_short(res: Optional[dict]) -> list[str]:
         reasons.append(
             "the index holds only part of the repo's files (max_folder_files cap)"
         )
-    if meta.get("index_withheld"):
-        reasons.append("the index withholds files over max_file_size")
+    withheld = meta.get("index_withheld")
+    # `in_scope` is False only when the stored names prove no withheld file
+    # matches the search's scope; an unknown scope counts as a cut.
+    if withheld and not (isinstance(withheld, dict) and withheld.get("in_scope") is False):
+        reasons.append("the index withholds files over max_file_size in this scope")
     return reasons
 
 

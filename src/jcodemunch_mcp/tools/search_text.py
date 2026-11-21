@@ -618,6 +618,17 @@ def search_text(
 
     _withheld = _index_withheld_meta(index)
     if _withheld:
+        # L-309 review: the count is repo-wide, so a scoped search reads it
+        # as "a file this search could have matched is missing" only if one
+        # is. Tri-state: None when the stored names are cut or absent.
+        _cov = getattr(index, "coverage", None) or {}
+        _names = list((_cov.get("withheld_files") or {}).keys())
+        if not file_pattern:
+            _withheld["in_scope"] = True
+        elif not _names or _cov.get("withheld_files_truncated"):
+            _withheld["in_scope"] = None
+        else:
+            _withheld["in_scope"] = any(pat_re.match(n) for n in _names)
         _meta["index_withheld"] = _withheld
     # In the body, not only _meta: _meta is stripped on a default install,
     # and a list cut short read as complete sends the agent searching again.

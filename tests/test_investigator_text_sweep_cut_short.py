@@ -283,3 +283,73 @@ def test_unknown_coverage_is_not_a_cut():
 
     res = {"result_count": 3, "_meta": {"verdict": {"coverage": {"complete": None}}}}
     assert search_text_cut_short(res) == []
+
+
+def _withheld_repo(tmp_path, monkeypatch):
+    from jcodemunch_mcp import config as config_module
+
+    monkeypatch.setitem(config_module._GLOBAL_CONFIG, "max_file_size", 2000)
+    return _index(
+        tmp_path,
+        {
+            "src/aaa.py": "def zap():\n    return 1\n",
+            "big/big.py": "zap = 1\n" + "# pad xxxxxxxxxxxxxxxxxxxx\n" * 200,
+        },
+    )
+
+
+@pytest.mark.parametrize(
+    "pattern,in_scope",
+    [(None, True), ("src/*.py", False), ("big/*", True), ("*.py", True)],
+    ids=["unscoped", "out_of_scope", "in_scope", "glob_covers_it"],
+)
+def test_a_withheld_file_is_a_cut_only_where_the_scope_reaches_it(
+    tmp_path, monkeypatch, pattern, in_scope
+):
+    """Review round 2: the withheld count is repo-wide. A scoped search that
+    no withheld file can match is not cut by it, so the Grep-answer hook still
+    answers it."""
+    import jcodemunch_mcp.tools.search_text as st
+    from jcodemunch_mcp.cli.hooks.grep_answer import _complete
+    from jcodemunch_mcp.retrieval.verdict import search_text_cut_short
+
+    repo, storage = _withheld_repo(tmp_path, monkeypatch)
+    res = st.search_text(
+        repo,
+        "zap",
+        file_pattern=pattern,
+        storage_path=storage,
+        scan_limit=st.SCAN_LIMIT_MAX,
+    )
+    block = res["_meta"]["index_withheld"]
+    assert block["in_scope"] is in_scope, block
+    cut = any("max_file_size" in r for r in search_text_cut_short(res))
+    assert cut is in_scope
+    if pattern == "src/*.py":
+        assert res["result_count"] and _complete(res)
+
+
+def test_a_cut_list_of_withheld_names_leaves_the_scope_unknown(tmp_path, monkeypatch):
+    import jcodemunch_mcp.tools.search_text as st
+    from jcodemunch_mcp.retrieval.verdict import search_text_cut_short
+    from jcodemunch_mcp.storage import IndexStore
+
+    repo, storage = _withheld_repo(tmp_path, monkeypatch)
+    real_load = IndexStore.load_index
+
+    def load(self, *a, **k):
+        idx = real_load(self, *a, **k)
+        if idx is not None and isinstance(getattr(idx, "coverage", None), dict):
+            idx.coverage = {**idx.coverage, "withheld_files_truncated": True}
+        return idx
+
+    monkeypatch.setattr(IndexStore, "load_index", load)
+    res = st.search_text(repo, "zap", file_pattern="src/*.py", storage_path=storage)
+    assert res["_meta"]["index_withheld"]["in_scope"] is None
+    assert any("max_file_size" in r for r in search_text_cut_short(res))
+
+
+def test_an_error_answer_is_a_cut():
+    from jcodemunch_mcp.retrieval.verdict import search_text_cut_short
+
+    assert search_text_cut_short({"error": "no index"})
