@@ -2,6 +2,25 @@
 
 ## [Unreleased]
 
+### `get_ranked_context` says when no symbol has the name you asked for (L-284)
+
+`search_symbols` has marked an identifier query that no symbol is named in
+the response body since the no_exact_match fix, because `meta_fields: []` is
+the shipped default and the dispatcher strips `_meta`. `get_ranked_context`
+answers the same kind of query with ranked rows that only share words with
+it, and on a default install nothing in its answer said that none of them is
+the symbol asked for. It now carries the same marker on both of its exits,
+ranked and fusion: `negative_evidence.verdict` reads `no_exact_match` and the
+`⚠ warning` line names the query, in the JSON and compact formats alike. Rows
+and their order do not change. With the marker, `_meta.verdict.state` reads
+`low_confidence` where it read `ok`, as `search_symbols` does: a caller who
+keeps the verdict sees the changed state. It is not an absence claim, since
+rows were returned.
+
+The marker now lives in `retrieval/verdict.py` (`mark_no_exact_match`), and
+`search_symbols` reads the same function, so a third tool that ranks symbols
+for a query inherits it.
+
 ## [1.108.479] - 2026-11-21 - a cut-short text search is never read as a complete one
 
 ### The deletion investigator no longer reads a cut-short text sweep as "no other use" (L-309)

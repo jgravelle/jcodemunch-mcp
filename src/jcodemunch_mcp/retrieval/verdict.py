@@ -262,6 +262,76 @@ def search_text_cut_short(res: Optional[dict]) -> list[str]:
     return reasons
 
 
+def mark_no_exact_match(
+    result: dict,
+    query: str,
+    index,
+    *,
+    rows_key: str = "results",
+) -> None:
+    """Mark, in the BODY, an identifier query that no symbol is named.
+
+    ⚠⚠ `_meta.exact_match` already says this (v1.108.173), and `meta_fields: []`
+    is the shipped default, which strips `_meta`: a default install got ten
+    ranked rows and no marker. A reason placed in `_meta` is deleted on a default
+    install, so this one rides the channel the zero-row case already uses --
+    `negative_evidence` and the `⚠ warning` key, which every compact encoder
+    carries (`schema_driven.UNIVERSAL_BODY_JSON`).
+
+    Every exit that returns rows calls this: `search_symbols`' lexical, semantic
+    and fusion exits, and `get_ranked_context`'s ranked and fusion exits
+    (LEDGER L-284, `rows_key="context_items"`). It lives here, one layer below
+    both, so the next tool that ranks symbols for a query inherits it. Rows
+    and their order are not touched.
+
+    ⚠ The warning claims the INDEX has no symbol of that name, so the page is
+    not enough: a filter (`kind=`, `file_pattern=`, ...) or a similarity ranking
+    can leave an exact or a prefix match off the page. The index is classified
+    with the SAME rule as the page (`exact_match_report`, one definition of
+    exact and prefix), so `exact`/`prefix` in the marker are index counts. The
+    page is checked first; the index walk runs only on this rare path.
+
+    ⚠ NOT an absence. Rows were returned, an `ok` verdict state is downgraded to
+    `low_confidence` (the lexical exit's v1.108.173 rule, which the semantic and
+    fusion exits never had, so they said `ok` beside "No symbol named X"), and
+    `session_journal._ABSENCE_VERDICTS` does not list `no_exact_match`, so
+    nothing downstream may cite it as proof.
+    """
+    rows = result.get(rows_key) or []
+    if not rows:
+        return
+    from .query_shape import exact_match_report as _exact_match_report
+
+    page = _exact_match_report(query, rows)
+    if page is None or page["found"]:
+        return
+    report = _exact_match_report(query, index.symbols)
+    if report is None or report["found"] or report["exact"] or report["prefix"]:
+        return
+
+    queried = report["queried"]
+    verdict = (result.get("_meta") or {}).get("verdict")
+    if isinstance(verdict, dict) and verdict.get("state") == "ok":
+        verdict["state"] = "low_confidence"
+        verdict["note"] = page["note"]
+    marker = {
+        "verdict": "no_exact_match",
+        "queried": queried,
+        "exact": report["exact"],
+        "prefix": report["prefix"],
+    }
+    prior = result.get("negative_evidence")
+    if isinstance(prior, dict):
+        # A weak-score `low_confidence_matches` block already said "verify";
+        # this says why. Its scan counts and suggestions are kept.
+        marker.update({k: v for k, v in prior.items() if k not in marker})
+    result["negative_evidence"] = marker
+    result["⚠ warning"] = (
+        f"No symbol named '{queried[:80]}' is in this index; "
+        f"these results share words with it only."
+    )
+
+
 def _attach_coverage(verdict: dict, coverage: Optional[dict]) -> None:
     """Attach coverage disclosure to absent/degraded verdicts (in place).
 
