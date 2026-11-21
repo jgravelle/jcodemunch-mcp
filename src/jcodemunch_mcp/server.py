@@ -1369,7 +1369,7 @@ _COMPACT_STRIP_PARAMS: dict[str, set[str]] = {
     # params under compact, they're just hidden from the schema to protect the
     # core_compact budget (the body is always callable with them).
     "get_symbol_source": {
-        "source_start_line", "source_end_line", "max_source_lines",
+        "source_start_line", "source_end_line",
         "max_source_bytes", "max_total_source_bytes", "receipt",
         # v1.108.227: `verify_against` joins them, same rule and same reason.
         # Externally-attested verification is an audit workflow, not a core
@@ -1409,6 +1409,17 @@ _COMPACT_STRIP_PARAMS: dict[str, set[str]] = {
     # Honoured under compact all the same; only the schema property is hidden.
     "index_repo": {"extra_ignore_patterns", "incremental", "max_size"},
     "index_folder": {"extra_ignore_patterns", "incremental", "max_size"},
+}
+
+# Params that stay in the compact schema as name and type, with the description
+# stripped. `max_source_lines` is the hidden parameter agents reached for when
+# compact schemas were measured before the default flipped (2026-11-20). With
+# its description core_compact came to 4,027 (capture_schema_baseline.measure()
+# with this table emptied), over the 4,000 ceiling; with name and type alone it
+# fits. The full schema keeps the description.
+# tests/test_compact_schemas_default_on.py pins it.
+_COMPACT_STRIP_DESCRIPTIONS: dict[str, set[str]] = {
+    "get_symbol_source": {"max_source_lines"},
 }
 
 # Params whose enum is demoted to a plain string filter under compact_schemas.
@@ -1792,6 +1803,21 @@ def _coerce_arguments(arguments: dict, schema: dict) -> dict:
 
 
 _TOOL_SCHEMAS: dict[str, dict] | None = None
+
+# The declared schema of each parameter `compact_schemas` hides, by tool. The
+# published schema no longer carries their types, and type coercion read only
+# the published schema, so a hidden boolean sent as the string "false" reached
+# its handler as a string. Coercion reads these too (since compact became the
+# default). Validation still runs against the published schema.
+_COMPACT_HIDDEN_PROPS: dict[str, dict[str, dict]] = {}
+
+
+def _coercion_schema(name: str, schema: dict) -> dict:
+    """`schema` with the declared types of the params compact schemas hid."""
+    hidden = _COMPACT_HIDDEN_PROPS.get(name)
+    if not hidden:
+        return schema
+    return {**schema, "properties": {**hidden, **(schema.get("properties") or {})}}
 
 
 def _build_language_enum() -> list[str]:
@@ -5204,6 +5230,17 @@ def _build_tools_list(
         for t in all_tools
         if isinstance((props := (t.inputSchema or {}).get("properties")), dict) and props
     }
+    # The declared schema of every param the compact strip can hide, taken from
+    # the same pre-strip catalog, so coercion keeps their types (see
+    # `_COMPACT_HIDDEN_PROPS`). Rebuilt here on every build, never accumulated.
+    _COMPACT_HIDDEN_PROPS.clear()
+    for t in all_tools:
+        props = (t.inputSchema or {}).get("properties")
+        hide = _COMPACT_STRIP_PARAMS.get(t.name)
+        if isinstance(props, dict) and hide:
+            kept = {p: dict(props[p]) for p in hide if isinstance(props.get(p), dict)}
+            if kept:
+                _COMPACT_HIDDEN_PROPS[t.name] = kept
     surface = surface_override or _effective_surface()
     if surface == "counter":
         # Collapse to the front door + always-present controls. Tier filtering
@@ -5251,7 +5288,7 @@ def _build_tools_list(
         tools = [t for t in tools if t.name != "search_columns"]
 
     # --- Compact schemas: strip rarely-used params ---------------------------
-    if config_module.get("compact_schemas", False):
+    if config_module.get("compact_schemas", True):
         for tool in tools:
             if not isinstance(tool.inputSchema, dict):
                 continue
@@ -5262,6 +5299,10 @@ def _build_tools_list(
             if strip_set:
                 for param in strip_set:
                     props.pop(param, None)
+            for param in _COMPACT_STRIP_DESCRIPTIONS.get(tool.name, ()):
+                pschema = props.get(param)
+                if isinstance(pschema, dict) and "description" in pschema:
+                    props[param] = {k: v for k, v in pschema.items() if k != "description"}
             # Demote large mechanical enums to free-string filters (capability
             # preserved; the tool accepts any string for these params).
             for param in _COMPACT_DEMOTE_ENUM_PARAMS:
@@ -6463,7 +6504,7 @@ async def _call_tool_impl(name: str, arguments: dict) -> list[TextContent] | Cal
         # Coerce stringified booleans/integers/numbers before routing
         schema = (await _ensure_tool_schemas()).get(name)
         if schema:
-            arguments = _coerce_arguments(arguments, schema)
+            arguments = _coerce_arguments(arguments, _coercion_schema(name, schema))
             try:
                 jsonschema.validate(instance=arguments, schema=schema)
             except jsonschema.ValidationError as e:
@@ -9581,8 +9622,8 @@ def _run_config(check: bool = False, init: bool = False, upgrade: bool = False) 
     profile = _cfg.get("tool_profile", "full")
     profile_display = {"core": f"{green('core')} (~16 tools)", "standard": f"{yellow('standard')} (~40 tools)", "full": f"{dim('full')} (all tools)"}
     row("tool_profile", profile_display.get(profile, profile), _detect_source("tool_profile", "full"))
-    compact = _cfg.get("compact_schemas", False)
-    row("compact_schemas", green("enabled") if compact else dim("disabled"), _detect_source("compact_schemas", False))
+    compact = _cfg.get("compact_schemas", True)
+    row("compact_schemas", green("enabled") if compact else dim("disabled"), _detect_source("compact_schemas", True))
 
     # ── Disabled Tools ────────────────────────────────────────────────────
     section("Disabled Tools")

@@ -111,15 +111,21 @@ def test_the_literal_predicate_fires_on_the_known_bad_shape():
 
 
 @pytest.mark.asyncio
-async def test_the_wire_schema_serves_every_valid_kind():
+async def test_the_wire_schema_serves_every_valid_kind(monkeypatch):
     """⚠ Verify at the user's entry point.
 
     `search_symbols(kind=...)` called directly in Python never touched either
     gate, so the defect was invisible from a unit test of the tool. Both gates
     live at the dispatcher.
+
+    The enum exists only in the full schema; compact schemas (the default)
+    demote it, and the runtime gate below covers that case. So this pins the
+    full schema rather than skipping on every default run.
     """
+    from jcodemunch_mcp import config as config_module
     from jcodemunch_mcp.server import list_tools
 
+    monkeypatch.setitem(config_module._GLOBAL_CONFIG, "compact_schemas", False)
     tools = await list_tools()
     by_name = {t.name: t for t in tools}
     if "search_symbols" not in by_name:

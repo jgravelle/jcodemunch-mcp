@@ -478,7 +478,7 @@ DEFAULTS = {
         "*": "full",
     },
     "adaptive_tiering": False,
-    "compact_schemas": False,
+    "compact_schemas": True,
     "skill_advisor_mode": "off",  # "off" | "advise"
     "server_output": "adaptive",  # "raw", "encoded", or "adaptive"
     "server_output_threshold": 0.15,  # Minimum savings ratio for adaptive mode
@@ -2732,10 +2732,12 @@ def generate_template() -> str:
   // "tool_counters": true,
 
   // === Compact Schemas ===
-  // When true, strips rarely-used advanced parameters (debug, fusion, semantic_*,
-  // fuzzy_*, etc.) from tool schemas. The server still accepts them — they're just
-  // hidden from the LLM to save tokens. Saves ~1-2k tokens on top of any profile.
-  // "compact_schemas": false,
+  // On by default: strips rarely-used advanced parameters (debug,
+  // fusion, semantic_*, fuzzy_*, etc.) from tool schemas and demotes the long
+  // `language` and `kind` enums to plain strings. The server still accepts every
+  // one of them; they're only hidden from the model to save tokens. Set false to
+  // publish the full schemas.
+  // "compact_schemas": true,
 
   // === Skill Advisor ===
   // "advise" makes audit_agent_config / suggest_corrections flag always-resident

@@ -74,8 +74,11 @@ async def test_index_repo_tool_schema():
 
 
 @pytest.mark.asyncio
-async def test_search_symbols_tool_schema():
-    """Test search_symbols tool has correct schema."""
+async def test_search_symbols_tool_schema(monkeypatch):
+    """Test search_symbols tool has correct schema (the full schema; compact demotes the enums)."""
+    from jcodemunch_mcp import config as config_module
+
+    monkeypatch.setitem(config_module._GLOBAL_CONFIG, "compact_schemas", False)
     tools = await list_tools()
 
     search = next(t for t in tools if t.name == "search_symbols")
@@ -714,6 +717,8 @@ async def test_language_enum_reflects_config_limited(monkeypatch):
     try:
         config_module._GLOBAL_CONFIG["languages"] = ["python", "javascript"]
         config_module._GLOBAL_CONFIG["disabled_tools"] = []
+        # The enum is a full-schema property; compact demotes it to a string.
+        config_module._GLOBAL_CONFIG["compact_schemas"] = False
 
         tools = await list_tools()
         search_symbols_tool = next((t for t in tools if t.name == "search_symbols"), None)
@@ -745,6 +750,7 @@ async def test_language_enum_all_languages_when_config_none(monkeypatch):
     try:
         config_module._GLOBAL_CONFIG["languages"] = None
         config_module._GLOBAL_CONFIG["disabled_tools"] = []
+        config_module._GLOBAL_CONFIG["compact_schemas"] = False
 
         tools = await list_tools()
         search_symbols_tool = next((t for t in tools if t.name == "search_symbols"), None)
@@ -1318,7 +1324,7 @@ async def test_compact_schemas_strips_advanced_params():
 
 @pytest.mark.asyncio
 async def test_compact_schemas_off_preserves_all_params():
-    """When compact_schemas is off (default), all params remain."""
+    """When compact_schemas is off explicitly, all params remain (compact is the default now)."""
     from jcodemunch_mcp import config as config_module
     from copy import deepcopy
 
@@ -1326,6 +1332,7 @@ async def test_compact_schemas_off_preserves_all_params():
     config_module._GLOBAL_CONFIG.clear()
     config_module._GLOBAL_CONFIG.update(deepcopy(config_module.DEFAULTS))
     config_module._GLOBAL_CONFIG["disabled_tools"] = []
+    config_module._GLOBAL_CONFIG["compact_schemas"] = False
 
     try:
         tools = await list_tools()

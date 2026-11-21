@@ -684,9 +684,13 @@ def test_every_emitted_sql_kind_is_a_valid_kind():
         assert sym.kind in VALID_KINDS, f"{sym.name} has unknown kind {sym.kind!r}"
 
 
-def test_search_symbols_kind_enum_is_derived_from_valid_kinds():
+def test_search_symbols_kind_enum_is_derived_from_valid_kinds(monkeypatch):
+    from jcodemunch_mcp import config as config_module
     from jcodemunch_mcp.parser.symbols import VALID_KINDS
     from jcodemunch_mcp.server import _build_tools_list
+
+    # The enum is a full-schema property; compact schemas demote it to a string.
+    monkeypatch.setitem(config_module._GLOBAL_CONFIG, "compact_schemas", False)
 
     tool = next(t for t in _build_tools_list() if t.name == "search_symbols")
     enum = tool.inputSchema["properties"]["kind"]["enum"]

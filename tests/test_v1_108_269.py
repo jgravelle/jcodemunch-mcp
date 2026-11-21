@@ -328,9 +328,22 @@ class TestMaxSizeReachesTheToolSchema:
     so a signature check alone would have passed while the defect stood."""
 
     def _schema(self, name):
+        from jcodemunch_mcp import config as config_module
         from jcodemunch_mcp.server import _build_tools_list
 
-        for tool in _build_tools_list():
+        # The full schema: compact schemas hide max_size on purpose (it stays
+        # honoured), and compact is the default now.
+        cfg = config_module._GLOBAL_CONFIG
+        before = cfg.get("compact_schemas")
+        cfg["compact_schemas"] = False
+        try:
+            tools = _build_tools_list()
+        finally:
+            if before is None:
+                cfg.pop("compact_schemas", None)
+            else:
+                cfg["compact_schemas"] = before
+        for tool in tools:
             if tool.name == name:
                 return tool.inputSchema
         raise AssertionError(f"{name} not in the tool list")
