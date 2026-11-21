@@ -4,8 +4,9 @@ On a GitHub ubuntu runner, the full tier's speed is set mostly by which tracer
 coverage uses. Where `sys.monitoring` is usable coverage runs its `sysmon` core;
 where it is not (Python 3.10 and 3.11) coverage falls back to the C tracer,
 which costs far more wall time. Every C-tracer ubuntu leg is judged by
-`suite.full_seconds_ci_ubuntu_ctrace`; a sysmon leg and every non-CI run keep
-`suite.full_seconds`, and windows keeps its own.
+`suite.full_seconds_ci_ubuntu_ctrace`, every sysmon ubuntu leg by
+`suite.full_seconds_ci_ubuntu_sysmon` (2026-11-21), windows by its own, and
+every non-CI run keeps `suite.full_seconds`.
 
 The selector asks coverage which core it will pick. It does not test the Python
 version, because that would be a second copy of coverage's decision, wrong the
@@ -25,6 +26,7 @@ import harness.__main__ as H
 
 ROOT = Path(__file__).resolve().parents[1]
 CTRACE = "suite.full_seconds_ci_ubuntu_ctrace"
+SYSMON = "suite.full_seconds_ci_ubuntu_sysmon"
 
 
 @pytest.fixture(autouse=True)
@@ -47,7 +49,7 @@ def _set(monkeypatch, *, ci, platform, sysmon_usable):
         # 3.10 and 3.11: no usable sys.monitoring, so coverage uses the C tracer.
         ("true", "linux", False, CTRACE),
         # 3.12 and later: coverage uses sysmon.
-        ("true", "linux", True, "suite.full_seconds"),
+        ("true", "linux", True, SYSMON),
         ("true", "win32", False, "suite.full_seconds_ci_windows"),
         ("true", "win32", True, "suite.full_seconds_ci_windows"),
         # A local run keeps the shared Floor whatever its tracer.
@@ -141,7 +143,7 @@ def test_the_scoped_floor_is_a_recorded_loosening_of_the_shared_one():
 
 def test_every_floor_the_selector_can_return_exists():
     t = _thresholds()
-    for tid in ("suite.full_seconds", "suite.full_seconds_ci_windows", CTRACE):
+    for tid in ("suite.full_seconds", "suite.full_seconds_ci_windows", CTRACE, SYSMON):
         assert tid in t, tid
         assert tid in H.DELEGATED, tid
     assert "suite.full_seconds_ci_ubuntu_py310" not in t

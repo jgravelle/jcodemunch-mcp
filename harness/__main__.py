@@ -784,6 +784,7 @@ DELEGATED = {
     "ci.skips_macos": "this runner on macOS, full tier, pytest summary",
     "suite.full_seconds_ci_windows": "harness full tier on a GitHub windows runner",
     "suite.full_seconds_ci_ubuntu_ctrace": "harness full tier on a GitHub ubuntu runner where coverage runs its C tracer",
+    "suite.full_seconds_ci_ubuntu_sysmon": "harness full tier on a GitHub ubuntu runner where coverage runs its sysmon core",
     "suite.fast_skips_max": "harness fast tier, pytest summary",
 }
 
@@ -927,14 +928,20 @@ def _full_wall_floor_id() -> str:
     (Python 3.10 and 3.11, where `sys.monitoring` is not usable) has its own
     Floor (L-232): the 3.10 leg's median sat just under the shared one and
     tripped it with every test passing, and the 3.11 leg runs the same tracer.
-    A sysmon ubuntu leg and every non-CI run keep `suite.full_seconds`. An
-    unknown core keeps the shared Floor, the tighter of the two.
+    A sysmon ubuntu leg has its own Floor too (2026-11-21): main.yml's 3.12
+    leg failed the shared one on three of eight runs with every test passing.
+    Every non-CI run keeps `suite.full_seconds`. An unknown core keeps the
+    shared Floor, the tightest of the three.
     """
     if os.environ.get("GITHUB_ACTIONS"):
         if sys.platform.startswith("win"):
             return "suite.full_seconds_ci_windows"
-        if sys.platform.startswith("linux") and _coverage_core() == "ctrace":
-            return "suite.full_seconds_ci_ubuntu_ctrace"
+        if sys.platform.startswith("linux"):
+            core = _coverage_core()
+            if core == "ctrace":
+                return "suite.full_seconds_ci_ubuntu_ctrace"
+            if core == "sysmon":
+                return "suite.full_seconds_ci_ubuntu_sysmon"
     return "suite.full_seconds"
 
 

@@ -852,6 +852,35 @@
       }
     },
     {
+      "id": "suite.full_seconds_ci_ubuntu_sysmon",
+      "criterion": "N1",
+      "metric": "full-tier pytest wall seconds on the GitHub-hosted ubuntu runner where coverage runs its sysmon core (GITHUB_ACTIONS set, sys.platform linux, coverage core sysmon: Python 3.12 and 3.13), in the harness's own observed unit",
+      "comparator": "<=",
+      "floor": 470,
+      "unit": "seconds",
+      "set_at": {
+        "commit": "832374f0",
+        "date": "2026-11-21",
+        "reason": "L-232 method (max x 1.2, rounded up to 10 s), as applied to `suite.full_seconds_ci_ubuntu_ctrace` and `suite.full_seconds_ci_windows`. Sample: every completed ubuntu 3.12 and 3.13 full-tier leg of the last 60 pr-gate, 30 main and 10 nightly runs, 2026-11-12 04:10Z to 2026-11-21 05:10Z, at 20,793 to 21,494 passing tests, one per job id: 166 measurements, min 190.01, median 267.135, p95 329.88 (nearest rank), max 383.71 s. By job: pr-gate 3.12 n=58 median 280.32 max 328.32; pr-gate 3.13 n=58 median 259.275 max 302.37; main 3.12 n=30 median 284.705 max 383.71; nightly 3.12 n=10 max 329.88; nightly 3.13 n=10 max 276.82. Three legs exceeded 360, all main 3.12 with every test passing: 383.71 (b05a549f), 362.74 (4873e318), 363.02 (832374f0). Floor = 383.71 x 1.2 = 460.45, rounded up to 470: it clears the slowest observed leg by 86 s and still fails a leg about 65% slower than the sample median. Cross-check (L-146): main's 3.12 leg measured 227.54 and 358.17 s on two commits one test apart, with the three FAILs between passes and no step at any commit; within a run, the 3.12 leg over the 3.13 leg ranges 0.73 to 1.57 (median 1.08, 68 pr-gate and nightly runs). The spread is the runner."
+      },
+      "measured": null,
+      "history": [
+        {
+          "floor": 360,
+          "commit": "457a758",
+          "date": "2026-09-03",
+          "reason": "Inherited from `suite.full_seconds` until this scoped Floor existed. That Floor stays at 360 for every non-CI run, the measuring box included, where the full tier measured 188.43 s when it was set."
+        }
+      ],
+      "enforced_by": [
+        "harness/__main__.py"
+      ],
+      "loosened": {
+        "by": "Chief of Staff brief, 2026-11-21, after main.yml's ubuntu 3.12 full leg failed this row on 3 of its last 8 runs with every test passing (run 44869593891 among them); method per L-232. Pending the maintainer's approval in review.",
+        "reason": "360 -> 470 for CI sysmon ubuntu legs only. 360 was set at 2x this box's 188.43 s full tier on 2026-09-03, not from any CI leg. A warning was rejected: a wall Floor that only warns cannot fail a 2x slowdown, and continue-on-error is refused outside an informational job. Raising the Floor keeps a gross regression failing: at 470 a CI leg about 65% over the sample median fails, and every local run, the Mac stamp included, stays at 360."
+      }
+    },
+    {
       "id": "release.unreleased_max_hours",
       "criterion": "N8",
       "metric": "hours since CHANGELOG.md's [Unreleased] block last went from empty to non-empty on the measured ref's first-parent chain (committer time); origin/main locally, the merge ref on a pull_request run, not evaluated on any other GitHub event",
