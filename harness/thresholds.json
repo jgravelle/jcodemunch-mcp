@@ -876,7 +876,7 @@
         "harness/__main__.py"
       ],
       "loosened": {
-        "by": "Requested by the Chief of Staff for J, 2026-11-21, after main.yml's ubuntu 3.12 full leg failed this row on 3 of its last 8 runs with every test passing (run 44869593891 among them); method per L-232, as jjg approved it for `suite.full_seconds_ci_ubuntu_ctrace` and `suite.full_seconds_ci_windows`.",
+        "by": "Approved by jjg, 2026-11-21 (\"floor 470\"). Requested by the Chief of Staff for J, 2026-11-21, after main.yml's ubuntu 3.12 full leg failed this row on 3 of its last 8 runs with every test passing (run 44869593891 among them); method per L-232, as jjg approved it for `suite.full_seconds_ci_ubuntu_ctrace` and `suite.full_seconds_ci_windows`.",
         "reason": "360 -> 470 for CI sysmon ubuntu legs only. 360 was set at about 1.9x this box's 188.43 s full tier on 2026-09-03, not from any CI leg. A warning was rejected: a wall Floor that only warns cannot fail a 2x slowdown, and continue-on-error is refused outside an informational job. Raising the Floor keeps a gross regression failing: at 470 a CI leg about 76% over the sample median fails (1.81x for a pr-gate 3.13 leg), and every local run, the Mac stamp included, stays at 360. A smaller slowdown on CI is within this runner's own spread and is not caught by a wall Floor here; the same-run 3.12/3.13 ratio (L-146) is the instrument for that, and nothing gates on it."
       }
     },
