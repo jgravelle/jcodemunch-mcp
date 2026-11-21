@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+### Changed - **`announce_model` is published only while `adaptive_tiering` is on**
+
+With `adaptive_tiering` off, which is the default, `announce_model` returns the current tier and switches nothing. It was still in every tool list, so every session that loads the tool list paid for a tool that did nothing. It is now left out of the list on every surface except `counter` while the flag is off, and listed again when it is on. It stays callable, so an instruction that still calls it gets the same answer as before. The `core` profile's tool definitions drop from 3,992 to 3,834 tokens with compact schemas and from 6,208 to 6,050 without (`benchmarks/schema_baseline.json`), and the full surface from 21,603 to 21,445.
+
+**Every non-counter user's cached tool list changes once**, on the first request after the upgrade: the tool block is part of the cached prompt prefix, so that request is a cache write at the full rate, and later requests read the smaller block. The `counter` surface is unchanged, and its six tools stay byte-identical (`tests/test_counter_surface_stability.py`).
+
 ### Fixed - **`get_symbol_source` no longer sends a docstring twice: 9.97% fewer characters per reply on this repository's own index**
 
 The reply carried the symbol's `source` and, beside it, a `docstring` field. A Python docstring is part of the source, so its text arrived twice. Over every 25th function, method and class of this repository's index (141 symbols, 104 with a docstring), served through the dispatcher, the replies came to 271,119 characters before the change and 244,097 after. Every character of a tool result is also written to the prompt cache, so the duplicate cost twice on the way in, on every fetch.

@@ -419,6 +419,7 @@ async def test_switch_tools_always_present_on_core():
     config_mod._GLOBAL_CONFIG.update(deepcopy(config_mod.DEFAULTS))
     config_mod._GLOBAL_CONFIG["tool_profile"] = "core"
     config_mod._GLOBAL_CONFIG["disabled_tools"] = []
+    config_mod._GLOBAL_CONFIG["adaptive_tiering"] = True  # announce_model is published only then
     server_mod._set_session_tier("core")
 
     try:
@@ -443,6 +444,7 @@ async def test_switch_tools_not_filterable_by_disabled():
     config_mod._GLOBAL_CONFIG.clear()
     config_mod._GLOBAL_CONFIG.update(deepcopy(config_mod.DEFAULTS))
     config_mod._GLOBAL_CONFIG["disabled_tools"] = list(orig_disabled) + ["set_tool_tier", "announce_model"]
+    config_mod._GLOBAL_CONFIG["adaptive_tiering"] = True  # announce_model is published only then
 
     try:
         from jcodemunch_mcp.server import list_tools
