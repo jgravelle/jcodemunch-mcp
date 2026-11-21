@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.477] - 2026-11-21 - get_symbol_source sends a docstring once, and announce_model is listed only when it can act
+
 ### Changed - **`announce_model` is published only while `adaptive_tiering` is on**
 
 With `adaptive_tiering` off, which is the default, `announce_model` returns the current tier and switches nothing. It was still in every tool list, so every session that loads the tool list paid for a tool that did nothing. It is now left out of the list on every surface except `counter` while the flag is off, and listed again when it is on. It stays callable, so an instruction that still calls it gets the same answer as before. The `core` profile's tool definitions drop from 3,992 to 3,834 tokens with compact schemas and from 6,208 to 6,050 without (`benchmarks/schema_baseline.json`), and the `full` profile's from 21,603 to 21,445 with compact schemas.
