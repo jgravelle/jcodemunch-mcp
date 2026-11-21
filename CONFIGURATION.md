@@ -114,7 +114,7 @@ The full list of supported language identifiers matches the values in `LANGUAGE_
 | `tool_tier_bundles` | dict | the built-in tiers (`{"core": [...], "standard": [...]}`, too long to inline) | Override the tool lists per tier. Ships populated with the same names as the built-in `_TOOL_TIER_CORE` / `_TOOL_TIER_STANDARD` constants, so the shipped value and the fallback agree. Missing or malformed entries fall back to those constants. |
 | `adaptive_tiering` | bool | `false` | Let the server recommend tier switches based on observed usage. Off = tiers only change when explicitly switched. |
 | `allow_disabling_tier_controls` | bool | `false` | By default the tier-control tools can't be removed via `disabled_tools` (a config typo could otherwise strand a session in a tier). Set `true` to allow disabling them anyway. |
-| `compact_schemas` | bool | `false` | Emit compacted tool schemas (stripped/demoted params). The core tier enables compaction in practice; its full schema payload is held under a CI-enforced 4,000-token ceiling. |
+| `compact_schemas` | bool | `true` | Emit compacted tool schemas: rarely-used advanced params are hidden (the server still accepts them) and the `language` and `kind` enums are demoted to plain strings. On by default since 1.108.476; set `false` for the full schemas. The `core` profile's compact payload is held under a CI-enforced 4,000-token ceiling. |
 
 **Example — disable tools you don't use:**
 
@@ -530,13 +530,13 @@ These environment variables are **not** config keys and remain env-var only:
 | Config key | What it controls | Typical savings |
 |-----------|-----------------|----------------|
 | `tool_profile` | `"core"` (17 tools), `"standard"` (79), `"full"` (91, default) | ~5-6k tokens (core) |
-| `compact_schemas` | Strip rarely-used advanced params from schemas | ~1-2k tokens |
+| `compact_schemas` | Strip rarely-used advanced params from schemas (on by default) | 2,216 tokens on `core`, 2,550 on `full` (cl100k, `benchmarks/schema_baseline.json`) |
 | `disabled_tools` | Remove individual tools from schema entirely | ~100–400 tokens/tool |
 | `languages` | Shrink language enum + gate features | ~2–86 tokens/turn |
 | `meta_fields` | Filter `_meta` response fields | ~50–150 tokens/call |
 | `descriptions` | Control description verbosity | ~0–600 tokens/turn |
 
-**Recommended for context-conscious setups:** `"tool_profile": "core", "compact_schemas": true` reduces the schema footprint from ~11.5k tokens to ~4k tokens.
+**Recommended for context-conscious setups:** `"tool_profile": "core"`. With the default compact schemas its tool list is 3,992 cl100k tokens, against 24,172 for `full` with compaction off (`benchmarks/schema_baseline.json`).
 
 See the full template for all available keys. Run `jcodemunch-mcp config --init` to generate one.
 

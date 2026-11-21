@@ -2,6 +2,18 @@
 
 ## [Unreleased]
 
+### Changed - **`compact_schemas` now defaults to `true`**
+
+The schemas every non-counter install publishes now hide the rarely-used advanced parameters (`debug`, `fusion`, the `semantic_*` and `fuzzy_*` families, the bounded-source controls and the rest of `_COMPACT_STRIP_PARAMS`). The `language` and `kind` enums are demoted to plain strings. The server still accepts every hidden parameter. The `core` profile's tool definitions drop from 6,208 to 3,992 tokens, and `full`'s from 24,172 to 21,622 (cl100k, `benchmarks/schema_baseline.json`, measured 2026-11-20). These definitions sit in front of every request a client makes, so a team paying for a jCodeMunch prefix on every turn pays for about a third less of it on `core`. The default changed after agents were measured working under compact schemas: the only hidden parameter they reached for was `max_source_lines`, in four bounded `get_symbol_source` fetches, and no demoted enum produced an invalid value.
+
+**Every non-counter user's cached prompt prefix changes once, on the first request after the upgrade**, because the tool block is part of it. That request is a cache write at the full rate, and the requests after it read the smaller block from the cache. The `counter` surface does not read `compact_schemas`, and its six tools are byte-identical (`tests/test_counter_surface_stability.py`). A config that sets `"compact_schemas": false` keeps the full schemas.
+
+`max_source_lines` stays in the compact schema of `get_symbol_source` as name and type. Its description is stripped under compact only, because with it the `core` definitions came to 4,027 tokens, over the 4,000 ceiling. The full schema keeps the description, and `tests/test_compact_schemas_default_on.py` fails if compaction drops the property.
+
+### Fixed - a parameter that compact schemas hide is still coerced from a string
+
+Type coercion read only the published schema, so a hidden parameter lost it: `index_folder(incremental="false")` reached the handler as the string `"false"`, which is truthy. That affected anyone who had opted into `compact_schemas`, and the new default would have spread it to every install. Coercion now reads the declared types of the hidden parameters too. Validation still runs against the published schema, so a demoted `language` or `kind` keeps accepting any string.
+
 ## [1.108.474] - 2026-11-20 - get_call_hierarchy with no depth returns the direct callers and callees
 
 ### Fixed - `get_call_hierarchy` with no `depth` returns the direct callers and callees, not three hops
