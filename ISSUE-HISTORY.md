@@ -3452,3 +3452,9 @@ The 1.108.470 entry, verbatim as it stood in `CLAUDE.md`:
 The 1.108.471 entry, verbatim as it stood in `CLAUDE.md`:
 
 - **Prior (1.108.471):** **a repeated `find_references` or `get_blast_radius` answers from the index another process just wrote** (L-330): `cache_get`/`cache_put` take `index=` and answer only a caller holding the same load of the index; runtime confidence is stamped after the cache. Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-20, release 1.108.475)
+
+The 1.108.472 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.472):** **a delete preflight counts a call on a one-line method that shares the target's name** (L-329): `check_references._sibling_declarations` gives a same-named sibling's name line back when `_calls_beyond_declarations` finds a call to the exact declared name beyond the declarations on that line. Full text: `CHANGELOG.md`.
