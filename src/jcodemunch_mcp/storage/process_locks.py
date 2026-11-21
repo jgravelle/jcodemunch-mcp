@@ -594,16 +594,53 @@ def acquire(scope: str, target: str, storage_path: Optional[str] = None) -> bool
     }
     payload = json.dumps(metadata).encode("utf-8")
 
-    def _try_create() -> bool:
+    def _write_new(path: Path) -> None:
+        # 0o600: the metadata names a pid, a client id and a start time, and every
+        # reader is a process of the same user under the same storage root; the
+        # 0o644 it had made it world-readable for nothing (code-scanning alert 15).
+        fd = os.open(str(path), os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
         try:
-            # 0o600: the metadata names a pid, a client id and a start time, and every
-            # reader is a process of the same user under the same storage root; the
-            # 0o644 it had made it world-readable for nothing (code-scanning alert 15).
-            fd = os.open(str(lock_fp), os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+            os.write(fd, payload)
+        finally:
+            os.close(fd)
+
+    def _try_create() -> bool:
+        """Put a WHOLE lock file in place, or report that one exists.
+
+        ⚠⚠ The metadata is written to a private file and hard-linked into
+        place (#1519). Creating the lock with O_EXCL and writing after left
+        an empty file on disk for the length of the write; a rival reading
+        it then took the "corrupted" branch below, unlinked it with no
+        liveness check and created its own, and on Linux both processes
+        held the lock. ``os.link`` fails if the lock exists, so it is as
+        exclusive as O_EXCL and a reader sees no file or a whole one. A
+        filesystem without hard links falls back to the O_EXCL write.
+        """
+        tmp: Optional[Path] = lock_fp.with_name(
+            f"{lock_fp.name}.{os.getpid()}.{os.urandom(6).hex()}.tmp"
+        )
+        try:
+            _write_new(tmp)
+        except OSError:
+            logger.debug("could not write %s", tmp, exc_info=True)
+            tmp = None
+        if tmp is not None:
             try:
-                os.write(fd, payload)
+                os.link(str(tmp), str(lock_fp))
+                return True
+            except FileExistsError:
+                return False
+            except OSError:
+                logger.debug(
+                    "no hard link for %s; writing in place", lock_fp, exc_info=True
+                )
             finally:
-                os.close(fd)
+                try:
+                    tmp.unlink()
+                except OSError:
+                    logger.debug("could not remove %s", tmp, exc_info=True)
+        try:
+            _write_new(lock_fp)
             return True
         except FileExistsError:
             return False
@@ -636,7 +673,22 @@ def acquire(scope: str, target: str, storage_path: Optional[str] = None) -> bool
 
     # Stale-lock recovery: inspect existing holder.
     try:
-        existing = json.loads(lock_fp.read_text(encoding="utf-8"))
+        raw = lock_fp.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        # ⚠⚠ The holder released between our create and this read (#1519).
+        # Nothing is stale, so nothing is removed: a blind unlink here would
+        # delete the lock a third process linked in the meantime and hand the
+        # lock to two holders. Try the create once more instead.
+        if _try_create():
+            return _apply_flock()
+        logger.info("%s lock for %s was taken again before this retry", scope, target)
+        return False
+    except OSError:
+        raw = None
+    try:
+        if raw is None:
+            raise OSError("lock file unreadable")
+        existing = json.loads(raw)
         existing_pid = existing.get("pid")
         if existing_pid is None:
             logger.info("Removing stale %s lock for %s (no pid)", scope, target)

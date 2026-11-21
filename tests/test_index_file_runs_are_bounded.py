@@ -218,6 +218,63 @@ def test_the_hook_still_starts_a_run_when_every_slot_is_held(
     popen.assert_called_once()
 
 
+def _bound_violations(held: list[list]) -> list[str]:
+    """What a burst's claims say about the bound, from ``[slot, claimed, released]`` rows.
+
+    A row's times are taken inside the hold: after ``claim`` returned and before
+    ``release`` ran. A later run that took the slot after its release therefore
+    starts after the earlier row ends, so only a real overlap is reported. A
+    count of claims over the whole burst cannot tell the two apart.
+    """
+    out = []
+    events = sorted(
+        [(claimed, 1) for _slot, claimed, _released in held]
+        + [(released, -1) for _slot, _claimed, released in held],
+        key=lambda e: (e[0], e[1]),
+    )
+    now = most = 0
+    for _at, step in events:
+        now += step
+        most = max(most, now)
+    if most > slots.MAX_CONCURRENT:
+        out.append(f"{most} runs worked at once, bound {slots.MAX_CONCURRENT}")
+    by_slot: dict = {}
+    for slot, claimed, released in held:
+        by_slot.setdefault(slot, []).append((claimed, released))
+    for spans in by_slot.values():
+        spans.sort()
+        if any(b[0] < a[1] for a, b in zip(spans, spans[1:])):
+            out.append("two live processes held one slot")
+            break
+    return out
+
+
+def test_a_slot_reused_after_its_release_is_within_the_bound():
+    """main CI on f23bfb98 (#1519): slot1 was claimed again after its first holder let go.
+
+    One run started more than the 5 s hold late on a loaded runner, found slot1
+    free, and the burst test failed `assert 3 <= 2` with two runs ever working
+    at once. Only claims that overlap in time are over the bound.
+    """
+    sequential = [
+        ["slot0", 100.0, 105.0],
+        ["slot1", 100.1, 105.1],
+        ["slot1", 106.0, 111.0],
+    ]
+    assert _bound_violations(sequential) == []
+
+
+def test_claims_that_overlap_past_the_bound_are_reported():
+    over = [
+        ["slot0", 100.0, 105.0],
+        ["slot1", 100.1, 105.1],
+        ["slot1", 104.0, 109.0],
+    ]
+    found = _bound_violations(over)
+    assert any("at once" in f for f in found)
+    assert any("one slot" in f for f in found)
+
+
 def test_a_burst_of_real_runs_never_works_more_than_the_bound_at_once(slot_dir):
     """Real processes on different indexes, each holding its claim for a while."""
     code = textwrap.dedent(
@@ -227,10 +284,14 @@ def test_a_burst_of_real_runs_never_works_more_than_the_bound_at_once(slot_dir):
         from jcodemunch_mcp.storage import index_file_slots as s
         s.slot_dir = lambda: Path(sys.argv[1])
         c, why = s.claim(sys.argv[2])
-        if c is not None:
+        if c is None:
+            print(json.dumps(None))
+        else:
+            claimed = time.time()
             time.sleep(5)
+            released = time.time()
             s.release(c)
-        print(json.dumps(c.slot if c else None))
+            print(json.dumps([c.slot, claimed, released]))
         """
     )
     burst = [
@@ -244,9 +305,9 @@ def test_a_burst_of_real_runs_never_works_more_than_the_bound_at_once(slot_dir):
     started = time.monotonic()
     claimed = [json.loads(p.communicate(timeout=60)[0]) for p in burst]
     assert time.monotonic() - started < 60
-    worked = [c for c in claimed if c is not None]
-    assert 1 <= len(worked) <= slots.MAX_CONCURRENT
-    assert len(set(worked)) == len(worked), "two live processes held one slot"
+    held = [c for c in claimed if c is not None]
+    assert held, "no run worked"
+    assert _bound_violations(held) == []
 
 
 def test_a_lock_error_runs_the_work_and_says_so(
