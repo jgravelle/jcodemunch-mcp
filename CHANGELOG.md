@@ -2,6 +2,37 @@
 
 ## [Unreleased]
 
+### The deletion investigator no longer reads a cut-short text sweep as "no other use" (L-309)
+
+The investigator's `no_textual_use` obligation asked `search_text` for the
+symbol's name and read only `results`. `search_text` returns 20 lines by
+default, so a symbol whose own file mentions its name 20 times or more fills
+that page with its own file, and a use in another file is never returned:
+the obligation then read `satisfied`, "appears only in its own file". A test
+fixture with 30 mentions and a use by string in `main.py` reproduced it. The
+same reading ignored a scan stopped at its time budget and an index the
+`max_folder_files` cap had left without some files, though `search_text`
+reports all three.
+
+The sweep now asks for the whole match set (the in-process `scan_limit`, up
+to 5,000 lines), and when the answer says it did not search everything,
+finding no other file is `unestablished`, never `satisfied`. A use it does
+find still refutes. Review found two more signals the sweep ignored: a file
+withheld for being over `max_file_size`, and files in scope that could not be
+read. Both are read now, through one predicate in `retrieval/verdict.py`
+(`search_text_cut_short`) that the Grep-answer hook reads too. The hook's own
+list lacked the withheld file: a Grep the hook answered from the index could
+leave out a match in a file the index withholds for size, where Grep itself
+would have found it. It now leaves such a search to Grep. The withheld count
+is repo-wide, so `search_text` now says in `_meta.index_withheld.in_scope`
+whether any withheld file matches the search's `file_pattern`: the hook keeps
+answering a scoped search no withheld file can match, and declines when the
+stored names are cut and the scope cannot be told. The investigator's sweep
+has no scope, so in a repo that withholds any file `no_textual_use` reads
+`unestablished`, never `satisfied`. An error answer now counts as a cut too.
+`investigate_deletion_safety` is not an MCP tool, and `_meta` is stripped on a
+default install, so no default tool response changes.
+
 ## [1.108.478] - 2026-11-21 - a lock file is never on disk without the metadata that names its holder
 
 ### A lock is never on disk without the metadata that names its holder (#1519)
