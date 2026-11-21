@@ -649,6 +649,16 @@ def get_symbol_source(
             "content_hash": symbol.get("content_hash", ""),
             "source": display_source,
         }
+        # A docstring the returned source already holds verbatim is not sent a
+        # second time (the measured share is in the CHANGELOG entry for this fix). The field keeps its key and type ("" plus the flag), so a
+        # reader that indexes it does not break. The test is against
+        # `display_source`, the text THIS reply returns: a bounded or outline
+        # view that leaves the docstring out keeps it, and a language whose
+        # stored docstring is not the source text (markers stripped) keeps it.
+        _doc = entry["docstring"]
+        if _doc and display_source and _doc in display_source:
+            entry["docstring"] = ""
+            entry["docstring_in_source"] = True
         if outline_members:
             # A view, not the indexed bytes: the evidence producer reads
             # `source_is_bounded_view` and does not hash it as the body.

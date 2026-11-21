@@ -570,7 +570,7 @@ plan_turn(repo="...", query="...", model="<your-model-id>")
 
 The server resolves the model to a tier via `model_tier_map` in config (fuzzy matching: normalizes the id, then exact → glob → substring → `*` → `full` fallback). Subsequent `tools/list` calls return only the narrowed set.
 
-When `adaptive_tiering` is false, `plan_turn(model=...)` and `announce_model(...)` accept their arguments but do not switch the tier — the static `tool_profile` continues to drive the exposed tools. `set_tool_tier(tier=...)` remains honored either way because it's an explicit user call, not automatic behavior.
+When `adaptive_tiering` is false, `plan_turn(model=...)` and `announce_model(...)` accept their arguments but do not switch the tier — the static `tool_profile` continues to drive the exposed tools. `set_tool_tier(tier=...)` remains honored either way because it's an explicit user call, not automatic behavior. On every surface except `counter`, `announce_model` is left out of the tool list while `adaptive_tiering` is false, since it would do nothing; it stays callable, and it is listed again when the flag is on.
 
 #### The Counter — collapse to a 3-tool front door (`tool_surface`)
 

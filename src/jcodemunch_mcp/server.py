@@ -232,6 +232,8 @@ _PROFILE_TIERS: dict[str, frozenset[str] | None] = {
 }
 
 # Tools that survive tier filtering (always visible in core/standard tiers).
+# announce_model is the exception outside the counter surface: it is left
+# out while adaptive_tiering is off (see _build_tools_list).
 # jcodemunch_guide is included so a one-line CLAUDE.md keeps working at any tier.
 _ALWAYS_PRESENT_TOOLS: frozenset[str] = frozenset({"set_tool_tier", "announce_model", "jcodemunch_guide"})
 
@@ -5281,6 +5283,16 @@ def _build_tools_list(
     missing = _ALWAYS_PRESENT_TOOLS - present_names - (disabled_set - protected)
     if missing:
         tools.extend(t for t in all_tools if t.name in missing)
+
+    # announce_model does nothing while adaptive_tiering is off (the default):
+    # `_apply_model_announcement` returns the current tier unchanged. A tool
+    # that is published and does nothing is paid for on every request of a
+    # session that loads the tool list, so it is published only when the flag
+    # is on. It stays callable, so an old instruction that calls it still gets
+    # its answer. The counter surface returned above is unchanged: its six
+    # tools are byte-pinned (tests/test_counter_surface_stability.py).
+    if not config_module.get("adaptive_tiering", False):
+        tools = [t for t in tools if t.name != "announce_model"]
 
     # SQL gating: auto-disable search_columns when SQL not in languages
     languages = config_module.get("languages")

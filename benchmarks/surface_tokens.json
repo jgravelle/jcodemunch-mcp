@@ -35,15 +35,15 @@
     }
   },
   "full": {
-    "published": 90,
+    "published": 89,
     "always_loaded": {},
     "always_loaded_schema_tokens": 0,
     "always_loaded_schema_bytes": 0,
-    "deferred": 90,
-    "deferred_name_tokens": 1095,
+    "deferred": 89,
+    "deferred_name_tokens": 1084,
     "instructions_tokens": 255,
-    "deferring_total": 1350,
-    "non_deferring_total": 21941,
+    "deferring_total": 1339,
+    "non_deferring_total": 21782,
     "schema_tokens_per_tool": {
       "index_repo": 142,
       "index_folder": 248,
@@ -133,7 +133,6 @@
       "list_workspaces": 192,
       "winnow_symbols": 415,
       "set_tool_tier": 118,
-      "announce_model": 159,
       "jcodemunch_guide": 147
     }
   }
