@@ -1,6 +1,12 @@
 {
-  "current": "1.108.477",
+  "current": "1.108.478",
   "entries": [
+    {
+      "version": "1.108.478",
+      "date": "2026-11-21",
+      "title": "a lock file is never on disk without the metadata that names its holder",
+      "summary": "The locks that keep two processes from saving one index at once, and that bound index-file runs, could be taken by two processes at the same moment: the lock file was briefly empty while its holder wrote it, and a rival deleted it as corrupt. The holder's details are now linked into place whole."
+    },
     {
       "version": "1.108.477",
       "date": "2026-11-21",
