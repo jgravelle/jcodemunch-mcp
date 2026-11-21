@@ -15,10 +15,17 @@ same reading ignored a scan stopped at its time budget and an index the
 reports all three.
 
 The sweep now asks for the whole match set (the in-process `scan_limit`, up
-to 5,000 lines), and when the answer still says it was cut short, finding no
-other file is `unestablished`, never `satisfied`. A use it does find still
-refutes. `investigate_deletion_safety` is not an MCP tool, so no tool
-response changes.
+to 5,000 lines), and when the answer says it did not search everything,
+finding no other file is `unestablished`, never `satisfied`. A use it does
+find still refutes. Review found two more signals the sweep ignored: a file
+withheld for being over `max_file_size`, and files in scope that could not be
+read. Both are read now, through one predicate in `retrieval/verdict.py`
+(`search_text_cut_short`) that the Grep-answer hook reads too. The hook's own
+list lacked the withheld file: a Grep the hook answered from the index could
+leave out a match in a file the index withholds for size, where Grep itself
+would have found it. It now leaves such a search to Grep.
+`investigate_deletion_safety` is not an MCP tool, so no tool response
+changes.
 
 ## [1.108.478] - 2026-11-21 - a lock file is never on disk without the metadata that names its holder
 

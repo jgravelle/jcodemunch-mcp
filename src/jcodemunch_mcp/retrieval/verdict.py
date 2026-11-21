@@ -218,6 +218,43 @@ def coverage_is_incomplete(coverage: Optional[dict]) -> bool:
     return bool(coverage) and coverage.get("complete") is False
 
 
+def search_text_cut_short(res: Optional[dict]) -> list[str]:
+    """Why a ``search_text`` answer did not search everything, or ``[]``.
+
+    THE one reading of a text scan's completeness (LEDGER L-309), shared by
+    every in-process consumer that treats the matches as the whole set: the
+    Grep-answer hook, which answers in Grep's place, and the deletion
+    investigator, which reads "no other file" as no other use. Each kept its
+    own list, and each list missed a signal: the investigator read none of
+    these, and the hook never read ``index_withheld``, which is the only
+    signal of a file withheld for size when the scan found something
+    (``verdict.coverage`` is attached only to an absent or degraded answer).
+
+    Read from the body and from ``_meta``, which only the dispatcher strips.
+    An unknown (a missing key, ``complete is None``) is not a cut.
+    """
+    if not isinstance(res, dict):
+        return ["the answer is not a search result"]
+    meta = res.get("_meta") or {}
+    verdict = meta.get("verdict") or {}
+    reasons: list[str] = []
+    if res.get("truncated"):
+        reasons.append("the match list was cut at its limit")
+    if res.get("timed_out"):
+        reasons.append("the scan stopped at its time budget")
+    if verdict.get("incomplete"):
+        reasons.append("some files in scope could not be read")
+    if coverage_is_incomplete(verdict.get("coverage")):
+        reasons.append("the index coverage is incomplete")
+    if meta.get("index_truncated"):
+        reasons.append(
+            "the index holds only part of the repo's files (max_folder_files cap)"
+        )
+    if meta.get("index_withheld"):
+        reasons.append("the index withholds files over max_file_size")
+    return reasons
+
+
 def _attach_coverage(verdict: dict, coverage: Optional[dict]) -> None:
     """Attach coverage disclosure to absent/degraded verdicts (in place).
 

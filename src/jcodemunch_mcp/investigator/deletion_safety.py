@@ -364,21 +364,11 @@ def investigate_deletion_safety(
             )
             text_ob.calls = 1
             results = hits.get("results") or []
-            # What the answer says it did not search. Read from the body and,
-            # in process, from `_meta`, which only the dispatcher strips.
-            cut_short = [
-                reason
-                for reason, flag in (
-                    ("the match list was cut at its limit", hits.get("truncated")),
-                    ("the scan stopped at its time budget", hits.get("timed_out")),
-                    (
-                        "the index holds only part of the repo's files "
-                        "(max_folder_files cap)",
-                        (hits.get("_meta") or {}).get("index_truncated"),
-                    ),
-                )
-                if flag
-            ]
+            # What the answer says it did not search: the one reading the
+            # Grep-answer hook also uses.
+            from ..retrieval.verdict import search_text_cut_short  # noqa: PLC0415
+
+            cut_short = search_text_cut_short(hits)
             other_files = [
                 r.get("file")
                 for r in results

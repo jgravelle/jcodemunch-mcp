@@ -134,3 +134,152 @@ def test_the_sweep_asks_for_the_whole_match_set(tmp_path, monkeypatch):
         repo, "zap", include_runtime=False, storage_path=storage
     )
     assert seen and seen[0] == st.SCAN_LIMIT_MAX
+
+
+def test_a_use_in_a_file_withheld_for_size_is_not_read_as_absent(tmp_path, monkeypatch):
+    """Review round 1: the only other use sits in a file over max_file_size."""
+    from jcodemunch_mcp import config as config_module
+
+    # Set in the loaded config, never through load_config() (Practice 8).
+    monkeypatch.setitem(config_module._GLOBAL_CONFIG, "max_file_size", 2000)
+    repo, storage = _index(
+        tmp_path,
+        {
+            "aaa.py": "def zap():\n    return 1\n",
+            "big.py": 'import aaa\ngetattr(aaa, "zap")()\n'
+            + "# pad xxxxxxxxxxxxxxxxxxxx\n" * 200,
+        },
+    )
+    res = investigate_deletion_safety(
+        repo, "zap", include_runtime=False, storage_path=storage
+    )
+    ob = _text_ob(res)
+    assert ob["status"] == UNESTABLISHED, ob
+    assert any("max_file_size" in e for e in ob["evidence"]), ob
+    assert res["verdict"] not in ("safe", "static_clear")
+
+
+def _mock_sweep(monkeypatch, other_file: str, **signal):
+    import jcodemunch_mcp.tools.search_text as st
+
+    def fake(*a, **k):
+        out = {
+            "result_count": 2,
+            "truncated": False,
+            "timed_out": False,
+            "results": [
+                {"file": "aaa.py", "line": 1, "text": "def zap():"},
+                {"file": other_file, "line": 1, "text": "zap"},
+            ],
+            "_meta": {},
+        }
+        out.update(signal)
+        return out
+
+    monkeypatch.setattr(st, "search_text", fake)
+
+
+def test_only_unreachable_other_files_in_a_cut_short_sweep_is_unestablished(
+    tmp_path, monkeypatch
+):
+    """A dead mention found does not prove the unseen rest is dead too."""
+    from jcodemunch_mcp.investigator import deletion_safety as ds
+
+    repo, storage = _index(tmp_path, {"aaa.py": "def zap():\n    return 1\n"})
+    _mock_sweep(monkeypatch, "dead.py", truncated=True)
+    monkeypatch.setattr(
+        ds, "_split_importers_by_liveness", lambda r, f, s: (list(f), [])
+    )
+    ob = _text_ob(
+        investigate_deletion_safety(
+            repo, "zap", include_runtime=False, storage_path=storage
+        )
+    )
+    assert ob["status"] == UNESTABLISHED, ob
+
+
+def test_only_unreachable_other_files_in_a_complete_sweep_is_satisfied(
+    tmp_path, monkeypatch
+):
+    from jcodemunch_mcp.investigator import deletion_safety as ds
+
+    repo, storage = _index(tmp_path, {"aaa.py": "def zap():\n    return 1\n"})
+    _mock_sweep(monkeypatch, "dead.py")
+    monkeypatch.setattr(
+        ds, "_split_importers_by_liveness", lambda r, f, s: (list(f), [])
+    )
+    ob = _text_ob(
+        investigate_deletion_safety(
+            repo, "zap", include_runtime=False, storage_path=storage
+        )
+    )
+    assert ob["status"] == SATISFIED, ob
+
+
+def test_a_live_use_in_a_cut_short_sweep_still_refutes(tmp_path, monkeypatch):
+    from jcodemunch_mcp.investigator import deletion_safety as ds
+
+    repo, storage = _index(tmp_path, {"aaa.py": "def zap():\n    return 1\n"})
+    _mock_sweep(monkeypatch, "live.py", truncated=True)
+    monkeypatch.setattr(
+        ds, "_split_importers_by_liveness", lambda r, f, s: ([], list(f))
+    )
+    ob = _text_ob(
+        investigate_deletion_safety(
+            repo, "zap", include_runtime=False, storage_path=storage
+        )
+    )
+    assert ob["status"] == REFUTED, ob
+
+
+@pytest.mark.parametrize(
+    "res",
+    [
+        {"truncated": True},
+        {"timed_out": True},
+        {"_meta": {"verdict": {"incomplete": {"reason": "unreadable_inputs"}}}},
+        {"_meta": {"verdict": {"coverage": {"complete": False}}}},
+        {"_meta": {"index_truncated": {"truncated": True}}},
+        {"_meta": {"index_withheld": {"files": 1}}},
+    ],
+    ids=["truncated", "timed_out", "unreadable", "coverage", "index_cap", "withheld"],
+)
+def test_the_grep_answer_hook_refuses_every_cut(res):
+    """The hook answers in Grep's place, so a cut answer must not be served.
+
+    Its own list lacked `index_withheld` (L-309 review); it reads the shared
+    predicate now. Asserted through `_complete` alone, so the arms run on a
+    tree without the predicate too.
+    """
+    from jcodemunch_mcp.cli.hooks.grep_answer import _complete
+
+    base = {"result_count": 3, "truncated": False, "timed_out": False, "results": []}
+    assert _complete(dict(base))
+    assert not _complete({**base, **res})
+
+
+@pytest.mark.parametrize(
+    "res",
+    [
+        {"truncated": True},
+        {"timed_out": True},
+        {"_meta": {"verdict": {"incomplete": {"reason": "unreadable_inputs"}}}},
+        {"_meta": {"verdict": {"coverage": {"complete": False}}}},
+        {"_meta": {"index_truncated": {"truncated": True}}},
+        {"_meta": {"index_withheld": {"files": 1}}},
+    ],
+    ids=["truncated", "timed_out", "unreadable", "coverage", "index_cap", "withheld"],
+)
+def test_the_shared_predicate_names_every_cut(res):
+    from jcodemunch_mcp.retrieval.verdict import search_text_cut_short
+
+    base = {"result_count": 3, "truncated": False, "timed_out": False, "results": []}
+    assert search_text_cut_short(dict(base)) == []
+    assert search_text_cut_short({**base, **res})
+
+
+def test_unknown_coverage_is_not_a_cut():
+    from jcodemunch_mcp.retrieval.verdict import search_text_cut_short
+
+    res = {"result_count": 3, "_meta": {"verdict": {"coverage": {"complete": None}}}}
+    assert search_text_cut_short(res) == []
