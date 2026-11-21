@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+### Fixed - **`get_symbol_source` no longer sends a docstring twice: 9.97% fewer characters per reply on this repository's own index**
+
+The reply carried the symbol's `source` and, beside it, a `docstring` field. A Python docstring is part of the source, so its text arrived twice. Over every 25th function, method and class of this repository's index (141 symbols, 104 with a docstring), served through the dispatcher, the replies came to 271,119 characters before the change and 244,097 after. Every character of a tool result is also written to the prompt cache, so the duplicate cost twice on the way in, on every fetch.
+
+`docstring` keeps its key and its type. When the source the reply returns holds the docstring verbatim, the field is `""` and `docstring_in_source: true` is set; a reader that indexes the field does not break, and one that wants the text finds it in `source`. The test is against the text this reply returns, so a bounded slice (`max_source_lines` and the other bounds) or a class outline that leaves the docstring out keeps it, and so does a language whose stored docstring is not the source text (a JSDoc block is stored with its markers stripped). Batch calls (`symbol_ids`) apply it per symbol.
+
+Other tools that inline source next to a docstring (`search_symbols` with `detail_level: "full"`, `get_context_bundle`) are unchanged by this fix.
+
 ## [1.108.476] - 2026-11-21 - compact schemas are on by default, and a hidden parameter keeps its type
 
 ### Changed - **`compact_schemas` now defaults to `true`**
