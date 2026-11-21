@@ -135,11 +135,26 @@ async def test_no_marker_without_the_defect(repo, monkeypatch, exit_name, query,
 
 
 @pytest.mark.asyncio
-async def test_the_marker_is_not_an_absence(repo, monkeypatch):
+@pytest.mark.parametrize("exit_name", list(EXITS))
+async def test_the_marker_downgrades_ok_and_is_not_an_absence(
+    repo, monkeypatch, exit_name
+):
+    """Rows came back, so the state is `low_confidence`: never `ok` beside
+    "No symbol named X", and never `absent`."""
     _set_meta_fields(monkeypatch, ["verdict"])
-    body = await _call({"repo": repo, "query": QUERY})
+    body = await _call({"repo": repo, "query": QUERY, **EXITS[exit_name]})
     state = ((body.get("_meta") or {}).get("verdict") or {}).get("state")
-    assert state != "absent", body
+    assert state == "low_confidence", (exit_name, body.get("_meta"))
+
+
+@pytest.mark.asyncio
+async def test_the_fusion_parameter_takes_the_fusion_exit(repo, monkeypatch):
+    """Precondition for every `[fusion]` arm: fused rows carry `fusion_score`."""
+    _set_meta_fields(monkeypatch, [])
+    body = await _call({"repo": repo, "query": QUERY, **EXITS["fusion"]})
+    assert body["context_items"] and all(
+        "fusion_score" in r for r in body["context_items"]
+    ), body
 
 
 def test_both_tools_read_the_one_marker():
@@ -153,7 +168,8 @@ def test_both_tools_read_the_one_marker():
 
 
 @pytest.mark.asyncio
-async def test_the_marker_survives_the_compact_encoder(repo, monkeypatch):
+@pytest.mark.parametrize("exit_name", list(EXITS))
+async def test_the_marker_survives_the_compact_encoder(repo, monkeypatch, exit_name):
     """The default wire format is the compact encoder; the warning rides
     `schema_driven.UNIVERSAL_BODY_JSON` there."""
     from jcodemunch_mcp import server
@@ -161,7 +177,8 @@ async def test_the_marker_survives_the_compact_encoder(repo, monkeypatch):
     _set_meta_fields(monkeypatch, [])
     out = _content(
         await server.call_tool(
-            "get_ranked_context", {"repo": repo, "query": QUERY, "format": "compact"}
+            "get_ranked_context",
+            {"repo": repo, "query": QUERY, "format": "compact", **EXITS[exit_name]},
         )
     )
     text = out[0].text

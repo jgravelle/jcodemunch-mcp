@@ -12,7 +12,9 @@ it, and on a default install nothing in its answer said that none of them is
 the symbol asked for. It now carries the same marker on both of its exits,
 ranked and fusion: `negative_evidence.verdict` reads `no_exact_match` and the
 `⚠ warning` line names the query, in the JSON and compact formats alike. Rows
-and their order do not change, and the marker is not an absence claim, since
+and their order do not change. With the marker, `_meta.verdict.state` reads
+`low_confidence` where it read `ok`, as `search_symbols` does: a caller who
+keeps the verdict sees the changed state. It is not an absence claim, since
 rows were returned.
 
 The marker now lives in `retrieval/verdict.py` (`mark_no_exact_match`), and
