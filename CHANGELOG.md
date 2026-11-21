@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.475] - 2026-11-20 - the server's instructions name a tool only while the session is served it
+
 ### Fixed - the server's instructions name a tool only while the session is served it, and name the call graph when it is
 
 The `instructions` string sent at `initialize` is the one piece of steering a client keeps when it defers tool schemas. Its last row named `check_references` on every install, and `tool_profile: "core"` publishes neither `check_references` nor `get_call_hierarchy`, so a core session was told to look up a name its tool lookup could not find. In the other direction, a team that added `get_call_hierarchy` to answer structural questions found it loaded in every session and never called, with Grep doing that work: nothing in the string said which question it answers.

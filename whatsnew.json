@@ -1,6 +1,12 @@
 {
-  "current": "1.108.474",
+  "current": "1.108.475",
   "entries": [
+    {
+      "version": "1.108.475",
+      "date": "2026-11-20",
+      "title": "the server's instructions name a tool only while the session is served it",
+      "summary": "The instructions a client keeps when it defers tool schemas name only tools the session is served, and tell a session that serves get_call_hierarchy that it answers who calls a function."
+    },
     {
       "version": "1.108.474",
       "date": "2026-11-20",
