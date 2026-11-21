@@ -6,7 +6,7 @@
 
 With `adaptive_tiering` off, which is the default, `announce_model` returns the current tier and switches nothing. It was still in every tool list, so every session that loads the tool list paid for a tool that did nothing. It is now left out of the list on every surface except `counter` while the flag is off, and listed again when it is on. It stays callable, so an instruction that still calls it gets the same answer as before. The `core` profile's tool definitions drop from 3,992 to 3,834 tokens with compact schemas and from 6,208 to 6,050 without (`benchmarks/schema_baseline.json`), and the `full` profile's from 21,603 to 21,445 with compact schemas.
 
-The agent policy that `init` writes into CLAUDE.md now gives that sentence a line of its own, because the policy drops any line that names an unlisted tool, and the sentence explaining that `adaptive_tiering` is off shared a line with it. An existing install whose CLAUDE.md holds the previous block reads it as changed, and `init` offers the refresh.
+The agent policy that `init` writes into CLAUDE.md now puts the `announce_model` sentence on a line of its own. The policy drops any line that names an unlisted tool, and the sentence explaining that `adaptive_tiering` is off shared that line. An existing install whose CLAUDE.md holds the previous block reads it as changed, and `init` offers the refresh.
 
 **Every non-counter user's cached tool list changes once**, on the first request after the upgrade: the tool block is part of the cached prompt prefix, so that request is a cache write at the full rate, and later requests read the smaller block. The `counter` surface is unchanged, and its six tools stay byte-identical (`tests/test_counter_surface_stability.py`).
 
