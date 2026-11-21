@@ -2,6 +2,29 @@
 
 ## [Unreleased]
 
+### A lock is never on disk without the metadata that names its holder (#1519)
+
+`process_locks.acquire` created the lock file with `O_EXCL` and wrote its
+metadata after. For the length of that write the file was on disk and empty.
+A rival that read it then could not parse it, took the "corrupted lock"
+branch, deleted it with no check that its holder was alive, and created its
+own. On Linux and macOS the two then raced for `flock`, and the loser deleted
+the lock file the winner held, so a third process could take the lock while
+the winner still held it. main CI on f23bfb98 failed `assert 3 <= 2` in the
+`index-file` burst test, with `slot1` claimed twice under a bound of two
+slots. That path is read from the code; it was not reproduced on Linux, and
+a 40-trial burst on Windows, where an open file cannot be deleted, found no
+double hold. The same function takes the `indexwrite` lock
+that serialises index saves across MCP processes, and the `watcher` lock.
+
+The metadata is now written to a private temporary file and hard-linked into
+place. `os.link` fails when the lock exists, so it is as exclusive as
+`O_EXCL`, and a reader finds no file or a whole one. A filesystem without
+hard links falls back to the old write. An empty lock left by a crash is
+still reclaimed. The burst test now records when each run held its slot and
+reports only holds that overlap, so a slot reused after its release is no
+longer counted as over the bound.
+
 ## [1.108.477] - 2026-11-21 - get_symbol_source sends a docstring once, and announce_model is listed only when it can act
 
 ### Changed - **`announce_model` is published only while `adaptive_tiering` is on**
