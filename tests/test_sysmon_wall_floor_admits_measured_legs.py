@@ -4,9 +4,9 @@
 its last eight runs with every test passing: 383.71 s (b05a549f), 362.74 s
 (4873e318) and 363.02 s (832374f0), against the 360 s Floor set on
 2026-09-03 for this box's full tier (188.43 s). A sysmon ubuntu leg on CI was
-still judged by that local Floor. The same job measured 227.54 s and 358.17 s
-on two commits one test apart, so the failures report runner speed, not a
-regression.
+still judged by that local Floor. The same job measured 352.69 s and 240.0 s
+on two commits one test apart (acc10f67, 52a48d7d), so the failures report
+runner speed, not a regression.
 
 A sysmon ubuntu leg on CI now has its own Floor, set by the L-232 method
 (max x 1.2, rounded up to 10 s), as the C-tracer and windows legs have. These
