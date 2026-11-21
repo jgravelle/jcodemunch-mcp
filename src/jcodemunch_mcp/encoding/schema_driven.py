@@ -69,14 +69,15 @@ UNIVERSAL_META_JSON = frozenset({
     "steer_hint",
 })
 
-# `_meta` keys the dispatcher adds AFTER the `meta_fields` display filter
-# (LEDGER L-313). The server sends them whatever the filter keeps, so on the
-# shipped default (`meta_fields: []`) they are the only `_meta` an answer
-# carries, and a schema that did not list them dropped them where JSON kept
-# them. Unlike UNIVERSAL_META_JSON this set is not a judgment about which keys
-# matter: it is every key written there, and
+# `_meta` keys the dispatcher adds AFTER the `meta_fields` display filter that
+# UNIVERSAL_META_JSON does not already carry (LEDGER L-313). The server sends
+# them whatever the filter keeps, so they reach a default install
+# (`meta_fields: []`), and a schema that did not list them dropped them where
+# JSON kept them. This set is not a judgment about which keys matter:
 # `tests/test_compact_answer_keeps_dispatcher_meta.py` reads the dispatcher's
-# source and fails on a key written there that is missing here.
+# syntax tree between the filter and the encoding step, and the server
+# functions it calls, and fails on a `_meta` key written there that neither
+# set carries.
 DISPATCHER_META_JSON = frozenset({
     "secrets_redacted",   # the answer was altered: a secret was redacted
     "budget",             # the session is near or over its token budget
