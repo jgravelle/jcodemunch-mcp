@@ -536,7 +536,7 @@ These environment variables are **not** config keys and remain env-var only:
 | `meta_fields` | Filter `_meta` response fields | ~50–150 tokens/call |
 | `descriptions` | Control description verbosity | ~0–600 tokens/turn |
 
-**Recommended for context-conscious setups:** `"tool_profile": "core"`. With the default compact schemas its tool list is 3,992 cl100k tokens, against 24,172 for `full` with compaction off (`benchmarks/schema_baseline.json`).
+**Recommended for context-conscious setups:** `"tool_profile": "core"`. With the default compact schemas its tool list is 3,992 cl100k tokens, against 24,153 for `full` with compaction off (`benchmarks/schema_baseline.json`).
 
 See the full template for all available keys. Run `jcodemunch-mcp config --init` to generate one.
 

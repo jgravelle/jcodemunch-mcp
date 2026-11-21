@@ -91,7 +91,8 @@ def test_find_references_description_did_not_grow_in_tokens():
 # --- 2. the instructions hint -------------------------------------------------- #
 
 def test_instructions_hint_for_find_references_is_about_imports():
-    hint = dict(server._INSTRUCTION_TOOLS_FULL)[IMPORT_TOOL]
+    # The emitted row, not the table: clauses are appended per published tool.
+    hint = dict(server._instruction_rows("full"))[IMPORT_TOOL]
     assert "import" in hint.lower()
     assert not re.search(r"\bevery use\b", hint, re.I), hint
 
