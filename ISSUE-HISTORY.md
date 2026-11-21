@@ -3464,3 +3464,9 @@ The 1.108.472 entry, verbatim as it stood in `CLAUDE.md`:
 The 1.108.473 entry, verbatim as it stood in `CLAUDE.md`:
 
 - **Prior (1.108.473):** **an annotation that spells the target's name no longer makes a same-named declaration count as a use** (L-331): `check_references._name_through` finds the name line by the exact declared spelling as a word-rule token, only within the lines the stored signature spans, else main's folded rule. Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-21, release 1.108.477)
+
+The 1.108.474 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.474):** **`get_call_hierarchy` with no `depth` returns the direct callers and callees** (#1520): the default is one hop in the schema, the dispatch and the function, pinned together by a test; three hops returned tens of thousands of tokens by default. Full text: `CHANGELOG.md`.
