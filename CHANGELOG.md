@@ -2,6 +2,24 @@
 
 ## [Unreleased]
 
+### A compact answer says when the server redacted a secret or the session is over budget (L-313)
+
+The dispatcher adds three `_meta` keys after the `meta_fields` display filter:
+`secrets_redacted` (redaction is on by default), `budget` (the session is near
+or over its token budget) and `already_delivered`. On the shipped default
+(`meta_fields: []`) they are the only `_meta` an answer carries. Each schema
+encoder kept only the `_meta` keys it listed plus `UNIVERSAL_META_JSON`, so a
+compact answer dropped all three where the same answer as JSON kept them. An
+answer the server had altered by redacting a secret reached the agent with no
+word that it had been altered.
+
+`schema_driven` now carries every key in `DISPATCHER_META_JSON` for every
+schema encoder. A test reads the dispatcher's source between the filter and
+the encoding step and fails on a `_meta` key written there that the encoders
+do not carry, so the next key added there cannot be dropped the same way. A
+tool's own unlisted `_meta` keys (`hint`) still stay off the compact wire, as
+before.
+
 ## [1.108.480] - 2026-11-21 - get_ranked_context says when no symbol has the name you asked for
 
 ### `get_ranked_context` says when no symbol has the name you asked for (L-284)
