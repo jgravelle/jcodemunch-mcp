@@ -817,7 +817,10 @@ async def test_disabled_tools_empty_all_tools_present(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_tier_controls_undisableable_by_default():
-    """Default behavior (issue #299): set_tool_tier and announce_model survive disabled_tools."""
+    """Default behavior (issue #299): set_tool_tier and announce_model survive disabled_tools.
+
+    announce_model is published only with adaptive_tiering on, so the test turns it on.
+    """
     from jcodemunch_mcp import config as config_module
 
     orig_config = config_module._GLOBAL_CONFIG.copy()

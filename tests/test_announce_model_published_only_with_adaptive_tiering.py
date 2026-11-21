@@ -75,3 +75,19 @@ def test_still_callable_while_unpublished(cfg):
     parts = out if isinstance(out, list) else out.content
     d = json.loads("".join(getattr(p, "text", "") for p in parts))
     assert d.get("adaptive_tiering") is False, d
+
+
+def test_the_written_policy_keeps_its_explanation_when_the_tool_is_unlisted(cfg):
+    # init writes this policy into a user's CLAUDE.md and drops any line that
+    # names an unlisted tool, so the sentence saying the flag is off must not
+    # share a line with announce_model.
+    from jcodemunch_mcp.cli import policy
+
+    cfg["tool_surface"] = "full"
+    off = policy.active_policy()
+    assert "It is off unless `adaptive_tiering` is enabled" in off
+    assert "announce_model" not in off
+    cfg["adaptive_tiering"] = True
+    on = policy.active_policy()
+    assert "It is off unless `adaptive_tiering` is enabled" in on
+    assert "announce_model(" in on

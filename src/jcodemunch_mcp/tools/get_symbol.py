@@ -650,8 +650,7 @@ def get_symbol_source(
             "source": display_source,
         }
         # A docstring the returned source already holds verbatim is not sent a
-        # second time (9.97% of served characters over a sample of this
-        # repository's own index, CHANGELOG). The field keeps its key and type ("" plus the flag), so a
+        # second time (the measured share is in the CHANGELOG entry for this fix). The field keeps its key and type ("" plus the flag), so a
         # reader that indexes it does not break. The test is against
         # `display_source`, the text THIS reply returns: a bounded or outline
         # view that leaves the docstring out keeps it, and a language whose

@@ -1,9 +1,8 @@
 """get_symbol_source does not send a docstring twice.
 
 The served `source` already holds a Python docstring verbatim, so a separate
-`docstring` field carrying the same text sends it twice. Measured on a
-sample of this repository's own index, dropping the copy cut served
-get_symbol_source characters by 9.97% (CHANGELOG).
+`docstring` field carrying the same text sends it twice. The measured
+saving on this repository's own index is in the CHANGELOG entry.
 
 The field stays, with the same type, so a reader that indexes it does not
 break: it is "" with `docstring_in_source: true` when, and only when, the

@@ -411,7 +411,7 @@ async def test_announce_model_noop_when_adaptive_tiering_disabled():
 
 @pytest.mark.asyncio
 async def test_switch_tools_always_present_on_core():
-    """set_tool_tier + announce_model must be in tools/list regardless of tier."""
+    """set_tool_tier + announce_model are in tools/list regardless of tier (announce_model with adaptive_tiering on)."""
     from copy import deepcopy
 
     orig_config = config_mod._GLOBAL_CONFIG.copy()
@@ -436,7 +436,7 @@ async def test_switch_tools_always_present_on_core():
 
 @pytest.mark.asyncio
 async def test_switch_tools_not_filterable_by_disabled():
-    """Even if user disables them via disabled_tools, they must stay exposed."""
+    """Even if user disables them via disabled_tools, they stay exposed (announce_model with adaptive_tiering on)."""
     from copy import deepcopy
 
     orig_config = config_mod._GLOBAL_CONFIG.copy()
