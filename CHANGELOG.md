@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.478] - 2026-11-21 - a lock file is never on disk without the metadata that names its holder
+
 ### A lock is never on disk without the metadata that names its holder (#1519)
 
 `process_locks.acquire` created the lock file with `O_EXCL` and wrote its

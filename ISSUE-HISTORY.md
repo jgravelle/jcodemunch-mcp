@@ -3470,3 +3470,9 @@ The 1.108.473 entry, verbatim as it stood in `CLAUDE.md`:
 The 1.108.474 entry, verbatim as it stood in `CLAUDE.md`:
 
 - **Prior (1.108.474):** **`get_call_hierarchy` with no `depth` returns the direct callers and callees** (#1520): the default is one hop in the schema, the dispatch and the function, pinned together by a test; three hops returned tens of thousands of tokens by default. Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-21, release 1.108.478)
+
+The 1.108.475 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.475):** **the server's instructions name a tool only while the session is served it** (#1523): each row and clause follows `_build_tools_list`, so a `core` session is not pointed at `check_references`, and a session serving `get_call_hierarchy` reads "who calls it". Full text: `CHANGELOG.md`.
