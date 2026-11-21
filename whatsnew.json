@@ -1,6 +1,12 @@
 {
-  "current": "1.108.479",
+  "current": "1.108.480",
   "entries": [
+    {
+      "version": "1.108.480",
+      "date": "2026-11-21",
+      "title": "get_ranked_context says when no symbol has the name you asked for",
+      "summary": "Asked for a name no symbol has, get_ranked_context returned rows that only share words with it and said nothing about it on a default install. It now says no symbol has that name, as search_symbols does, and its verdict reads low confidence."
+    },
     {
       "version": "1.108.479",
       "date": "2026-11-21",
