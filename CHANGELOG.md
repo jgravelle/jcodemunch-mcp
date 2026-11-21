@@ -16,10 +16,12 @@ secret reached the agent with no word that it had been altered.
 `schema_driven` now carries them for every schema encoder
 (`DISPATCHER_META_JSON`). A test reads the dispatcher's syntax tree between the
 filter and the encoding step, and every `server` function called there, and
-fails on a `_meta` key written there that the encoders do not carry, in any of
-the spellings the code uses (a subscript, `setdefault`, `update`, a name or a
-loop variable bound to `_meta`). A key written by a function in another module
-is outside what it reads. A tool's own unlisted `_meta` keys (`hint`) still
+fails on a `_meta` key written there that the encoders do not carry, when it
+is written as a subscript, through `setdefault` or `update`, or as a key of a
+dict literal assigned to `x["_meta"]`, on `x["_meta"]`, `x.setdefault("_meta")`,
+`x.get("_meta")` or a name or loop variable bound to one. It does not read a
+dict built under another name and assigned whole, `{**result, "_meta": ...}`,
+`.get("_meta") or {}`, `dict(...)`, or a function in another module. A tool's own unlisted `_meta` keys (`hint`) still
 stay off the compact wire, as before.
 
 ## [1.108.480] - 2026-11-21 - get_ranked_context says when no symbol has the name you asked for
