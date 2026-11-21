@@ -673,7 +673,22 @@ def acquire(scope: str, target: str, storage_path: Optional[str] = None) -> bool
 
     # Stale-lock recovery: inspect existing holder.
     try:
-        existing = json.loads(lock_fp.read_text(encoding="utf-8"))
+        raw = lock_fp.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        # ⚠⚠ The holder released between our create and this read (#1519).
+        # Nothing is stale, so nothing is removed: a blind unlink here would
+        # delete the lock a third process linked in the meantime and hand the
+        # lock to two holders. Try the create once more instead.
+        if _try_create():
+            return _apply_flock()
+        logger.info("%s lock for %s was taken again before this retry", scope, target)
+        return False
+    except OSError:
+        raw = None
+    try:
+        if raw is None:
+            raise OSError("lock file unreadable")
+        existing = json.loads(raw)
         existing_pid = existing.get("pid")
         if existing_pid is None:
             logger.info("Removing stale %s lock for %s (no pid)", scope, target)

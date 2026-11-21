@@ -65,6 +65,37 @@ def test_an_empty_lock_left_by_a_crash_is_still_reclaimed(tmp_path):
         process_locks.release("burst", "slot0", str(tmp_path))
 
 
+def test_a_lock_released_and_retaken_during_the_read_is_not_deleted(
+    tmp_path, monkeypatch
+):
+    """A finds the lock held, its holder releases, C takes it, then A reads.
+
+    A's read finds no file. That is not a corrupt lock, and the lock C now
+    holds must survive A's attempt.
+    """
+    from pathlib import Path
+
+    fp = process_locks.lock_path("burst", "slot1", str(tmp_path))
+    fp.write_text(
+        json.dumps({"pid": os.getpid(), "client_id": "first"}), encoding="utf-8"
+    )
+    c_lock = json.dumps({"pid": os.getpid(), "client_id": "C"})
+    real_read = Path.read_text
+
+    def read_text(self, *a, **k):
+        if self == fp and fp.exists() and "first" in real_read(self, *a, **k):
+            fp.unlink()  # the first holder releases
+            fp.write_text(c_lock, encoding="utf-8")  # C takes the lock
+            raise FileNotFoundError(str(fp))  # A's read lands in between
+        return real_read(self, *a, **k)
+
+    monkeypatch.setattr(Path, "read_text", read_text)
+    got = process_locks.acquire("burst", "slot1", str(tmp_path))
+    monkeypatch.setattr(Path, "read_text", real_read)
+    assert not got
+    assert fp.read_text(encoding="utf-8") == c_lock
+
+
 def test_a_filesystem_without_hard_links_still_takes_the_lock(tmp_path, monkeypatch):
     def no_link(*a, **k):
         raise OSError("hard links not supported")

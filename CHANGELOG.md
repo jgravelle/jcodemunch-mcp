@@ -12,16 +12,19 @@ own. On Linux and macOS the two then raced for `flock`, and the loser deleted
 the lock file the winner held, so a third process could take the lock while
 the winner still held it. main CI on f23bfb98 failed `assert 3 <= 2` in the
 `index-file` burst test, with `slot1` claimed twice under a bound of two
-slots. That path is read from the code; it was not reproduced on Linux, and
-a 40-trial burst on Windows, where an open file cannot be deleted, found no
-double hold. The same function takes the `indexwrite` lock
+slots. That path is read from the code; it was not reproduced on Linux. The same function takes the `indexwrite` lock
 that serialises index saves across MCP processes, and the `watcher` lock.
 
 The metadata is now written to a private temporary file and hard-linked into
 place. `os.link` fails when the lock exists, so it is as exclusive as
 `O_EXCL`, and a reader finds no file or a whole one. A filesystem without
-hard links falls back to the old write. An empty lock left by a crash is
-still reclaimed. The burst test now records when each run held its slot and
+hard links (vfat, some network mounts) falls back to the old write and keeps
+the old window, as does an older jcodemunch process sharing the storage root
+until it is restarted. An empty lock left by a crash is still reclaimed.
+A read that finds NO file, because the holder released after our create
+failed, no longer takes the corrupted branch either: it deleted whatever lock
+a third process had linked in the meantime. It now tries the create once
+more and removes nothing. The burst test now records when each run held its slot and
 reports only holds that overlap, so a slot reused after its release is no
 longer counted as over the bound.
 
