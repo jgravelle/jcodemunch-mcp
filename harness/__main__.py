@@ -778,6 +778,7 @@ DELEGATED = {
     "token.per_repo_rise_max": "benchmarks/harness/run_benchmark.py --floor (bench tier, network)",
     "coverage.min": "pytest --cov-fail-under (full tier)",
     "suite.fast_seconds": "this runner, fast tier wall clock",
+    "suite.fast_seconds_ci": "harness fast tier on a GitHub-hosted runner",
     "suite.full_seconds": "this runner, full tier wall clock",
     "ci.skips_ubuntu": "this runner / pr-gate.yml full tier, pytest summary",
     "ci.skips_windows": "this runner / pr-gate.yml full tier, pytest summary",
@@ -920,6 +921,19 @@ def _coverage_core() -> str | None:
         return None
 
 
+def _fast_wall_floor_id() -> str:
+    """Which fast-tier wall Floor this runner is judged by.
+
+    `suite.fast_seconds` was set from one 49.35 s fast tier on the measuring
+    box. CI fast-tier legs ran 42 to 93 s over two weeks with no trend, and two
+    failed it with every test passing (#1502), so a GitHub-hosted runner has
+    its own Floor (2026-11-21). Every non-CI run keeps the tighter one.
+    """
+    if os.environ.get("GITHUB_ACTIONS"):
+        return "suite.fast_seconds_ci"
+    return "suite.fast_seconds"
+
+
 def _full_wall_floor_id() -> str:
     """Which full-tier wall Floor this runner is judged by.
 
@@ -1009,8 +1023,9 @@ def tier_fast(result: dict) -> bool:
     for u in TIERS.get("unclear", []):
         print(f"REVIEW  {u['path']}: {u['question']}")
     wall = time.perf_counter() - t0
-    fl = T.floor("suite.fast_seconds")
-    print(T.verdict_line("suite.fast_seconds", round(wall, 2)))
+    fid = _fast_wall_floor_id()
+    fl = T.floor(fid)
+    print(T.verdict_line(fid, round(wall, 2)))
     if wall > fl:
         ok = False
     result["tiers"]["fast"] = {
