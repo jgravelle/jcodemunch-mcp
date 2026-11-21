@@ -1,6 +1,12 @@
 {
-  "current": "1.108.478",
+  "current": "1.108.479",
   "entries": [
+    {
+      "version": "1.108.479",
+      "date": "2026-11-21",
+      "title": "a cut-short text search is never read as a complete one",
+      "summary": "The deletion check could call a function unused when another file used it, because it read only the first page of a text search. It now reads the whole match set and treats a search that skipped files as unsettled. The Grep shortcut no longer answers a search that could miss a file the index left out for size."
+    },
     {
       "version": "1.108.478",
       "date": "2026-11-21",
