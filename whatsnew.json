@@ -1,6 +1,12 @@
 {
-  "current": "1.108.476",
+  "current": "1.108.477",
   "entries": [
+    {
+      "version": "1.108.477",
+      "date": "2026-11-21",
+      "title": "get_symbol_source sends a docstring once, and announce_model is listed only when it can act",
+      "summary": "get_symbol_source no longer repeats a docstring that is already inside the source it returns: 9.97% fewer characters per reply on this repository's own index. announce_model is listed only while adaptive_tiering is on; it stays callable."
+    },
     {
       "version": "1.108.476",
       "date": "2026-11-21",
