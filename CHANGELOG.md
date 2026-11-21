@@ -2,6 +2,24 @@
 
 ## [Unreleased]
 
+### The deletion investigator no longer reads a cut-short text sweep as "no other use" (L-309)
+
+The investigator's `no_textual_use` obligation asked `search_text` for the
+symbol's name and read only `results`. `search_text` returns 20 lines by
+default, so a symbol whose own file mentions its name 20 times or more fills
+that page with its own file, and a use in another file is never returned:
+the obligation then read `satisfied`, "appears only in its own file". A test
+fixture with 30 mentions and a use by string in `main.py` reproduced it. The
+same reading ignored a scan stopped at its time budget and an index the
+`max_folder_files` cap had left without some files, though `search_text`
+reports all three.
+
+The sweep now asks for the whole match set (the in-process `scan_limit`, up
+to 5,000 lines), and when the answer still says it was cut short, finding no
+other file is `unestablished`, never `satisfied`. A use it does find still
+refutes. `investigate_deletion_safety` is not an MCP tool, so no tool
+response changes.
+
 ## [1.108.478] - 2026-11-21 - a lock file is never on disk without the metadata that names its holder
 
 ### A lock is never on disk without the metadata that names its holder (#1519)
