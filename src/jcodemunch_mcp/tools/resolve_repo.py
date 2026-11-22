@@ -123,7 +123,12 @@ def _enclosing_git_common_dir(path: Path, stop: Optional[Path] = None) -> Option
         return None
     bound = stop.resolve() if stop is not None else None
     while True:
-        if (current / ".git").exists():
+        try:
+            has_git = (current / ".git").exists()
+        except OSError:
+            logger.debug("could not stat %s/.git", current, exc_info=True)
+            return None
+        if has_git:
             return _git_common_dir_cheap(current)
         if bound is not None and current == bound:
             return None

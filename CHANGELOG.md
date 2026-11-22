@@ -17,6 +17,9 @@ inside a worktree, nested in the checkout or beside it, gets the same
 candidate as the worktree root, with no subprocess. An independent repo
 inside a worktree still answers for itself. Indexed source roots are not
 walked, so an index of a subtree of the checkout is not offered as the repo.
+A folder inside an unindexed checkout whose worktree is indexed now gets
+that worktree as its candidate, as the checkout root already did, rather
+than the slow path's Git-identity answer.
 
 ## [1.108.483] - 2026-11-22 - a Ruby import never resolves to another language's file
 

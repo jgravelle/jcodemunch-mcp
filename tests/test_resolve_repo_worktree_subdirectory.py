@@ -9,6 +9,7 @@ hint. The nearest enclosing `.git` decides now, the way git itself decides.
 
 import os
 import subprocess
+from pathlib import Path
 
 from jcodemunch_mcp.tools import resolve_repo as rr
 from jcodemunch_mcp.tools.index_folder import index_folder
@@ -65,6 +66,7 @@ def _assert_candidate(result, canonical_root):
     assert len(cand) == 1
     assert cand[0]["repo"].startswith("local/canonical-")
     assert cand[0]["rationale"] == "shared --git-common-dir"
+    assert Path(cand[0]["source_root"]).resolve() == canonical_root.resolve()
     assert result["_meta"]["match_path"] == "canonical_candidate_fast"
 
 
