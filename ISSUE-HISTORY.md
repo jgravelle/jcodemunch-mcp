@@ -3506,3 +3506,9 @@ The 1.108.479 entry, verbatim as it stood in `CLAUDE.md`:
 The 1.108.480 entry, verbatim as it stood in `CLAUDE.md`:
 
 - **Prior (1.108.480):** **`get_ranked_context` says when no symbol has the name you asked for** (L-284): `retrieval/verdict.mark_no_exact_match` is the one body marker, read by `search_symbols` and both `get_ranked_context` exits. Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-22, release 1.108.484)
+
+The 1.108.481 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.481):** **a compact answer says when the server redacted a secret** (L-313): `schema_driven.DISPATCHER_META_JSON` carries the `_meta` keys the dispatcher adds after the filter for every schema encoder; and the `mcp` floor is 1.30.0, the first release with no advisory. Full text: `CHANGELOG.md`.

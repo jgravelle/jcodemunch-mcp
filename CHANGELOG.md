@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.484] - 2026-11-22 - a folder inside a Git worktree is matched to the indexed checkout
+
 ### A folder inside a Git worktree is matched to the indexed checkout (L-235)
 
 `resolve_repo` on the root of a linked worktree of an indexed checkout
