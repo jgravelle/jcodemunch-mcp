@@ -24,6 +24,7 @@ from ._entry_points import (
 from ._runtime_discovery import discover_dynamic_packages
 from ._corpus_adequacy import UNPROVEN_CEILING, assess_corpus
 from ._dynamic_boundary import FILES_CAP as DYNAMIC_FILES_CAP, DynamicBoundary
+from ._package_edges import PackageEdgeProbe
 from ._test_paths import is_test_file as _is_test_file  # noqa: F401  (the one rule, LEDGER L-101)
 
 logger = logging.getLogger(__name__)
@@ -366,6 +367,14 @@ def find_dead_code(
     # both tools share. An opaque site caps nothing and is disclosed.
     boundary = DynamicBoundary(index.imports)
     boundary_withheld = 0
+    # (LEDGER L-59) A Go import names a package DIRECTORY, so an edge the graph
+    # could not land on a member file leaves every file in that package with
+    # no importer. `blast_verdict` reads that as could-not-reach since #718;
+    # this tool read the same zero as proof. One probe, the one both read.
+    package_probe = PackageEdgeProbe(
+        index.imports, source_files, index.alias_map, getattr(index, "psr4_map", None)
+    )
+    package_withheld = 0
     unseen_withheld = {
         "build_consumed": 0, "schema_consumer": 0, "runtime_loadable": 0,
         "template_rendered": 0,
@@ -399,13 +408,14 @@ def find_dead_code(
                 continue  # file is reachable, skip
 
         reaching = boundary.reaching(f)
+        package_gap = package_probe.reaching(f)
         unseen = unseen_consumer(f, dotnet=dotnet)
         if unseen is None and reason == "all_importers_dead":
             # A codebehind whose only importer is itself unproven inherits the cap.
             unseen = next(
                 filter(None, (unseen_consumer(i, dotnet=dotnet) for i in importers)), None
             )
-        file_ceiling = min(ceiling, UNPROVEN_CEILING) if (reaching or unseen) else ceiling
+        file_ceiling = min(ceiling, UNPROVEN_CEILING) if (reaching or package_gap or unseen) else ceiling
         capped = min(confidence, file_ceiling)
         if capped < min_confidence:
             # Only the files the boundary itself withheld: one the corpus
@@ -413,6 +423,8 @@ def find_dead_code(
             if min(confidence, ceiling) >= min_confidence:
                 if reaching:
                     boundary_withheld += 1
+                elif package_gap:
+                    package_withheld += 1
                 elif unseen:
                     unseen_withheld[unseen] += 1
             continue
@@ -431,12 +443,16 @@ def find_dead_code(
             entry["confidence_capped_by"] = (
                 list(adequacy.blockers)
                 + (["dynamic_import_boundary"] if reaching else [])
+                + (["package_granular_imports"] if package_gap else [])
                 + ([unseen] if unseen else [])
             )
         if reaching:
             entry["dynamic_import_sites"] = reaching[:DYNAMIC_FILES_CAP]
             if len(reaching) > DYNAMIC_FILES_CAP:
                 entry["dynamic_import_sites_total"] = len(reaching)
+        if package_gap:
+            entry["package_dir"] = package_gap["package_dir"]
+            entry["unresolved_package_edges"] = package_gap["unresolved_edges"]
         dead_files.append(entry)
 
     # -----------------------------------------------------------------------
@@ -549,6 +565,13 @@ def find_dead_code(
             f"{boundary_withheld} file(s) with no static importer were withheld: a "
             "dynamic import scoped to their package can load them "
             "(pass min_confidence=0 to see them with the sites named)"
+        )
+    if package_withheld:
+        result["package_granular_imports_withheld"] = package_withheld
+        analysis_notes.append(
+            f"{package_withheld} file(s) with no static importer were withheld: an "
+            "import names their package directory and resolves to no file, so the "
+            "file-level graph cannot reach them (pass min_confidence=0 to see them)"
         )
     _unseen_why = {
         "build_consumed": "a .NET project file may consume them (EmbeddedResource, Page, "

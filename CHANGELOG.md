@@ -2,6 +2,32 @@
 
 ## [Unreleased]
 
+### `find_dead_code` no longer proves a Go file dead when an import names its package (L-59)
+
+A Go import names a package directory, not a file. When the import graph
+cannot land such an edge on a member file, for example when `go.mod` declares
+another module path, every file in that package has no importer. Since #718,
+`get_blast_radius` has read that empty walk as could not reach. `find_dead_code`
+read the same empty walk as proof: such a file was listed as `zero_importers`
+at confidence 1.0, the value documented as provably unreachable.
+
+The package probe is now one object, `PackageEdgeProbe`, in a module both
+tools import. `blast_verdict` asks it for one file. `find_dead_code` builds it
+once per call and asks it for every candidate. A file whose package directory
+is named by an import that resolves to no file is capped below the default
+threshold, like any other unproven absence. The row names
+`package_granular_imports` in `confidence_capped_by`, with the package directory
+and the count of unresolved edges. The default call withholds such files and
+reports how many in `package_granular_imports_withheld`. A file that no
+unresolved import names keeps its confidence.
+
+The importer-walk ratchet counts a function as asking `blast_verdict` when it
+calls the verdict or both of its probes (the package probe and the dynamic
+import boundary). The package probe alone does not count, and a test checks
+that. `get_dead_code_v2`, `get_untested_symbols`, `get_call_hierarchy`,
+`get_impact_preview`, `get_file_risk` and `find_importers` still do not ask, and
+the ledger row stays open for them.
+
 ## [1.108.481] - 2026-11-22 - a compact answer says when the server redacted a secret, and the mcp floor admits no advised SDK
 
 ### A compact answer says when the server redacted a secret or the session is over budget (L-313)
