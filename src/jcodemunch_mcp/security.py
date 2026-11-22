@@ -1161,25 +1161,29 @@ def cap_label(status: dict) -> str:
     return (status or {}).get("cap_key") or "max_folder_files"
 
 
-def cap_setting(status: dict) -> str:
+def cap_setting(status: dict, sep: str = "=") -> str:
     """The cap beside a status's counts: ``key=value``, and the kept files.
 
     L-305: a capped call over an index built past its cap (by the command line)
     keeps the files past the cap, so ``files_indexed`` exceeds the call's cap
     and "5 indexed ... (max_folder_files=3)" contradicts itself. Every message
     that prints the counts with the cap asks this, so each says how many of
-    the indexed files came from the earlier index. A count it can't read makes
-    no claim about kept files.
+    the indexed files came from the earlier index.
+
+    ⚠ It reads ``files_kept``, which the save that kept them records
+    (``index_folder._cap_status_for_kept``), never ``files_indexed`` minus the
+    cap: a watcher save that promotes a cut file also lifts the count past the
+    cap, and that file was parsed on that run, not kept. A count it can't read
+    makes no claim about kept files. "Whole-tree" because a ``paths=`` save keeps
+    the stored status of the last whole-tree walk.
     """
     status = status or {}
-    cap = status.get("max_folder_files")
-    setting = f"{cap_label(status)}={cap}"
-    indexed = status.get("files_indexed")
-    if type(cap) is int and type(indexed) is int and indexed > cap:
-        kept = indexed - cap
+    setting = f"{cap_label(status)}{sep}{status.get('max_folder_files')}"
+    kept = status.get("files_kept")
+    if type(kept) is int and kept > 0:
         return (
-            f"{setting} on the last run; {kept} more file{'' if kept == 1 else 's'} "
-            "kept from an earlier index"
+            f"{setting} on the last whole-tree index; {kept} more file"
+            f"{'' if kept == 1 else 's'} kept from an earlier index"
         )
     return setting
 
