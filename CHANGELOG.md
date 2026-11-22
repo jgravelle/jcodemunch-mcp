@@ -19,8 +19,8 @@ a Freelance holder paid counts toward it.
 from the retired j.gravelle.us site to jcodemunch.com. The license is now
 version 1.3. The Freelance section only adds a permission, so the identifier
 stays `LicenseRef-jCodeMunch-Dual-Use-1` and an allowlist approved for it needs
-no change. The `init` closing line, the README and QUICKSTART carry the new
-prices.
+no change. The `init` closing line, the license reminder (CLI, tool answer
+and `receipt`), the README and QUICKSTART carry the new prices.
 
 ## [1.108.483] - 2026-11-22 - a Ruby import never resolves to another language's file
 
