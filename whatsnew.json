@@ -1,6 +1,12 @@
 {
-  "current": "1.108.484",
+  "current": "1.108.485",
   "entries": [
+    {
+      "version": "1.108.485",
+      "date": "2026-11-22",
+      "title": "A capped re-index names the files kept from an earlier index, and compact blast radius keeps every top-level key",
+      "summary": "When an agent re-index runs under a smaller max_folder_files than the index it replaces, the warning, resolve_repo and init now say how many indexed files were kept from the earlier index instead of printing an indexed count above the cap with no explanation. The compact form of get_blast_radius now keeps cross_repo_confirmed_count and the include_decisions git history, which it used to drop without a word."
+    },
     {
       "version": "1.108.484",
       "date": "2026-11-22",

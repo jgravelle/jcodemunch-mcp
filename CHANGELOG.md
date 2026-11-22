@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.485] - 2026-11-22 - a capped re-index says which of its files came from an earlier index, and a compact blast radius keeps every top-level key
+
 ### A compact get_blast_radius answer keeps every top-level key the tool returns (L-58)
 
 The compact form of `get_blast_radius` carried only the keys its schema

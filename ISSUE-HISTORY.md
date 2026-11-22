@@ -3512,3 +3512,9 @@ The 1.108.480 entry, verbatim as it stood in `CLAUDE.md`:
 The 1.108.481 entry, verbatim as it stood in `CLAUDE.md`:
 
 - **Prior (1.108.481):** **a compact answer says when the server redacted a secret** (L-313): `schema_driven.DISPATCHER_META_JSON` carries the `_meta` keys the dispatcher adds after the filter for every schema encoder; and the `mcp` floor is 1.30.0, the first release with no advisory. Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-22, release 1.108.485)
+
+The 1.108.482 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.482):** **a Go file no `go.mod` covers is never proven dead** (L-59): `find_dead_code` and `check_delete_safe` read `CodeIndex.go_module_dirs`, the map the L-264 edges were built from; and **a C/C++ caller list says it is a text match** (L-339): `_call_graph.c_text_reach` reads the own file, umbrella headers to `C_UMBRELLA_HOPS` and, for a one-definition C name, prototypes; `get_call_hierarchy` returns top-level `callers_text_only`. Full text: `CHANGELOG.md`.
