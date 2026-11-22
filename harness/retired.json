@@ -330,6 +330,13 @@
       "replacement": "tests/test_bm25_stats_live_in_the_index.py::test_a_full_index_stores_no_stats_and_the_first_search_does",
       "commit": "fix/cold-index-lazy-stats",
       "date": "2026-11-15"
+    },
+    {
+      "path": "tests/test_own_language_extension_first.py::test_another_language_is_still_found_when_the_own_one_is_absent",
+      "lesson": "It required a Ruby require_relative with no .rb file behind it to resolve to a .py file (#1316). Ruby can never load that file, so the edge made a dead Python file look imported (L-294). A Ruby importer now resolves only to its own forms; a Python importer keeps the fallback.",
+      "replacement": "tests/test_own_language_extension_first.py::test_a_ruby_import_takes_no_other_language_when_its_own_is_absent",
+      "commit": "fix/l294-ruby-own-language-only",
+      "date": "2026-11-22"
     }
   ]
 }

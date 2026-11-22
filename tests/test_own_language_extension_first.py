@@ -54,11 +54,18 @@ def test_a_js_import_keeps_its_order():
     assert resolve_specifier("./util", "web/app.js", frozenset(files)) == "web/util.js"
 
 
-def test_another_language_is_still_found_when_the_own_one_is_absent():
+def test_a_ruby_import_takes_no_other_language_when_its_own_is_absent():
+    # This asserted `lib/only.py` until L-294: Ruby can never load that file,
+    # so the edge made a dead Python file look imported.
     files = {"lib/only.py", "app/main.rb"}
+    assert resolve_specifier("../lib/only", "app/main.rb", frozenset(files)) is None
+
+
+def test_a_python_import_still_finds_another_language_when_its_own_is_absent():
+    files = {"lib/only.js", "app/main.py"}
     assert (
-        resolve_specifier("../lib/only", "app/main.rb", frozenset(files))
-        == "lib/only.py"
+        resolve_specifier("../lib/only", "app/main.py", frozenset(files))
+        == "lib/only.js"
     )
 
 

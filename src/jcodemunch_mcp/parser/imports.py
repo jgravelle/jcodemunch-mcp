@@ -2264,10 +2264,21 @@ _ALL_EXTENSIONS = _JS_EXTENSIONS + _PY_EXTENSIONS + _RUBY_EXTENSIONS + (".go",)
 # of it. ⚠ Go is deliberately absent: a Go import names a package DIRECTORY, so
 # preferring a `util.go` file over `util.js` would rank one wrong file over
 # another.
+# Every extension `languages.py` maps to Ruby: a `.rake` file requires `.rb`
+# files the same way (L-294 review). A test binds this to that table.
+_RUBY_IMPORTERS = (".rb", ".rake")
 _OWN_FIRST_GROUPS = {
     **{e: (".py", "/__init__.py") for e in (".py", ".pyi")},
-    **{e: _RUBY_EXTENSIONS for e in _RUBY_EXTENSIONS},
+    **{e: _RUBY_EXTENSIONS for e in _RUBY_IMPORTERS},
 }
+
+
+# (L-294) Importers whose language loads only its own forms: a Ruby `require`
+# of an extensionless name reads `.rb` (or a compiled extension, which is not
+# indexed), never a `.py` or `.js` file. For these `_candidates` stops after
+# the own forms, so a missing `.rb` file is no edge rather than an edge to a
+# file Ruby cannot load. Keyed by the forms tuple `_own_forms` returns.
+_OWN_FORMS_ONLY = frozenset({_RUBY_EXTENSIONS})
 
 
 def _own_forms(importer_path: str) -> tuple[str, ...]:
@@ -2423,7 +2434,8 @@ def _candidates(base: str, own: tuple[str, ...] = ()) -> list[str]:
     ``own`` is `_own_forms(importer)`: for an extensionless or dotted-stem
     *base* those forms come right after *base* itself, ahead of the fixed
     JavaScript-first order (#1316). Every caller that knows its importer
-    passes it, so a new call site inherits the rule.
+    passes it, so a new call site inherits the rule. For a language in
+    `_OWN_FORMS_ONLY` (Ruby) nothing else is tried (L-294).
 
     Cases:
     - No extension (`./foo`): try every known source extension and the
@@ -2441,6 +2453,8 @@ def _candidates(base: str, own: tuple[str, ...] = ()) -> list[str]:
     _, ext = posixpath.splitext(base)
     if own and (not ext or (ext not in _ALL_EXTENSIONS and ext not in _JS_SPECIFIER_REWRITES)):
         cands.extend(base + e for e in own)
+        if own in _OWN_FORMS_ONLY:
+            return cands
     if not ext:
         for e in _ALL_EXTENSIONS:
             cands.append(base + e)
@@ -3870,6 +3884,10 @@ def _resolve_tail(
     # Stem matching fallback: bare names like dbt ref('dim_client')
     # resolve to any .sql file whose stem matches.  Uses a cached stem
     # dict to avoid O(n) scans on repeated calls with the same source_files.
+    # Not for an importer that reads only its own forms (L-294): a Ruby
+    # `require 'utils'` never loads `utils.sql`.
+    if own in _OWN_FORMS_ONLY:
+        return None
     if "/" not in specifier and "." not in specifier and "\\" not in specifier:
         return _get_sql_stems(source_files).get(specifier.lower())
 
