@@ -56,3 +56,28 @@ def test_other_importers_keep_their_cross_language_order():
     assert resolve_specifier("../lib/utils", "app/main.js", files) == "lib/utils.py"
     files = frozenset({"lib/utils.js", "app/main.py"})
     assert resolve_specifier("../lib/utils", "app/main.py", files) == "lib/utils.js"
+
+
+def test_a_rake_importer_is_ruby_too():
+    files = frozenset({"lib/utils.py", "tasks/build.rake"})
+    assert resolve_specifier("../lib/utils", "tasks/build.rake", files) is None
+    files = frozenset({"lib/utils.py", "lib/utils.rb", "tasks/build.rake"})
+    assert resolve_specifier("../lib/utils", "tasks/build.rake", files) == "lib/utils.rb"
+
+
+def test_every_ruby_extension_is_a_ruby_importer():
+    from jcodemunch_mcp.parser import imports
+    from jcodemunch_mcp.parser.languages import LANGUAGE_EXTENSIONS
+
+    ruby = {e for e, lang in LANGUAGE_EXTENSIONS.items() if lang == "ruby"}
+    assert ruby and ruby == set(imports._RUBY_IMPORTERS)
+
+
+def test_a_bare_ruby_require_takes_no_sql_file_by_stem():
+    files = frozenset({"models/utils.sql", "app/main.rb"})
+    assert resolve_specifier("utils", "app/main.rb", files) is None
+
+
+def test_the_sql_stem_fallback_still_serves_other_importers():
+    files = frozenset({"models/dim_client.sql", "models/fct.sql"})
+    assert resolve_specifier("dim_client", "models/fct.sql", files) == "models/dim_client.sql"

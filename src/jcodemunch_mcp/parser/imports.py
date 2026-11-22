@@ -2264,9 +2264,12 @@ _ALL_EXTENSIONS = _JS_EXTENSIONS + _PY_EXTENSIONS + _RUBY_EXTENSIONS + (".go",)
 # of it. ⚠ Go is deliberately absent: a Go import names a package DIRECTORY, so
 # preferring a `util.go` file over `util.js` would rank one wrong file over
 # another.
+# Every extension `languages.py` maps to Ruby: a `.rake` file requires `.rb`
+# files the same way (L-294 review). A test binds this to that table.
+_RUBY_IMPORTERS = (".rb", ".rake")
 _OWN_FIRST_GROUPS = {
     **{e: (".py", "/__init__.py") for e in (".py", ".pyi")},
-    **{e: _RUBY_EXTENSIONS for e in _RUBY_EXTENSIONS},
+    **{e: _RUBY_EXTENSIONS for e in _RUBY_IMPORTERS},
 }
 
 
@@ -3881,6 +3884,10 @@ def _resolve_tail(
     # Stem matching fallback: bare names like dbt ref('dim_client')
     # resolve to any .sql file whose stem matches.  Uses a cached stem
     # dict to avoid O(n) scans on repeated calls with the same source_files.
+    # Not for an importer that reads only its own forms (L-294): a Ruby
+    # `require 'utils'` never loads `utils.sql`.
+    if own in _OWN_FORMS_ONLY:
+        return None
     if "/" not in specifier and "." not in specifier and "\\" not in specifier:
         return _get_sql_stems(source_files).get(specifier.lower())
 
