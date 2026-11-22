@@ -2,12 +2,13 @@
 
 ## [Unreleased]
 
-### Every license covers all three tools, and a $9.99 Freelance license (license 2.0)
+### Every license covers all three tools, and a $9.99 Freelance license (license 1.3)
 
 Licenses are now one price per tier for jCodeMunch, jDocMunch and jDataMunch
 together: Builder $99, Studio $449, Platform $2,499, one-time. The
-jCodeMunch-only prices ($79, $349, $1,999) are no longer sold. A jCodeMunch-only
-license bought before today stays valid.
+jCodeMunch-only prices ($79, $349, $1,999) and the jDocMunch-only and
+jDataMunch-only licenses are no longer sold. Every license bought before today
+stays valid.
 
 The new Freelance license is $9.99 one-time. It is for one person's own
 freelance work and side projects that brought in under $10,000 in the last 12
@@ -15,12 +16,11 @@ months, with or without a day job. Work for an employer needs Builder, and what
 a Freelance holder paid counts toward it.
 
 `LICENSE` gains the Freelance section and the new price list, and its link moves
-from the retired j.gravelle.us site to jcodemunch.com. A Freelance license grants
-a commercial use the old terms did not, which is a change to the terms, so the
-license is now version 2.0 and its identifier is
-`LicenseRef-jCodeMunch-Dual-Use-2`. An allowlist keyed on
-`LicenseRef-jCodeMunch-Dual-Use-1` needs the new identifier added. The `init`
-closing line, the README and QUICKSTART carry the new prices.
+from the retired j.gravelle.us site to jcodemunch.com. The license is now
+version 1.3. The Freelance section only adds a permission, so the identifier
+stays `LicenseRef-jCodeMunch-Dual-Use-1` and an allowlist approved for it needs
+no change. The `init` closing line, the README and QUICKSTART carry the new
+prices.
 
 ## [1.108.483] - 2026-11-22 - a Ruby import never resolves to another language's file
 
