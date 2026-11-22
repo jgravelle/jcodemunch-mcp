@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.482] - 2026-11-22 - a Go file no go.mod covers is never proven dead, and a C or C++ caller list says it came from a text match
+
 ### A C or C++ caller is found in four layouts where it was missing, and the answer says it came from a text match (L-339)
 
 The index records no C or C++ call references, so `get_call_hierarchy` finds
