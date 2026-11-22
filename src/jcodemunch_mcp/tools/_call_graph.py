@@ -933,6 +933,126 @@ def _defines_own(symbols: list[dict], name: str) -> bool:
     )
 
 
+# (LEDGER L-339) How many umbrella headers (a header that includes a header)
+# the text search follows from a declaring header before it stops. The stop is
+# disclosed in `get_call_hierarchy`'s `callers_text_only`; the full
+# include-chain rule is v2.
+C_UMBRELLA_HOPS = 4
+
+
+def is_c_family_file(path: str) -> bool:
+    return (path or "").lower().endswith(_C_SOURCE_SUFFIXES + _C_HEADER_SUFFIXES)
+
+
+def _is_prototype(s: dict) -> bool:
+    return s.get("kind") == "function" and (s.get("signature") or "").rstrip().endswith(";")
+
+
+def _only_definition(sym: dict, symbols_by_file: dict[str, list[dict]]) -> bool:
+    """*sym* is the one non-static C/C++ function definition of its name.
+
+    The two L-339 rules that reach a definition WITHOUT the include graph (a
+    definition that skips its header, a caller that writes its own prototype)
+    are safe only then: with two definitions nothing says which one is called.
+    """
+    name = sym.get("name", "")
+    if sym.get("kind") != "function" or not name or _is_file_local(sym):
+        return False
+    for f, syms in symbols_by_file.items():
+        if not f.lower().endswith(_C_SOURCE_SUFFIXES):
+            continue
+        for s in syms:
+            if (
+                s.get("name") == name
+                and s.get("kind") == "function"
+                and s.get("id") != sym.get("id")
+                and not _is_prototype(s)
+                and not _is_file_local(s)
+            ):
+                return False
+    return True
+
+
+def c_text_reach(
+    index: "CodeIndex",
+    sym: dict,
+    reverse_adj: dict[str, list[str]],
+    symbols_by_file: dict[str, list[dict]],
+) -> tuple[list[str], bool]:
+    """(L-339) The files the C/C++ text search reads beyond the definition's importers.
+
+    Returns ``(files, hop_cap_reached)``. The files are, in order:
+
+    - the definition's own file (a same-file caller, ``static`` included);
+    - the importers of each declaring header, and of every header that
+      includes one, up to ``C_UMBRELLA_HOPS`` headers deep;
+    - when the definition's file includes no declaring header and it is the
+      only non-static definition of its name, every header that declares it;
+    - on the same condition, every C/C++ source that writes its own
+      prototype of the name.
+
+    Every caller found through them is still ``text_matched``.
+    """
+    sym_file: str = sym.get("file", "")
+    sym_name: str = sym.get("name", "")
+    if not is_c_family_file(sym_file) or not sym_name:
+        return [], False
+    files: list[str] = [sym_file]
+    if _is_file_local(sym):
+        return files, False
+
+    starts = list(_declaring_headers(index, sym, symbols_by_file))
+    if sym_file.lower().endswith(_C_HEADER_SUFFIXES):
+        starts.append(sym_file)
+    only = None
+    if not starts and sym_file.lower().endswith(_C_SOURCE_SUFFIXES):
+        only = _only_definition(sym, symbols_by_file)
+        if only:
+            starts = [
+                f
+                for f, syms in symbols_by_file.items()
+                if f.lower().endswith(_C_HEADER_SUFFIXES)
+                and any(s.get("name") == sym_name and _is_prototype(s) for s in syms)
+            ]
+
+    def _take(f: str) -> None:
+        if f not in files and not _defines_own(symbols_by_file.get(f, []), sym_name):
+            files.append(f)
+
+    seen: set[str] = set(starts)
+    frontier = list(starts)
+    cap_reached = False
+    for hop in range(C_UMBRELLA_HOPS + 1):
+        nxt: list[str] = []
+        for header in frontier:
+            for f in reverse_adj.get(header, []):
+                if f.lower().endswith(_C_HEADER_SUFFIXES):
+                    if f in seen:
+                        continue
+                    if hop == C_UMBRELLA_HOPS:
+                        cap_reached = True
+                        continue
+                    seen.add(f)
+                    nxt.append(f)
+                else:
+                    _take(f)
+        frontier = nxt
+        if not frontier:
+            break
+
+    if only is None:
+        only = _only_definition(sym, symbols_by_file)
+    if only:
+        for f, syms in symbols_by_file.items():
+            if (
+                f != sym_file
+                and f.lower().endswith(_C_SOURCE_SUFFIXES)
+                and any(s.get("name") == sym_name and _is_prototype(s) for s in syms)
+            ):
+                _take(f)
+    return files, cap_reached
+
+
 def find_direct_callers(
     index: "CodeIndex",
     store: "IndexStore",
@@ -994,6 +1114,9 @@ def find_direct_callers(
                 and not _defines_own(symbols_by_file.get(f, []), sym_name)
             ):
                 scan_files.append(f)
+    for f in c_text_reach(index, sym, reverse_adj, symbols_by_file)[0]:
+        if f not in scan_files:
+            scan_files.append(f)
     # Lines where a symbol of the same name is DECLARED, per file (L-262).
     decl_lines: dict[str, set[int]] = {}
     for f in scan_files:

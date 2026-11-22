@@ -2,6 +2,40 @@
 
 ## [Unreleased]
 
+### A C or C++ caller is found in four layouts where it was missing, and an empty answer says it came from a text match (L-339)
+
+The index records no C or C++ call references, so `get_call_hierarchy` finds
+their callers by text. It read the files that import the definition's file
+and the files that import a header the definition's own file includes, and
+nothing else. Four common layouts returned no caller at all:
+
+- the caller is in the same file as the definition, static or not;
+- the caller includes an umbrella header that includes the declaring one;
+- the definition's file does not include its own header;
+- the caller writes its own prototype and includes no header.
+
+The response gave no sign that the list could be short, so "no callers" read
+as a confirmed zero. `get_blast_radius` and `get_impact_preview` read the same
+search and missed the same callers.
+
+The search now also reads the definition's own file. It follows umbrella
+headers (a header that includes the declaring header) up to four deep,
+`C_UMBRELLA_HOPS`. It takes the last two layouts only when the name has
+exactly one non-static definition, because with two nothing says which one is
+called. Callers found this way are still `text_matched`. A C or C++ answer
+whose callers are all text matches, an empty one included, now carries a
+top-level `callers_text_only` block. The block says the result came from a
+text match and may miss callers, gives the hop cap, and says whether the walk
+reached it. It is top level because `_meta` is stripped on a default install.
+Following every include chain is a larger design and is not part of this
+release.
+
+Two older tests in `test_c_definition_takes_header_callers.py` had asserted
+that a `static` function had no callers while a function in its own file
+called it. They now assert that caller, and still that no other file reaches
+it. The dead-code tools never read this search, and a test checks their
+answers are unchanged with it replaced by one that returns nothing.
+
 ## [1.108.481] - 2026-11-22 - a compact answer says when the server redacted a secret, and the mcp floor admits no advised SDK
 
 ### A compact answer says when the server redacted a secret or the session is over budget (L-313)

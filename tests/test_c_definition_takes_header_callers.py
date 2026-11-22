@@ -83,11 +83,13 @@ STATIC_INCLUDES = '#include "a.h"\n\nstatic int f(int x) {\n    return x - 1;\n}
 
 def test_a_static_definition_that_includes_the_header_takes_nothing(tmp_path):
     # A file-local f is not the f the header declares; b.c cannot reach it.
+    # (L-339) Its own file's h does call it: this asserted `[]`, which held
+    # only while the text search never read the definition's own file.
     repo, store = _index(
         tmp_path, {"a.h": HEADER, "a.c": DEFINES, "b.c": CALLS, "c.c": STATIC_INCLUDES}
     )
     h = _callers(repo, store, "c.c::f#function")
-    assert h["callers"] == [], h
+    assert [(c["file"], c["name"]) for c in h["callers"]] == [("c.c", "h")], h
 
 
 def test_a_file_with_its_own_f_is_not_a_caller_of_the_definition(tmp_path):
@@ -105,7 +107,7 @@ def test_an_attribute_does_not_hide_static(tmp_path):
         tmp_path, {"a.h": HEADER, "a.c": DEFINES, "b.c": CALLS, "c.c": attributed}
     )
     h = _callers(repo, store, "c.c::f#function")
-    assert h["callers"] == [], h
+    assert [(c["file"], c["name"]) for c in h["callers"]] == [("c.c", "h")], h
 
 
 def test_a_caller_that_repeats_the_prototype_is_still_a_caller(tmp_path):
