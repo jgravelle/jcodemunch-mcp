@@ -2,14 +2,16 @@
 
 ## [Unreleased]
 
-### get_changed_symbols no longer takes a cross_repo argument it ignored (L-57)
+### get_changed_symbols says that its cross_repo argument does nothing (L-57)
 
 `get_changed_symbols` accepted `cross_repo` and nothing read it. The MCP schema
 never offered it and the dispatcher never passed it, so only a Python caller
 could set it, and that caller got the same local-only blast radius with no
-sign the flag had done nothing. The parameter is removed: a call that passes it
-now fails with a `TypeError` instead of being quietly ignored. A test also
-fails if the function gains another parameter its body never reads.
+sign the flag had done nothing. A call that passes it now raises a
+`UserWarning` saying it has no effect and will be removed in 2.0. The argument
+is still accepted, so no existing call breaks. MCP callers are unaffected:
+the server's argument check already reported the key as ignored. A test also
+fails if the function gains a parameter its body never reads as a name.
 
 ## [1.108.485] - 2026-11-22 - a capped re-index says which of its files came from an earlier index, and a compact blast radius keeps every top-level key
 

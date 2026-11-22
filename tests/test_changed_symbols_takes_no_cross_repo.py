@@ -1,9 +1,10 @@
-"""`get_changed_symbols` takes no `cross_repo` argument (LEDGER L-57).
+"""`get_changed_symbols` says that `cross_repo` does nothing (LEDGER L-57).
 
 The parameter was in the signature and nothing read it: the MCP schema did not
 offer it, the dispatcher did not pass it, and the embedded blast walk never saw
 it. A Python caller who set it got a local-only blast with no sign the flag did
-nothing. Removed, so the same call now fails loudly instead of being ignored.
+nothing. Removing it would break that caller on 1.x, so it stays and a call that
+passes it gets a `UserWarning` naming it as ignored.
 """
 
 from __future__ import annotations
@@ -11,6 +12,7 @@ from __future__ import annotations
 import ast
 import inspect
 import textwrap
+import warnings
 
 import pytest
 
@@ -35,16 +37,25 @@ def _unread_parameters(fn_source: str) -> list[str]:
     return [p for p in params if p not in reads]
 
 
-def test_the_signature_has_no_cross_repo():
-    assert "cross_repo" not in inspect.signature(get_changed_symbols).parameters
+def test_passing_cross_repo_warns_that_it_does_nothing(tmp_path):
+    with pytest.warns(UserWarning, match="cross_repo has no effect"):
+        get_changed_symbols("o/r", storage_path=str(tmp_path), cross_repo=True)
 
 
-def test_passing_cross_repo_is_an_error_not_a_silent_no_op(tmp_path):
-    with pytest.raises(TypeError):
-        get_changed_symbols("o/r", storage_path=str(tmp_path), cross_repo=True)  # type: ignore[call-arg]
+def test_a_call_without_cross_repo_does_not_warn(tmp_path):
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", UserWarning)
+        get_changed_symbols("o/r", storage_path=str(tmp_path))
 
 
-def test_every_remaining_parameter_is_read_by_the_body():
+def test_cross_repo_still_accepted_so_a_1x_caller_does_not_break(tmp_path):
+    assert "cross_repo" in inspect.signature(get_changed_symbols).parameters
+    with pytest.warns(UserWarning):
+        out = get_changed_symbols("o/r", storage_path=str(tmp_path), cross_repo=False)
+    assert isinstance(out, dict)
+
+
+def test_every_parameter_is_read_by_the_body():
     assert _unread_parameters(inspect.getsource(get_changed_symbols)) == []
 
 
