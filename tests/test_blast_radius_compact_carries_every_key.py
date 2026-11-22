@@ -1,12 +1,18 @@
-"""The compact `get_blast_radius` answer carries every key the tool returns (LEDGER L-58).
+"""The compact `get_blast_radius` answer carries every top-level key the tool returns (LEDGER L-58).
 
 A key the schema does not declare is not carried: the encoder drops it with
 nothing raised, and a caller of the compact form reads the answer without it.
 `cross_repo_confirmed_count` was dropped while the list it counts survived,
 and `decisions` (the `include_decisions` git archaeology) was dropped whole.
 
-The guard reads the producer's SOURCE, so a key added to the tool later fails
-here until the schema declares it, rather than vanishing from compact answers.
+Two guards. One reads the producer's SOURCE for keys written as `result[...] =`,
+`result.setdefault(...)` or a `result = {...}` literal, so a key added that way
+fails here until the schema declares it. It does not see `.update()`, `|=` or an
+alias. The other calls the real tool with every option this fixture can reach
+and checks every top-level key survives the round trip, whatever the spelling.
+
+Row COLUMNS are out of scope: a column a TableSpec does not name is still dropped
+(LEDGER L-340), and the same top-level drop exists in other encoders (L-341).
 """
 
 from __future__ import annotations
@@ -136,6 +142,33 @@ def test_the_tools_decisions_survive_the_compact_form(repo):
     assert decoder.decode(payload)["decisions"] == res["decisions"]
 
 
-def test_the_previous_encoding_id_stays_readable():
-    assert enc.ENCODING_ID != "br4"
+def test_every_top_level_key_of_a_real_answer_survives(repo):
+    """At the entry point, independent of how the tool spells a key."""
+    rid, store = repo
+    res = get_blast_radius(
+        rid, "helper", call_depth=2, include_depth_scores=True,
+        include_decisions=True, storage_path=store,
+    )
+    keys = {k for k in res if not k.startswith("_")}
+    assert {"callers", "caller_count", "impact_by_depth", "decisions"} <= keys
+    payload, _ = enc.encode("get_blast_radius", res)
+    back = decoder.decode(payload)
+    assert keys - set(back) == set()
+
+
+def test_the_previous_encoding_id_stays_readable(repo):
+    """A br4 payload, built with br4's lists, decodes through the registry."""
+    from jcodemunch_mcp.encoding import schema_driven as sd
+
+    assert enc.ENCODING_ID not in enc.LEGACY_ENCODING_IDS
     assert "br4" in enc.LEGACY_ENCODING_IDS
+    rid, store = repo
+    res = get_blast_radius(rid, "helper", storage_path=store)
+    br4_scalars = tuple(s for s in enc._SCALARS if s != "cross_repo_confirmed_count")
+    br4_json = tuple(j for j in enc._JSON if j != "decisions")
+    payload, _ = sd.encode(
+        "get_blast_radius", res, "br4", enc._TABLES, br4_scalars,
+        nested_dicts=enc._NESTED, meta_keys=enc._META,
+        meta_json_blobs=enc._META_JSON, json_blobs=br4_json,
+    )
+    assert decoder.decode(payload)["importer_count"] == res["importer_count"]
