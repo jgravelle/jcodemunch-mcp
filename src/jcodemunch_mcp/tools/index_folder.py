@@ -33,8 +33,8 @@ from ..security import (
     get_max_file_size,
     get_max_folder_files,
     get_cli_folder_cap,
-    cap_label,
     cap_remedy,
+    cap_setting,
     get_extra_ignore_patterns,
     get_respect_cachedir_tag,
     get_skip_directories,
@@ -206,7 +206,14 @@ def _cap_status_for_kept(cap: dict, dropped: set, stored: set) -> dict:
     if missing == 0:
         return {"truncated": False}
     discovered = int(cap.get("files_discovered") or 0)
-    return {**cap, "files_indexed": discovered - missing, "files_skipped_cap": missing}
+    out = {**cap, "files_indexed": discovered - missing, "files_skipped_cap": missing}
+    out.pop("files_kept", None)
+    # L-305: how many of the indexed files this save kept rather than parsed,
+    # so a message names them beside the call's cap (`security.cap_setting`).
+    kept = len(dropped & stored)
+    if kept:
+        out["files_kept"] = kept
+    return out
 
 
 def _attach_cap_report(result: dict, cap: Optional[dict]) -> None:
@@ -225,10 +232,12 @@ def _attach_cap_report(result: dict, cap: Optional[dict]) -> None:
     result["max_folder_files"] = cap["max_folder_files"]
     if cap.get("cap_key"):
         result["cap_key"] = cap["cap_key"]
+    if cap.get("files_kept"):
+        result["files_kept"] = cap["files_kept"]
     result.setdefault("warnings", []).append(
         f"File cap reached: {cap['files_discovered']} files discovered, "
         f"{cap['files_indexed']} indexed, {cap['files_skipped_cap']} dropped "
-        f"({cap_label(cap)}={cap['max_folder_files']}). Entire files are missing "
+        f"({cap_setting(cap)}). Entire files are missing "
         "from the index. "
         + (
             cap_remedy(cap)
