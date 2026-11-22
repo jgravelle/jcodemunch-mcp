@@ -2,6 +2,20 @@
 
 ## [Unreleased]
 
+### A compact get_blast_radius answer keeps every key the tool returns (L-58)
+
+The compact form of `get_blast_radius` carried only the keys its schema
+named. `cross_repo_confirmed_count` was not named, so a compact answer had the
+`cross_repo_confirmed` list but not its count. The `decisions` dict that
+`include_decisions` adds was not named either, so a caller who asked for the
+git archaeology got a compact answer without it. Nothing raised: an undeclared
+key is dropped in silence.
+
+Both keys are now carried, under encoding id `br5` (`br4` stays readable). A
+test reads the tool's source for every key it writes into its answer and fails
+until the schema declares it, so a key added to the tool later is not dropped
+from compact answers.
+
 ## [1.108.484] - 2026-11-22 - a folder inside a Git worktree is matched to the indexed checkout
 
 ### A folder inside a Git worktree is matched to the indexed checkout (L-235)
