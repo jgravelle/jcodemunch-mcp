@@ -371,8 +371,24 @@ def find_dead_code(
     # could not land on a member file leaves every file in that package with
     # no importer. `blast_verdict` reads that as could-not-reach since #718;
     # this tool read the same zero as proof. One probe, the one both read.
+    # ⚠ Scoped, unlike `blast_verdict`'s one-file disclosure: across a whole
+    # corpus a probe over every language withholds real findings, because an
+    # unresolved stdlib name (`import logging`, `"events"`, Go's `"errors"`)
+    # equals a root-level directory's path exactly. Only an import written in
+    # a package-directory language, with a path of two or more segments (a
+    # module path, never a stdlib name), is read here.
+    from .get_blast_radius import PACKAGE_DIRECTORY_LANGUAGES  # a module-level import is a cycle
+
+    _langs = getattr(index, "file_languages", None) or {}
     package_probe = PackageEdgeProbe(
-        index.imports, source_files, index.alias_map, getattr(index, "psr4_map", None)
+        {
+            src: [i for i in (imps or []) if "/" in (i.get("specifier") or "").strip("/")]
+            for src, imps in (index.imports or {}).items()
+            if _langs.get(src) in PACKAGE_DIRECTORY_LANGUAGES
+        },
+        source_files,
+        index.alias_map,
+        getattr(index, "psr4_map", None),
     )
     package_withheld = 0
     unseen_withheld = {
@@ -413,7 +429,11 @@ def find_dead_code(
         # `app/logging/`) is any stdlib or third-party name that happens to
         # share a directory's last segment, and across the whole corpus it
         # would withhold real findings in every language.
-        package_gap = package_probe.reaching(f) if reason == "zero_importers" else None
+        package_gap = (
+            package_probe.reaching(f)
+            if reason == "zero_importers" and _langs.get(f) in PACKAGE_DIRECTORY_LANGUAGES
+            else None
+        )
         if package_gap is not None and package_gap["match"] != "exact":
             package_gap = None
         unseen = unseen_consumer(f, dotnet=dotnet)

@@ -2,7 +2,7 @@
 
 ## [Unreleased]
 
-### `find_dead_code` no longer proves a file dead when an unresolved import names its package path (L-59)
+### `find_dead_code` no longer proves a Go file dead when an unresolved import names its package path (L-59)
 
 A Go import names a package directory, not a file. When the import graph
 cannot land such an edge on a member file, for example when `go.mod` declares
@@ -13,21 +13,24 @@ at confidence 1.0, the value documented as provably unreachable.
 
 The package probe is now one object, `PackageEdgeProbe`, in a module both
 tools import. `blast_verdict` asks it for one file. `find_dead_code` builds it
-once per call and asks it for every file with no importer. The probe reads
-every language. In `find_dead_code` it caps a file only when an unresolved
-import names the file's directory exactly: the whole path, or a path that ends
-with it (`fixture/repository` for `repository/`). Such a file is capped below the
+once per call and asks it for every file with no importer. `blast_verdict`
+reads every language. `find_dead_code` caps a file only when the file is in a
+language whose package is a directory (Go), the unresolved import is written in
+one, the import path has two or more segments, and it names the file's
+directory exactly: the whole path, or a path that ends with it
+(`fixture/repository` for `repository/`). Such a file is capped below the
 default threshold, like any other unproven absence. The row names
 `package_granular_imports` in `confidence_capped_by`, with the package directory
 and the count of unresolved edges. The default call withholds such files and
 reports how many in `package_granular_imports_withheld`. A file that no
 unresolved import names keeps its confidence.
 
-`blast_verdict` also discloses a match on the directory's last segment alone.
-`find_dead_code` doesn't cap on that match. Across a whole corpus it would
-withhold real findings in every language, because `import logging` or
-`"events"` resolves to no file and shares a last segment with any `logging/` or
-`events/` directory. A test pins both cases.
+Each condition stops a stdlib name from hiding a dead file. `import logging`
+or `"events"` resolves to no file, shares a last segment with any `logging/` or
+`events/` directory, and equals a root-level one's path exactly. Go's
+`import "errors"` does the same beside a root-level `errors/` package. Across a
+whole corpus, a probe without these conditions withholds real findings in
+every language. A test pins each shape, one level deep and at the root.
 
 The importer-walk ratchet counts a function as asking `blast_verdict` when it
 calls the verdict, or calls both of its probes (the package probe and the

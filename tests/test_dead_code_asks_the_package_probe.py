@@ -92,8 +92,21 @@ def test_a_file_no_unresolved_import_names_keeps_its_confidence(repo):
 def basename_repo(tmp_path):
     """A stdlib or builtin import whose name is only a directory's LAST segment."""
     root = tmp_path / "bn"
-    for d in ("app/logging", "web/events"):
+    for d in ("app/logging", "web/events", "logging", "http", "events", "errors", "cmd"):
         (root / d).mkdir(parents=True)
+    # Review round 2: at the ROOT a one-segment stdlib name equals the
+    # directory's path exactly, so an exact-match rule alone still withholds.
+    (root / "main.py").write_text("import logging\nimport http\n")
+    (root / "logging" / "handlers.py").write_text("def unused():\n    return 1\n")
+    (root / "http" / "client_util.py").write_text("def unused():\n    return 1\n")
+    (root / "index.js").write_text('import { EventEmitter } from "events";\n\nexport const f = EventEmitter;\n')
+    (root / "events" / "dead.js").write_text("export function unused() { return 1; }\n")
+    # Go's own stdlib: `import "errors"` beside a root-level `errors/` package.
+    (root / "go.mod").write_text("module example.com/bn\n\ngo 1.22\n")
+    (root / "cmd" / "main.go").write_text(
+        'package main\n\nimport "errors"\n\nfunc main() { _ = errors.New("x") }\n'
+    )
+    (root / "errors" / "dead.go").write_text("package errors\n\nfunc Unused() int { return 1 }\n")
     (root / "app" / "main.py").write_text("import logging\n\nlogging.info('x')\n")
     (root / "app" / "logging" / "handlers.py").write_text("def unused():\n    return 1\n")
     (root / "web" / "index.js").write_text(
@@ -112,7 +125,14 @@ def test_a_basename_match_does_not_withhold_a_dead_file(basename_repo):
     whole corpus that match would withhold real findings in every language."""
     out = find_dead_code(repo=basename_repo[0], storage_path=basename_repo[1], min_confidence=0)
     dead = {e["file"]: e for e in out["dead_files"]}
-    for f in ("app/logging/handlers.py", "web/events/dead.js"):
+    for f in (
+        "app/logging/handlers.py",
+        "web/events/dead.js",
+        "logging/handlers.py",
+        "http/client_util.py",
+        "events/dead.js",
+        "errors/dead.go",
+    ):
         assert dead[f]["confidence"] == 1.0, dead[f]
         assert "confidence_capped_by" not in dead[f]
     assert "package_granular_imports_withheld" not in find_dead_code(
