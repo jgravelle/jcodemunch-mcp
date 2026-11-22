@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.481] - 2026-11-22 - a compact answer says when the server redacted a secret, and the mcp floor admits no advised SDK
+
 ### A compact answer says when the server redacted a secret or the session is over budget (L-313)
 
 The dispatcher writes `_meta` keys after the `meta_fields` display filter, so
