@@ -180,7 +180,7 @@ def get_changed_symbols(
         max_blast_depth: Hop limit for blast radius traversal (capped at 5).
         suppress_meta: Strip the _meta envelope from the response.
         storage_path: Custom storage path.
-        cross_repo: Deprecated and ignored (L-57); passing it warns. Removed in 2.0.
+        cross_repo: Deprecated and ignored (L-57); passing it warns.
 
     Returns:
         Dict with from_sha, to_sha, changed_files, changed_symbols, added_symbols,
@@ -208,7 +208,7 @@ def get_changed_symbols(
     if cross_repo is not None:
         warnings.warn(
             "get_changed_symbols: cross_repo has no effect (the blast radius is "
-            "local-only) and will be removed in 2.0",
+            "local-only) and is deprecated",
             FutureWarning,
             stacklevel=2,
         )
