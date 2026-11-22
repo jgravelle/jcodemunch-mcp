@@ -106,6 +106,33 @@ def _git_common_dir_cheap(path: Path) -> Optional[Path]:
     return None
 
 
+def _enclosing_git_common_dir(path: Path, stop: Optional[Path] = None) -> Optional[Path]:
+    """The common-dir of the nearest folder at or above `path` holding a `.git`.
+
+    L-235: a subdirectory of a linked worktree has no `.git` of its own, so
+    `_git_common_dir_cheap` alone gave it no identity and `resolve_repo` lost
+    the `canonical_candidates` hint the worktree root gets. The nearest `.git`
+    decides, as it does for git: an independent repo nested inside a worktree
+    answers for itself. Filesystem reads only, one `exists` per level (jcm#303).
+    `stop` bounds the walk (inclusive); a test passes it so a `.git` above the
+    temporary folder cannot answer.
+    """
+    try:
+        current = path.resolve()
+    except (OSError, ValueError):
+        return None
+    bound = stop.resolve() if stop is not None else None
+    while True:
+        if (current / ".git").exists():
+            return _git_common_dir_cheap(current)
+        if bound is not None and current == bound:
+            return None
+        parent = current.parent
+        if parent == current:
+            return None
+        current = parent
+
+
 def _git_toplevel(path: Path) -> Optional[Path]:
     """Get the git repository root for a path, or None.
 
@@ -484,8 +511,13 @@ def _find_canonical_candidates(
     only, no subprocess) for both the input path and every candidate path.
     Accepts a pre-fetched `repos` list so the caller can avoid a redundant
     `store.list_repos()` round-trip.
+
+    The queried path walks up to its nearest `.git` (L-235), so a folder inside
+    a worktree is matched like the worktree root. A source root is NOT walked:
+    a candidate is a checkout root, and an index of a subtree of the canonical
+    is not offered as the repo for a worktree.
     """
-    common = _git_common_dir_cheap(path)
+    common = _enclosing_git_common_dir(path)
     if common is None:
         return []
 
