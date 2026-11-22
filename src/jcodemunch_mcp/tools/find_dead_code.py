@@ -408,7 +408,14 @@ def find_dead_code(
                 continue  # file is reachable, skip
 
         reaching = boundary.reaching(f)
-        package_gap = package_probe.reaching(f)
+        # Only an EXACT match caps, and only an empty walk, the case
+        # `blast_verdict` probes. A basename match ("logging" for
+        # `app/logging/`) is any stdlib or third-party name that happens to
+        # share a directory's last segment, and across the whole corpus it
+        # would withhold real findings in every language.
+        package_gap = package_probe.reaching(f) if reason == "zero_importers" else None
+        if package_gap is not None and package_gap["match"] != "exact":
+            package_gap = None
         unseen = unseen_consumer(f, dotnet=dotnet)
         if unseen is None and reason == "all_importers_dead":
             # A codebehind whose only importer is itself unproven inherits the cap.
