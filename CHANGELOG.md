@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.483] - 2026-11-22 - a Ruby import never resolves to another language's file
+
 ### A Ruby import never resolves to another language's file (L-294)
 
 Ruby's `require` and `require_relative` load `.rb` files, and compiled
