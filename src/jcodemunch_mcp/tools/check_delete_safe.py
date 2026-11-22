@@ -29,7 +29,8 @@ Verdict tiers (most-permissive first):
                              or code generator may compile, or an ERB view
                              rendered by name or by convention, reached by
                              an edge the index does not carry
-                             (`unseen_consumer`).
+                             (`unseen_consumer`), or a Go file no `go.mod` the index read
+                             covers (`go_module_unknown`, LEDGER L-59).
 
 ⚠⚠ **`corpus_inadequate`, `name_not_searchable` and `dynamic_import_boundary`
 each replace an absence verdict, never a blocking one.**
@@ -523,6 +524,34 @@ def check_delete_safe(
         }
         blockers.append({
             "kind": unseen,
+            "blockers": [dynamic_gap["why"]],
+            "severity": _SEVERITY_INTERNAL_REF,
+        })
+
+    # (LEDGER L-59) A Go file no `go.mod` the index read covers: its imports
+    # could not be mapped to directories, so finding no importer is not
+    # evidence. `find_dead_code` caps the same file through the same rule;
+    # capping the report alone would leave this tool certifying the delete.
+    from .find_dead_code import go_file_outside_module_map  # noqa: PLC0415
+
+    if (
+        dynamic_gap is None
+        and go_file_outside_module_map(index, target.get("file", ""))
+        and verdict in ("safe_to_delete", "internal_only", "test_coverage_only", "name_not_searchable")
+    ):
+        if verdict != "name_not_searchable":
+            verdict = "dynamic_import_boundary"
+        unseen_gap = True
+        dynamic_gap = {
+            "action": "index the tree with its go.mod, or check its importers by hand",
+            "why": (
+                f"{target.get('file', '')} is a Go file no go.mod in the index covers, "
+                "so its package's import paths could not be mapped to files and finding "
+                "no importer is not evidence that nothing imports it"
+            ),
+        }
+        blockers.append({
+            "kind": "go_module_unknown",
             "blockers": [dynamic_gap["why"]],
             "severity": _SEVERITY_INTERNAL_REF,
         })
