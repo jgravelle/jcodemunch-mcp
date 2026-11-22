@@ -10,7 +10,7 @@ import time
 from typing import Optional
 
 from ..storage import IndexStore
-from ..parser.imports import resolve_specifier
+from ..parser.imports import go_modules, resolve_specifier
 from ._utils import index_status_to_tool_error, resolve_repo
 from ..parser.context._route_utils import ENTRY_POINT_DECORATOR_RE
 from ._entry_points import (
@@ -24,7 +24,6 @@ from ._entry_points import (
 from ._runtime_discovery import discover_dynamic_packages
 from ._corpus_adequacy import UNPROVEN_CEILING, assess_corpus
 from ._dynamic_boundary import FILES_CAP as DYNAMIC_FILES_CAP, DynamicBoundary
-from ._package_edges import PackageEdgeProbe
 from ._test_paths import is_test_file as _is_test_file  # noqa: F401  (the one rule, LEDGER L-101)
 
 logger = logging.getLogger(__name__)
@@ -367,30 +366,18 @@ def find_dead_code(
     # both tools share. An opaque site caps nothing and is disclosed.
     boundary = DynamicBoundary(index.imports)
     boundary_withheld = 0
-    # (LEDGER L-59) A Go import names a package DIRECTORY, so an edge the graph
-    # could not land on a member file leaves every file in that package with
-    # no importer. `blast_verdict` reads that as could-not-reach since #718;
-    # this tool read the same zero as proof. One probe, the one both read.
-    # ⚠ Scoped, unlike `blast_verdict`'s one-file disclosure: across a whole
-    # corpus a probe over every language withholds real findings, because an
-    # unresolved stdlib name (`import logging`, `"events"`, Go's `"errors"`)
-    # equals a root-level directory's path exactly. Only an import written in
-    # a package-directory language, with a path of two or more segments (a
-    # module path, never a stdlib name), is read here.
-    from .get_blast_radius import PACKAGE_DIRECTORY_LANGUAGES  # a module-level import is a cycle
-
-    _langs = getattr(index, "file_languages", None) or {}
-    package_probe = PackageEdgeProbe(
-        {
-            src: [i for i in (imps or []) if "/" in (i.get("specifier") or "").strip("/")]
-            for src, imps in (index.imports or {}).items()
-            if _langs.get(src) in PACKAGE_DIRECTORY_LANGUAGES
-        },
-        source_files,
-        index.alias_map,
-        getattr(index, "psr4_map", None),
+    # (LEDGER L-59) A Go import names a module path, and only `go.mod` maps a
+    # module path to a directory (L-264 adds those edges at load). A Go file
+    # under no readable `go.mod` -- none in the tree, or an `index_repo`
+    # snapshot with no local tree -- has an import graph nobody could build,
+    # so its empty walk is unknown, not zero. Read by MODULE, never by name:
+    # matching an unresolved specifier against a directory's name withheld
+    # real findings beside every stdlib and dependency import (`net/http` and
+    # `http/`, `github.com/pkg/errors` and `errors/`; review of L-59).
+    _go_module_dirs = list(
+        go_modules(getattr(index, "source_root", "") or "", index.source_files).values()
     )
-    package_withheld = 0
+    go_unknown_withheld = 0
     unseen_withheld = {
         "build_consumed": 0, "schema_consumer": 0, "runtime_loadable": 0,
         "template_rendered": 0,
@@ -424,25 +411,18 @@ def find_dead_code(
                 continue  # file is reachable, skip
 
         reaching = boundary.reaching(f)
-        # Only an EXACT match caps, and only an empty walk, the case
-        # `blast_verdict` probes. A basename match ("logging" for
-        # `app/logging/`) is any stdlib or third-party name that happens to
-        # share a directory's last segment, and across the whole corpus it
-        # would withhold real findings in every language.
-        package_gap = (
-            package_probe.reaching(f)
-            if reason == "zero_importers" and _langs.get(f) in PACKAGE_DIRECTORY_LANGUAGES
-            else None
+        go_unknown = (
+            reason == "zero_importers"
+            and f.endswith(".go")
+            and not any(d == "" or f.startswith(d + "/") for d in _go_module_dirs)
         )
-        if package_gap is not None and package_gap["match"] != "exact":
-            package_gap = None
         unseen = unseen_consumer(f, dotnet=dotnet)
         if unseen is None and reason == "all_importers_dead":
             # A codebehind whose only importer is itself unproven inherits the cap.
             unseen = next(
                 filter(None, (unseen_consumer(i, dotnet=dotnet) for i in importers)), None
             )
-        file_ceiling = min(ceiling, UNPROVEN_CEILING) if (reaching or package_gap or unseen) else ceiling
+        file_ceiling = min(ceiling, UNPROVEN_CEILING) if (reaching or go_unknown or unseen) else ceiling
         capped = min(confidence, file_ceiling)
         if capped < min_confidence:
             # Only the files the boundary itself withheld: one the corpus
@@ -450,8 +430,8 @@ def find_dead_code(
             if min(confidence, ceiling) >= min_confidence:
                 if reaching:
                     boundary_withheld += 1
-                elif package_gap:
-                    package_withheld += 1
+                elif go_unknown:
+                    go_unknown_withheld += 1
                 elif unseen:
                     unseen_withheld[unseen] += 1
             continue
@@ -470,16 +450,13 @@ def find_dead_code(
             entry["confidence_capped_by"] = (
                 list(adequacy.blockers)
                 + (["dynamic_import_boundary"] if reaching else [])
-                + (["package_granular_imports"] if package_gap else [])
+                + (["go_module_unknown"] if go_unknown else [])
                 + ([unseen] if unseen else [])
             )
         if reaching:
             entry["dynamic_import_sites"] = reaching[:DYNAMIC_FILES_CAP]
             if len(reaching) > DYNAMIC_FILES_CAP:
                 entry["dynamic_import_sites_total"] = len(reaching)
-        if package_gap:
-            entry["package_dir"] = package_gap["package_dir"]
-            entry["unresolved_package_edges"] = package_gap["unresolved_edges"]
         dead_files.append(entry)
 
     # -----------------------------------------------------------------------
@@ -593,12 +570,12 @@ def find_dead_code(
             "dynamic import scoped to their package can load them "
             "(pass min_confidence=0 to see them with the sites named)"
         )
-    if package_withheld:
-        result["package_granular_imports_withheld"] = package_withheld
+    if go_unknown_withheld:
+        result["go_module_unknown_withheld"] = go_unknown_withheld
         analysis_notes.append(
-            f"{package_withheld} file(s) with no static importer were withheld: an "
-            "import names their package directory and resolves to no file, so the "
-            "file-level graph cannot reach them (pass min_confidence=0 to see them)"
+            f"{go_unknown_withheld} Go file(s) with no static importer were withheld: no "
+            "readable go.mod maps their imports, so the import graph could not be built "
+            "for them (pass min_confidence=0 to see them)"
         )
     _unseen_why = {
         "build_consumed": "a .NET project file may consume them (EmbeddedResource, Page, "

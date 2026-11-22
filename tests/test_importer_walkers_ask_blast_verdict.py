@@ -225,19 +225,10 @@ def test_a_new_file_is_probed_by_its_package_and_a_new_leaf_is_measured(fixture_
 
 WALKERS = {"_bfs_importers", "_build_reverse_adjacency"}
 ASKS = {"blast_verdict", "importers_with_verdict"}
-# (LEDGER L-59) A tool that asks about every file of the corpus cannot call
-# `blast_verdict` once per file; it builds the verdict's two probes once and
-# reads them per file. Only BOTH together count: the package probe alone is
-# half the verdict, and a tool asking half would pass as asking.
-ASKS_BY_PARTS = {"PackageEdgeProbe", "DynamicBoundary"}
-
-
-def _asks(called: set[str]) -> bool:
-    return bool(called & ASKS) or ASKS_BY_PARTS <= called
-
 # Modules that walk the graph without asking, and the LEDGER row tracking
 # them; `scripts/gap_ledgers.py` requires the row to exist and read OPEN.
 NOT_YET_ASKING = {
+    "src/jcodemunch_mcp/tools/find_dead_code.py": "L-59",
     "src/jcodemunch_mcp/tools/get_dead_code_v2.py": "L-59",
     "src/jcodemunch_mcp/tools/get_untested_symbols.py": "L-59",
     "src/jcodemunch_mcp/tools/get_call_hierarchy.py": "L-59",
@@ -285,14 +276,14 @@ def _outer_silent(path: Path) -> list[str]:
     aliases = _aliases(tree)
     asking_bodies = set()
     for fn in ast.walk(tree):
-        if isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)) and _asks(_called(fn, aliases)):
+        if isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)) and _called(fn, aliases) & ASKS:
             asking_bodies |= {id(n) for n in ast.walk(fn) if n is not fn}
     return [
         fn.name for fn in ast.walk(tree)
         if isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef))
         and id(fn) not in asking_bodies
         and _called(fn, aliases) & WALKERS
-        and not _asks(_called(fn, aliases))
+        and not _called(fn, aliases) & ASKS
     ]
 
 
@@ -311,11 +302,11 @@ def test_every_importer_walk_asks_blast_verdict():
         f"listed but no longer silent (remove them): {sorted(set(NOT_YET_ASKING) - set(silent))}"
     )
     for rel in sorted(HAND_ROLLED):
-        assert _asks(_called(ast.parse((REPO / rel).read_text(encoding="utf-8")), {})), (
+        assert _called(ast.parse((REPO / rel).read_text(encoding="utf-8")), {}) & ASKS, (
             f"{rel} walks importers by hand without blast_verdict"
         )
     for rel in sorted(HAND_ROLLED_NOT_YET):
-        assert not _asks(_called(ast.parse((REPO / rel).read_text(encoding="utf-8")), {})), (
+        assert not _called(ast.parse((REPO / rel).read_text(encoding="utf-8")), {}) & ASKS, (
             f"{rel} asks now: move it from HAND_ROLLED_NOT_YET to HAND_ROLLED"
         )
 
@@ -351,23 +342,3 @@ def test_the_ratchet_sees_a_walk_beside_a_helper_that_asks(tmp_path):
     assert _outer_silent(beside) == ["check"]
     assert _outer_silent(aliased) == ["check"]
     assert _outer_silent(nested) == []
-
-
-def test_half_the_verdict_is_not_asking(tmp_path):
-    """(L-59) The package probe without the dynamic boundary is half of
-    `blast_verdict`; only both together count as asking."""
-    half = tmp_path / "half.py"
-    half.write_text(
-        "from ._package_edges import PackageEdgeProbe\n"
-        "from .get_blast_radius import _build_reverse_adjacency\n"
-        "def scan(index):\n"
-        "    rev = _build_reverse_adjacency(index.imports, set(), {}, None)\n"
-        "    return PackageEdgeProbe(index.imports, set()), rev\n",
-        encoding="utf-8",
-    )
-    both = tmp_path / "both.py"
-    both.write_text(half.read_text(encoding="utf-8").replace(
-        "    return PackageEdgeProbe", "    DynamicBoundary(index.imports)\n    return PackageEdgeProbe"
-    ), encoding="utf-8")
-    assert _outer_silent(half) == ["scan"]
-    assert _outer_silent(both) == []

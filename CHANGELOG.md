@@ -2,44 +2,34 @@
 
 ## [Unreleased]
 
-### `find_dead_code` no longer proves a Go file dead when an unresolved import names its package path (L-59)
+### `find_dead_code` no longer proves a Go file dead when no `go.mod` maps its imports (L-59)
 
-A Go import names a package directory, not a file. When the import graph
-cannot land such an edge on a member file, for example when `go.mod` declares
-another module path, every file in that package has no importer. Since #718,
-`get_blast_radius` has read that empty walk as could not reach. `find_dead_code`
-read the same empty walk as proof: such a file was listed as `zero_importers`
-at confidence 1.0, the value documented as provably unreachable.
+A Go import names a module path (`example.com/app/repository`), not a file.
+Only `go.mod` maps a module path to a directory, and the index adds those
+edges when it loads (L-264). Where no readable `go.mod` covers a Go file, the
+import graph for it could not be built. That happens when the tree has no
+`go.mod`, when the file sits outside a nested module's directory, or in an
+`index_repo` snapshot with no local tree. `find_dead_code` still read the
+empty walk as proof and listed every such file with no importer as
+`zero_importers` at confidence 1.0, the value documented as provably
+unreachable. `get_blast_radius` has not read that zero as proof since #718.
 
-The package probe is now one object, `PackageEdgeProbe`, in a module both
-tools import. `blast_verdict` asks it for one file. `find_dead_code` builds it
-once per call and asks it for every file with no importer. `blast_verdict`
-reads every language. `find_dead_code` caps a file only when the file is in a
-language whose package is a directory (Go), the unresolved import is written in
-one, the import path has two or more segments, and it names the file's
-directory exactly: the whole path, or a path that ends with it
-(`fixture/repository` for `repository/`). Such a file is capped below the
-default threshold, like any other unproven absence. The row names
-`package_granular_imports` in `confidence_capped_by`, with the package directory
-and the count of unresolved edges. The default call withholds such files and
-reports how many in `package_granular_imports_withheld`. A file that no
-unresolved import names keeps its confidence.
+Such a file is now capped below the default threshold, like any other unproven
+absence, with `go_module_unknown` in `confidence_capped_by`. The default call
+withholds it and reports how many in `go_module_unknown_withheld`. Under a
+`go.mod` nothing changes: the module edges answer, and an orphan package is
+still reported at 1.0. A file in another language is never capped by this rule.
 
-Each condition stops a stdlib name from hiding a dead file. `import logging`
-or `"events"` resolves to no file, shares a last segment with any `logging/` or
-`events/` directory, and equals a root-level one's path exactly. Go's
-`import "errors"` does the same beside a root-level `errors/` package. Across a
-whole corpus, a probe without these conditions withholds real findings in
-every language. A test pins each shape, one level deep and at the root.
-
-The importer-walk ratchet counts a function as asking `blast_verdict` when it
-calls the verdict, or calls both of its probes (the package probe and the
-dynamic import boundary). The package probe alone does not count, and a test
-checks that. The ratchet checks calls, not whether a probe's answer is read.
-`find_dead_code` does not read the verdict's index-rewritten gate.
+The rule reads the module map, never a name. Three drafts matched unresolved
+import specifiers against directory names, the way `get_blast_radius`
+discloses a gap for one symbol, and review measured each one withholding real
+dead files across the corpus. A dead file in a `logging/`, `http/`, `events/`
+or `errors/` directory was hidden by `import logging`, `"events"`, Go's
+`"net/http"` or `github.com/pkg/errors`. A test pins those shapes, one level deep
+and at the root, and each keeps 1.0. `find_dead_code` still walks the importer
+graph without calling `blast_verdict`, so it stays on that ratchet's list with
 `get_dead_code_v2`, `get_untested_symbols`, `get_call_hierarchy`,
-`get_impact_preview`, `get_file_risk` and `find_importers` still do not ask, and
-the ledger row stays open for them.
+`get_impact_preview`, `get_file_risk` and `find_importers`.
 
 ## [1.108.481] - 2026-11-22 - a compact answer says when the server redacted a secret, and the mcp floor admits no advised SDK
 
