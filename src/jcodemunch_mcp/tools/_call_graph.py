@@ -953,8 +953,8 @@ class _CNameTable:
 
     ``c_text_reach`` runs for every node of a caller traversal, and the two
     rules that read the whole corpus (one definition of the name; who writes
-    its prototype) walked every symbol on every node: 13.6 s of a 36.8 s
-    ``get_impact_preview`` on a 1,982-file C repo (review of L-339).
+    its prototype) walked every symbol on every node until this table was
+    built once per traversal (review of L-339).
     """
 
     def __init__(self, symbols_by_file: dict[str, list[dict]]) -> None:
@@ -981,14 +981,23 @@ class _CNameTable:
 
 
 # One slot: a traversal passes the same `symbols_by_file` to every node.
-_NAME_TABLE: list = [None, None]
+# ⚠⚠ The key and the table are ONE tuple, read once and published by one
+# assignment. Tool calls run on worker threads (`asyncio.to_thread`), and a
+# slot written in two steps let a slow build for one repo overwrite the table
+# under another repo's key (review of L-339, reproduced). Two threads racing
+# now at worst build the same table twice. The slot keeps the last symbol map
+# alive until the next C/C++ traversal replaces it.
+_NAME_TABLE: tuple = (None, None)
 
 
 def _name_table(symbols_by_file: dict[str, list[dict]]) -> _CNameTable:
-    if _NAME_TABLE[0] is not symbols_by_file:
-        _NAME_TABLE[0] = symbols_by_file
-        _NAME_TABLE[1] = _CNameTable(symbols_by_file)
-    return _NAME_TABLE[1]
+    global _NAME_TABLE
+    key, table = _NAME_TABLE
+    if key is symbols_by_file and table is not None:
+        return table
+    table = _CNameTable(symbols_by_file)
+    _NAME_TABLE = (symbols_by_file, table)
+    return table
 
 
 def _only_definition(sym: dict, table: _CNameTable) -> bool:

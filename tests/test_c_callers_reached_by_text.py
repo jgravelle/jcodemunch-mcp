@@ -19,6 +19,8 @@ The full include-chain rule is v2 (V2-BACKLOG row 6).
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from jcodemunch_mcp.tools import _call_graph
@@ -365,3 +367,54 @@ def test_a_static_answer_says_only_its_own_file_is_read(tmp_path):
     repo, store = _index(tmp_path, REACHED["a static function's caller in its own file"][0])
     detail = _hierarchy(repo, store, "a.c::twice#function")["callers_text_only"]["detail"]
     assert "static" in detail and "own file" in detail
+
+
+def test_the_name_table_slot_never_pairs_one_map_with_another_maps_table(monkeypatch):
+    """Review of L-339: tool calls run on worker threads, and a slot written
+    in two steps let a slow build for map A land under map B's key. The
+    interleaving is pinned: A's build blocks until B has been served."""
+    import threading
+
+    a = {"a.c": [{"id": "a.c::f#function", "name": "f", "kind": "function", "signature": "int f(void)"}]}
+    b = {"b.c": [{"id": "b.c::g#function", "name": "g", "kind": "function", "signature": "int g(void)"}]}
+    real = _call_graph._CNameTable
+    a_building = threading.Event()
+    b_served = threading.Event()
+
+    def slow(symbols_by_file):
+        if symbols_by_file is a:
+            a_building.set()
+            assert b_served.wait(10)
+        return real(symbols_by_file)
+
+    monkeypatch.setattr(_call_graph, "_CNameTable", slow)
+    monkeypatch.setattr(_call_graph, "_NAME_TABLE", (None, None))
+    got = {}
+    worker = threading.Thread(target=lambda: got.setdefault("a", _call_graph._name_table(a)))
+    worker.start()
+    assert a_building.wait(10)
+    got["b"] = _call_graph._name_table(b)
+    b_served.set()
+    worker.join(10)
+    assert not worker.is_alive()
+    assert set(got["a"].definitions) == {"f"}
+    assert set(got["b"].definitions) == {"g"}
+    # B's next node: whatever the slot holds, it never hands B A's table.
+    assert set(_call_graph._name_table(b).definitions) == {"g"}
+    assert set(_call_graph._name_table(a).definitions) == {"f"}
+
+
+def test_no_dead_code_module_imports_the_caller_search():
+    """A bound import would bypass the raising patch above, so the absence of
+    the import is asserted over the syntax tree, not by patching."""
+    import ast
+    import jcodemunch_mcp.tools.find_dead_code as fdc
+    import jcodemunch_mcp.tools.get_dead_code_v2 as v2
+
+    searched = {"c_text_reach", "find_direct_callers", "bfs_callers"}
+    for mod in (fdc, v2):
+        tree = ast.parse(Path(mod.__file__).read_text(encoding="utf-8"))
+        names = {
+            a.name for n in ast.walk(tree) if isinstance(n, ast.ImportFrom) for a in n.names
+        } | {n.attr for n in ast.walk(tree) if isinstance(n, ast.Attribute)}
+        assert not names & searched, (mod.__name__, names & searched)

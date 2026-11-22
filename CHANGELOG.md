@@ -37,8 +37,9 @@ stripped on a default install, and the compact encoding carries it
 `adaptive` output picks the compact form whenever it is smaller.
 
 The per-name definitions and prototypes are read once per traversal, not once
-per traversed caller: on a 1,982-file C repository, the reach rule took 1.1 s of
-its 3,961 calls in one `get_impact_preview`.
+per traversed caller. The table is cached in one slot published as a single
+value, so two tool calls on different repositories at once can each rebuild
+it, but neither is handed the other's.
 
 Two older tests in `test_c_definition_takes_header_callers.py` had asserted
 that a `static` function had no callers while a function in its own file
