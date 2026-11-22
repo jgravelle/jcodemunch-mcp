@@ -1,6 +1,12 @@
 {
-  "current": "1.108.482",
+  "current": "1.108.483",
   "entries": [
+    {
+      "version": "1.108.483",
+      "date": "2026-11-22",
+      "title": "A Ruby import never resolves to another language's file",
+      "summary": "An extensionless require or require_relative in a .rb or .rake file now resolves only to a .rb file. It no longer becomes an import edge to a Python, JavaScript, Go or SQL file Ruby cannot load, so find_dead_code, find_importers and get_blast_radius stop treating such a file as imported in a mixed repository."
+    },
     {
       "version": "1.108.482",
       "date": "2026-11-22",

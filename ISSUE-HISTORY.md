@@ -3500,3 +3500,9 @@ The 1.108.478 entry, verbatim as it stood in `CLAUDE.md`:
 The 1.108.479 entry, verbatim as it stood in `CLAUDE.md`:
 
 - **Prior (1.108.479):** **a cut-short text search is never read as a complete one** (L-309): `retrieval/verdict.search_text_cut_short` is the one completeness reading for the deletion investigator and the Grep-answer hook. Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-22, release 1.108.483)
+
+The 1.108.480 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.480):** **`get_ranked_context` says when no symbol has the name you asked for** (L-284): `retrieval/verdict.mark_no_exact_match` is the one body marker, read by `search_symbols` and both `get_ranked_context` exits. Full text: `CHANGELOG.md`.
