@@ -2,6 +2,24 @@
 
 ## [Unreleased]
 
+### A capped re-index says which of its files came from an earlier index (L-305)
+
+A command-line index can hold more files than an agent's `index_folder` cap
+allows, and an agent's re-index keeps those files rather than dropping them.
+The warning it then printed read "8 files discovered, 5 indexed, 3 dropped
+(max_folder_files=3)": five files indexed beside a cap of three, with nothing
+saying where the other two came from. `resolve_repo`'s truncation warning
+printed the same line. So did `init`'s summary when `max_folder_files` also
+binds the command line: "max_folder_files = 3 ... 7 of 8 files are in the
+index".
+
+All three now read "(max_folder_files=3 on the last whole-tree index; 2 more
+files kept from an earlier index)". The save that keeps the files records how
+many it kept (`files_kept`), and `security.cap_setting` reads that count. It
+never subtracts the cap from the indexed count: a watcher save that parses a
+file past the cap also lifts that count, and that file was not kept. An index
+within its own cap keeps the plain "(max_folder_files=3)".
+
 ## [1.108.484] - 2026-11-22 - a folder inside a Git worktree is matched to the indexed checkout
 
 ### A folder inside a Git worktree is matched to the indexed checkout (L-235)
