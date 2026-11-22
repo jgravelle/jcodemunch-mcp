@@ -8,7 +8,16 @@ from typing import Optional
 from ..storage import IndexStore
 from ._utils import index_status_to_tool_error, resolve_repo
 from .get_blast_radius import _build_reverse_adjacency, _find_symbol, with_same_package_peers
-from ._call_graph import build_symbols_by_file, bfs_callers, bfs_callees, label_row_depths
+from ._call_graph import (
+    C_UMBRELLA_HOPS,
+    _is_file_local,
+    bfs_callees,
+    bfs_callers,
+    build_symbols_by_file,
+    c_text_reach,
+    is_c_family_file,
+    label_row_depths,
+)
 from ._scip_consume import open_scip_reader, scip_meta_and_stale, scip_meta_block
 from ..retrieval.verdict import (
     build_verdict,
@@ -359,7 +368,50 @@ def get_call_hierarchy(
     if direction in ("callers", "both"):
         _attach_caller_gate_disclosure(response, index, sym, reverse_adj)
         _attach_call_lines(response, index, store, owner, name)
+        _attach_c_text_only(response, index, sym, reverse_adj, symbols_by_file)
     return response
+
+
+def _attach_c_text_only(response: dict, index, sym: dict, reverse_adj, symbols_by_file) -> None:
+    """(L-339) Say that a C/C++ callers answer is a text match and can be short.
+
+    v1 records no C/C++ call references, so every caller is ``text_matched``
+    and an empty list is what the text search found, never a proven zero
+    (L-59's lesson). TOP LEVEL, not ``_meta``: ``meta_fields: []`` is the
+    default and strips ``_meta``, which would delete the warning on exactly
+    the installs that need it.
+    """
+    if not is_c_family_file(sym.get("file", "")):
+        return
+    callers = response.get("callers") or []
+    if any(c.get("resolution") != "text_matched" for c in callers):
+        return  # a compiler- or AST-grade edge answered; not text-only
+    _files, cap_reached = c_text_reach(index, sym, reverse_adj, symbols_by_file)
+    if _is_file_local(sym):
+        where = (
+            "this function is static, so only a function in its own file that "
+            "mentions the name is read"
+        )
+    else:
+        where = (
+            "a function that mentions the name, in this file or in a file that "
+            "includes a header declaring it, through at most "
+            f"{C_UMBRELLA_HOPS} umbrella headers"
+        )
+    # ⚠ `umbrella_hop_cap_reached` is measured for the asked symbol only; a
+    # caller of a caller (depth 2 and beyond) is found by the same walk but is
+    # not reported here.
+    response["callers_text_only"] = {
+        "basis": "text_matched",
+        "may_miss_callers": True,
+        "umbrella_hop_cap": C_UMBRELLA_HOPS,
+        "umbrella_hop_cap_reached": cap_reached,
+        "detail": (
+            f"C/C++ callers come from a text search: {where}. A caller reached "
+            "through a longer include chain, a macro or a function pointer can be "
+            "missing, so an empty list is not proof that nothing calls it."
+        ),
+    }
 
 
 # A caller row carried only its DEFINITION line, so "where is f called" still

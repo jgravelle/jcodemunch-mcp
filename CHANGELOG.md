@@ -2,6 +2,52 @@
 
 ## [Unreleased]
 
+### A C or C++ caller is found in four layouts where it was missing, and the answer says it came from a text match (L-339)
+
+The index records no C or C++ call references, so `get_call_hierarchy` finds
+their callers by text. It read the files that import the definition's file
+and the files that import a header the definition's own file includes, and
+nothing else. Four common layouts returned no caller at all:
+
+- the caller is in the same file as the definition, static or not;
+- the caller includes an umbrella header that includes the declaring one;
+- the definition's file does not include its own header (C);
+- the caller writes its own prototype and includes no header (C).
+
+The response gave no sign that the list could be short, so "no callers" read
+as a confirmed zero. `get_impact_preview`, and `get_blast_radius` when it is
+asked for call depth (`call_depth > 0`), read the same search and missed the
+same callers.
+
+The search now also reads the definition's own file. It follows umbrella
+headers (a header that includes the declaring header) up to four deep,
+`C_UMBRELLA_HOPS`. It takes the last two layouts only for a C function whose
+name has exactly one non-static definition, because with two nothing says
+which one is called. In C++ a bare name does not identify a function: a second
+`f` in another namespace, in an anonymous namespace or as an overload would take
+another `f`'s callers, so those two layouts are not read for C++. Callers found
+this way are still `text_matched`.
+
+A C or C++ answer whose callers are all text matches, an empty one included,
+now carries a top-level `callers_text_only` block. It says the result came from
+a text match and may miss callers, gives the hop cap, and says whether the walk
+left a header that some file includes unread. It is top level because `_meta` is
+stripped on a default install, and the compact encoding carries it
+(`get_call_hierarchy` encoding `ch4`; `ch3` still decodes), because the default
+`adaptive` output picks the compact form whenever it is smaller.
+
+The per-name definitions and prototypes are read once per traversal, not once
+per traversed caller. The table is cached in one slot published as a single
+value, so two tool calls on different repositories at once can each rebuild
+it, but neither is handed the other's.
+
+Two older tests in `test_c_definition_takes_header_callers.py` had asserted
+that a `static` function had no callers while a function in its own file
+called it. They now assert that caller, and still that no other file reaches
+it. The dead-code tools never read this search: a test replaces the reach rule
+with one that raises and checks their answers do not change, and a second test
+checks the same replacement does reach the caller search.
+
 ### `find_dead_code` and `check_delete_safe` no longer prove a Go file dead when no `go.mod` maps its imports (L-59)
 
 A Go import names a module path (`example.com/app/repository`), not a file.
