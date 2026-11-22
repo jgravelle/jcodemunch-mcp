@@ -33,8 +33,8 @@ from ..security import (
     get_max_file_size,
     get_max_folder_files,
     get_cli_folder_cap,
-    cap_label,
     cap_remedy,
+    cap_setting,
     get_extra_ignore_patterns,
     get_respect_cachedir_tag,
     get_skip_directories,
@@ -228,7 +228,7 @@ def _attach_cap_report(result: dict, cap: Optional[dict]) -> None:
     result.setdefault("warnings", []).append(
         f"File cap reached: {cap['files_discovered']} files discovered, "
         f"{cap['files_indexed']} indexed, {cap['files_skipped_cap']} dropped "
-        f"({cap_label(cap)}={cap['max_folder_files']}). Entire files are missing "
+        f"({cap_setting(cap)}). Entire files are missing "
         "from the index. "
         + (
             cap_remedy(cap)

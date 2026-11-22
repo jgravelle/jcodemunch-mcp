@@ -2,6 +2,20 @@
 
 ## [Unreleased]
 
+### A capped re-index says which of its files came from an earlier index (L-305)
+
+A command-line index can hold more files than an agent's `index_folder` cap
+allows, and an agent's re-index keeps those files rather than dropping them.
+The warning it then printed read "8 files discovered, 5 indexed, 3 dropped
+(max_folder_files=3)": five files indexed beside a cap of three, with nothing
+saying where the other two came from. `resolve_repo`'s truncation warning
+printed the same line.
+
+Both now read "(max_folder_files=3 on the last run; 2 more files kept from an
+earlier index)". `security.cap_setting` builds the label for both, from the
+stored counts, and an index within its own cap keeps the plain
+"(max_folder_files=3)".
+
 ## [1.108.483] - 2026-11-22 - a Ruby import never resolves to another language's file
 
 ### A Ruby import never resolves to another language's file (L-294)

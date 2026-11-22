@@ -1161,6 +1161,29 @@ def cap_label(status: dict) -> str:
     return (status or {}).get("cap_key") or "max_folder_files"
 
 
+def cap_setting(status: dict) -> str:
+    """The cap beside a status's counts: ``key=value``, and the kept files.
+
+    L-305: a capped call over an index built past its cap (by the command line)
+    keeps the files past the cap, so ``files_indexed`` exceeds the call's cap
+    and "5 indexed ... (max_folder_files=3)" contradicts itself. Every message
+    that prints the counts with the cap asks this, so each says how many of
+    the indexed files came from the earlier index. A count it can't read makes
+    no claim about kept files.
+    """
+    status = status or {}
+    cap = status.get("max_folder_files")
+    setting = f"{cap_label(status)}={cap}"
+    indexed = status.get("files_indexed")
+    if type(cap) is int and type(indexed) is int and indexed > cap:
+        kept = indexed - cap
+        return (
+            f"{setting} on the last run; {kept} more file{'' if kept == 1 else 's'} "
+            "kept from an earlier index"
+        )
+    return setting
+
+
 def cap_remedy(status: dict) -> Optional[str]:
     """The step that gets a capped index the files it lacks, or None.
 

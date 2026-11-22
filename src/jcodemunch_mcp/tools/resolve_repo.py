@@ -194,7 +194,7 @@ def _build_indexed_response(
         except Exception:
             cap = {}
         if cap.get("truncated"):
-            from ..security import cap_label, cap_remedy
+            from ..security import cap_remedy, cap_setting
 
             result["truncated"] = True
             result["files_discovered"] = cap.get("files_discovered")
@@ -203,8 +203,8 @@ def _build_indexed_response(
             result["truncation_warning"] = (
                 f"Index truncated by the file cap: {cap.get('files_discovered')} files "
                 f"discovered, {cap.get('files_indexed')} indexed, "
-                f"{cap.get('files_skipped_cap')} dropped ({cap_label(cap)}="
-                f"{cap.get('max_folder_files')}). Entire files are missing from search "
+                f"{cap.get('files_skipped_cap')} dropped ({cap_setting(cap)}). "
+                "Entire files are missing from search "
                 "results. "
                 + (
                     cap_remedy(cap)
