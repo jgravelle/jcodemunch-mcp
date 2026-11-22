@@ -339,8 +339,18 @@ class _Manager:
     def list_folders(self):
         return list(self.folders)
 
+    # Set by a test that waits for something the daemon does mid-run: the run
+    # ends once it holds, never after a fixed time a slow runner can outlast.
+    until = None
+    _DEADLINE_S = 30.0
+
     async def run(self):
-        await asyncio.sleep(0.3)
+        if self.until is None:
+            await asyncio.sleep(0.3)
+            return
+        deadline = time.monotonic() + self._DEADLINE_S
+        while not self.until() and time.monotonic() < deadline:
+            await asyncio.sleep(0.01)
 
     def stop(self):
         pass
@@ -349,15 +359,17 @@ class _Manager:
 class TestTheDaemon:
     """watch_all() itself, driven with the real scope over a real index."""
 
-    def _run(self, monkeypatch, store_dir, **settings):
+    def _run(self, monkeypatch, store_dir, until=None, **settings):
         made: list[_Manager] = []
+        lines: list[str] = []
 
         def _make(**kw):
             m = _Manager(**kw)
+            if until is not None:
+                m.until = lambda: until(m, lines)
             made.append(m)
             return m
 
-        lines: list[str] = []
         monkeypatch.setattr(watch_all, "WatcherManager", _make)
         monkeypatch.setattr(watch_all, "_is_wsl", lambda: False)
         monkeypatch.setattr(
@@ -390,16 +402,31 @@ class TestTheDaemon:
     def test_a_repo_that_goes_idle_mid_run_is_dropped_and_named(
         self, tmp_path, monkeypatch
     ):
+        """The second discovery pass is slowed by half a second, as on a slow CI
+        runner, where a fixed window once ended the run before the drop (the
+        windows-latest 3.13 failure on #1541). The run ends when the drop has
+        happened, not after a fixed time."""
         folder, _e, _d, store_dir = _index(tmp_path, file_age_days=1)
         calls = {"n": 0}
         real = watch_scope.skip_reason
 
         def _flip(*a, **kw):
             calls["n"] += 1
-            return "idle" if calls["n"] > 1 else real(*a, **kw)
+            if calls["n"] > 1:
+                time.sleep(0.5)
+                return "idle"
+            return real(*a, **kw)
 
         monkeypatch.setattr(watch_scope, "skip_reason", _flip)
-        manager, lines = self._run(monkeypatch, store_dir, s=(False, 14))
+
+        def _dropped_and_named(m, lines):
+            return folder in m.removed and any(
+                "stopped watching" in ln and folder in ln for ln in lines
+            )
+
+        manager, lines = self._run(
+            monkeypatch, store_dir, until=_dropped_and_named, s=(False, 14)
+        )
 
         assert folder in manager.removed
         assert any("stopped watching" in ln and folder in ln for ln in lines), lines
