@@ -4,7 +4,7 @@ The parameter was in the signature and nothing read it: the MCP schema did not
 offer it, the dispatcher did not pass it, and the embedded blast walk never saw
 it. A Python caller who set it got a local-only blast with no sign the flag did
 nothing. Removing it would break that caller on 1.x, so it stays and a call that
-passes it gets a `UserWarning` naming it as ignored.
+passes it gets a `FutureWarning` naming it as ignored.
 """
 
 from __future__ import annotations
@@ -27,7 +27,7 @@ def _unread_parameters(fn_source: str) -> list[str]:
     """
     fn = ast.parse(textwrap.dedent(fn_source)).body[0]
     assert isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef))
-    params = [a.arg for a in fn.args.args + fn.args.kwonlyargs]
+    params = [a.arg for a in fn.args.posonlyargs + fn.args.args + fn.args.kwonlyargs]
     reads = {
         node.id
         for stmt in fn.body
@@ -38,19 +38,19 @@ def _unread_parameters(fn_source: str) -> list[str]:
 
 
 def test_passing_cross_repo_warns_that_it_does_nothing(tmp_path):
-    with pytest.warns(UserWarning, match="cross_repo has no effect"):
+    with pytest.warns(FutureWarning, match="cross_repo has no effect"):
         get_changed_symbols("o/r", storage_path=str(tmp_path), cross_repo=True)
 
 
 def test_a_call_without_cross_repo_does_not_warn(tmp_path):
     with warnings.catch_warnings():
-        warnings.simplefilter("error", UserWarning)
+        warnings.simplefilter("error", FutureWarning)
         get_changed_symbols("o/r", storage_path=str(tmp_path))
 
 
 def test_cross_repo_still_accepted_so_a_1x_caller_does_not_break(tmp_path):
     assert "cross_repo" in inspect.signature(get_changed_symbols).parameters
-    with pytest.warns(UserWarning):
+    with pytest.warns(FutureWarning):
         out = get_changed_symbols("o/r", storage_path=str(tmp_path), cross_repo=False)
     assert isinstance(out, dict)
 

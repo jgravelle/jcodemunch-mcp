@@ -209,7 +209,7 @@ def get_changed_symbols(
         warnings.warn(
             "get_changed_symbols: cross_repo has no effect (the blast radius is "
             "local-only) and will be removed in 2.0",
-            UserWarning,
+            FutureWarning,
             stacklevel=2,
         )
 
