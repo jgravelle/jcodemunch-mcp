@@ -2,6 +2,26 @@
 
 ## [Unreleased]
 
+### A Ruby import never resolves to a Python or JavaScript file (L-294)
+
+Ruby's `require` and `require_relative` load `.rb` files, and compiled
+extensions, which are not indexed. Since #1316 an extensionless Ruby
+specifier tried `.rb` first, but when no `.rb` file existed it fell through
+to the JavaScript, Python and Go forms. `require_relative '../utils'` with
+only `utils.py` present became an import edge to `utils.py`, a file Ruby can
+never load. Every tool that reads the import graph counted that edge, so a
+dead Python or JavaScript file in a mixed repository looked imported to
+`find_dead_code`, `find_importers` and `get_blast_radius`.
+
+A Ruby importer now tries only its own forms. A specifier with no `.rb`
+file behind it is no edge, which is the resolver's rule for a guess across
+languages. A specifier that names the file exactly still resolves, and every
+other importer keeps its order.
+
+A test in `test_own_language_extension_first.py` had asserted the Ruby
+fallback to `lib/only.py` on purpose. It now asserts no edge, and a new test
+keeps the fallback for a Python importer, whose order is unchanged.
+
 ## [1.108.482] - 2026-11-22 - a Go file no go.mod covers is never proven dead, and a C or C++ caller list says it came from a text match
 
 ### A C or C++ caller is found in four layouts where it was missing, and the answer says it came from a text match (L-339)
