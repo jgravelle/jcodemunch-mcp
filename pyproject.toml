@@ -7,7 +7,7 @@ requires-python = ">=3.10"
 authors = [
     { name = "J. Gravelle", email = "j@gravelle.us" },
 ]
-license = "LicenseRef-jCodeMunch-Dual-Use-1"
+license = "LicenseRef-jCodeMunch-Dual-Use-2"
 license-files = ["LICENSE"]
 keywords = [
     "mcp",
