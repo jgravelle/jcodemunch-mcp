@@ -1,0 +1,185 @@
+{
+ "date": "2026-11-22",
+ "tools": [
+  {
+   "tool": "aider",
+   "registry": "pypi",
+   "package": "aider-chat",
+   "pinned": "0.86.2",
+   "latest": "0.86.0",
+   "release_title": "Aider v0.86.0",
+   "release_url": "https://github.com/Aider-AI/aider/releases/tag/v0.86.0",
+   "release_date": "2025-08-09T17:42:19Z",
+   "new": true,
+   "rules": {
+    "capability_words": [],
+    "axis_words": []
+   },
+   "status": "read"
+  },
+  {
+   "tool": "cocoindex",
+   "registry": "pypi",
+   "package": "cocoindex-code",
+   "pinned": "0.2.41",
+   "latest": "0.2.43",
+   "release_title": "v0.2.43",
+   "release_url": "https://github.com/cocoindex-io/cocoindex-code/releases/tag/v0.2.43",
+   "release_date": "2026-11-05T23:36:18Z",
+   "new": true,
+   "rules": {
+    "capability_words": [],
+    "axis_words": []
+   },
+   "status": "read"
+  },
+  {
+   "tool": "code_review_graph",
+   "registry": "pypi",
+   "package": "code-review-graph",
+   "pinned": "2.3.8",
+   "latest": "2.4.0",
+   "release_title": "v2.4.0",
+   "release_url": "https://github.com/tirth8205/code-review-graph/releases/tag/v2.4.0",
+   "release_date": "2026-11-11T13:59:13Z",
+   "new": true,
+   "rules": {
+    "capability_words": [],
+    "axis_words": [
+     "faster",
+     "index"
+    ]
+   },
+   "status": "read"
+  },
+  {
+   "tool": "codebase_memory",
+   "registry": "github-release",
+   "package": "DeusData/codebase-memory-mcp",
+   "pinned": "0.10.8",
+   "latest": "0.12.1",
+   "release_title": "v0.12.1",
+   "release_url": "https://github.com/DeusData/codebase-memory-mcp/releases/tag/v0.12.1",
+   "release_date": "2026-10-16T23:35:48Z",
+   "new": true,
+   "rules": {
+    "capability_words": [],
+    "axis_words": [
+     "index"
+    ]
+   },
+   "status": "read"
+  },
+  {
+   "tool": "codegraph",
+   "registry": "github-release",
+   "package": "colbymchenry/codegraph",
+   "pinned": "1.6.0",
+   "latest": "1.6.4",
+   "release_title": "v1.6.4",
+   "release_url": "https://github.com/colbymchenry/codegraph/releases/tag/v1.6.4",
+   "release_date": "2026-11-20T15:08:40Z",
+   "new": true,
+   "rules": {
+    "capability_words": [],
+    "axis_words": [
+     "faster",
+     "index"
+    ]
+   },
+   "status": "read"
+  },
+  {
+   "tool": "cymbal",
+   "registry": "github-release",
+   "package": "1broseidon/cymbal",
+   "pinned": "0.14.0",
+   "latest": "0.18.0",
+   "release_title": "v0.18.0",
+   "release_url": "https://github.com/1broseidon/cymbal/releases/tag/v0.18.0",
+   "release_date": "2026-11-08T15:11:13Z",
+   "new": true,
+   "rules": {
+    "capability_words": [],
+    "axis_words": [
+     "index"
+    ]
+   },
+   "status": "read"
+  },
+  {
+   "tool": "graft",
+   "registry": "npm",
+   "package": "@nanonets/graft",
+   "pinned": "0.16.0",
+   "latest": "0.30.1",
+   "release_title": null,
+   "release_url": null,
+   "release_date": null,
+   "new": true,
+   "rules": {
+    "capability_words": [],
+    "axis_words": []
+   },
+   "status": "read"
+  },
+  {
+   "tool": "serena",
+   "registry": "pypi",
+   "package": "serena-agent",
+   "pinned": "1.7.0",
+   "latest": "2.1.0",
+   "release_title": "v2.1.0",
+   "release_url": "https://github.com/oraios/serena/releases/tag/v2.1.0",
+   "release_date": "2026-10-19T17:30:43Z",
+   "new": true,
+   "rules": {
+    "capability_words": [],
+    "axis_words": []
+   },
+   "status": "read"
+  },
+  {
+   "tool": "zvec_grep",
+   "registry": "npm",
+   "package": "@zvec/zvec-grep",
+   "pinned": "0.2.2",
+   "latest": "0.3.1",
+   "release_title": "v0.3.1",
+   "release_url": "https://github.com/zvec-ai/zvec-grep/releases/tag/v0.3.1",
+   "release_date": "2026-11-18T07:03:31Z",
+   "new": true,
+   "rules": {
+    "capability_words": [],
+    "axis_words": [
+     "index"
+    ]
+   },
+   "status": "read"
+  }
+ ],
+ "rerun": [
+  {
+   "tool": "codegraph",
+   "version": "1.6.4",
+   "reason": "release:codegraph@1.6.4",
+   "words": [
+    "faster",
+    "index"
+   ]
+  },
+  {
+   "tool": "zvec_grep",
+   "version": "0.3.1",
+   "reason": "release:zvec_grep@0.3.1",
+   "words": [
+    "index"
+   ]
+  }
+ ],
+ "rerun_already_dispatched": [
+  "release:code_review_graph@2.4.0",
+  "release:codebase_memory@0.12.1",
+  "release:cymbal@0.18.0"
+ ]
+}
