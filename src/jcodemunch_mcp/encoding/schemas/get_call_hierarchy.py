@@ -5,8 +5,12 @@ from .. import schema_driven as sd
 TOOLS = ("get_call_hierarchy",)
 # ch3: callers carry `call_lines` (a comma-joined cell) with its cap keys and
 # `call_lines_unknown`, and the response carries `call_sites` and its scalars.
-ENCODING_ID = "ch3"
-LEGACY_ENCODING_IDS = ("ch1", "ch2")
+# ch4 (L-339): a C/C++ answer carries `callers_text_only`, the warning that its
+# callers are text matches and can be short. It rides as a JSON blob; without
+# it the compact form (the `adaptive` default picks it whenever it is smaller)
+# dropped the warning on exactly the installs it was written for.
+ENCODING_ID = "ch4"
+LEGACY_ENCODING_IDS = ("ch1", "ch2", "ch3")
 
 _ROW_COLS = ["id", "name", "kind", "file", "line", "depth", "resolution", "via"]
 
@@ -67,6 +71,7 @@ _JSON = (
     "callers_by_depth",
     "callees_by_depth",
     "call_sites",
+    "callers_text_only",
 )
 
 

@@ -10,6 +10,7 @@ from ._utils import index_status_to_tool_error, resolve_repo
 from .get_blast_radius import _build_reverse_adjacency, _find_symbol, with_same_package_peers
 from ._call_graph import (
     C_UMBRELLA_HOPS,
+    _is_file_local,
     bfs_callees,
     bfs_callers,
     build_symbols_by_file,
@@ -386,18 +387,29 @@ def _attach_c_text_only(response: dict, index, sym: dict, reverse_adj, symbols_b
     if any(c.get("resolution") != "text_matched" for c in callers):
         return  # a compiler- or AST-grade edge answered; not text-only
     _files, cap_reached = c_text_reach(index, sym, reverse_adj, symbols_by_file)
+    if _is_file_local(sym):
+        where = (
+            "this function is static, so only a function in its own file that "
+            "mentions the name is read"
+        )
+    else:
+        where = (
+            "a function that mentions the name, in this file or in a file that "
+            "includes a header declaring it, through at most "
+            f"{C_UMBRELLA_HOPS} umbrella headers"
+        )
+    # ⚠ `umbrella_hop_cap_reached` is measured for the asked symbol only; a
+    # caller of a caller (depth 2 and beyond) is found by the same walk but is
+    # not reported here.
     response["callers_text_only"] = {
         "basis": "text_matched",
         "may_miss_callers": True,
         "umbrella_hop_cap": C_UMBRELLA_HOPS,
         "umbrella_hop_cap_reached": cap_reached,
         "detail": (
-            "C/C++ callers come from a text search: a function in a file that "
-            "includes a header declaring this name, through at most "
-            f"{C_UMBRELLA_HOPS} umbrella headers, or in this file, that mentions "
-            "the name. A caller reached through a longer include chain, a macro, "
-            "or a function pointer can be missing, so an empty list is not proof "
-            "that nothing calls it."
+            f"C/C++ callers come from a text search: {where}. A caller reached "
+            "through a longer include chain, a macro or a function pointer can be "
+            "missing, so an empty list is not proof that nothing calls it."
         ),
     }
 

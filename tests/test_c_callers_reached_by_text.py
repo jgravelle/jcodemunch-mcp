@@ -248,9 +248,13 @@ DEAD_CODE_LAYOUTS = {k: REACHED[k][0] for k in REACHED} | {
 
 
 @pytest.mark.parametrize("label", sorted(DEAD_CODE_LAYOUTS))
-def test_dead_code_reads_nothing_this_changes(tmp_path, label, monkeypatch):
-    """The dead-code tools never ask the caller search: their answers are
-    the same with the search replaced by one that returns nothing."""
+def test_dead_code_never_consults_the_caller_reach(tmp_path, label, monkeypatch):
+    """The dead-code tools do not read the caller search this change widens.
+
+    The reach rule is replaced by one that raises, so a dead-code tool that
+    ever consults it (through any import) fails here. `find_direct_callers`
+    looks `c_text_reach` up through module globals, so the patch reaches it.
+    """
     repo, store = _index(tmp_path, DEAD_CODE_LAYOUTS[label])
 
     def answers():
@@ -259,11 +263,105 @@ def test_dead_code_reads_nothing_this_changes(tmp_path, label, monkeypatch):
         return (
             sorted(str(s.get("symbol_id") or s.get("id")) for s in v2.get("dead_symbols", [])),
             sorted(f["file"] for f in v1.get("dead_files", [])),
-            sorted(str(s.get("symbol_id") or s.get("id")) for s in v1.get("dead_symbols", [])),
         )
 
     before = answers()
-    # Non-vacuity: the layout must report SOMETHING, or equal answers prove nothing.
     assert any(before), (label, before)
-    monkeypatch.setattr(_call_graph, "find_direct_callers", lambda *a, **k: [])
+
+    def refuse(*_a, **_k):
+        raise AssertionError("a dead-code tool consulted the C caller reach")
+
+    monkeypatch.setattr(_call_graph, "c_text_reach", refuse)
     assert answers() == before
+
+
+def test_the_raising_reach_is_seen_by_the_caller_search(tmp_path, monkeypatch):
+    """Non-vacuity for the test above: the same patch does reach the search."""
+    files, definition, _caller = REACHED["an umbrella header"]
+    repo, store = _index(tmp_path, files)
+
+    def refuse(*_a, **_k):
+        raise AssertionError("consulted")
+
+    monkeypatch.setattr(_call_graph, "c_text_reach", refuse)
+    with pytest.raises(AssertionError, match="consulted"):
+        get_call_hierarchy(repo=repo, symbol_id=definition, direction="callers", storage_path=store)
+
+
+# C++: a bare name does not identify a function (review of L-339). The two
+# one-definition rules are C only, so none of these take another f's caller.
+CPP_SAME_BARE_NAME = {
+    "another namespace": (
+        {
+            "a.hpp": "namespace a { void f(); }\n",
+            "b.cpp": "namespace b { void f() {} }\n",
+            "main.cpp": '#include "a.hpp"\nint run() { a::f(); return 0; }\n',
+        },
+        "b.cpp::b.f#function",
+    ),
+    "an anonymous namespace": (
+        {
+            "a.hpp": "void f();\n",
+            "b.cpp": "namespace { void f() {} }\nvoid f();\n",
+            "main.cpp": '#include "a.hpp"\nint run() { f(); return 0; }\n',
+        },
+        None,
+    ),
+    "an overload": (
+        {
+            "a.hpp": "void f(int x);\n",
+            "b.cpp": "void f(double x) {}\n",
+            "main.cpp": '#include "a.hpp"\nint run() { f(1); return 0; }\n',
+        },
+        None,
+    ),
+}
+
+
+@pytest.mark.parametrize("label", sorted(CPP_SAME_BARE_NAME))
+def test_a_cpp_function_of_the_same_bare_name_takes_no_caller(tmp_path, label):
+    files, definition = CPP_SAME_BARE_NAME[label]
+    repo, store = _index(tmp_path, files)
+    if definition is None:
+        from jcodemunch_mcp.storage import IndexStore
+
+        owner, name = repo.split("/", 1)
+        idx = IndexStore(base_path=store).load_index(owner, name)
+        defs = [
+            s["id"] for s in idx.symbols
+            if s["file"] == "b.cpp" and s["name"] == "f"
+            and not (s.get("signature") or "").rstrip().endswith(";")
+        ]
+        assert defs, idx.symbols
+        definition = defs[0]
+    assert "main.cpp::run#function" not in _callers(repo, store, definition), label
+
+
+def test_the_compact_form_keeps_the_text_only_block(tmp_path):
+    """The `adaptive` default picks the compact encoding whenever it is
+    smaller, so the block must survive it."""
+    from jcodemunch_mcp.encoding.schemas import get_call_hierarchy as sch
+
+    repo, store = _index(tmp_path, {
+        "util.c": "int helper(int x) { return x; }\n",
+        "stray.c": "int run(void) { return helper(1); }\n",
+    })
+    h = _hierarchy(repo, store, "util.c::helper#function")
+    payload, _enc = sch.encode("get_call_hierarchy", h)
+    assert sch.decode(payload)["callers_text_only"] == h["callers_text_only"]
+
+
+def test_a_header_past_the_cap_that_nothing_includes_does_not_raise_the_flag(tmp_path):
+    cap = _call_graph.C_UMBRELLA_HOPS
+    files = _chain(cap)
+    files[f"u{cap}.h"] = f'#include "u{cap - 1}.h"\n'
+    repo, store = _index(tmp_path, files)
+    h = _hierarchy(repo, store, "util.c::helper#function")
+    assert "main.c::run#function" in {c["id"] for c in h["callers"]}
+    assert h["callers_text_only"]["umbrella_hop_cap_reached"] is False
+
+
+def test_a_static_answer_says_only_its_own_file_is_read(tmp_path):
+    repo, store = _index(tmp_path, REACHED["a static function's caller in its own file"][0])
+    detail = _hierarchy(repo, store, "a.c::twice#function")["callers_text_only"]["detail"]
+    assert "static" in detail and "own file" in detail
