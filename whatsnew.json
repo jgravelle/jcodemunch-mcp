@@ -1,6 +1,12 @@
 {
-  "current": "1.108.483",
+  "current": "1.108.484",
   "entries": [
+    {
+      "version": "1.108.484",
+      "date": "2026-11-22",
+      "title": "A folder inside a Git worktree is matched to the indexed checkout",
+      "summary": "resolve_repo on a folder inside a linked worktree of an indexed checkout now names that checkout as the index to read from, as it already did for the worktree root. It walks up to the nearest .git the way git does, with no subprocess, and an independent repository nested inside still answers for itself."
+    },
     {
       "version": "1.108.483",
       "date": "2026-11-22",
