@@ -20,6 +20,27 @@ never subtracts the cap from the indexed count: a watcher save that parses a
 file past the cap also lifts that count, and that file was not kept. An index
 within its own cap keeps the plain "(max_folder_files=3)".
 
+## [1.108.484] - 2026-11-22 - a folder inside a Git worktree is matched to the indexed checkout
+
+### A folder inside a Git worktree is matched to the indexed checkout (L-235)
+
+`resolve_repo` on the root of a linked worktree of an indexed checkout
+answers `indexed: false` with `canonical_candidates`, the indexed checkout
+to read from (#277). On a folder inside that worktree it gave no candidate.
+The common-dir read looked only at `<path>/.git`, and a subdirectory has
+none, so the folder had no Git identity. It missed both fast paths, ran
+`git rev-parse` on the route #303 made subprocess-free, and answered
+`indexed: false` with only the advice to index it.
+
+The queried path now walks up to its nearest `.git`, as git does. A folder
+inside a worktree, nested in the checkout or beside it, gets the same
+candidate as the worktree root, with no subprocess. An independent repo
+inside a worktree still answers for itself. Indexed source roots are not
+walked, so an index of a subtree of the checkout is not offered as the repo.
+A folder inside an unindexed checkout whose worktree is indexed now gets
+that worktree as its candidate, as the checkout root already did, rather
+than the slow path's Git-identity answer.
+
 ## [1.108.483] - 2026-11-22 - a Ruby import never resolves to another language's file
 
 ### A Ruby import never resolves to another language's file (L-294)
