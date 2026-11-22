@@ -1,6 +1,12 @@
 {
-  "current": "1.108.481",
+  "current": "1.108.482",
   "entries": [
+    {
+      "version": "1.108.482",
+      "date": "2026-11-22",
+      "title": "A Go file no go.mod covers is never proven dead; a C or C++ caller list says it is a text match",
+      "summary": "find_dead_code no longer reports a Go file as provably dead, and check_delete_safe no longer calls it safe to delete, when no go.mod the index read maps its imports. get_call_hierarchy finds C and C++ callers in four more layouts: the same file, behind an umbrella header, a definition that skips its header, and a caller that writes its own prototype. A C or C++ answer now says its callers came from a text match and may be incomplete."
+    },
     {
       "version": "1.108.481",
       "date": "2026-11-22",

@@ -3494,3 +3494,9 @@ The 1.108.477 entry, verbatim as it stood in `CLAUDE.md`:
 The 1.108.478 entry, verbatim as it stood in `CLAUDE.md`:
 
 - **Prior (1.108.478):** **a lock file is never on disk without the metadata that names its holder** (#1519): `process_locks.acquire` hard-links the metadata into place whole, so a rival never reads an empty lock and deletes it as corrupt; a read that finds no file retries the create and removes nothing. L-336 (contended stale reclaim) stays open. Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-22, release 1.108.482)
+
+The 1.108.479 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.479):** **a cut-short text search is never read as a complete one** (L-309): `retrieval/verdict.search_text_cut_short` is the one completeness reading for the deletion investigator and the Grep-answer hook. Full text: `CHANGELOG.md`.
