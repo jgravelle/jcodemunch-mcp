@@ -3,11 +3,16 @@
 from .. import schema_driven as sd
 
 TOOLS = ("get_blast_radius",)
-ENCODING_ID = "br4"
+ENCODING_ID = "br5"
 # br3 (main): br2 + caller_count, direct_caller_count, callers_by_depth.
 # br4 (L-262): br3 + the body-level `incomplete` and `dynamic_imports_unfollowed`
 # disclosures, which br3 dropped as undeclared top-level dicts.
-LEGACY_ENCODING_IDS = ("br2", "br3")
+# br5 (L-58): br4 + `cross_repo_confirmed_count` and the `include_decisions`
+# `decisions` dict, both dropped because no list here named them.
+# ⚠ A key the tool sets and this schema does not declare is dropped with
+# nothing raised; tests/test_blast_radius_compact_carries_every_key.py reads
+# the producer's source and fails until the schema declares the new key.
+LEGACY_ENCODING_IDS = ("br2", "br3", "br4")
 
 _TABLES = [
     sd.TableSpec(
@@ -27,14 +32,14 @@ _TABLES = [
 _SCALARS = (
     "repo", "depth", "importer_count", "confirmed_count", "potential_count",
     "direct_dependents_count", "overall_risk_score",
-    "caller_count", "direct_caller_count",
+    "caller_count", "direct_caller_count", "cross_repo_confirmed_count",
 )
 _NESTED = {"symbol": ["id", "name", "kind", "file", "line"]}
 _META = ("timing_ms",)
 _META_JSON = ("verdict",)  # structured _meta that must survive compaction
 _JSON = (
     "impact_by_depth", "callers", "callers_by_depth", "cross_repo_confirmed",
-    "incomplete", "dynamic_imports_unfollowed",
+    "incomplete", "dynamic_imports_unfollowed", "decisions",
 )
 
 

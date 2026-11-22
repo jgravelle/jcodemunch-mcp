@@ -2,6 +2,22 @@
 
 ## [Unreleased]
 
+### A compact get_blast_radius answer keeps every top-level key the tool returns (L-58)
+
+The compact form of `get_blast_radius` carried only the keys its schema
+named. `cross_repo_confirmed_count` was not named, so a compact answer had the
+`cross_repo_confirmed` list but not its count. The `decisions` dict that
+`include_decisions` adds was not named either, so a caller who asked for the
+git archaeology got a compact answer without it. Nothing raised: an undeclared
+key is dropped in silence.
+
+Both keys are now carried, under encoding id `br5` (`br4` stays readable). A
+test reads the tool's source for the keys it writes into its answer and fails
+until the schema declares each one, and a second test calls the tool and checks
+every top-level key of the answer survives compact form. A column inside a
+table row that the schema does not name is still dropped; that is tracked
+separately.
+
 ### A capped re-index says which of its files came from an earlier index (L-305)
 
 A command-line index can hold more files than an agent's `index_folder` cap
