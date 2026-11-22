@@ -3488,3 +3488,9 @@ The 1.108.476 entry, verbatim as it stood in `CLAUDE.md`:
 The 1.108.477 entry, verbatim as it stood in `CLAUDE.md`:
 
 - **Prior (1.108.477):** **`get_symbol_source` sends a docstring once, and `announce_model` is listed only while `adaptive_tiering` is on** (#1528): a docstring already inside the served source leaves `docstring` empty with `docstring_in_source: true`; `announce_model` stays callable; the written policy keeps the flag's explanation on its own line. Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-22, release 1.108.481)
+
+The 1.108.478 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.478):** **a lock file is never on disk without the metadata that names its holder** (#1519): `process_locks.acquire` hard-links the metadata into place whole, so a rival never reads an empty lock and deletes it as corrupt; a read that finds no file retries the create and removes nothing. L-336 (contended stale reclaim) stays open. Full text: `CHANGELOG.md`.

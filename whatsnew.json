@@ -1,6 +1,12 @@
 {
-  "current": "1.108.480",
+  "current": "1.108.481",
   "entries": [
+    {
+      "version": "1.108.481",
+      "date": "2026-11-22",
+      "title": "A compact answer says when a secret was redacted; the mcp floor admits no advised SDK",
+      "summary": "A compact answer kept the notes the server adds last only when it was sent as JSON: that a secret was redacted, that the session is near its token budget, and which symbols were already sent. Every compact answer keeps them now. The mcp dependency floor is 1.30.0, the first release with no published advisory."
+    },
     {
       "version": "1.108.480",
       "date": "2026-11-21",
