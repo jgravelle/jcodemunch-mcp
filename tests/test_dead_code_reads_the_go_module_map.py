@@ -18,8 +18,6 @@ and `http/`, `github.com/pkg/errors` and `errors/`. Those keep 1.0 here.
 
 from __future__ import annotations
 
-import pytest
-
 from jcodemunch_mcp.tools._corpus_adequacy import UNPROVEN_CEILING
 from jcodemunch_mcp.tools.find_dead_code import find_dead_code
 from jcodemunch_mcp.tools.index_folder import index_folder
@@ -67,7 +65,8 @@ def test_a_go_file_under_no_go_mod_is_not_proven_dead(tmp_path):
 def test_the_default_call_withholds_them_and_says_how_many(tmp_path):
     out, dead = _dead(*_build(tmp_path, GO_FILES))
     assert not {"repository/order_repo.go", "orphan/orphan.go"} & set(dead)
-    assert out["go_module_unknown_withheld"] >= 2
+    # All three Go files have no importer here, the importer included.
+    assert out["go_module_unknown_withheld"] == 3
 
 
 def test_under_a_go_mod_the_graph_answers_and_nothing_is_capped(tmp_path):
@@ -123,14 +122,63 @@ def test_a_non_go_file_is_never_capped_for_a_go_module(tmp_path):
     assert "confidence_capped_by" not in dead["tools/dead.py"]
 
 
-@pytest.mark.parametrize("module_dir", ["svc"])
-def test_a_nested_go_mod_covers_only_its_tree(tmp_path, module_dir):
-    """A `go.mod` in `svc/` maps `svc/`; a Go file outside it is still unmapped."""
+def test_a_nested_go_mod_covers_only_its_tree(tmp_path):
+    """A `go.mod` in `svc/` maps `svc/`, not `svcx/` beside it, nor `other/`."""
     files = {
-        f"{module_dir}/go.mod": "module example.com/svc\n\ngo 1.22\n",
-        f"{module_dir}/orphan/o.go": ORPHAN_GO,
+        "svc/go.mod": "module example.com/svc\n\ngo 1.22\n",
+        "svc/orphan/o.go": ORPHAN_GO,
+        "svcx/b/b.go": ORPHAN_GO,
         "other/o.go": ORPHAN_GO,
     }
     out, dead = _dead(*_build(tmp_path, files), min_confidence=0)
-    assert dead[f"{module_dir}/orphan/o.go"]["confidence"] == 1.0
-    assert "go_module_unknown" in dead["other/o.go"]["confidence_capped_by"]
+    assert dead["svc/orphan/o.go"]["confidence"] == 1.0
+    for f in ("svcx/b/b.go", "other/o.go"):
+        assert "go_module_unknown" in dead[f]["confidence_capped_by"], f
+
+
+def test_an_unreadable_go_mod_maps_nothing(tmp_path):
+    """A `go.mod` that cannot be read (here a directory) is no map."""
+    out, dead = _dead(*_build(tmp_path, dict(GO_FILES, **{"go.mod/x.txt": "x\n"})), min_confidence=0)
+    assert "go_module_unknown" in dead["orphan/orphan.go"]["confidence_capped_by"]
+
+
+def test_a_go_mod_written_after_the_index_loaded_does_not_lift_the_cap(tmp_path):
+    """Review of L-59: the cap reads the map the index built its edges from.
+    A fresh read of a `go.mod` written later lifted the cap while the edges
+    were still stale, publishing an imported file as proven dead."""
+    repo, store = _build(tmp_path, GO_FILES)
+    _out, first = _dead(repo, store, min_confidence=0)
+    (tmp_path / "fx" / "go.mod").write_text("module example.com/app\n\ngo 1.22\n")
+    _out, second = _dead(repo, store, min_confidence=0)
+    assert second["repository/order_repo.go"]["confidence"] == first["repository/order_repo.go"]["confidence"]
+    assert second["repository/order_repo.go"]["confidence"] <= UNPROVEN_CEILING
+
+
+def test_an_index_with_no_local_tree_maps_no_go_file():
+    """An `index_repo` snapshot has no source root, so no map was read."""
+    from jcodemunch_mcp.storage.index_store import CodeIndex
+    from jcodemunch_mcp.tools.find_dead_code import go_file_outside_module_map
+
+    idx = CodeIndex(
+        repo="o/r", owner="o", name="r", indexed_at="", symbols=[], source_files=["a/a.go"],
+        languages={"go": 1}, imports={"a/a.go": [{"specifier": "example.com/r/b", "names": []}]},
+    )
+    assert idx.go_module_dirs == ()
+    assert go_file_outside_module_map(idx, "a/a.go") is True
+    assert go_file_outside_module_map(idx, "a/a.py") is False
+
+
+def test_check_delete_safe_does_not_certify_an_unmapped_go_symbol(tmp_path):
+    """Capping the report does not cap the tool that acts on it (09-01)."""
+    from jcodemunch_mcp.tools.check_delete_safe import check_delete_safe
+
+    repo, store = _build(tmp_path, GO_FILES)
+    out = check_delete_safe(repo=repo, symbol="orphan/orphan.go::Unused#function", storage_path=store)
+    assert out["verdict"] == "dynamic_import_boundary", out
+    assert any(b["kind"] == "go_module_unknown" for b in out["blockers"]), out
+    assert out["confidence"] <= UNPROVEN_CEILING
+
+    files = dict(GO_FILES, **{"go.mod": "module example.com/app\n\ngo 1.22\n"})
+    repo, store = _build(tmp_path / "mapped", files)
+    out = check_delete_safe(repo=repo, symbol="orphan/orphan.go::Unused#function", storage_path=store)
+    assert out["verdict"] == "safe_to_delete", out

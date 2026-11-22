@@ -10,7 +10,7 @@ import time
 from typing import Optional
 
 from ..storage import IndexStore
-from ..parser.imports import go_modules, resolve_specifier
+from ..parser.imports import resolve_specifier
 from ._utils import index_status_to_tool_error, resolve_repo
 from ..parser.context._route_utils import ENTRY_POINT_DECORATOR_RE
 from ._entry_points import (
@@ -131,6 +131,21 @@ def unmatched_patterns(patterns: Optional[list[str]], source_files) -> list[str]
         return []
     files = list(source_files)
     return [p for p in patterns if not any(_matches_any_pattern(f, [p]) for f in files)]
+
+
+def go_file_outside_module_map(index, path: str) -> bool:
+    """(LEDGER L-59) A Go file no `go.mod` the index read covers.
+
+    Only `go.mod` maps a Go import path to a directory, and the index builds
+    its Go edges from the map it read at load (`CodeIndex.go_module_dirs`,
+    L-264). A file outside every module directory has an import graph nobody
+    could build, so "no importer" is unknown for it, not zero. The one rule
+    `find_dead_code` and `check_delete_safe` both read.
+    """
+    if not (path or "").endswith(".go"):
+        return False
+    dirs = getattr(index, "go_module_dirs", ()) or ()
+    return not any(d == "" or path.startswith(d + "/") for d in dirs)
 
 
 def _live_go_packages(index, rev: dict[str, list[str]], live_roots: set[str]) -> set[str]:
@@ -374,9 +389,6 @@ def find_dead_code(
     # matching an unresolved specifier against a directory's name withheld
     # real findings beside every stdlib and dependency import (`net/http` and
     # `http/`, `github.com/pkg/errors` and `errors/`; review of L-59).
-    _go_module_dirs = list(
-        go_modules(getattr(index, "source_root", "") or "", index.source_files).values()
-    )
     go_unknown_withheld = 0
     unseen_withheld = {
         "build_consumed": 0, "schema_consumer": 0, "runtime_loadable": 0,
@@ -411,11 +423,9 @@ def find_dead_code(
                 continue  # file is reachable, skip
 
         reaching = boundary.reaching(f)
-        go_unknown = (
-            reason == "zero_importers"
-            and f.endswith(".go")
-            and not any(d == "" or f.startswith(d + "/") for d in _go_module_dirs)
-        )
+        # The map the index built its Go edges from (L-264), never a second
+        # read of `go.mod`, which can disagree with the edges it explains.
+        go_unknown = reason == "zero_importers" and go_file_outside_module_map(index, f)
         unseen = unseen_consumer(f, dotnet=dotnet)
         if unseen is None and reason == "all_importers_dead":
             # A codebehind whose only importer is itself unproven inherits the cap.
