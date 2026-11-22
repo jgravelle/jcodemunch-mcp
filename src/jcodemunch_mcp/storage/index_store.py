@@ -919,11 +919,25 @@ class CodeIndex:
         # (L-264) A Go import by module path (`github.com/gin-gonic/gin/binding`)
         # gains an edge to a file of the package it names, read through the
         # tree's `go.mod` files, the same ADDED-edge shape.
-        if self.imports and self.source_root and "go" in langs:
+        # (L-59) The module directories those edges were built from, kept so a
+        # reader asks the map the edges used rather than re-reading `go.mod`
+        # (a `go.mod` written after this load would lift a cap while the
+        # edges are still stale). Empty when no map was read: no `go.mod`, no
+        # local tree, or a read that failed. Derived, never stored.
+        self.go_module_dirs: tuple[str, ...] = ()
+        # ⚠ The map is read even when no file has imports: a tree of Go files
+        # that import nothing is still covered by its `go.mod`.
+        if self.source_root and "go" in langs:
             try:
-                from ..parser.imports import augment_go_module_edges
-                augment_go_module_edges(self.imports, self.source_root, self._source_file_set)
+                from ..parser.imports import augment_go_module_edges, go_modules
+                modules = go_modules(self.source_root, self._source_file_set)
+                self.go_module_dirs = tuple(sorted(set(modules.values())))
+                if self.imports:
+                    augment_go_module_edges(
+                        self.imports, self.source_root, self._source_file_set, modules=modules
+                    )
             except Exception:
+                self.go_module_dirs = ()
                 logger.debug("go module edges unavailable", exc_info=True)
 
     def get_callers_by_name(self) -> dict[tuple[str, str], list[str]]:

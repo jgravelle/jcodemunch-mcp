@@ -2867,7 +2867,9 @@ def go_modules(source_root: str, source_files) -> dict[str, str]:
     return modules
 
 
-def augment_go_module_edges(imports: dict, source_root: str, source_files) -> int:
+def augment_go_module_edges(
+    imports: dict, source_root: str, source_files, modules: Optional[dict[str, str]] = None
+) -> int:
     """(L-264) Add an edge from a Go import by module path to the package it names.
 
     `import "github.com/gin-gonic/gin/binding"` in gin's `context.go` names
@@ -2902,7 +2904,8 @@ def augment_go_module_edges(imports: dict, source_root: str, source_files) -> in
     go_files = [f for f in source_files if f.endswith(".go")]
     if not go_files:
         return 0
-    modules = go_modules(source_root, go_files)
+    if modules is None:
+        modules = go_modules(source_root, go_files)
     by_dir: dict[str, list[str]] = {}
     for f in sorted(go_files):
         by_dir.setdefault(posixpath.dirname(f), []).append(f)

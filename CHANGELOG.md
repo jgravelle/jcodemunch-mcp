@@ -48,6 +48,45 @@ it. The dead-code tools never read this search: a test replaces the reach rule
 with one that raises and checks their answers do not change, and a second test
 checks the same replacement does reach the caller search.
 
+### `find_dead_code` and `check_delete_safe` no longer prove a Go file dead when no `go.mod` maps its imports (L-59)
+
+A Go import names a module path (`example.com/app/repository`), not a file.
+Only `go.mod` maps a module path to a directory, and the index adds those
+edges when it loads (L-264). Where no `go.mod` the index read covers a Go
+file, the import graph for it could not be built. That happens when the tree
+has no `go.mod`, when the file sits outside a nested module's directory, when
+the `go.mod` cannot be read, or in an `index_repo` snapshot with no local tree.
+`find_dead_code` still read the empty walk as proof and listed every such file
+with no importer as `zero_importers` at confidence 1.0, the value documented
+as provably unreachable. `check_delete_safe`, which reads that confidence,
+answered `safe_to_delete`. `get_blast_radius` has not read that zero as proof
+since #718.
+
+In `find_dead_code`, such a file is now capped below the default threshold,
+like any other unproven absence, with `go_module_unknown` in
+`confidence_capped_by`. The default call withholds it and reports how many in
+`go_module_unknown_withheld`. `check_delete_safe` answers the bounded verdict
+`dynamic_import_boundary` for a symbol in such a file, with a
+`go_module_unknown` blocker and the unproven ceiling, instead of
+`safe_to_delete`. Both tools read one rule, and it reads the module
+directories the index built its Go edges from (`CodeIndex.go_module_dirs`),
+never a second read of `go.mod`. A `go.mod` written after the index loaded
+takes effect at the next index load, together with the edges it adds. A file
+in another language is never capped by this rule.
+
+What else moves: the deletion investigator, `digest` and
+`assemble_task_context` call `find_dead_code` at the default threshold, so they
+no longer list these files as dead. The rule reads the module map, never a
+name. A dead file in a directory named like an import that resolves to no file
+(`import logging` and `logging/`, `"events"` and `events/`, Go's `"net/http"`
+and `http/`, `github.com/pkg/errors` and `errors/`) keeps 1.0, one level deep
+and at the root, and a test pins each shape. A file reported as
+`all_importers_dead` (confidence 0.7, below the default threshold) is not
+capped by this rule. `find_dead_code` still walks the importer graph without
+calling `blast_verdict`, so it stays on that ratchet's list with
+`get_dead_code_v2`, `get_untested_symbols`, `get_call_hierarchy`,
+`get_impact_preview`, `get_file_risk` and `find_importers`.
+
 ## [1.108.481] - 2026-11-22 - a compact answer says when the server redacted a secret, and the mcp floor admits no advised SDK
 
 ### A compact answer says when the server redacted a secret or the session is over budget (L-313)
