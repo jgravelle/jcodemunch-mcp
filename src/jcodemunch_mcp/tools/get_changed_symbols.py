@@ -163,7 +163,6 @@ def get_changed_symbols(
     max_blast_depth: int = 3,
     suppress_meta: bool = False,
     storage_path: Optional[str] = None,
-    cross_repo: Optional[bool] = None,
 ) -> dict:
     """Return symbols that changed between two git commits for a locally indexed repo.
 
