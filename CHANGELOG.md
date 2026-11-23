@@ -2,6 +2,17 @@
 
 ## [Unreleased]
 
+### Fixed - a Bearer token with `~ + / =` or `!` in it is redacted whole
+
+The `bearer_token` pattern took only letters, digits, `_`, `-` and `.` after
+`Bearer`. A token with `+`, `/`, `~` or `=` (the RFC 6750 b64token set) was cut
+at the first such character, so the rest went out in tool responses. A
+Salesforce access token (`00D...!AQ...`, 15 characters before the `!`, written
+`\!` inside double quotes in the Salesforce cURL docs) was not matched at all.
+The token now covers `~ + / =` and `!`, also as `\!`. The 20-character floor and
+the `Authorization` anchor are unchanged. A `!`, `=` or `/` right after a
+token is now part of the redacted span.
+
 ## [1.108.486] - 2026-11-23 - every license covers all three tools, and a $9.99 Freelance license
 
 ### Every license covers all three tools, and a $9.99 Freelance license (license 1.3)

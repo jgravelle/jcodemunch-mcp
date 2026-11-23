@@ -170,3 +170,37 @@ class TestBearerTokenQuotedForms:
             out, count = _redact_string(line)
             assert count == 0, line
             assert out == line
+
+
+class TestBearerTokenCharset:
+    """The token may carry `~ + / =` (RFC 6750 b64token) and Salesforce's `!`."""
+
+    def test_token_charset_fully_redacted(self):
+        for token in (
+            "abcdefghij1234567890+klmnopqrstuvwxyz/AAAAAAAAAA==",
+            "abc/defghij1234567890klmnopqrstuvwxyz0123456789",
+            "8f3k~d92jD0aLk29Dk3jd02kdJ39dk2lD0aLk29Dk3",
+            "00D50000000IehZ!AQcAQH0dMHZfz972Szmpkb58urFRkgeBGsxL_QJWwYMfAbUeeG7c1E6LYUfi",
+            "00D50000000IehZ\\!AQcAQH0dMHZfz972Szmpkb58urFRkgeBGsxL_QJWwYMfAbUeeG7c1E6LYUfi",
+        ):
+            for line in (
+                f"Authorization: Bearer {token}",
+                f'curl -H "Authorization: Bearer {token}" https://x.example/v1',
+                f"curl -H 'Authorization: Bearer {token}'",
+            ):
+                out, count = _redact_string(line)
+                assert count == 1, line
+                assert "[REDACTED:bearer_token]" in out, line
+                assert token not in out, line
+                assert out.startswith(line[: line.index("Bearer ") + 7]), line
+                assert out.endswith(line[line.index(token) + len(token):]), line
+
+    def test_short_or_unanchored_still_untouched(self):
+        for line in (
+            "Authorization: Bearer a/b+c=",
+            "see the Authorization header, then Bearer abcdefghij/klmnopqrstuvwxyz",
+            "Node.js v3.14 Bearer abcdefghij1234567890123",
+        ):
+            out, count = _redact_string(line)
+            assert count == 0, line
+            assert out == line
