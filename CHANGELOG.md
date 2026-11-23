@@ -56,6 +56,21 @@ a watcher event reads the stored index without loading all of it, and it
 relied on the cached index going stale after the first save. It now starts
 without a cached index, as a watcher process does.
 
+### Re-indexing a repository with Racket files no longer loads the whole index first (L-344)
+
+Every `index_folder` run checks whether a repository holding `.rkt` files needs
+a full re-parse, and that check reads the version of the Racket reader the
+index was built with. The run answers its other startup checks from a light
+view of the stored index that reads no symbol rows. That view did not carry
+the reader version, so reading it loaded the whole index, on every run of a
+repository with Racket files. The two neighbouring stamps the same check reads
+were already carried, for this reason.
+
+The view now carries it. A test reads the function that builds an index from
+the stored rows and fails on any field it builds the index with that the view
+neither carries nor declares as needing the whole index (today only the
+symbols themselves). The reader version was the only one missing.
+
 ## [1.108.485] - 2026-11-22 - a capped re-index says which of its files came from an earlier index, and a compact blast radius keeps every top-level key
 
 ### A compact get_blast_radius answer keeps every top-level key the tool returns (L-58)
