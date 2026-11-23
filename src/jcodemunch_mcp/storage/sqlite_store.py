@@ -2359,16 +2359,20 @@ class SQLiteIndexStore:
                         )
                     index = self.compose_branch_index(index, branch, delta)
 
-            # Populate cache (re-stat to capture any WAL checkpoint mtime change)
-            try:
-                post_mtime_ns = _db_mtime_ns(db_path)
-            except OSError:
-                post_mtime_ns = 0
+            # Key the entry at the stamp sampled BEFORE the read, never a
+            # re-stat after it (L-342). A commit by another process while the
+            # read transaction was open moves the stamp, and a re-stat cached
+            # this older snapshot under the newer stamp, so the write stayed
+            # hidden until the next one. Keyed at `mtime_ns`, a move during the
+            # read makes the next call miss. One that changed nothing (a
+            # checkpoint) is re-keyed by `_revalidate_cached` from a meta read
+            # for a base index with a content generation; a branch view, or an
+            # index without one, reloads once.
             _cache_put(
-                owner, safe_name, post_mtime_ns, index, branch,
+                owner, safe_name, mtime_ns, index, branch,
                 meta=None if branch else meta,
             )
-            return _stamp_load_provenance(index, db_path, post_mtime_ns)
+            return _stamp_load_provenance(index, db_path, mtime_ns)
 
     # ── Selective read path (#398 Arc 2) ─────────────────────────────
 

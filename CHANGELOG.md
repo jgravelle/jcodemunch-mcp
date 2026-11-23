@@ -2,6 +2,23 @@
 
 ## [Unreleased]
 
+### A write that lands while another process loads the index is no longer hidden from it (L-342)
+
+`load_index` sampled the database's stamp, read the symbols and files, then
+read the stamp again and cached what it had read under that second stamp. When
+another process committed a write while the read was in progress, the second
+stamp already included that write, so the older snapshot was cached as if it
+were current. Every later call in that process matched the stamp and served the
+older index until some other write moved it. The window is one load, and an
+incremental save followed by its deferred summary write, or a watcher saving
+two files in a row, is enough to hit it.
+
+The cache entry is now keyed at the stamp taken before the read. A write during
+the read makes the next call reload. A stamp move that changed nothing, such as
+a checkpoint, is matched from one read of the meta table with no reload when the
+index records a content generation, as every index built by a current version
+does; a test pins that. A branch view, or an index without one, reloads once.
+
 ## [1.108.485] - 2026-11-22 - a capped re-index says which of its files came from an earlier index, and a compact blast radius keeps every top-level key
 
 ### A compact get_blast_radius answer keeps every top-level key the tool returns (L-58)
