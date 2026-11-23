@@ -2,6 +2,28 @@
 
 ## [Unreleased]
 
+### A Bearer token with `~ + / =` or `!` is redacted whole (#1558)
+
+Reported by @goranai. The redactor's `bearer_token` pattern took only letters,
+digits, `_`, `-` and `.` after `Bearer`, so a token holding any other character
+was cut there. If that character came after the first 20, the head was
+redacted and the tail sent out in the tool response; if it came within them,
+nothing was redacted at all. That second case covers every Salesforce access
+token, which is a 15-character org id, a `!`, then the rest. Salesforce's own
+cURL examples write that `!` as `\!`, and the same line stored JSON-escaped
+reads `\\!`.
+
+The pattern now takes RFC 6750's bearer token characters (letters, digits,
+`- . _ ~ + /`, trailing `=`) plus `!` and `!` after any run of backslashes,
+and still needs 20 of them after the `Authorization` header prefix. Runtime
+trace redaction reads the same pattern, so trace ingest is covered by the same
+change. A test redacts each token shape in the report, plus the JSON-escaped
+Salesforce line and a `+` within the first 20 characters, and checks nothing of
+the token is left after the marker. It also checks that a closing quote, an
+escaped JSON quote, a placeholder such as `${TOKEN}` and a short value are
+left alone. The wider set errs toward redacting: a path or `+suffix` written
+straight after a token, with no space, is now redacted with it.
+
 ## [1.108.486] - 2026-11-23 - every license covers all three tools, and a $9.99 Freelance license
 
 ### Every license covers all three tools, and a $9.99 Freelance license (license 1.3)
