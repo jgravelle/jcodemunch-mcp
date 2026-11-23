@@ -60,6 +60,12 @@ def test_a_fast_path_event_never_hydrates_the_base_index(tmp_path, monkeypatch):
 
     storage = tmp_path / ".code-index"
     _index_once(tmp_path, storage)
+    # The event arrives in a watcher process that holds no warm copy of the
+    # index. Since L-343 the save's warm copy stays usable in THIS process, and
+    # `open_selective` rightly returns it, so drop it to model that process.
+    from jcodemunch_mcp.storage import sqlite_store
+
+    sqlite_store._cache_clear()
 
     seen: list = []
     real = store_mod.IndexStore.open_selective

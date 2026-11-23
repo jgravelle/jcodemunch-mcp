@@ -19,6 +19,43 @@ a checkpoint, is matched from one read of the meta table with no reload when the
 index records a content generation, as every index built by a current version
 does; a test pins that. A branch view, or an index without one, reloads once.
 
+### An incremental re-index patches the index in memory again (L-343)
+
+After every save that walks the tree, `index_folder` records the coverage of
+that walk, and a run that saved nothing else records its file-cap status; a
+bounded refresh records the parser version once it has re-read every file.
+Each of those writes changed the database's stamp, and the index cached in the same
+process stayed filed under the old one. So the next incremental save in that
+process did not find it and rebuilt the whole index from every stored row,
+which the in-memory patch path exists to avoid. In the test that pins this,
+three incremental runs made 9 full rebuilds; they now make none.
+
+All three writes now move the cached index to the database's new stamp, by the rule
+the index cache already uses to keep an index across a write that changed
+nothing it holds. Under the index-write lock, every row of the settings table
+must be the same as when the index was cached, except the one this write
+changed, which must still hold this write's value. Every writer of symbols or
+files moves a generation counter in that table, and every setting written
+without the lock is a row of it, so another write since the index was cached
+to anything the index holds is seen, even one within the same tick of the
+clock. Otherwise the index stays where it was and the next call reloads, as
+before. To make that comparison possible, a save now caches the settings it
+wrote alongside the index, but only when the index holds every setting written
+without the lock; before, it cached none. An incremental save keeps the
+previous index's parser version and roots, so a change another process made to
+one of them just before the save would otherwise have been filed as seen. The
+three writes also now update the cached index for a repository whose name is
+changed by the store's file-name rules, which they missed before.
+
+Five tests changed with it. Four edited a symbol or file row through a raw
+database connection, which skips the generation counter every writer in this
+version moves, and then expected the warm index in the same process to notice.
+It is designed not to notice such a write. Each now drops the warm index after
+its raw edit, the state a fresh process would start in. The fifth checked that
+a watcher event reads the stored index without loading all of it, and it
+relied on the cached index going stale after the first save. It now starts
+without a cached index, as a watcher process does.
+
 ## [1.108.485] - 2026-11-22 - a capped re-index says which of its files came from an earlier index, and a compact blast radius keeps every top-level key
 
 ### A compact get_blast_radius answer keeps every top-level key the tool returns (L-58)
