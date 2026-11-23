@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.486] - 2026-11-23 - every license covers all three tools, and a $9.99 Freelance license
+
 ### Every license covers all three tools, and a $9.99 Freelance license (license 1.3)
 
 Licenses are now one price per tier for jCodeMunch, jDocMunch and jDataMunch
