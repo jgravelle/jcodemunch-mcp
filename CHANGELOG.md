@@ -2,6 +2,19 @@
 
 ## [Unreleased]
 
+### get_changed_symbols says that its cross_repo argument does nothing (L-57)
+
+`get_changed_symbols` accepted `cross_repo` and nothing read it. The MCP schema
+never offered it and the dispatcher never passed it, so only a Python caller
+could set it, and that caller got the same local-only blast radius with no
+sign the flag had done nothing. A call that passes it now emits a
+`FutureWarning` saying it has no effect and is deprecated. The
+argument is still accepted, so under default warning filters no existing
+call breaks; a caller running with warnings as errors gets one. MCP callers
+are unaffected: the server's argument check already reported the key as
+ignored. A test also fails if the function gains a parameter its body never
+reads as a name.
+
 ## [1.108.486] - 2026-11-23 - every license covers all three tools, and a $9.99 Freelance license
 
 ### Every license covers all three tools, and a $9.99 Freelance license (license 1.3)
