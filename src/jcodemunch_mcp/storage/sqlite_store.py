@@ -726,6 +726,47 @@ def store_token_counts_for_loaded_index(index, rows) -> bool:
     )
 
 
+def _write_back_target(index):
+    """``(db_path, owner, name, loaded_mtime_ns)`` if a write-back to the .db this
+    index came from could still be stored, else None.
+
+    THE rule for whether a write-back may be stored (L-346): a base index (not
+    a branch view) that knows its .db, its stamp at load, and its repository,
+    with the .db still at that stamp. The store applies it again under the lock
+    and inside the write transaction; a flush applies it first, so it does not
+    compute what the store would then refuse.
+    """
+    from .generation import describe
+
+    gen = describe(index)
+    if not gen.db_path or gen.loaded_mtime_ns is None or getattr(index, "branch", ""):
+        return None
+    owner, name = getattr(index, "owner", ""), getattr(index, "name", "")
+    if not owner or not name:
+        return None
+    # `describe` already read the .db's current stamp; None means it could not
+    # (logged there), which is never "unchanged".
+    if gen.db_mtime_ns is None or gen.db_mtime_ns != gen.loaded_mtime_ns:
+        return None
+    return Path(gen.db_path), owner, name, gen.loaded_mtime_ns
+
+
+def loaded_index_can_take_a_write_back(index) -> bool:
+    """Whether a write-back for this index would pass the store's checks now.
+
+    Costs what `generation.describe` costs (the stat of the .db and its
+    -wal). A flush calls it before computing a digest, encoding a
+    blob or counting tokens, because the store refuses a write-back to a .db
+    that moved since the index was loaded, and that work was then thrown away
+    (L-346). The store still checks again under its lock. Never raises.
+    """
+    try:
+        return _write_back_target(index) is not None
+    except Exception:
+        logger.debug("write-back pre-check failed", exc_info=True)
+        return False
+
+
 def _write_back_to_loaded_index(index, write, what: str) -> bool:
     """Run ``write(conn)`` in a transaction on the .db the index came from.
 
@@ -738,20 +779,16 @@ def _write_back_to_loaded_index(index, write, what: str) -> bool:
     stored. Never raises.
     """
     from . import process_locks
-    from .generation import describe
 
     try:
-        gen = describe(index)
-        if not gen.db_path or gen.loaded_mtime_ns is None or getattr(index, "branch", ""):
+        target = _write_back_target(index)
+        if target is None:
             return False
-        db_path = Path(gen.db_path)
-        owner, name = getattr(index, "owner", ""), getattr(index, "name", "")
-        if not owner or not name:
-            return False
+        db_path, owner, name, loaded_mtime_ns = target
         with process_locks.held("indexwrite", f"{owner}/{name}", str(db_path.parent)) as got:
             if not got:
                 return False
-            if _db_mtime_ns(db_path) != gen.loaded_mtime_ns:
+            if _db_mtime_ns(db_path) != loaded_mtime_ns:
                 return False
             conn = sqlite3.connect(
                 db_path.resolve().as_uri() + "?mode=rw", uri=True,
@@ -761,7 +798,7 @@ def _write_back_to_loaded_index(index, write, what: str) -> bool:
                 conn.execute("BEGIN IMMEDIATE")
                 # The meta writers in `_UNLOCKED_META_KEYS` skip `indexwrite`; one could have
                 # committed since the check above.
-                if _db_mtime_ns(db_path) != gen.loaded_mtime_ns:
+                if _db_mtime_ns(db_path) != loaded_mtime_ns:
                     conn.execute("ROLLBACK")
                     return False
                 write(conn)
@@ -782,7 +819,7 @@ def _write_back_to_loaded_index(index, write, what: str) -> bool:
             finally:
                 conn.close()
             _restamp_after_bm25_write(
-                index, db_path, gen.loaded_mtime_ns,
+                index, db_path, loaded_mtime_ns,
                 own_mtime_ns=own_mtime_ns if alone else None,
             )
         return True

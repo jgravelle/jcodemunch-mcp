@@ -71,6 +71,22 @@ the stored rows and fails on any field it builds the index with that the view
 neither carries nor declares as needing the whole index (today only the
 symbols themselves). The reader version was the only one missing.
 
+### A search no longer pays for statistics the store will refuse to keep (L-346)
+
+After a search, the server stores the ranking statistics it computed and the
+token counts of the files it credited, so the next search can reuse them. The
+store keeps them only if the index has not been written since this process
+loaded it. The statistics were hashed and encoded, and the files read and
+counted, before that was checked. Under a watcher the index is often written
+between a search and its write-back, so the work was done and then thrown
+away. On a copy of this repository (33,009 symbols), five refused write-backs
+of the statistics took 232 to 794 ms each; they now take 0.11 to 0.16 ms.
+
+Both write-backs now ask first, with the same rule the store applies again
+under its lock. The store now also refuses a moved index before it takes the
+lock, and refuses when it cannot read the index's timestamp, where before a
+later read could succeed and the write-back went ahead.
+
 ## [1.108.485] - 2026-11-22 - a capped re-index says which of its files came from an earlier index, and a compact blast radius keeps every top-level key
 
 ### A compact get_blast_radius answer keeps every top-level key the tool returns (L-58)
