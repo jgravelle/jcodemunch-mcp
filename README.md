@@ -362,9 +362,9 @@ Both keys change what the parser emits for *unchanged* files, so a change to eit
 
 jCodeMunch-MCP is released under the **jCodeMunch-MCP Dual-Use License** ([full terms](LICENSE)). **Free for non-commercial use. Commercial use requires a paid license**, one-time, sold by jMunch LLC via Stripe:
 
-**jCodeMunch-only:** [Builder, $79](https://jcodemunch.com/descriptions.php?utm_medium=readme&utm_campaign=jcm_readme_tiers#builder) (1 developer) · [Studio, $349](https://jcodemunch.com/descriptions.php?utm_medium=readme&utm_campaign=jcm_readme_tiers#studio) (up to 5) · [Platform, $1,999](https://jcodemunch.com/descriptions.php?utm_medium=readme&utm_campaign=jcm_readme_tiers#platform) (org-wide internal deployment)
+[Builder $99](https://jcodemunch.com/descriptions.php?utm_medium=readme&utm_campaign=jcm_readme_tiers#builder) (1 developer) · [Studio $449](https://jcodemunch.com/descriptions.php?utm_medium=readme&utm_campaign=jcm_readme_tiers#studio) (up to 5 developers) · [Platform $2,499](https://jcodemunch.com/descriptions.php?utm_medium=readme&utm_campaign=jcm_readme_tiers#platform) (org-wide internal deployment), one-time, all three tools (jCodeMunch, jDocMunch and jDataMunch).
 
-**Full jMunch suite (code + docs + data):** [Trio Builder, $99](https://jcodemunch.com/descriptions.php?utm_medium=readme&utm_campaign=jcm_readme_tiers#builder) · [Trio Studio, $449](https://jcodemunch.com/descriptions.php?utm_medium=readme&utm_campaign=jcm_readme_tiers#studio) · [Trio Platform, $2,499](https://jcodemunch.com/descriptions.php?utm_medium=readme&utm_campaign=jcm_readme_tiers#platform)
+**Freelancing or running a side project?** The Freelance license is $9.99 one-time, for your own freelance work and side projects that brought in under $10,000 in the last 12 months. Your employer's work needs Builder. What you paid counts toward Builder.
 
 Not sure it's worth it? Run your own numbers through the [ROI calculator](https://jcodemunch.com/roi.php?utm_medium=readme&utm_campaign=jcm_readme_bottom), or forward [the finance-team version](https://jcodemunch.com/for-finance.php?utm_medium=readme&utm_campaign=jcm_readme_bottom) to whoever signs off. The guarantee stands: if jCodeMunch doesn't pay for itself, you don't pay for jCodeMunch.
 

@@ -1495,9 +1495,9 @@ def _prompt_scope(message: str) -> Optional[str]:
 #: output a person reads, not in the agent's answers". ⚠⚠ Printed only at the
 #: end of a real run, never in a tool response, a relayed notice or the policy
 #: text; `tests/test_init_licence_line.py` fails if any other `src/` module
-#: carries it. Wording is Marketing's (2026-10-17); $79 is Builder, README's price.
+#: carries it. Wording is Marketing's (2026-10-17); $99 is Builder, README's price (pricing B, 2026-11-22).
 _LICENCE_LINES = (
-    "Using jCodeMunch at work? A commercial license is $79, one time: https://jcodemunch.com/descriptions.php?utm_source=cli&utm_medium=install&utm_campaign=license-line",
+    "Using jCodeMunch at work? A commercial license is $99, one time: https://jcodemunch.com/descriptions.php?utm_source=cli&utm_medium=install&utm_campaign=license-line",
     "(30-day money-back guarantee; terms: https://jcodemunch.com/guarantee.php?utm_source=cli&utm_medium=install&utm_campaign=license-line)",
 )
 
