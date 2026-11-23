@@ -15,6 +15,28 @@ are unaffected: the server's argument check already reported the key as
 ignored. A test also fails if the function gains a parameter its body never
 reads as a name.
 
+## [1.108.486] - 2026-11-23 - every license covers all three tools, and a $9.99 Freelance license
+
+### Every license covers all three tools, and a $9.99 Freelance license (license 1.3)
+
+Licenses are now one price per tier for jCodeMunch, jDocMunch and jDataMunch
+together: Builder $99, Studio $449, Platform $2,499, one-time. The
+jCodeMunch-only prices ($79, $349, $1,999) and the jDocMunch-only and
+jDataMunch-only licenses are no longer sold. Every license bought before today
+stays valid.
+
+The new Freelance license is $9.99 one-time. It is for one person's own
+freelance work and side projects that brought in under $10,000 in the last 12
+months, with or without a day job. Work for an employer needs Builder, and what
+a Freelance holder paid counts toward it.
+
+`LICENSE` gains the Freelance section and the new price list, and its link moves
+from the retired j.gravelle.us site to jcodemunch.com. The license is now
+version 1.3. The Freelance section only adds a permission, so the identifier
+stays `LicenseRef-jCodeMunch-Dual-Use-1` and an allowlist approved for it needs
+no change. The `init` closing line, the license reminder (CLI, tool answer
+and `receipt`), the README and QUICKSTART carry the new prices.
+
 ## [1.108.485] - 2026-11-22 - a capped re-index says which of its files came from an earlier index, and a compact blast radius keeps every top-level key
 
 ### A compact get_blast_radius answer keeps every top-level key the tool returns (L-58)

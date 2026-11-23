@@ -50,10 +50,14 @@ _TAG = "?utm_source=cli&utm_medium={medium}&utm_campaign=license-reminder"
 CLI_BUY_URL = BUY_URL + _TAG.format(medium="reminder")
 TOOL_BUY_URL = BUY_URL + _TAG.format(medium="tool")
 SILENCE_COMMAND = "jcodemunch-mcp config set license_reminder false"
-#: The terms, in the words of the plugin README and the site (item 725).
+#: The terms and the prices, in Marketing's go-live wording for pricing B
+#: (queue item 2026-11-19-product-reminder-price-line, J's prices of
+#: 2026-11-22). The Freelance cap sits beside $9.99 every time. A price
+#: change edits this line, README, QUICKSTART, LICENSE and init's line together.
 WORK_TERMS = (
-    "Work use at a for-profit company, or for client or paid work, needs a license, "
-    "paid once, that includes every 1.x update"
+    "Work use at a for-profit company, or for client or paid work, needs a license: "
+    "Builder is $99 one-time and covers jCodeMunch, jDocMunch and jDataMunch, or $9.99 "
+    "for your own freelance work under $10,000 a year"
 )
 CLI_TEXT = (
     f"Personal use stays free. {WORK_TERMS}: {CLI_BUY_URL} "
@@ -70,8 +74,9 @@ RECEIPT_BUY_URL = (
     BUY_URL + "?utm_source=cli&utm_medium=receipt&utm_campaign=savings-receipt"
 )
 RECEIPT_TEXT = (
-    "Using it at a for-profit company, or for client or paid work? "
-    f"That needs a license, paid once: {RECEIPT_BUY_URL}"
+    "Personal use stays free. Using it at a for-profit company, or for client or paid work? "
+    "That needs a license: $99 one-time with all three tools, or $9.99 for your own "
+    f"freelance work under $10,000 a year: {RECEIPT_BUY_URL}"
 )
 ENV_VAR = "JCODEMUNCH_LICENSE_REMINDER"
 NOTICE_ENV_VAR = "JCODEMUNCH_LICENSE_NOTICE"

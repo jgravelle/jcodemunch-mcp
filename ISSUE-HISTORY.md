@@ -3518,3 +3518,9 @@ The 1.108.481 entry, verbatim as it stood in `CLAUDE.md`:
 The 1.108.482 entry, verbatim as it stood in `CLAUDE.md`:
 
 - **Prior (1.108.482):** **a Go file no `go.mod` covers is never proven dead** (L-59): `find_dead_code` and `check_delete_safe` read `CodeIndex.go_module_dirs`, the map the L-264 edges were built from; and **a C/C++ caller list says it is a text match** (L-339): `_call_graph.c_text_reach` reads the own file, umbrella headers to `C_UMBRELLA_HOPS` and, for a one-definition C name, prototypes; `get_call_hierarchy` returns top-level `callers_text_only`. Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-23, release 1.108.486)
+
+The 1.108.483 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.483):** **a Ruby import never resolves to another language's file** (L-294): `parser/imports._OWN_FORMS_ONLY`: a `.rb`/`.rake` importer tries only its own forms and no SQL stem. Full text: `CHANGELOG.md`.
