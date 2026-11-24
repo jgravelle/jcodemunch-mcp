@@ -1,7 +1,7 @@
 # jcodemunch-mcp — Project Brief
 
 ## Current State
-- **Version:** 1.108.487 — **`get_changed_symbols` says that its `cross_repo` argument does nothing** (L-57): a call that passes it emits a `FutureWarning` (no effect, deprecated); the argument is still accepted, MCP callers are unaffected, and a test fails if the function gains a parameter its body never reads. Full text: `CHANGELOG.md`.
+- **Version:** 1.108.487 — **`get_changed_symbols` says that its `cross_repo` argument does nothing** (L-57): passing it emits a `FutureWarning`, and the argument is still accepted. Full text: `CHANGELOG.md`.
 - **Prior (1.108.486):** **every license covers all three tools, and a $9.99 Freelance license** (#1551): one price per tier for jCodeMunch, jDocMunch and jDataMunch together, `LICENSE` 1.3 with the Freelance section (identifier unchanged), and the `init` line, license reminder, README and QUICKSTART carry the new prices. Full text: `CHANGELOG.md`.
 - **Prior (1.108.485):** **a capped re-index says which of its files came from an earlier index** (L-305): the save records `files_kept` and `security.cap_setting` names them beside the cap in the `index_folder` warning, `resolve_repo` and `init`; and **a compact blast radius keeps every top-level key** (L-58): encoding `br5`, with a producer-source ratchet. Full text: `CHANGELOG.md`.
 - **Older releases (1.108.484 and earlier):** see `CHANGELOG.md` (1.108.303-.310, 1.108.314-.315, 1.108.316 through 1.108.484 in `ISSUE-HISTORY.md`). The 1.108.182 entry ("a stall has a name and a ceiling", #375) and the 1.108.177-.181 #377 hardening arc are there in full.
