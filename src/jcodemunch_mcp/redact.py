@@ -65,9 +65,15 @@ _PATTERNS: list[tuple[str, re.Pattern]] = [
     # produced false positives on prose/docstrings containing the word
     # (audit finding F9). A quote, escaped quote or backtick may close the
     # key and open the value (JSON, dict literals, shell, Markdown), and the
-    # scheme name is case-insensitive (RFC 7235).
+    # scheme name is case-insensitive (RFC 7235). The token takes RFC 6750's
+    # b64token set (letters, digits, `- . _ ~ + /`, trailing `=`) plus `!`,
+    # which Salesforce tokens carry after a 15-character org id, and `\!`
+    # with any number of backslashes: the shell form Salesforce's cURL docs
+    # give inside double quotes, and that line stored JSON-escaped (`\\!`)
+    # in a fixture, a notebook or a Postman collection (#1558).
     ("bearer_token", re.compile(
-        r"(?i:authorization)\\?[\"'`]?\s*[:=]\s*\\?[\"'`]?(?i:bearer)\s+(?P<secret>[A-Za-z0-9_\-\.]{20,})"
+        r"(?i:authorization)\\?[\"'`]?\s*[:=]\s*\\?[\"'`]?(?i:bearer)\s+"
+        r"(?P<secret>(?:[A-Za-z0-9_\-.~+/!]|\\+!){20,}=*)"
     )),
     # GitHub personal access tokens (ghp_, gho_, ghu_, ghs_, ghr_)
     ("github_token", re.compile(
