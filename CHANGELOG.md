@@ -4,7 +4,7 @@
 
 ### A Bearer token with `~ + / =` or `!` is redacted whole (#1558)
 
-Reported by @goranai. The redactor's `bearer_token` pattern took only letters,
+Reported by @goranai, who also sent a fix in #1559. The redactor's `bearer_token` pattern took only letters,
 digits, `_`, `-` and `.` after `Bearer`, so a token holding any other character
 was cut there. If that character came after the first 20, the head was
 redacted and the tail sent out in the tool response; if it came within them,
