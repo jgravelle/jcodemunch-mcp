@@ -2,6 +2,25 @@
 
 ## [Unreleased]
 
+### An index on an unplugged drive survives server start (L-347)
+
+Every server start deleted the index of any folder that was not a directory at
+that moment. A folder on a USB drive that is unplugged, a network share that is
+disconnected or a volume that is not mounted is not a directory then either, so
+its index was deleted the same way as a removed worktree's, and the user paid a
+full re-index when the drive came back. Reproduced on 1.108.487: an index whose
+folder is on an unmapped `Z:` drive was deleted by the sweep.
+
+The sweep now deletes an index only when the folder is missing and its drive or
+share is present. On Windows that is the drive letter or the UNC share. On macOS
+and Linux it is a mount check on `/Volumes/<v>`, `/mnt/<v>`, `/media/...` and
+`/run/media/<user>/<v>`; a volume mounted anywhere else reads as part of `/`, so
+a missing folder there is still treated as removed. When the drive cannot be
+checked (a path written on another operating system, or a check that fails),
+the index is kept. A folder removed from a drive that is present is still
+cleaned up. The cost of the change is storage: the index of a drive that never
+comes back stays until it is deleted by hand.
+
 ### A Bearer token with `~ + / =` or `!` is redacted whole (#1558)
 
 Reported by @goranai, who also sent a fix in #1559. The redactor's `bearer_token` pattern took only letters,

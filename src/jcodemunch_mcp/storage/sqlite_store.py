@@ -22,6 +22,7 @@ from ..parser.imports import written_imports
 from ..parser.symbols import Symbol
 from ..path_map import parse_path_map, remap
 from .embedding_store import META_KEY_PREFIX as _EMBED_META_PREFIX
+from .volume_presence import volume_present
 
 # Cache of base_path strings that have already had mkdir called — avoids
 # a redundant CreateDirectoryW syscall on every tool call.
@@ -3709,6 +3710,18 @@ class SQLiteIndexStore:
                 continue
             try:
                 if not Path(source_root).is_dir():
+                    # ⚠ A missing folder is an orphan only when its VOLUME is
+                    # here. An unplugged drive, a disconnected share or an
+                    # unmounted volume reads the same to is_dir(), and deleting
+                    # then costs a full re-index when it comes back (L-347).
+                    # Unknown (None) keeps: it never licenses a delete.
+                    if volume_present(source_root) is not True:
+                        logger.info(
+                            "Kept index %s: the drive or share of %s is not there now",
+                            entry.get("repo", ""),
+                            source_root,
+                        )
+                        continue
                     repo_id = entry["repo"]
                     # repo_id is "local/name-hash" or "github/owner/repo"
                     parts = repo_id.split("/", 1)
