@@ -3536,3 +3536,9 @@ The 1.108.484 entry, verbatim as it stood in `CLAUDE.md`:
 The 1.108.485 entry, verbatim as it stood in `CLAUDE.md`:
 
 - **Prior (1.108.485):** **a capped re-index says which of its files came from an earlier index** (L-305): the save records `files_kept` and `security.cap_setting` names them beside the cap in the `index_folder` warning, `resolve_repo` and `init`; and **a compact blast radius keeps every top-level key** (L-58): encoding `br5`, with a producer-source ratchet. Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-24, release 1.108.489)
+
+The 1.108.486 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.486):** **every license covers all three tools, and a $9.99 Freelance license** (#1551): one price per tier for jCodeMunch, jDocMunch and jDataMunch together, `LICENSE` 1.3 with the Freelance section (identifier unchanged), and the `init` line, license reminder, README and QUICKSTART carry the new prices. Full text: `CHANGELOG.md`.

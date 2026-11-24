@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.489] - 2026-11-24 - an index on an unplugged drive survives server start
+
 ### An index on an unplugged drive survives server start (L-347)
 
 Every server start deleted the index of any folder that was not a directory at
@@ -35,7 +37,8 @@ part of the main drive, so its folder still reads as removed while it is
 unplugged. A plain folder (not a mount) under `/mnt`, `/media` or `/Volumes`
 reads as an unmounted volume, so its index is kept after the folder is removed,
 because an unmounted volume leaves the same empty folder behind. Kept indexes
-cost storage until they are deleted by hand.
+cost storage until they are deleted by hand. A Windows device path (`\\?\` or
+`\\.\`) reads as a network path and is always kept.
 
 ## [1.108.488] - 2026-11-24 - a Bearer token with ~ + / = or ! is redacted whole
 
