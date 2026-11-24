@@ -3530,3 +3530,9 @@ The 1.108.483 entry, verbatim as it stood in `CLAUDE.md`:
 The 1.108.484 entry, verbatim as it stood in `CLAUDE.md`:
 
 - **Prior (1.108.484):** **a folder inside a Git worktree is matched to the indexed checkout** (L-235): `resolve_repo._enclosing_git_common_dir` walks the queried path up to its nearest `.git`, subprocess-free; indexed source roots are not walked. Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-24, release 1.108.488)
+
+The 1.108.485 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.485):** **a capped re-index says which of its files came from an earlier index** (L-305): the save records `files_kept` and `security.cap_setting` names them beside the cap in the `index_folder` warning, `resolve_repo` and `init`; and **a compact blast radius keeps every top-level key** (L-58): encoding `br5`, with a producer-source ratchet. Full text: `CHANGELOG.md`.

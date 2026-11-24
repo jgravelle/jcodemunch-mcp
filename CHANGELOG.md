@@ -37,6 +37,8 @@ reads as an unmounted volume, so its index is kept after the folder is removed,
 because an unmounted volume leaves the same empty folder behind. Kept indexes
 cost storage until they are deleted by hand.
 
+## [1.108.488] - 2026-11-24 - a Bearer token with ~ + / = or ! is redacted whole
+
 ### A Bearer token with `~ + / =` or `!` is redacted whole (#1558)
 
 Reported by @goranai, who also sent a fix in #1559. The redactor's `bearer_token` pattern took only letters,

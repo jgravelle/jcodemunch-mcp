@@ -1,6 +1,12 @@
 {
-  "current": "1.108.487",
+  "current": "1.108.488",
   "entries": [
+    {
+      "version": "1.108.488",
+      "date": "2026-11-24",
+      "title": "A Bearer token with ~ + / = or ! is redacted whole",
+      "summary": "The redactor cut a Bearer token at the first character outside letters, digits, _, - and ., so part of a token, or all of a Salesforce token, could reach a tool answer. It now takes every character RFC 6750 allows, plus ! with or without backslash escapes, and runtime trace redaction uses the same pattern. Reported by @goranai, who also sent a fix in #1559."
+    },
     {
       "version": "1.108.487",
       "date": "2026-11-24",
