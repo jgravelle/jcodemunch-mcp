@@ -3710,11 +3710,11 @@ class SQLiteIndexStore:
                 continue
             try:
                 if is_network_path(source_root) is not False:
-                    # ⚠ This runs synchronously at server start. A share on
-                    # an unreachable host blocked isdir() for 42.15 s
-                    # (measured 2026-11-24), longer than many clients wait
-                    # for a server to connect. Network folders are not checked
-                    # here at all; unknown is treated the same (L-347).
+                    # ⚠ This runs synchronously at server start, and isdir()
+                    # on a share whose host is unreachable blocks until the
+                    # SMB connect times out (measured 2026-11-24; the figure is in the L-347 CHANGELOG entry).
+                    # Network folders are not checked here at all, and
+                    # unknown is treated the same (L-347).
                     continue
                 if not Path(source_root).is_dir():
                     # ⚠ A missing folder is an orphan only when its VOLUME is

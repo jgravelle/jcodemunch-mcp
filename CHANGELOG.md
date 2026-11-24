@@ -18,12 +18,16 @@ mount check on `/Volumes/<v>`, `/mnt/<v>`, `/media/...` and
 drive is still cleaned up. When the drive cannot be checked (a path written on
 another operating system, or a check that fails), the index is kept.
 
-A network folder (a UNC path, or a drive letter Windows reports as a network
-drive) is no longer checked at server start at all, and its index is kept. The
-sweep runs before the server answers, and the first check of a share on an
-unreachable host took 42.15 s here, which is longer than many clients wait for
-a server to connect. Before this change that wait happened once and then the
-index was deleted.
+A network folder on Windows (a UNC path in either slash spelling, or a drive
+letter Windows reports as a network drive) is no longer checked at server
+start at all, and its index is kept. The sweep runs before the server answers,
+and the first check of a share on an unreachable host took 41.46 s on a
+Windows 11 box (a repeat took 0.67 s). Keeping the index and checking it would
+have put that wait on every start; before this change it happened once and
+then the index was deleted. What Windows reports for a disconnected mapped
+drive was not measured. On macOS and Linux a network mount (SMB or NFS under
+`/Volumes` or `/mnt`) has no shape to recognise without touching it, so it is
+still checked at start, as before.
 
 What the fix cannot tell apart, in both directions: a volume mounted outside
 those folders on macOS or Linux, or into an NTFS folder on Windows, reads as

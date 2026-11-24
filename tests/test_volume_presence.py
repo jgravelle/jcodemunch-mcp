@@ -57,6 +57,13 @@ def test_a_failing_check_is_unknown(monkeypatch):
 
 def test_a_unc_path_is_a_network_path_on_any_host():
     assert vp.is_network_path(f"{B}{B}server{B}share{B}repo") is True
+    assert vp.is_network_path(f"{B}{B}server/share/repo") is True
+
+
+def test_a_forward_slash_unc_path_is_a_network_path_on_windows():
+    """Windows reads //srv/share as UNC; POSIX reads it as a root path."""
+    expected = True if os.name == "nt" else False
+    assert vp.is_network_path("//server/share/repo") is expected
 
 
 def test_a_posix_path_is_not_a_network_path():

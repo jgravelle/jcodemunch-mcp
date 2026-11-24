@@ -15,9 +15,10 @@ never names the letter. A real removable drive has no such alias, which is why
 these tests write the drive path into the index meta directly.
 
 ⚠ A network folder is not probed at all. The sweep runs synchronously at
-server start, and the first `isdir` of a share on an unreachable host took
-42.15 s (measured 2026-11-24). Keeping such an index and probing it would put
-that stall on every start, so the test fails if the sweep stats the path.
+server start, and `isdir` on a share whose host is unreachable blocks until
+the SMB connect times out (measured 2026-11-24; the figure is in the L-347 CHANGELOG entry). Keeping such
+an index and probing it would put that stall on every start, so the test
+fails if the sweep stats the path.
 
 ⚠ Each test branches on `os.name` instead of skipping: a skip on every POSIX
 leg counts against the `ci.skips_*` Floors (review of this change).

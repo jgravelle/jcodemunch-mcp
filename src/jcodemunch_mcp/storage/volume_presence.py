@@ -37,9 +37,10 @@ A Windows-shaped path read on a POSIX host (or the reverse) cannot be checked
 and answers ``None``.
 
 ``is_network_path(path)`` says whether checking a path could touch the network:
-a UNC path, or a drive letter Windows reports as a network drive. Measured
-2026-11-24 on Windows: the first ``isdir`` of a share on an unreachable host
-took 42.15 s. A caller on a start path must not make that call.
+a UNC path in either slash spelling, or a drive letter Windows reports as a
+network drive. ``isdir`` on a share whose host is unreachable blocks until
+the SMB connect times out (measured 2026-11-24; the figure is in the L-347 CHANGELOG entry), so a caller
+on a start path must not make that call.
 
 Stdlib only; a leaf, so the CLI prune can share it.
 """
@@ -105,6 +106,12 @@ def is_network_path(path: str) -> Optional[bool]:
     try:
         if _WIN_UNC.match(path):
             return True
+        if os.name == "nt":
+            # Windows reads //srv/share as UNC too; ask the parser, not a
+            # spelling (review of L-347).
+            drive = PureWindowsPath(path).drive
+            if drive.startswith(("\\\\", "//")):
+                return True
         if _WIN_DRIVE.match(path):
             if os.name != "nt":
                 return None
