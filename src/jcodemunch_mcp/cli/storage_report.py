@@ -18,6 +18,7 @@ import json
 import logging
 import os
 import stat
+import sys
 from pathlib import Path
 from typing import Optional
 
@@ -261,9 +262,27 @@ def _print_text(rep: dict) -> None:
             print(f"  {_human(m['bytes']):>10}  ... {m['count']} more")
     print()
     print("Remove an index with: jcodemunch-mcp delete-index <repo>")
+    print("List the indexes whose folder is gone with: jcodemunch-mcp storage prune")
 
 
 def add_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "action",
+        nargs="?",
+        choices=("prune",),
+        help="prune: list the indexes whose folder is gone (see `cli/storage_prune.py`). "
+             "Deletes nothing without --yes.",
+    )
+    parser.add_argument(
+        "--yes",
+        action="store_true",
+        help="With prune: delete the listed indexes. Cannot be undone.",
+    )
+    parser.add_argument(
+        "--include-unreachable",
+        action="store_true",
+        help="With prune: also drop indexes whose drive or share is not there now.",
+    )
     parser.add_argument("--json", action="store_true", dest="as_json", help="Emit JSON")
     parser.add_argument(
         "--top",
@@ -282,6 +301,14 @@ def main(argv: Optional[list[str]] = None, storage_path: Optional[str] = None) -
 
 
 def run(args: argparse.Namespace, storage_path: Optional[str] = None) -> int:
+    if getattr(args, "action", None) == "prune":
+        from .storage_prune import run as _prune_run
+
+        return _prune_run(args, storage_path=storage_path)
+    if getattr(args, "yes", False) or getattr(args, "include_unreachable", False):
+        # Never a silent no-op: the flag reads as "it was deleted".
+        print("--yes and --include-unreachable go with `storage prune`.", file=sys.stderr)
+        return 2
     rep = storage_report(storage_path, top=getattr(args, "top", DEFAULT_TOP))
     if getattr(args, "as_json", False):
         print(json.dumps(rep, indent=2))
