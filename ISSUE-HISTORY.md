@@ -3524,3 +3524,9 @@ The 1.108.482 entry, verbatim as it stood in `CLAUDE.md`:
 The 1.108.483 entry, verbatim as it stood in `CLAUDE.md`:
 
 - **Prior (1.108.483):** **a Ruby import never resolves to another language's file** (L-294): `parser/imports._OWN_FORMS_ONLY`: a `.rb`/`.rake` importer tries only its own forms and no SQL stem. Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-24, release 1.108.487)
+
+The 1.108.484 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.484):** **a folder inside a Git worktree is matched to the indexed checkout** (L-235): `resolve_repo._enclosing_git_common_dir` walks the queried path up to its nearest `.git`, subprocess-free; indexed source roots are not walked. Full text: `CHANGELOG.md`.

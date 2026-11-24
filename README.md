@@ -72,6 +72,7 @@ Full methodology, pinned commits, harness, and known caveats: [benchmarks/METHOD
 
 ### Mentioned by
 
+- **SI Plugins**: *"Rank #2 of 19 in Code intelligence and review"*, 91% positive from 23 independent users on Reddit (read 2026-11-23) · [jCodeMunch reviews on SI Plugins](https://superintelligence-plugins.com/tools/jcodemunch/)
 - **Artur Skowroński** (VirtusLab): *"roughly 80% fewer tokens, or 5× more efficient — index once, query cheaply forever"* · [GitHub All-Stars #15](https://virtuslab.com/blog/ai/code-munch-mcp-your-agent-starts-navigating)
 - **Traci Lim** (AWS · ASEAN AI Lead): *"structural queries that native tools can't answer: find_importers, get_blast_radius, get_class_hierarchy, find_dead_code"* · [5 Repos That Save Token Usage in Claude Code](https://www.tracilzw.com/posts/5-repos-save-token-usage-claude-code)
 - **Julian Horsey** (Geeky Gadgets): *"3,850 tokens reduced to just 700 — a 5.5× improvement"* · [JCodeMunch AI Token Saver](https://www.geeky-gadgets.com/jcodemunch-mcp-token-savings/)
