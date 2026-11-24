@@ -20,12 +20,28 @@ The volume of a path:
 - Windows UNC path (``\\\\server\\share\\repo``): the share ``\\\\server\\share\\``.
 - POSIX path under a removable-media folder: ``/Volumes/<v>``, ``/mnt/<v>``,
   ``/media/<v>`` or ``/media/<user>/<v>``, ``/run/media/<user>/<v>``. Present
-  means it is a mount point now. A volume mounted anywhere else reads as part
-  of ``/``, so its folder reads as removed: that limit is documented.
+  means it is a mount point now.
 - Any other POSIX path: on ``/``, which is always present.
 
+Limits, both directions, because each one is a wrong answer:
+
+- A volume mounted outside those folders (POSIX), or into an NTFS folder
+  (``C:\\mnt\\usb``, Windows), reads as part of ``/`` or ``C:\\``, so while it
+  is absent its folder reads as removed.
+- A plain folder (not a mount) under ``/mnt``, ``/media`` or ``/Volumes`` reads
+  as an absent volume, so its index is kept even after the folder is removed.
+  An unmounted volume leaves the same empty mount folder behind, and nothing
+  local tells the two apart.
+
 A Windows-shaped path read on a POSIX host (or the reverse) cannot be checked
-and answers ``None``. Stdlib only; a leaf, so the CLI prune can share it.
+and answers ``None``.
+
+``is_network_path(path)`` says whether checking a path could touch the network:
+a UNC path, or a drive letter Windows reports as a network drive. Measured
+2026-11-24 on Windows: the first ``isdir`` of a share on an unreachable host
+took 42.15 s. A caller on a start path must not make that call.
+
+Stdlib only; a leaf, so the CLI prune can share it.
 """
 
 from __future__ import annotations
@@ -73,6 +89,33 @@ def volume_roots(path: str) -> Optional[list[str]]:
     if len(parts) >= 5 and parts[1] == "run" and parts[2] == "media":
         return ["/run/media/" + "/".join(parts[3:5])]
     return []
+
+
+_DRIVE_REMOTE = 4  # GetDriveTypeW: a network drive
+
+
+def is_network_path(path: str) -> Optional[bool]:
+    """True when checking ``path`` could touch the network; None if unknown.
+
+    A UNC path is True by its shape on any host. A drive letter on Windows asks
+    ``GetDriveTypeW``, which reads the local drive table and does not contact
+    the server. A POSIX path answers False: a network mount there has no shape
+    to recognise without touching it.
+    """
+    try:
+        if _WIN_UNC.match(path):
+            return True
+        if _WIN_DRIVE.match(path):
+            if os.name != "nt":
+                return None
+            import ctypes
+
+            anchor = PureWindowsPath(path).anchor
+            return ctypes.windll.kernel32.GetDriveTypeW(anchor) == _DRIVE_REMOTE  # type: ignore[attr-defined]
+        return False
+    except Exception:
+        logger.debug("network path check failed for %s", path, exc_info=True)
+        return None
 
 
 def volume_present(path: str) -> Optional[bool]:

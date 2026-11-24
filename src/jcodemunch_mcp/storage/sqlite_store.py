@@ -22,7 +22,7 @@ from ..parser.imports import written_imports
 from ..parser.symbols import Symbol
 from ..path_map import parse_path_map, remap
 from .embedding_store import META_KEY_PREFIX as _EMBED_META_PREFIX
-from .volume_presence import volume_present
+from .volume_presence import is_network_path, volume_present
 
 # Cache of base_path strings that have already had mkdir called — avoids
 # a redundant CreateDirectoryW syscall on every tool call.
@@ -3709,6 +3709,13 @@ class SQLiteIndexStore:
                 # yet — the order of those two must never become load-bearing.
                 continue
             try:
+                if is_network_path(source_root) is not False:
+                    # ⚠ This runs synchronously at server start. A share on
+                    # an unreachable host blocked isdir() for 42.15 s
+                    # (measured 2026-11-24), longer than many clients wait
+                    # for a server to connect. Network folders are not checked
+                    # here at all; unknown is treated the same (L-347).
+                    continue
                 if not Path(source_root).is_dir():
                     # ⚠ A missing folder is an orphan only when its VOLUME is
                     # here. An unplugged drive, a disconnected share or an

@@ -14,14 +14,22 @@ letter to the real folder before storing `source_root`, so the stored path
 never names the letter. A real removable drive has no such alias, which is why
 these tests write the drive path into the index meta directly.
 
-⚠ NON-VACUITY. The kept-index tests fail on the pre-fix sweep. The control in
-`test_pack_index_survives_orphan_sweep.py` (a folder removed from a present
-volume is still deleted) passes on both sides, so this file cannot go green by
-the sweep ceasing to delete anything.
+⚠ A network folder is not probed at all. The sweep runs synchronously at
+server start, and the first `isdir` of a share on an unreachable host took
+42.15 s (measured 2026-11-24). Keeping such an index and probing it would put
+that stall on every start, so the test fails if the sweep stats the path.
+
+⚠ Each test branches on `os.name` instead of skipping: a skip on every POSIX
+leg counts against the `ci.skips_*` Floors (review of this change).
+
+⚠ NON-VACUITY. The kept-index tests fail on the pre-fix sweep; the control
+(a folder removed from a present volume is still deleted) passes on both
+sides, so this file cannot go green by the sweep ceasing to delete anything.
 """
 from __future__ import annotations
 
 import os
+import pathlib
 import sqlite3
 import string
 import uuid
@@ -30,6 +38,8 @@ import pytest
 
 from jcodemunch_mcp.storage import IndexStore
 from jcodemunch_mcp.tools.index_folder import index_folder
+
+B = chr(92)
 
 
 def _make_indexed_store(tmp_path):
@@ -59,55 +69,72 @@ def _point_index_at(db, root):
         conn.close()
 
 
-def _sweep_keeps(tmp_path, root):
+def _sweep(tmp_path, root):
     store_dir, db = _make_indexed_store(tmp_path)
     _point_index_at(db, root)
     deleted = IndexStore(base_path=str(store_dir)).cleanup_orphan_indexes()
     return deleted, db.exists()
 
 
-def _absent_drive_letter():
-    for letter in reversed(string.ascii_uppercase):
-        if not os.path.exists(f"{letter}:\\"):
-            return letter
-    pytest.skip("every drive letter is mapped on this host")
+def _absent_volume_path():
+    if os.name == "nt":
+        for letter in reversed(string.ascii_uppercase):
+            if not os.path.exists(f"{letter}:{B}"):
+                return f"{letter}:{B}proj"
+        pytest.skip("every drive letter is mapped on this host")
+    return f"/mnt/jcm-absent-{uuid.uuid4().hex[:8]}/proj"
 
 
-@pytest.mark.skipif(os.name != "nt", reason="a Windows drive letter")
-def test_index_on_an_absent_drive_letter_is_kept(tmp_path):
-    """The defect, stated directly: an unplugged USB drive E:."""
-    root = f"{_absent_drive_letter()}:\\proj"
-    deleted, exists = _sweep_keeps(tmp_path, root)
-    assert deleted == 0, f"the index of {root} was deleted while its drive was absent"
+def test_index_on_an_absent_volume_is_kept(tmp_path):
+    """The defect: an unplugged drive (Windows) or unmounted volume (POSIX)."""
+    root = _absent_volume_path()
+    deleted, exists = _sweep(tmp_path, root)
+    assert deleted == 0, f"the index of {root} was deleted while its volume was absent"
     assert exists
 
 
-@pytest.mark.skipif(os.name == "nt", reason="a POSIX mount folder")
-def test_index_under_an_unmounted_media_folder_is_kept(tmp_path):
-    """An unmounted volume under /mnt is not a removed folder."""
-    root = f"/mnt/jcm-absent-{uuid.uuid4().hex[:8]}/proj"
-    deleted, exists = _sweep_keeps(tmp_path, root)
-    assert deleted == 0, f"the index of {root} was deleted while its volume was not mounted"
-    assert exists
-
-
-@pytest.mark.skipif(os.name == "nt", reason="a Windows path read on a POSIX host")
-def test_a_windows_path_on_a_posix_host_is_kept(tmp_path):
+def test_a_path_from_another_os_is_kept(tmp_path):
     """A store read on another OS cannot check the volume: unknown keeps."""
-    deleted, exists = _sweep_keeps(tmp_path, "E:\\proj")
+    root = "/media/usb/proj" if os.name == "nt" else f"E:{B}proj"
+    deleted, exists = _sweep(tmp_path, root)
     assert deleted == 0 and exists
 
 
-@pytest.mark.skipif(os.name != "nt", reason="a POSIX path read on a Windows host")
-def test_a_posix_media_path_on_a_windows_host_is_kept(tmp_path):
-    deleted, exists = _sweep_keeps(tmp_path, "/media/usb/proj")
-    assert deleted == 0 and exists
+def test_a_network_folder_is_kept_without_a_probe(tmp_path, monkeypatch):
+    """No network I/O on the start path: the sweep must not stat a share."""
+    root = f"{B}{B}jcm-absent-host.invalid{B}share{B}proj"
+    store_dir, db = _make_indexed_store(tmp_path)
+    _point_index_at(db, root)
+
+    probed = []
+    real_is_dir = pathlib.Path.is_dir
+    real_isdir = os.path.isdir
+
+    def spy_is_dir(self, *a, **k):
+        if "jcm-absent-host" in str(self):
+            probed.append(str(self))
+        return real_is_dir(self, *a, **k)
+
+    def spy_isdir(p):
+        if "jcm-absent-host" in str(p):
+            probed.append(str(p))
+        return real_isdir(p)
+
+    monkeypatch.setattr(pathlib.Path, "is_dir", spy_is_dir)
+    monkeypatch.setattr(os.path, "isdir", spy_isdir)
+    deleted = IndexStore(base_path=str(store_dir)).cleanup_orphan_indexes()
+
+    assert deleted == 0 and db.exists(), "a network folder's index was deleted"
+    assert probed == [], f"the start sweep probed a network path: {probed}"
 
 
-@pytest.mark.skipif(os.name != "nt", reason="a Windows drive letter")
-def test_a_removed_folder_on_a_present_drive_is_still_deleted(tmp_path):
-    """CONTROL on Windows: the drive of tmp_path is present, the folder is not."""
-    drive = os.path.splitdrive(str(tmp_path))[0]
-    root = f"{drive}\\jcm-removed-{uuid.uuid4().hex[:8]}\\proj"
-    deleted, exists = _sweep_keeps(tmp_path, root)
+def test_a_removed_folder_on_a_present_volume_is_still_deleted(tmp_path):
+    """CONTROL, both sides: the volume is here, the folder is not."""
+    tag = uuid.uuid4().hex[:8]
+    if os.name == "nt":
+        drive = os.path.splitdrive(str(tmp_path))[0]
+        root = f"{drive}{B}jcm-removed-{tag}{B}proj"
+    else:
+        root = f"/jcm-removed-{tag}/proj"
+    deleted, exists = _sweep(tmp_path, root)
     assert deleted == 1 and not exists

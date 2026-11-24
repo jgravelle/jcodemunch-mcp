@@ -11,15 +11,27 @@ its index was deleted the same way as a removed worktree's, and the user paid a
 full re-index when the drive came back. Reproduced on 1.108.487: an index whose
 folder is on an unmapped `Z:` drive was deleted by the sweep.
 
-The sweep now deletes an index only when the folder is missing and its drive or
-share is present. On Windows that is the drive letter or the UNC share. On macOS
-and Linux it is a mount check on `/Volumes/<v>`, `/mnt/<v>`, `/media/...` and
-`/run/media/<user>/<v>`; a volume mounted anywhere else reads as part of `/`, so
-a missing folder there is still treated as removed. When the drive cannot be
-checked (a path written on another operating system, or a check that fails),
-the index is kept. A folder removed from a drive that is present is still
-cleaned up. The cost of the change is storage: the index of a drive that never
-comes back stays until it is deleted by hand.
+The sweep now deletes an index only when the folder is missing and the drive
+that holds it is present: on Windows the drive letter, on macOS and Linux a
+mount check on `/Volumes/<v>`, `/mnt/<v>`, `/media/...` and
+`/run/media/<user>/<v>`. A folder removed from any other place on a present
+drive is still cleaned up. When the drive cannot be checked (a path written on
+another operating system, or a check that fails), the index is kept.
+
+A network folder (a UNC path, or a drive letter Windows reports as a network
+drive) is no longer checked at server start at all, and its index is kept. The
+sweep runs before the server answers, and the first check of a share on an
+unreachable host took 42.15 s here, which is longer than many clients wait for
+a server to connect. Before this change that wait happened once and then the
+index was deleted.
+
+What the fix cannot tell apart, in both directions: a volume mounted outside
+those folders on macOS or Linux, or into an NTFS folder on Windows, reads as
+part of the main drive, so its folder still reads as removed while it is
+unplugged. A plain folder (not a mount) under `/mnt`, `/media` or `/Volumes`
+reads as an unmounted volume, so its index is kept after the folder is removed,
+because an unmounted volume leaves the same empty folder behind. Kept indexes
+cost storage until they are deleted by hand.
 
 ### A Bearer token with `~ + / =` or `!` is redacted whole (#1558)
 
