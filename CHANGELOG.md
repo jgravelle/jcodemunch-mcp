@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.488] - 2026-11-24 - a Bearer token with ~ + / = or ! is redacted whole
+
 ### A Bearer token with `~ + / =` or `!` is redacted whole (#1558)
 
 Reported by @goranai, who also sent a fix in #1559. The redactor's `bearer_token` pattern took only letters,
