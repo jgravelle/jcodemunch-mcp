@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.487] - 2026-11-24 - get_changed_symbols says that its cross_repo argument does nothing
+
 ### get_changed_symbols says that its cross_repo argument does nothing (L-57)
 
 `get_changed_symbols` accepted `cross_repo` and nothing read it. The MCP schema
