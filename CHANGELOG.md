@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.490] - 2026-11-24 - a subfolder index reads the root .gitignore, and watch-install needs no elevated shell
+
 ### Indexing a subfolder applies the repository's own .gitignore (#1563)
 
 Reported by @rknighton. `index_folder(<repo>/sub)` read only the `.gitignore`
