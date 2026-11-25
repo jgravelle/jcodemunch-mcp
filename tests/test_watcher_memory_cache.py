@@ -909,6 +909,74 @@ async def test_stopped_watcher_does_not_advertise_a_retry(tmp_path, monkeypatch)
     assert get_watch_status(storage, check_freshness=False, check_completeness=False)["any_retry_pending"] is False
 
 
+@pytest.mark.parametrize("failed_first", [True, False])
+async def test_retry_rereads_failed_files_past_the_folder_cap(tmp_path, monkeypatch, failed_first):
+    """A walk has no changed_paths, and index_folder keeps a file past
+    max_folder_files without reading it again unless a changed path names it.
+    An edit to such a file must reach the index after a full retry
+    (failed_first) and after a batch that a folder event made into a walk."""
+    from types import SimpleNamespace
+
+    from jcodemunch_mcp import config as config_module
+    from jcodemunch_mcp import reindex_state, watcher
+    from jcodemunch_mcp.storage import IndexStore
+
+    Change = pytest.importorskip("watchfiles").Change
+    root = tmp_path / "repo"
+    root.mkdir()
+    files = [root / f"m{i}.py" for i in range(3)]
+    for i, path in enumerate(files):
+        path.write_text(f"def old{i}(): pass\n", encoding="utf-8")
+    storage = str(tmp_path / "store")
+    real_index = watcher.index_folder
+    result = real_index(str(root), use_ai_summaries=False, context_providers=False, storage_path=storage)
+    assert result["success"], result
+    owner, name = result["repo"].split("/", 1)
+    store = IndexStore(base_path=storage)
+    # The index holds all 3 files; the watcher now runs under a cap of 1.
+    monkeypatch.setitem(config_module._GLOBAL_CONFIG, "max_folder_files", 1)
+
+    def names():
+        return {symbol["name"] for symbol in store.load_index(owner, name).symbols}
+
+    blocked = failed_first
+
+    def index(**kwargs):
+        if blocked:
+            return {"success": False, "error": "writer busy"}
+        return real_index(**kwargs)
+
+    now = 0.0
+
+    async def events(*args, **kwargs):
+        nonlocal now, blocked
+        for i, path in enumerate(files):
+            path.write_text(f"def new{i}(): pass\n", encoding="utf-8")
+        batch = {(Change.modified, str(path)) for path in files}
+        if failed_first:
+            yield batch
+            assert names() == {"old0", "old1", "old2"}
+            blocked = False
+            now = 5.0
+            yield set()
+        else:
+            # The root event (the rescan _safe_awatch yields) makes it a walk.
+            yield batch | {(Change.modified, str(root))}
+        assert names() == {"new0", "new1", "new2"}, "the walk kept a capped file's old copy"
+        status = reindex_state.get_reindex_status(result["repo"])
+        assert "retry_in_ms" not in status
+        assert status["index_stale"] is False
+
+    monkeypatch.setattr(watcher, "time", SimpleNamespace(monotonic=lambda: now))
+    monkeypatch.setattr(reindex_state, "time", SimpleNamespace(monotonic=lambda: now))
+    monkeypatch.setattr(watcher, "index_folder", index)
+    monkeypatch.setattr(watcher, "_safe_awatch", events)
+    await watcher._watch_single(
+        str(root), 200, False, storage, None, False,
+        skip_initial_index=True, quiet=True, context_providers=False,
+    )
+
+
 async def test_watch_tasks_sharing_a_repo_key_keep_each_others_retry(tmp_path, monkeypatch):
     """Two watched subfolders of one repository share one repo key under git
     identity. One task's success or exit must not clear the other's retry."""
