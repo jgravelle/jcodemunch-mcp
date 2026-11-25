@@ -154,6 +154,42 @@ def _runtime_data_present(store: IndexStore, owner: str, name: str) -> bool:
         return False
 
 
+def _content_search_read_every(
+    index, store, owner: str, name: str, files: list[str], target_name: str
+) -> bool:
+    """True only when the reference search READ every file in `files`.
+
+    ⚠⚠ (LEDGER L-348 review) `check_references._check_single` skips a file in
+    silence when it is not in `index.source_files`, when its cached content is
+    missing or cannot be read, and when it holds a same-named definition with
+    no line span. Finding no reference in a file it skipped proves nothing, so
+    each of those cases answers False here. Mirrors that function's skip
+    conditions; it does not search for the name itself.
+    """
+    if not files:
+        return False
+    try:
+        source = set(index.source_files)
+        unspanned = {
+            s.get("file", "")
+            for s in index.symbols
+            if s.get("name") == target_name and not s.get("line")
+        }
+        content_dir = store._content_dir(owner, name)
+        for f in files:
+            if f not in source or f in unspanned:
+                return False
+            path = store._safe_content_path(content_dir, f)
+            if not path or not path.exists():
+                return False
+            with open(path, "r", encoding="utf-8", errors="replace", newline="") as fh:
+                fh.read(1)
+    except Exception:  # noqa: BLE001
+        logger.debug("check_delete_safe: importer content check failed", exc_info=True)
+        return False
+    return True
+
+
 def _check_dead_code_conf(repo: str, target_id: str, storage_path: Optional[str]) -> float:
     """Look up find_dead_code's confidence score for this symbol."""
     try:
@@ -398,15 +434,32 @@ def check_delete_safe(
         verdict = "cross_repo_blocking"
     elif scip_external_count > 0:
         verdict = "scip_referenced"
-    elif total_external_signals > 0 and refs_outside_target_file == 0 and refs_searched:
+    elif (
+        total_external_signals > 0
+        and refs_outside_target_file == 0
+        and internal_ref_count == 0
+        and test_ref_count == 0
+        and refs_searched
+        and _content_search_read_every(
+            index, store, owner, name,
+            [b["file"] for b in blockers if b.get("kind") == "external_import"],
+            target_name,
+        )
+    ):
         # ⚠⚠ (LEDGER L-348) Another file imports the target's FILE, and no
-        # other file names the symbol. `external_uses_blocking` asserted a use
-        # nobody makes (an unexported helper beside an exported function). The
-        # delete stays blocked: a wildcard import, a computed member access or
-        # a re-export reaches a symbol without writing its name, and no text
-        # search sees them. So this verdict is BOUNDED, never terminal, and
-        # names the reading that settles it. ⚠ `refs_searched` is required: a
-        # reference search that raised found nothing, which proves nothing.
+        # indexed file names the symbol, its own included.
+        # `external_uses_blocking` asserted a use nobody makes (an unexported
+        # helper beside an exported function). The delete stays blocked: a
+        # wildcard import, a computed member access or a re-export reaches a
+        # symbol without writing its name, and no text search sees them. So
+        # this verdict is BOUNDED, never terminal, and names the reading that
+        # settles it. Each condition is load-bearing:
+        #   - a same-file use is a found use; hiding it under this verdict
+        #     dropped it from the answer (review), so it stays external;
+        #   - `refs_searched`: a search that raised found nothing;
+        #   - the importers were READ: a search that skipped them (missing or
+        #     unreadable content, an unspanned same-named definition) found
+        #     nothing either, and called a named use "no other file names it".
         verdict = "file_import_only"
     elif total_external_signals > 0:
         verdict = "external_uses_blocking"
@@ -582,11 +635,14 @@ def check_delete_safe(
     # gap, and dropping it would hide the re-index that could change the
     # answer. The dynamic verdict keeps the name; it is the narrower cause,
     # and so does `name_not_searchable` (LEDGER L-81).
+    # (LEDGER L-348 review) `file_import_only` is an absence claim too ("no
+    # indexed file names it"): a withheld or stale file can be the one that
+    # does. It keeps its name, the narrower cause, and gains the re-index gap.
     if not corpus_adequacy.adequate and verdict in (
         "safe_to_delete", "internal_only", "test_coverage_only", "dynamic_import_boundary",
-        "name_not_searchable",
+        "name_not_searchable", "file_import_only",
     ):
-        if verdict not in ("dynamic_import_boundary", "name_not_searchable"):
+        if verdict not in ("dynamic_import_boundary", "name_not_searchable", "file_import_only"):
             verdict = "corpus_inadequate"
         corpus_gap = {
             "action": "re-index this repo",
@@ -611,8 +667,8 @@ def check_delete_safe(
                 "by a computed name, or a re-export"
             ),
             "why": (
-                f"{shown} import {target_file}, but no other file names "
-                f"{target_name!r}"
+                f"{shown} import {target_file}, but no indexed file names "
+                f"{target_name!r}, its own file included"
             ),
         }
 
@@ -648,10 +704,13 @@ def check_delete_safe(
     elif verdict == "entry_point":
         confidence = 0.20
     elif verdict == "file_import_only":
-        # (LEDGER L-348) No use was found by name and none was ruled out past
-        # the file import: the ceiling for an absence nothing could establish,
-        # as `name_not_searchable` uses, never the 0.85 floor of a safe verdict.
-        confidence = min(confidence, UNPROVEN_CEILING)
+        # ⚠⚠ (LEDGER L-348 review) The SAME confidence `external_uses_blocking`
+        # gives, never more. The first draft used UNPROVEN_CEILING, which
+        # caps a would-be-safe verdict DOWN; here it raised a blocking one from
+        # 0.25 to 0.6, so adding an importer made a symbol look safer than it
+        # did with none (0.45 as `internal_uses_blocking`). This verdict
+        # corrects a claim; it must not move any symbol toward safe.
+        confidence = 0.25
     elif verdict == "external_uses_blocking":
         confidence = 0.25
     elif verdict == "internal_uses_blocking":
@@ -702,7 +761,7 @@ def check_delete_safe(
             f"{import_gap['why']}. The import alone keeps this blocked: "
             f"{import_gap['action']} before deleting."
             if import_gap
-            else "Another file imports this file, but no other file names this symbol. "
+            else "Another file imports this file, but no indexed file names this symbol. "
             "Read the importing files before deleting."
         ),
         "external_uses_blocking": (

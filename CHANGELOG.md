@@ -13,14 +13,26 @@ Python function behind `from pkg import util`.
 
 The delete stays blocked, because a wildcard import, a member access by a
 computed name or a re-export can reach a symbol without writing its name, and
-no text search sees those. What changes is the claim. When no file other than
-the symbol's own names it, the verdict is now `file_import_only`: it names the
-importing files, says no other file names the symbol, and its `stop_rule` is
-not terminal, naming the reading of those importers that would settle it. A
-symbol another file does name, by member access or in a test, is still
-`external_uses_blocking`. The tool description lists the new verdict, which
-adds 4 tokens to the `standard` and `full` tool lists; `core` and `counter` are
-unchanged.
+no text search sees those. What changes is the claim. When no indexed file
+names the symbol, its own included, the verdict is now `file_import_only`: it
+names the importing files, says no indexed file names the symbol, and its
+`stop_rule` is not terminal, naming the reading of those importers that would
+settle it, and re-indexing when the index cannot back an absence. Its
+confidence is the 0.25 `external_uses_blocking` gives, so no symbol moves
+toward safe.
+
+The new verdict needs evidence of absence, so these keep
+`external_uses_blocking`:
+- a symbol another file names, by member access or in a test;
+- a symbol its own file uses;
+- a reference search that failed;
+- an importer the search could not read: missing or unreadable cached content,
+  or a same-named definition with no line span.
+
+The tool description lists the new verdict, which adds 4 tokens to the
+`standard` and `full` tool lists; `core` and `counter` are unchanged.
+`check_edit_safe` makes the same file-level claim for `signature_impact`; that
+is tracked separately (L-349).
 
 ## [1.108.489] - 2026-11-24 - an index on an unplugged drive survives server start
 
