@@ -87,6 +87,41 @@ under its lock. The store now also refuses a moved index before it takes the
 lock, and refuses when it cannot read the index's timestamp, where before a
 later read could succeed and the write-back went ahead.
 
+## [1.108.491] - 2026-11-25 - a delete blocked only by a file import says so
+
+### A delete blocked only by a file import says so (L-348)
+
+`check_delete_safe` counted every file that imports the target's file as an
+external use of every symbol in that file. A function its module never
+exports, in a file that another file `require`s or imports, came back
+`external_uses_blocking` with "1 other file(s) in this repo import this". No
+file used it. The same happened to an unexported ES module function and to a
+Python function behind `from pkg import util`.
+
+The delete stays blocked, because a wildcard import, a member access by a
+computed name or a re-export can reach a symbol without writing its name, and
+no text search sees those. What changes is the claim. When the reference
+search reads the importing files and the symbol's own file and finds the name
+in no file it read, the verdict is now `file_import_only`: it names the
+importing files, says the search found the name nowhere it read, and its
+`stop_rule` is not terminal, naming the reading of those importers that would
+settle it, and re-indexing when the index cannot back an absence. Its
+confidence is the 0.25 `external_uses_blocking` gives, so no symbol moves
+toward safe.
+
+The new verdict needs evidence of absence, so these keep
+`external_uses_blocking`:
+- a symbol another file names, by member access or in a test;
+- a symbol its own file uses;
+- a reference search that failed;
+- an importer, or the symbol's own file, that the search could not read: missing or unreadable cached content,
+  or a same-named definition with no line span.
+
+The tool description lists the new verdict, which adds 4 tokens to the
+`standard` and `full` tool lists; `core` and `counter` are unchanged.
+`check_edit_safe` makes the same file-level claim for `signature_impact`; that
+is tracked separately (L-349).
+
 ## [1.108.490] - 2026-11-24 - a subfolder index reads the root .gitignore, and watch-install needs no elevated shell
 
 ### Indexing a subfolder applies the repository's own .gitignore (#1563)

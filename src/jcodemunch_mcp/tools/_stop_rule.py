@@ -93,6 +93,10 @@ _UNSETTLED = {
         # (LEDGER L-70) A dynamic import scoped to the symbol's package can
         # load it; reading the named loaders can move it either way.
         "dynamic_import_boundary": "dynamic_gap",
+        # (LEDGER L-348) Another file imports the symbol's file and none names
+        # it; reading the importers for a wildcard import, a computed member
+        # access or a re-export can move it either way.
+        "file_import_only": "import_gap",
     },
     "check_edit_safe": {
         # (LEDGER L-75) safe_to_edit's absence claim, unproven past a dynamic
@@ -127,6 +131,7 @@ def _channel_gaps(
     corpus_gap: Optional[dict] = None,
     dynamic_gap: Optional[dict] = None,
     name_gap: Optional[dict] = None,
+    import_gap: Optional[dict] = None,
 ) -> list[dict]:
     """Evidence channels that could still move a bound-style verdict."""
     gaps: list[dict] = []
@@ -143,6 +148,10 @@ def _channel_gaps(
     # sites settles it, and no channel below can.
     if name_gap:
         gaps.append(name_gap)
+    # (LEDGER L-348) A file import with no named use: only reading the
+    # importers settles it.
+    if import_gap:
+        gaps.append(import_gap)
     if not cross_repo:
         gaps.append({
             "action": "re-run with cross_repo=true",
@@ -174,6 +183,7 @@ def build_stop_rule(
     corpus_gap: Optional[dict] = None,
     dynamic_gap: Optional[dict] = None,
     name_gap: Optional[dict] = None,
+    import_gap: Optional[dict] = None,
 ) -> dict:
     """Return the ``stop_rule`` block for one verdict.
 
