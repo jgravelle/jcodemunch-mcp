@@ -19,6 +19,28 @@ counts its skipped files and warns about none. Project config is still read from
 folder that was indexed. A test that required the subfolder walk to index a
 root-ignored file is replaced (`harness/retired.json`).
 
+### `watch-install` registers its Windows task without an elevated shell (#1564)
+
+Reported by @rknighton. The task definition gave its logon trigger no user. A
+logon trigger with no user fires when anyone logs on, and Windows refuses to
+register that from a shell that is not elevated, so `watch-install` stopped
+with "Access is denied" for anyone who ran it normally. The reporter tested
+both places a user can go: in the trigger, the task registers without
+elevation; in the principal alone, it does not. The trigger now names the
+calling user (`DOMAIN\user`, read from the process token, with `USERDOMAIN` and
+`USERNAME` as the fallback). When no user can be read, the trigger stays as it
+was, and that form still registers from an elevated shell.
+
+An elevated shell registers either form, so the refusal can't be reproduced
+from one. The tests pin the cause in the generated XML: the trigger carries the
+user, the user is XML-escaped, and the principal is unchanged. The Windows CI
+test that registers the task beside the old switch form compared every field,
+the trigger's user included, so it required the any-user trigger. It now
+requires the trigger to name the calling user and everything else to match.
+It and the fixed definition were registered and deleted under throwaway names
+on Windows 11 from an elevated shell. Neither was run from a non-elevated one
+here; the reporter's test covers that case.
+
 ## [1.108.489] - 2026-11-24 - an index on an unplugged drive survives server start
 
 ### An index on an unplugged drive survives server start (L-347)
@@ -56,6 +78,7 @@ reads as an unmounted volume, so its index is kept after the folder is removed,
 because an unmounted volume leaves the same empty folder behind. Kept indexes
 cost storage until they are deleted by hand. A Windows device path (`\\?\` or
 `\\.\`) reads as a network path and is always kept.
+
 ## [1.108.488] - 2026-11-24 - a Bearer token with ~ + / = or ! is redacted whole
 
 ### A Bearer token with `~ + / =` or `!` is redacted whole (#1558)
