@@ -275,11 +275,12 @@ WITHHELD_SKIP_REASONS = frozenset({
 PARSE_FAILED_FILES_KEY = "parse_failed_files"
 
 
-def _with_withheld_names(coverage: dict, key: str, reason: str, names) -> dict:
+def _with_withheld_names(coverage: dict, key: str, reason: str, names, unnamed: int = 0) -> dict:
     """``coverage`` with the files withheld for ``reason`` set to ``names``.
 
     The count goes in ``skip_counts`` and ``withheld`` like every other withheld
-    reason. A known entry makes ``complete`` False even when the walk could
+    reason: the names plus ``unnamed``, the files withheld with no name. A
+    known entry makes ``complete`` False even when the walk could
     not reconcile its counts (``complete: None``), because a file whose
     symbols are missing or unverified is proof of a gap, not the absence of a
     measurement. With no entries left, ``complete`` is recomputed from the
@@ -290,12 +291,15 @@ def _with_withheld_names(coverage: dict, key: str, reason: str, names) -> dict:
     """
     cov = dict(coverage or {})
     names = sorted(set(names or ()))
+    count = len(names) + max(0, int(unnamed or 0))
     skips = dict(cov.get("skip_counts") or {})
-    if names:
-        skips[reason] = len(names)
-        cov[key] = names
+    if count:
+        skips[reason] = count
     else:
         skips.pop(reason, None)
+    if names:
+        cov[key] = names
+    else:
         cov.pop(key, None)
     cov["skip_counts"] = skips
     withheld = {
@@ -306,7 +310,7 @@ def _with_withheld_names(coverage: dict, key: str, reason: str, names) -> dict:
         cov["withheld"] = withheld
     else:
         cov.pop("withheld", None)
-    if names:
+    if count:
         cov["complete"] = False
     elif cov.get("complete") is not None and cov.get("files_accepted") is not None:
         cov["complete"] = (
@@ -339,9 +343,30 @@ def _with_parse_failures(coverage: dict, failed) -> dict:
 #: It is not copied into an answer: `index_coverage_meta` reads named keys only.
 UNREADABLE_FILES_KEY = "unreadable_files"
 
+#: Coverage key holding the unreadable files the record cannot name: an index
+#: written before the record has an ``unreadable`` count and no names. The
+#: targeted routes cannot tell where those files are, so they keep the count;
+#: only a walk of the whole root replaces it (Codex review on #1567).
+UNREADABLE_UNNAMED_KEY = "unreadable_unnamed"
+
 
 def _stored_unreadable(coverage) -> set[str]:
     return set((coverage or {}).get(UNREADABLE_FILES_KEY) or ())
+
+
+def _unnamed_unreadable(coverage) -> int:
+    """How many unreadable files the stored coverage counts but does not name."""
+    cov = coverage or {}
+    if UNREADABLE_UNNAMED_KEY in cov:
+        return int(cov[UNREADABLE_UNNAMED_KEY] or 0)
+    named = len(_stored_unreadable(cov))
+    counted = int((cov.get("skip_counts") or {}).get("unreadable", 0) or 0)
+    return max(0, counted - named)
+
+
+def _stored_record(coverage) -> tuple[list, int]:
+    """The stored unreadable record, in `_carried_unreadable`'s form."""
+    return sorted(_stored_unreadable(coverage)), _unnamed_unreadable(coverage)
 
 
 def _unreadable_dirs(entries) -> tuple[str, ...]:
@@ -353,21 +378,35 @@ def _is_unread(fp: str, files, dirs: tuple[str, ...]) -> bool:
     return fp in files or fp.startswith(dirs)
 
 
-def _carried_unreadable(prior_coverage, walk_prefix: str, unread_now, kept_inside=()) -> list:
+def _carried_unreadable(
+    prior_coverage, walk_prefix: str, unread_now, kept_inside=(),
+) -> tuple[list, int]:
     """The unreadable record after a walk of ``walk_prefix`` ("" is the root).
 
-    Entries outside the scope stay: this walk did not look there. Entries
-    inside it are replaced by what this walk could not read (``unread_now``),
-    except a file the file cap kept unread (``kept_inside``).
+    Returns ``(names, unnamed)``. Entries outside the scope stay: this walk
+    did not look there. Entries inside it are replaced by what this walk could
+    not read (``unread_now``), except the stored files the file cap kept
+    unread (``kept_inside``): each one the prior record names, itself or by a
+    directory above it, stays as a file entry until a read verifies it. The
+    unnamed count stays unless the walk covered the root.
     """
     prior = _stored_unreadable(prior_coverage)
     outside = {e for e in prior if _file_outside_walk_prefix(e.rstrip("/"), walk_prefix)}
-    return sorted(outside | (prior & set(kept_inside or ())) | set(unread_now or ()))
+    inside = prior - outside
+    inside_dirs = _unreadable_dirs(inside)
+    kept = {fp for fp in (kept_inside or ()) if _is_unread(fp, inside, inside_dirs)}
+    unnamed = 0 if walk_prefix == "" else _unnamed_unreadable(prior_coverage)
+    return sorted(outside | kept | set(unread_now or ())), unnamed
 
 
-def _with_unreadable_files(coverage: dict, names) -> dict:
-    """``coverage`` with its unreadable record set to ``names``."""
-    return _with_withheld_names(coverage, UNREADABLE_FILES_KEY, "unreadable", names)
+def _with_unreadable_files(coverage: dict, names, unnamed: int = 0) -> dict:
+    """``coverage`` with its unreadable record set to ``names`` and ``unnamed``."""
+    cov = _with_withheld_names(coverage, UNREADABLE_FILES_KEY, "unreadable", names, unnamed)
+    if unnamed:
+        cov[UNREADABLE_UNNAMED_KEY] = int(unnamed)
+    else:
+        cov.pop(UNREADABLE_UNNAMED_KEY, None)
+    return cov
 
 
 def _unverified_to_recheck(prior_coverage, candidates, stored, settled) -> set[str]:
@@ -416,7 +455,8 @@ def _store_parse_failures(
 
     The unreadable record (`UNREADABLE_FILES_KEY`) is amended in the same
     write: ``unread`` joins it, and a file this run read (``verified``) or
-    deleted leaves it. Directory entries stay until a walk lists them.
+    deleted leaves it. Directory entries stay until a walk lists them, and
+    the unnamed count (`UNREADABLE_UNNAMED_KEY`) until a walk of the root.
     """
     try:
         current = store._sqlite.get_coverage(owner, repo_name) or {}
@@ -426,6 +466,7 @@ def _store_parse_failures(
             current, set(parsed or ()) | set(deleted or ()), failed,
         )
         prior_unread = _stored_unreadable(current)
+        unnamed = _unnamed_unreadable(current)
         gone = set(verified or ()) | set(deleted or ())
         unread_names = sorted((prior_unread - gone) | set(unread or ()))
         if (
@@ -433,7 +474,9 @@ def _store_parse_failures(
             and unread_names == sorted(prior_unread)
         ):
             return
-        amended = _with_unreadable_files(_with_parse_failures(current, names), unread_names)
+        amended = _with_unreadable_files(
+            _with_parse_failures(current, names), unread_names, unnamed,
+        )
         store._sqlite.set_coverage(owner, repo_name, amended)
     except Exception:
         logger.debug(
@@ -537,14 +580,14 @@ def _record_coverage(
     post_discovery_drops: Optional[dict] = None,
     parse_failed=(),
     withheld_files: Optional[dict] = None,
-    unreadable_files: Optional[list] = None,
+    unreadable_files: Optional[tuple] = None,
 ) -> None:
     """Persist the coverage contract after a save (best-effort, never raises).
 
-    ``unreadable_files`` is `_carried_unreadable`'s record for this walk; it
-    replaces the stored one, and the ``unreadable`` count becomes its size. An
-    empty record never erases a count the walk measured with no entry (the
-    walked root itself failing to list).
+    ``unreadable_files`` is `_carried_unreadable`'s ``(names, unnamed)`` for
+    this walk; it replaces the stored record, and the ``unreadable`` count
+    becomes its size. An empty record never erases a count the walk measured
+    with no entry: that count stays as unnamed.
 
     ``withheld_files`` is `_withheld_files_for`'s ``{path: (size, limit)}``:
     the files withheld for size, named so the file tools can answer for them
@@ -563,8 +606,10 @@ def _record_coverage(
         if parse_failed:
             report = _with_parse_failures(report, parse_failed)
         _walk_unreadable = int((report.get("skip_counts") or {}).get("unreadable", 0) or 0)
-        if unreadable_files is not None and (unreadable_files or not _walk_unreadable):
-            report = _with_unreadable_files(report, unreadable_files)
+        if unreadable_files is not None:
+            _names, _unnamed = unreadable_files
+            if _names or _unnamed or not _walk_unreadable:
+                report = _with_unreadable_files(report, _names, _unnamed)
         if withheld_files:
             from ..retrieval.verdict import withheld_files_record
 
@@ -1782,24 +1827,27 @@ def _unreadable_files(
     ``files`` are root-relative keys and ``dirs`` are ``dir/`` keys: their
     stored rows stay, and both go in the unreadable record
     (`UNREADABLE_FILES_KEY`). ``named`` are the absolute paths of the files
-    the caller asked about (every file of a ``paths=`` call, else the
-    non-deleted watcher changes), for ``unread_files``: the watcher keeps its
-    retry for them and ``refresh`` does not stamp. A file that cannot resolve
-    (a symlink loop) is recorded but not named, because no retry repairs it.
+    the caller asked about, for ``unread_files``: the watcher keeps its retry
+    for them and ``refresh`` does not stamp. A ``paths=`` call names every
+    unreadable file and directory; otherwise each non-deleted watcher change
+    that is unreadable, or under an unreadable directory, is named. A file
+    that cannot resolve (a symlink loop) is recorded but not named, because
+    no retry repairs it.
     """
     by_rel: dict[str, Path] = {}
     for p in unreadable_paths:
         rel = _rel_to_root(p, root)
         if rel is not None:
             by_rel[rel] = p
-    dirs = {
-        rel.rstrip("/") + "/"
-        for rel in (_rel_to_root(d, root) for d in unreadable_dirs)
-        if rel not in (None, "", ".")
-    }
+    dir_paths: dict[str, Path] = {}
+    for d in unreadable_dirs:
+        rel = _rel_to_root(d, root)
+        if rel not in (None, "", "."):
+            dir_paths[rel.rstrip("/") + "/"] = d
+    dirs = tuple(sorted(dir_paths))
     retry = {rel: p for rel, p in by_rel.items() if _resolvable(p)}
     if listed:
-        named = {str(p) for p in retry.values()}
+        named = {str(p) for p in retry.values()} | {str(d) for d in dir_paths.values()}
     else:
         named = set()
         for change in changed_paths or ():
@@ -1807,7 +1855,9 @@ def _unreadable_files(
             rel = None if ctype == "deleted" else _rel_to_root(Path(cpath), root)
             if rel in retry:
                 named.add(str(retry[rel]))
-    return set(by_rel), tuple(sorted(dirs)), sorted(named)
+            elif rel and dirs and (rel + "/").startswith(dirs):
+                named.add(str(cpath))
+    return set(by_rel), dirs, sorted(named)
 
 
 def _unreadable_event(reason: str, rel_path: str, abs_path: Path) -> list[str]:
@@ -2411,7 +2461,10 @@ def discover_local_files(
         skip_counts["unreadable"] += 1
         failed = os.path.relpath(error.filename or root_str, root_str)
         warnings.append(f"Could not read directory {failed}: {error.strerror or error}")
-        if unreadable_dirs_out is not None and error.filename and failed != ".":
+        # The walked root goes in too: under a `paths=` directory entry it is
+        # a subfolder whose stored rows must stay. `_unreadable_files` drops
+        # the index root, which no record can scope.
+        if unreadable_dirs_out is not None and error.filename:
             unreadable_dirs_out.append(Path(error.filename))
 
     for dirpath, dirnames, filenames in os.walk(str(root), followlinks=False, onerror=_count_walk_error):
@@ -4183,6 +4236,11 @@ def index_folder(
                     # Nothing changed that could be read: a named file that
                     # could not be is still pending.
                     _no_change_result["unread_files"] = _unreadable_named
+                if _unreadable_now:
+                    # The kept rows make this a no-change walk, so it says
+                    # what it could not read, as a walk that saved does.
+                    _no_change_result["discovery_skip_counts"] = skip_counts
+                    _no_change_result["warnings"] = list(dict.fromkeys(_no_change_result.get("warnings", []) + warnings))
                 # Nothing changed, but this walk may still see files the index
                 # lacks: new files past the cap. Record what it saw, so the
                 # stored cap status and coverage stay true to the index.
@@ -4191,7 +4249,7 @@ def index_folder(
                 _nc_unreadable = _carried_unreadable(
                     _prior_cov, walk_prefix, _unreadable_now, _cap_dropped_rels,
                 )
-                _coverage_moved = paths is None and _nc_unreadable != sorted(_stored_unreadable(_prior_cov))
+                _coverage_moved = paths is None and _nc_unreadable != _stored_record(_prior_cov)
                 if paths is not None:
                     # A listed route writes no coverage: it amends the record.
                     _store_parse_failures(store, owner, repo_name, (), (), unread=_unreadable_now)
@@ -4930,7 +4988,7 @@ def index_folder(
                         _merge_with_existing if _merge_with_existing is not None else existing_index,
                         "coverage", None,
                     ),
-                    walk_prefix, _unreadable_now,
+                    walk_prefix, _unreadable_now, _cap_keep - _cap_stale,
                 ),
             )
         else:

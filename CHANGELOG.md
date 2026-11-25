@@ -76,9 +76,16 @@ and directory discovery or the read could not open, and every route keeps it:
 - a walk replaces only the entries inside its own folder, so a walk of `a/`
   keeps an entry from `b/`, and the targeted routes amend it;
 - any route that finds a recorded file readable again reads it, even with an
-  unchanged mtime, so a replacement that kept the old mtime is seen.
-A file the call named is also listed in `unread_files`: the watcher keeps its
-retry and `refresh` records a batch error. A kept file keeps its recorded parse
+  unchanged mtime, so a replacement that kept the old mtime is seen;
+- a file the file cap keeps unread under a recorded directory stays in the
+  record as a file until a read verifies it;
+- an `unreadable` count with no names (an index written before the record)
+  stays until a walk of the whole root, so a targeted update cannot clear it.
+A file the call named is also listed in `unread_files`, and so is a named file
+under a directory the walk could not list: the watcher keeps its retry and
+`refresh` records a batch error. A walk that keeps rows it could not read
+reports its skip counts and warnings even when nothing else changed, and a
+`paths=` directory that cannot be listed keeps its rows. A kept file keeps its recorded parse
 failure, a subfolder walk keeps those of the files outside it, and for
 `paths=['sub']` an unreadable file under `sub` passes the ancestor
 `.gitignore` filter first. The `paths=` route also stops reading a failed

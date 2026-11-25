@@ -1123,8 +1123,13 @@ governs it:
 - A route that finds a recorded file readable again reads and hashes it even
   when its mtime did not change, then removes it from the record.
 - A recorded file keeps its recorded parse failure.
+- A stored file that the file cap keeps unread, and that the record names
+  itself or by a directory above it, stays in the record as a file entry.
+- An `unreadable` count the record does not name (an index written before
+  the record, kept as `unreadable_unnamed`) stays until a walk of the root.
 If the call named the file (a watcher change, or a `paths=` entry), the
-response also lists it in `unread_files` (absolute paths). The watcher keeps
+response also lists it in `unread_files` (absolute paths); so does a named
+file under a directory the walk could not list. The watcher keeps
 its retry pending for it, and `refresh` records it as a batch error, so it
 does not stamp `parser_generation`. A file under a listed directory is kept
 only if the `.gitignore` files above that directory do not exclude it.

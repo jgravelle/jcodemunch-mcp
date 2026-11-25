@@ -1485,6 +1485,116 @@ def test_an_unreadable_file_nobody_named_keeps_its_rows_and_no_retry(tmp_path, m
     assert names == {"locked", "after"}
 
 
+def _deny_listing(monkeypatch, directory):
+    """Make `os.walk` fail to list one directory, as a permission error does."""
+    real_scandir = os.scandir
+
+    def fake_scandir(path="."):
+        if os.path.normcase(os.path.abspath(os.fspath(path))) == os.path.normcase(str(directory)):
+            raise PermissionError(13, "Access is denied", os.fspath(path))
+        return real_scandir(path)
+
+    monkeypatch.setattr(os, "scandir", fake_scandir)
+
+
+def test_a_targeted_update_keeps_an_unnamed_unreadable_count(tmp_path):
+    """An index written before the unreadable record counts unreadable files
+    with no names. A targeted update that changed a parse failure rewrote that
+    count from the empty record and made coverage complete (Codex review on
+    #1567)."""
+    from jcodemunch_mcp.storage import IndexStore
+    from jcodemunch_mcp.tools.index_folder import index_folder
+
+    root = tmp_path / "repo"
+    root.mkdir()
+    code = root / "code.py"
+    code.write_text("def before(): pass\n", encoding="utf-8")
+    (root / "other.py").write_text("def other(): pass\n", encoding="utf-8")
+    storage = str(tmp_path / "store")
+    result = index_folder(str(root), use_ai_summaries=False, context_providers=False, storage_path=storage)
+    owner, name = result["repo"].split("/", 1)
+    store = IndexStore(base_path=storage)
+    legacy = dict(store._sqlite.get_coverage(owner, name))
+    legacy.update(
+        complete=False, parse_failed_files=["code.py"],
+        skip_counts={"unreadable": 1, "parse_failed": 1},
+        withheld={"unreadable": 1, "parse_failed": 1},
+    )
+    store._sqlite.set_coverage(owner, name, legacy)
+    code.write_text("def after(): pass\n", encoding="utf-8")
+    index_folder(
+        str(root), use_ai_summaries=False, context_providers=False, storage_path=storage,
+        incremental=True, changed_paths=[WatcherChange("modified", str(code), "__cache_miss__")],
+    )
+    coverage = store._sqlite.get_coverage(owner, name)
+    assert coverage["complete"] is False, coverage
+    assert coverage["withheld"] == {"unreadable": 1}, coverage
+
+
+def test_a_capped_walk_keeps_the_record_of_a_kept_file_under_an_unread_directory(tmp_path, monkeypatch):
+    """A walk that could not list `sub/` records `sub/`. A later capped walk
+    kept `sub/x.py` unread, but matched only file entries, so it dropped
+    `sub/` and the kept file was never read again (Codex review on #1567)."""
+    from jcodemunch_mcp import config as config_module
+    from jcodemunch_mcp.storage import IndexStore
+    from jcodemunch_mcp.tools.index_folder import index_folder
+
+    root = tmp_path / "repo"
+    sub = root / "sub"
+    sub.mkdir(parents=True)
+    (root / "a.py").write_text("def a(): pass\n", encoding="utf-8")
+    kept = sub / "x.py"
+    kept.write_text("def before(): pass\n", encoding="utf-8")
+    storage = str(tmp_path / "store")
+
+    def walk():
+        result = index_folder(
+            str(root), use_ai_summaries=False, context_providers=False,
+            storage_path=storage, incremental=True,
+        )
+        assert result["success"], result
+        return result
+
+    owner, name = walk()["repo"].split("/", 1)
+    stat = kept.stat()
+    kept.write_text("def after(): pass\n", encoding="utf-8")
+    os.utime(kept, ns=(stat.st_atime_ns, stat.st_mtime_ns))
+    with monkeypatch.context() as denied:
+        _deny_listing(denied, sub)
+        walk()
+    with monkeypatch.context() as capped:
+        capped.setitem(config_module._GLOBAL_CONFIG, "max_folder_files", 1)
+        walk()
+    walk()
+    names = {symbol["name"] for symbol in IndexStore(base_path=storage).load_index(owner, name).symbols}
+    assert names == {"a", "after"}, "a kept file under an unread directory was never read again"
+
+
+def test_a_named_file_under_an_unlisted_directory_stays_pending(tmp_path, monkeypatch):
+    """A walk that cannot list the directory of a named change keeps the file's
+    rows. It named only unreadable files in `unread_files`, so the watcher
+    cleared the retry with the edit unindexed (Codex review on #1567)."""
+    from jcodemunch_mcp.tools.index_folder import index_folder
+
+    root = tmp_path / "repo"
+    sub = root / "sub"
+    sub.mkdir(parents=True)
+    (root / "a.py").write_text("def a(): pass\n", encoding="utf-8")
+    edited = sub / "x.py"
+    edited.write_text("def before(): pass\n", encoding="utf-8")
+    storage = str(tmp_path / "store")
+    index_folder(str(root), use_ai_summaries=False, context_providers=False, storage_path=storage)
+    edited.write_text("def after(): pass\n", encoding="utf-8")
+    _deny_listing(monkeypatch, sub)
+    walked = index_folder(
+        str(root), use_ai_summaries=False, context_providers=False, storage_path=storage,
+        incremental=True, discover=True,
+        changed_paths=[WatcherChange("modified", str(edited), "__cache_miss__")],
+    )
+    assert walked["success"], walked
+    assert _same_files(walked.get("unread_files") or []) == _same_files([edited]), walked
+
+
 @pytest.mark.parametrize("route", ["walk", "fast_path"])
 def test_an_unread_named_file_keeps_its_symbols(tmp_path, monkeypatch, route):
     """A named file that `index_folder` cannot read keeps its stored rows, and
