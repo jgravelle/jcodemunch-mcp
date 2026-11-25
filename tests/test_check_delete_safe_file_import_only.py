@@ -129,6 +129,25 @@ def test_an_inadequate_corpus_keeps_the_verdict_and_adds_the_reindex_gap(tmp_pat
     assert "re-index this repo" in _actions(got), got["stop_rule"]
 
 
+def test_a_dynamic_loader_keeps_the_verdict_and_adds_the_loader_gap(tmp_path):
+    # A loader is one more way to reach the file, so the dynamic gate adds its
+    # gap and blocker and keeps the narrower verdict, as the corpus gate does.
+    repo, store = _index(tmp_path, {
+        "adapters/__init__.py": "",
+        "adapters/alpha.py": "def helper():\n    return 1\n\n\ndef used():\n    return 2\n",
+        "app.py": "from adapters import alpha\n\nprint(alpha.used())\n",
+        "run.py": (
+            "import importlib\n\n\ndef make(name):\n"
+            "    return importlib.import_module(f'adapters.{name}')\n"
+        ),
+    })
+    got = _check(repo, store, "helper")
+    assert got["verdict"] == "file_import_only", got["verdict"]
+    assert got["confidence"] <= 0.25, got["confidence"]
+    assert "read the named loaders for the module names they can produce" in _actions(got)
+    assert any(b.get("kind") == "dynamic_import_boundary" for b in got["blockers"]), got["blockers"]
+
+
 # ── controls and guard witnesses: pass on both sides ─────────────────────────
 
 def test_a_function_another_file_names_is_still_an_external_use(tmp_path):
