@@ -2714,7 +2714,7 @@ def index_folder(
                 except Exception:
                     _fast_extra_spec = None
 
-            # ⚠ The .gitignore chain of each changed file, from the root down
+            # The .gitignore chain of each changed file, from the root down
             # to its folder: the specs the walk holds when it reaches that file
             # (`_gitignore_specs_on_path`, the rule `index_file` and the
             # explicit-paths route read too). This path read the root's file
@@ -2726,17 +2726,23 @@ def index_folder(
             _fast_gitignore_chains: dict[str, list[tuple[str, "pathspec.PathSpec"]]] = {}
 
             def _fast_gitignore_specs_for(abs_path: Path) -> list[tuple[str, "pathspec.PathSpec"]]:
+                # The chain belongs to the folder that holds the file, as on the
+                # walk, so only the folder is resolved. Resolving the file ran
+                # before `_should_index_file` could refuse a symlink, and on
+                # Python 3.10-3.12 a cyclic symlink raises RuntimeError there,
+                # which failed the whole batch (Codex review on #1567).
                 try:
-                    _resolved = abs_path.resolve()
-                    _key = str(_resolved.parent)
+                    _parent = abs_path.parent.resolve()
+                    _key = str(_parent)
                     if _key not in _fast_gitignore_chains:
                         _fast_gitignore_chains[_key] = _gitignore_specs_on_path(
-                            _fast_root_resolved, _resolved
+                            _fast_root_resolved, _parent / abs_path.name
                         )
                     return _fast_gitignore_chains[_key]
-                except (OSError, ValueError):
-                    # Outside the root (a symlink escape): `_should_index_file`
-                    # refuses the path itself, so the root's file is enough.
+                except (OSError, ValueError, RuntimeError):
+                    # Outside the root (a symlink escape) or a folder symlink
+                    # loop: `_should_index_file` refuses the path itself, so
+                    # the root's file is enough.
                     logger.debug("gitignore chain for %s not read", abs_path, exc_info=True)
                     _root_key = str(_fast_root_resolved)
                     if _root_key not in _fast_gitignore_chains:
@@ -2961,6 +2967,7 @@ def index_folder(
                 subset_hashes: dict[str, str] = {}
                 fast_mtimes: dict[str, int] = {}
                 fast_warnings: list[str] = []
+                _fast_unread: list[str] = []
                 mtime_only_updates: dict[str, int] = {}
 
                 _fast_phase("classify")
@@ -2971,6 +2978,9 @@ def index_folder(
                             content = f.read()
                     except Exception as e:
                         fast_warnings.append(f"Failed to read {abs_path}: {e}")
+                        # The stored rows stay; `unread_files` tells the
+                        # watcher that this edit is not indexed yet.
+                        _fast_unread.append(str(abs_path))
                         continue
                     new_hash = _file_hash(content)
                     try:
@@ -3025,6 +3035,9 @@ def index_folder(
                     # Nothing was re-parsed, so no stored hash moved. An EMPTY
                     # delta is the authoritative answer here, not a missing one.
                     _attach_hash_delta(_fast_mtime_only, changed_paths, {}, [])
+                    if _fast_unread:
+                        _fast_mtime_only["unread_files"] = sorted(_fast_unread)
+                        _fast_mtime_only["warnings"] = fast_warnings
                     _stamp_incremental_outcome(
                         _fast_mtime_only, _requested_incremental, True
                     )
@@ -3155,6 +3168,8 @@ def index_folder(
                     )
                 if fast_warnings:
                     result["warnings"] = fast_warnings
+                if _fast_unread:
+                    result["unread_files"] = sorted(_fast_unread)
                 _stamp_incremental_outcome(result, _requested_incremental, True)
                 _maybe_apply_adaptive(folder_path, result)
                 return result
@@ -3929,6 +3944,7 @@ def index_folder(
             files_to_parse = set(changed) | set(new)
             raw_files_subset: dict[str, str] = {}
             subset_hashes: dict[str, str] = {}
+            _unread_changed: set[str] = set()
             _incr_total = len(files_to_parse)
             for _incr_idx, rel_path in enumerate(sorted(files_to_parse)):
                 if progress_cb:
@@ -3936,11 +3952,27 @@ def index_folder(
                 # Use content cached by _hash_file if available (avoids second read)
                 content = _hash_file_cache.pop(rel_path, None) or _read_file(rel_path)
                 if content is None:
+                    if rel_path in changed:
+                        _unread_changed.add(rel_path)
                     continue
                 raw_files_subset[rel_path] = content
                 subset_hashes[rel_path] = computed_hashes.get(rel_path, _file_hash(content))
             if progress_cb and _incr_total > 0:
                 progress_cb(_incr_total, _incr_total, "Parsing complete")
+            # A changed file this walk could not read (a named file whose
+            # mtime did not move is read only here) keeps its stored rows.
+            # As `changed` with no content, `incremental_save` deleted its
+            # symbols and the walk still reported success, so the watcher
+            # cleared its retry (Codex review on #1567). Its stored mtime is
+            # kept too, so the next walk detects the change again, and
+            # `unread_files` tells the watcher to keep the retry.
+            if _unread_changed:
+                changed = [c for c in changed if c not in _unread_changed]
+                files_to_parse -= _unread_changed
+                _stored_mtimes = getattr(existing_index, "file_mtimes", None) or {}
+                for _rel in _unread_changed:
+                    if _rel in _stored_mtimes:
+                        updated_mtimes[_rel] = _stored_mtimes[_rel]
 
             # Shared pipeline: parse, enrich, summarize, extract metadata
             _incr_parse_failed: list[str] = []
@@ -4124,6 +4156,9 @@ def index_folder(
             result.update(_summary_report_fields(_incr_summary_report))
             if _full_deletion:
                 result["full_deletion"] = True
+            if _unread_changed:
+                # Absolute paths, the form the watcher keeps in its retry set.
+                result["unread_files"] = sorted(str(rel_path_map[r]) for r in _unread_changed)
             if _is_branch_delta:
                 result["branch"] = _current_branch
                 result["branch_delta"] = True

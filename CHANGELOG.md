@@ -63,7 +63,15 @@ case existed before this change too. The targeted path of `index_folder`
 down to the changed file, as the walk does. It read the root's `.gitignore`
 only (#306), so a file event indexed a file that a nested `.gitignore`
 excludes. During a pending retry, a batch with a folder event takes this path
-and not the walk, so this change made that case more frequent. Another writer's success retains that pending work's
+and not the walk, so this change made that case more frequent. A changed
+file that `index_folder` cannot read, for example because of a sharing
+violation, now keeps its stored symbols, hash and mtime. The response names
+it in `unread_files`. Before, a walk kept such a named file in its changed
+set with no content, so the save deleted its symbols, the call reported
+success and the watcher cleared its retry. The targeted path kept the rows
+but reported `No changes detected`. The watcher now keeps the retry pending
+for an unread file, and `refresh` records it as a batch error, so it does
+not stamp `parser_generation` over old rows. Another writer's success retains that pending work's
 age and cause until full recovery.
 The pending-work age spans attempts, while an active attempt reports its own
 elapsed time. These measurements come from the watcher running in the queried

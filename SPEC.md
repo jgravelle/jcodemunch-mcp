@@ -1110,6 +1110,13 @@ fails without clearing the persisted index. Legitimate binary exclusions
 still allow deletion reconciliation. Explicit-path incremental refreshes also
 reconcile deleted requested files.
 
+On an incremental run, a changed file that discovery accepts but that
+`index_folder` cannot read (a sharing violation, a permission error) keeps its
+stored symbols, hash and mtime. The response names it in `unread_files`
+(absolute paths) and in `warnings`. The watcher keeps its retry pending for
+such a file, and `refresh` records it as a batch error, so it does not stamp
+`parser_generation`.
+
 On a successful save after full discovery, any `unreadable` count marks coverage
 `complete: false`, so absence claims are refused. Failed empty scans preserve
 the previous index and its coverage. After restoring access, adjusting limits,

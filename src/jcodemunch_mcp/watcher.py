@@ -1096,6 +1096,10 @@ async def _watch_single(
                         _retry_files.clear()
                     else:
                         _retry_files.difference_update(_batch_files)
+                    # A changed file the walk could not read kept its old
+                    # rows; it stays pending, and so does the retry.
+                    _unread = result.get("unread_files") or []
+                    _retry_files.update(_unread)
                     duration = result.get("duration_seconds", "?")
                     if result.get("message") == "No changes detected":
                         if full_retry:
@@ -1165,6 +1169,15 @@ async def _watch_single(
                             on_reindex()
                     if full_retry:
                         _head_moves.reconciled(_retry_head_signature)
+                    if _unread:
+                        _schedule_reindex_retry(keep_deadline=targeted_during_retry)
+                        _unread_error = f"could not read {len(_unread)} changed file(s): {', '.join(_unread[:3])}"
+                        _watcher_output(
+                            f"  WARNING: re-index of {folder_path} kept old symbols: {_unread_error}",
+                            quiet=quiet, log_file_handle=log_file_handle,
+                        )
+                        mark_reindex_failed(repo_id, _unread_error)
+                        continue
                     if not targeted_during_retry:
                         _reindex_retry_at = None
                         _reindex_retry_attempts = 0

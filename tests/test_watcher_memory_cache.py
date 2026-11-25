@@ -393,6 +393,55 @@ class TestFastPathHonorsAllDiscoveryFilters:
             f"index files: {sorted(files_after)}"
         )
 
+    def test_a_cyclic_symlink_does_not_fail_the_batch(self, tmp_path, monkeypatch):
+        """On Python 3.10-3.12, `Path.resolve()` raises RuntimeError for a
+        cyclic symlink. The .gitignore chain once resolved the file before
+        `_should_index_file` refused the symlink, so one `link.py` failed the
+        whole batch (Codex review on #1567). The loop error is emulated, so
+        the test holds on every Python version."""
+        from pathlib import Path as _Path
+
+        from jcodemunch_mcp.storage import IndexStore
+        from jcodemunch_mcp.tools.index_folder import index_folder
+
+        kept = tmp_path / "kept.py"
+        kept.write_text("def before():\n    return 1\n")
+        link = tmp_path / "link.py"
+        try:
+            os.symlink(str(link), str(link))
+        except (OSError, NotImplementedError):
+            pytest.skip("this host cannot create a symlink")
+        storage = str(tmp_path / ".code-index")
+        result = index_folder(
+            path=str(tmp_path), use_ai_summaries=False, storage_path=storage, incremental=False,
+        )
+        assert result["success"], result
+        real_resolve = _Path.resolve
+
+        def resolve(self, *args, **kwargs):
+            if self.name == "link.py":
+                raise RuntimeError(f"Symlink loop from {self!r}")
+            return real_resolve(self, *args, **kwargs)
+
+        monkeypatch.setattr(_Path, "resolve", resolve)
+        kept.write_text("def after():\n    return 2\n")
+        result2 = index_folder(
+            path=str(tmp_path),
+            use_ai_summaries=False,
+            storage_path=storage,
+            incremental=True,
+            changed_paths=[
+                WatcherChange("added", str(link), ""),
+                WatcherChange("modified", str(kept), "__cache_miss__"),
+            ],
+        )
+        monkeypatch.undo()
+        assert result2["success"], result2
+        owner, name = result["repo"].split("/", 1)
+        index = IndexStore(base_path=storage).load_index(owner, name)
+        assert {symbol["name"] for symbol in index.symbols} == {"after"}
+        assert "link.py" not in (index.file_hashes or {})
+
     @pytest.mark.parametrize("change", ["added", "modified"])
     def test_file_under_nested_gitignore_stays_unindexed(self, tmp_path, change):
         """The fast path reads the .gitignore of each folder from the root down
@@ -1175,6 +1224,133 @@ async def test_a_targeted_edit_during_a_retry_keeps_a_nested_gitignore(tmp_path,
         index_now = store.load_index(owner, name)
         assert "sub/private.py" not in (index_now.file_hashes or {}), "a nested .gitignore was undone"
         assert {symbol["name"] for symbol in index_now.symbols} == {"targeted"}
+
+    monkeypatch.setattr(watcher, "time", SimpleNamespace(monotonic=lambda: now))
+    monkeypatch.setattr(reindex_state, "time", SimpleNamespace(monotonic=lambda: now))
+    monkeypatch.setattr(watcher, "index_folder", index)
+    monkeypatch.setattr(watcher, "_safe_awatch", events)
+    await watcher._watch_single(
+        str(root), 200, False, storage, None, False,
+        skip_initial_index=True, quiet=True, context_providers=False,
+    )
+
+
+def _fail_reads_of(monkeypatch, path):
+    """Make `index_folder`'s own reads of one file raise, as a sharing
+    violation does on Windows. Returns a switch that ends the failure."""
+    import builtins
+
+    from jcodemunch_mcp.tools import index_folder as module
+
+    state = {"fail": True}
+    real_open = builtins.open
+
+    def fake_open(file, *args, **kwargs):
+        if state["fail"] and os.path.normcase(os.path.abspath(str(file))) == os.path.normcase(str(path)):
+            raise PermissionError(13, "The process cannot access the file", str(file))
+        return real_open(file, *args, **kwargs)
+
+    monkeypatch.setattr(module, "open", fake_open, raising=False)
+    return state
+
+
+@pytest.mark.parametrize("route", ["walk", "fast_path"])
+def test_an_unread_named_file_keeps_its_symbols(tmp_path, monkeypatch, route):
+    """A named file that `index_folder` cannot read keeps its stored rows, and
+    the result names it in `unread_files`. The walk once kept it in `changed`
+    with no content, so its symbols were deleted and the call still reported
+    success (Codex review on #1567)."""
+    from jcodemunch_mcp.storage import IndexStore
+    from jcodemunch_mcp.tools.index_folder import index_folder
+
+    root = tmp_path / "repo"
+    root.mkdir()
+    code = root / "code.py"
+    code.write_text("def before(): pass\n", encoding="utf-8")
+    (root / "other.py").write_text("def other(): pass\n", encoding="utf-8")
+    storage = str(tmp_path / "store")
+    result = index_folder(str(root), use_ai_summaries=False, context_providers=False, storage_path=storage)
+    assert result["success"], result
+    owner, name = result["repo"].split("/", 1)
+    store = IndexStore(base_path=storage)
+    stat = code.stat()
+    code.write_text("def after(): pass\n", encoding="utf-8")
+    # The mtime stays, so only the named reread can see the edit.
+    os.utime(code, ns=(stat.st_atime_ns, stat.st_mtime_ns))
+    reads = _fail_reads_of(monkeypatch, code)
+
+    def run():
+        return index_folder(
+            str(root), use_ai_summaries=False, context_providers=False, storage_path=storage,
+            incremental=True, discover=route == "walk",
+            changed_paths=[WatcherChange("modified", str(code), "__cache_miss__")],
+        )
+
+    failed = run()
+    assert failed["success"], failed
+    names = {symbol["name"] for symbol in store.load_index(owner, name).symbols}
+    assert names == {"before", "other"}, "an unread file lost its symbols"
+    assert failed.get("unread_files") == [str(code)], failed
+    reads["fail"] = False
+    recovered = run()
+    assert "unread_files" not in recovered, recovered
+    names = {symbol["name"] for symbol in store.load_index(owner, name).symbols}
+    assert names == {"after", "other"}
+
+
+async def test_a_retry_with_an_unread_file_stays_pending(tmp_path, monkeypatch):
+    """A full retry that cannot read a named file keeps the retry, the stale
+    flag and the file. It once cleared them and lost the edit."""
+    from types import SimpleNamespace
+
+    from jcodemunch_mcp import reindex_state, watcher
+    from jcodemunch_mcp.storage import IndexStore
+
+    Change = pytest.importorskip("watchfiles").Change
+    root = tmp_path / "repo"
+    root.mkdir()
+    code = root / "code.py"
+    code.write_text("def before(): pass\n", encoding="utf-8")
+    storage = str(tmp_path / "store")
+    real_index = watcher.index_folder
+    result = real_index(str(root), use_ai_summaries=False, context_providers=False, storage_path=storage)
+    assert result["success"], result
+    owner, name = result["repo"].split("/", 1)
+    store = IndexStore(base_path=storage)
+    calls = 0
+
+    def index(**kwargs):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return {"success": False, "error": "writer busy"}
+        return real_index(**kwargs)
+
+    now = 0.0
+
+    def names():
+        return {symbol["name"] for symbol in store.load_index(owner, name).symbols}
+
+    async def events(*args, **kwargs):
+        nonlocal now
+        stat = code.stat()
+        code.write_text("def after(): pass\n", encoding="utf-8")
+        os.utime(code, ns=(stat.st_atime_ns, stat.st_mtime_ns))
+        yield {(Change.modified, str(code))}
+        reads = _fail_reads_of(monkeypatch, code)
+        now = 5.0
+        yield set()
+        assert calls == 2
+        assert names() == {"before"}, "an unread file lost its symbols"
+        status = reindex_state.get_reindex_status(result["repo"])
+        assert status["index_stale"] is True
+        assert status["retry_in_ms"] == 10000
+        assert "could not read 1 changed file" in status["last_reindex_error"]
+        reads["fail"] = False
+        now = 15.0
+        yield set()
+        assert names() == {"after"}
+        assert "retry_in_ms" not in reindex_state.get_reindex_status(result["repo"])
 
     monkeypatch.setattr(watcher, "time", SimpleNamespace(monotonic=lambda: now))
     monkeypatch.setattr(reindex_state, "time", SimpleNamespace(monotonic=lambda: now))
