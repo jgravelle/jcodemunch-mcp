@@ -13,8 +13,9 @@ and `index_file` mirrored the subfolder walk, so it accepted the same files.
 
 The subfolder walk, `paths=` from a subfolder and `index_file` now read the
 `.gitignore` chain from the git root down, the same chain the root index reads.
-A file a root `.gitignore` excludes is left out by every route, and a `paths=`
-call says it skipped a gitignored file. Project config is still read from the
+A file a root `.gitignore` excludes is left out by every route. A file listed
+in `paths=` gets a warning when it is skipped as gitignored; a listed folder
+counts its skipped files and warns about none. Project config is still read from the
 folder that was indexed. A test that required the subfolder walk to index a
 root-ignored file is replaced (`harness/retired.json`).
 

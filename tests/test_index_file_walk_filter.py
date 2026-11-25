@@ -170,7 +170,7 @@ def test_subdir_walk_and_index_file_agree_on_a_root_ignored_file(tmp_path):
     assert "sub/gen/x.py" not in walked and "sub/kept.py" in walked, walked
     _write(target, "def g():\n    return 2\n")
     res = index_file(path=str(target), use_ai_summaries=False, storage_path=str(store))
-    assert res.get("success") is not True, res
+    assert res.get("skipped") == "gitignore", res
 
 
 def test_subdir_walk_reads_its_own_project_config(tmp_path):

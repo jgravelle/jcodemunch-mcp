@@ -92,7 +92,7 @@ def test_index_file_refuses_a_root_ignored_file_after_a_subdirectory_walk(tmp_pa
     _index(repo / "private", store)
     target = _write(repo / "private" / "hidden.py", "def g():\n    return 2\n")
     res = index_file(path=str(target), use_ai_summaries=False, storage_path=str(store))
-    assert res.get("success") is not True, res
+    assert res.get("skipped") == "gitignore", res
 
 
 # ── controls: pass on both sides ─────────────────────────────────────────────
