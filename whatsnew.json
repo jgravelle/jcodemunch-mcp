@@ -1,6 +1,12 @@
 {
-  "current": "1.108.488",
+  "current": "1.108.489",
   "entries": [
+    {
+      "version": "1.108.489",
+      "date": "2026-11-24",
+      "title": "An index on an unplugged drive survives server start",
+      "summary": "Every server start deleted the index of a folder that was not there at that moment, so a folder on an unplugged USB drive or an unmounted volume lost its index and needed a full re-index when the drive came back. The sweep now deletes only when the drive that holds the folder is present, keeps the index when it cannot tell, and no longer checks network folders on Windows at start."
+    },
     {
       "version": "1.108.488",
       "date": "2026-11-24",

@@ -2,6 +2,44 @@
 
 ## [Unreleased]
 
+## [1.108.489] - 2026-11-24 - an index on an unplugged drive survives server start
+
+### An index on an unplugged drive survives server start (L-347)
+
+Every server start deleted the index of any folder that was not a directory at
+that moment. A folder on a USB drive that is unplugged, a network share that is
+disconnected or a volume that is not mounted is not a directory then either, so
+its index was deleted the same way as a removed worktree's, and the user paid a
+full re-index when the drive came back. Reproduced on 1.108.487: an index whose
+folder is on an unmapped `Z:` drive was deleted by the sweep.
+
+The sweep now deletes an index only when the folder is missing and the drive
+that holds it is present: on Windows the drive letter, on macOS and Linux a
+mount check on `/Volumes/<v>`, `/mnt/<v>`, `/media/...` and
+`/run/media/<user>/<v>`. A folder removed from any other place on a present
+drive is still cleaned up. When the drive cannot be checked (a path written on
+another operating system, or a check that fails), the index is kept.
+
+A network folder on Windows (a UNC path in either slash spelling, or a drive
+letter Windows reports as a network drive) is no longer checked at server
+start at all, and its index is kept. The sweep runs before the server answers,
+and the first check of a share on an unreachable host took 41.46 s on a
+Windows 11 box (a repeat took 0.67 s). Keeping the index and checking it would
+have put that wait on every start; before this change it happened once and
+then the index was deleted. What Windows reports for a disconnected mapped
+drive was not measured. On macOS and Linux a network mount (SMB or NFS under
+`/Volumes` or `/mnt`) has no shape to recognise without touching it, so it is
+still checked at start, as before.
+
+What the fix cannot tell apart, in both directions: a volume mounted outside
+those folders on macOS or Linux, or into an NTFS folder on Windows, reads as
+part of the main drive, so its folder still reads as removed while it is
+unplugged. A plain folder (not a mount) under `/mnt`, `/media` or `/Volumes`
+reads as an unmounted volume, so its index is kept after the folder is removed,
+because an unmounted volume leaves the same empty folder behind. Kept indexes
+cost storage until they are deleted by hand. A Windows device path (`\\?\` or
+`\\.\`) reads as a network path and is always kept.
+
 ## [1.108.488] - 2026-11-24 - a Bearer token with ~ + / = or ! is redacted whole
 
 ### A Bearer token with `~ + / =` or `!` is redacted whole (#1558)
