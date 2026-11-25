@@ -142,7 +142,7 @@ claude mcp add -s user jcodemunch -- C:\full\path\to\jcodemunch-mcp
 
 Note: on Windows, pip creates a small `.exe` shim in `Scripts\` — this is not
 a precompiled binary. It's a standard pip-generated launcher (~100 bytes) that
-just calls the Python entry point `jcodemunch_mcp.server:main`. All actual
+just calls the Python entry point `jcodemunch_mcp.cli_entry:cli`. All actual
 code runs through the auditable Python source.
 
 ### Verify it's registered

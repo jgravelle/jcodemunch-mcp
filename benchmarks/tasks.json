@@ -49,9 +49,9 @@
       "rationale": "Core types referenced throughout the codebase; high symbol density."
     },
     {
-      "id": "context-bind",
-      "query": "context bind",
-      "description": "Find context object creation, parameter binding, or request context propagation.",
+      "id": "param-bind",
+      "query": "param bind",
+      "description": "Find request parameter binding: the code that reads route, query or body parameters into the handler's arguments.",
       "rationale": "Tests retrieval of framework-specific patterns that differ significantly across languages."
     }
   ],

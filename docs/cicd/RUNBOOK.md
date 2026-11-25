@@ -6,6 +6,11 @@ otherwise; `gh` calls carry `GITHUB_TOKEN=""` in Git Bash form where that
 matters and are written for cmd.exe otherwise. Companion: `DESIGN.md` (why),
 `VERIFICATION.md` (proof), `FINDINGS.md` (what CI could not do).
 
+Every Python script under `scripts\` and `python -m harness` writes UTF-8 to stdout and
+stderr, whatever the console code page is (L-145). That includes `release_notes.py`,
+`handshake.py`, `registry_verify.py` and `release_preflight.py`. Output redirected to a
+file, such as `> notes.md`, is UTF-8 text; open it as UTF-8.
+
 ## 1. Cut a release
 
 The only human acts are the release PR's merge and one dispatch. The tag
@@ -47,7 +52,11 @@ to whoever owns that login.
    release from the CHANGELOG block, MCP registry.
 4. Read the run to the end. A P0 issue means §3. If the pre-flight's `ci`
    row names a Nightly run as "not waited for", read that run to its end too:
-   a failure there opens a `drift` issue after the release, not before. Then
+   a failure there opens a `drift` issue after the release, not before. A
+   pre-flight that fails with "could not read CI" published nothing: read
+   the error before re-running, because it can be the pre-flight's own read
+   (a multi-page check-runs listing once failed this way on a green build),
+   and after that fix merges, dispatch the SAME version again. Then
    Practice 11: reinstall and restart the local server.
    Nightly is scheduled for 04:00 UTC on `main`'s HEAD and usually runs
    04:10-04:35 (GitHub delays scheduled runs by an unbounded amount), so a

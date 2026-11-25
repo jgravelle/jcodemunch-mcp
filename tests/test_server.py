@@ -21,7 +21,9 @@ async def test_server_lists_all_tools():
     try:
         tools = await list_tools()
 
-        assert len(tools) == 90  # +1: finalize_handoff (canonical handoff, #374)
+        # 89: announce_model is published only while adaptive_tiering is on
+        # (off in DEFAULTS); +1 finalize_handoff (#374) earlier.
+        assert len(tools) == 89
 
         names = {t.name for t in tools}
         expected = {
@@ -49,12 +51,13 @@ async def test_server_lists_all_tools():
             "get_symbol_provenance", "get_pr_risk_profile", "get_endpoint_impact",
             "winnow_symbols", "get_watch_status", "analyze_perf", "tune_weights",
             "check_embedding_drift", "suggest_corrections",
-            "set_tool_tier", "announce_model", "jcodemunch_guide",
+            "set_tool_tier", "jcodemunch_guide",
             "digest", "finalize_handoff", "diff_health_radar", "get_file_risk",
             "import_runtime_signal", "get_runtime_coverage", "find_hot_paths", "find_unused_paths",
             "get_redaction_log",
         }
         assert names == expected
+        assert "announce_model" not in names  # adaptive_tiering is off in DEFAULTS
         assert "test_summarizer" not in names  # disabled by default in DEFAULTS
     finally:
         config_module._GLOBAL_CONFIG.clear()
@@ -74,8 +77,11 @@ async def test_index_repo_tool_schema():
 
 
 @pytest.mark.asyncio
-async def test_search_symbols_tool_schema():
-    """Test search_symbols tool has correct schema."""
+async def test_search_symbols_tool_schema(monkeypatch):
+    """Test search_symbols tool has correct schema (the full schema; compact demotes the enums)."""
+    from jcodemunch_mcp import config as config_module
+
+    monkeypatch.setitem(config_module._GLOBAL_CONFIG, "compact_schemas", False)
     tools = await list_tools()
 
     search = next(t for t in tools if t.name == "search_symbols")
@@ -714,6 +720,8 @@ async def test_language_enum_reflects_config_limited(monkeypatch):
     try:
         config_module._GLOBAL_CONFIG["languages"] = ["python", "javascript"]
         config_module._GLOBAL_CONFIG["disabled_tools"] = []
+        # The enum is a full-schema property; compact demotes it to a string.
+        config_module._GLOBAL_CONFIG["compact_schemas"] = False
 
         tools = await list_tools()
         search_symbols_tool = next((t for t in tools if t.name == "search_symbols"), None)
@@ -745,6 +753,7 @@ async def test_language_enum_all_languages_when_config_none(monkeypatch):
     try:
         config_module._GLOBAL_CONFIG["languages"] = None
         config_module._GLOBAL_CONFIG["disabled_tools"] = []
+        config_module._GLOBAL_CONFIG["compact_schemas"] = False
 
         tools = await list_tools()
         search_symbols_tool = next((t for t in tools if t.name == "search_symbols"), None)
@@ -776,10 +785,11 @@ async def test_disabled_tools_filtered_from_schema(monkeypatch):
         assert "index_repo" not in tool_names
         assert "search_columns" not in tool_names
         assert "get_file_tree" in tool_names  # Not disabled
-        # 90 default tools + test_summarizer (config cleared) - 2 disabled = 89
-        # set_tool_tier + announce_model are undisableable; jcodemunch_guide
-        # is in _ALWAYS_PRESENT_TOOLS for tier survival but honors disabled_tools.
-        assert len(tools) == 89
+        # 89 default tools + test_summarizer (config cleared) - 2 disabled = 88.
+        # announce_model is not published while adaptive_tiering is off;
+        # set_tool_tier is undisableable; jcodemunch_guide is in
+        # _ALWAYS_PRESENT_TOOLS for tier survival but honors disabled_tools.
+        assert len(tools) == 88
     finally:
         config_module._GLOBAL_CONFIG.clear()
         config_module._GLOBAL_CONFIG.update(orig_config)
@@ -797,7 +807,9 @@ async def test_disabled_tools_empty_all_tools_present(monkeypatch):
         config_module._GLOBAL_CONFIG["disabled_tools"] = []
 
         tools = await list_tools()
-        assert len(tools) == 91  # 90 + test_summarizer (config cleared, so disabled gate off)
+        # 89 + test_summarizer (config cleared, so disabled gate off); announce_model
+        # is not published while adaptive_tiering is off.
+        assert len(tools) == 90
     finally:
         config_module._GLOBAL_CONFIG.clear()
         config_module._GLOBAL_CONFIG.update(orig_config)
@@ -805,7 +817,10 @@ async def test_disabled_tools_empty_all_tools_present(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_tier_controls_undisableable_by_default():
-    """Default behavior (issue #299): set_tool_tier and announce_model survive disabled_tools."""
+    """Default behavior (issue #299): set_tool_tier and announce_model survive disabled_tools.
+
+    announce_model is published only with adaptive_tiering on, so the test turns it on.
+    """
     from jcodemunch_mcp import config as config_module
 
     orig_config = config_module._GLOBAL_CONFIG.copy()
@@ -813,7 +828,10 @@ async def test_tier_controls_undisableable_by_default():
 
     try:
         config_module._GLOBAL_CONFIG["disabled_tools"] = ["set_tool_tier", "announce_model"]
-        # allow_disabling_tier_controls not set; defaults False
+        # allow_disabling_tier_controls not set; defaults False. announce_model
+        # is published only with adaptive_tiering on, so the #299 property is
+        # checked where it applies.
+        config_module._GLOBAL_CONFIG["adaptive_tiering"] = True
 
         tools = await list_tools()
         names = {t.name for t in tools}
@@ -889,11 +907,11 @@ async def test_tier_controls_call_time_allowed_without_escape_hatch():
 
         result = await call_tool("set_tool_tier", {"tier": "core"})
         payload = json.loads(result[0].text)
-        # Tool actually runs (no project-disabled error). It may succeed or
-        # return a tier-related error, but NOT the "disabled in this project"
-        # message that the escape hatch unlocks.
+        # Tool actually runs (no turned-off refusal). It may succeed or
+        # return a tier-related error, but NOT the 'disabled_tools' refusal
+        # that the escape hatch unlocks.
         if "error" in payload:
-            assert "disabled in this project" not in payload["error"]
+            assert "disabled_tools" not in payload["error"]
     finally:
         config_module._GLOBAL_CONFIG.clear()
         config_module._GLOBAL_CONFIG.update(orig_config)
@@ -1189,8 +1207,9 @@ async def test_tool_profile_core():
     try:
         tools = await list_tools()
         names = {t.name for t in tools}
-        # Core tier + force-included tools (set_tool_tier, announce_model, jcodemunch_guide)
-        assert names == _TOOL_TIER_CORE | {"set_tool_tier", "announce_model", "jcodemunch_guide"}
+        # Core tier + force-included tools (set_tool_tier, jcodemunch_guide);
+        # announce_model only with adaptive_tiering on (off in DEFAULTS).
+        assert names == _TOOL_TIER_CORE | {"set_tool_tier", "jcodemunch_guide"}
         # Core must include the essentials
         for essential in ("search_symbols", "get_symbol_source", "list_repos",
                           "get_file_tree", "index_folder"):
@@ -1220,8 +1239,9 @@ async def test_tool_profile_standard():
     try:
         tools = await list_tools()
         names = {t.name for t in tools}
-        # Standard tier + force-included tools (set_tool_tier, announce_model, jcodemunch_guide)
-        assert names == _TOOL_TIER_STANDARD | {"set_tool_tier", "announce_model", "jcodemunch_guide"}
+        # Standard tier + force-included tools (set_tool_tier, jcodemunch_guide);
+        # announce_model only with adaptive_tiering on (off in DEFAULTS).
+        assert names == _TOOL_TIER_STANDARD | {"set_tool_tier", "jcodemunch_guide"}
         # Standard includes analytics
         assert "get_hotspots" in names
         assert "get_blast_radius" in names
@@ -1318,7 +1338,7 @@ async def test_compact_schemas_strips_advanced_params():
 
 @pytest.mark.asyncio
 async def test_compact_schemas_off_preserves_all_params():
-    """When compact_schemas is off (default), all params remain."""
+    """When compact_schemas is off explicitly, all params remain (compact is the default now)."""
     from jcodemunch_mcp import config as config_module
     from copy import deepcopy
 
@@ -1326,6 +1346,7 @@ async def test_compact_schemas_off_preserves_all_params():
     config_module._GLOBAL_CONFIG.clear()
     config_module._GLOBAL_CONFIG.update(deepcopy(config_module.DEFAULTS))
     config_module._GLOBAL_CONFIG["disabled_tools"] = []
+    config_module._GLOBAL_CONFIG["compact_schemas"] = False
 
     try:
         tools = await list_tools()
@@ -1561,6 +1582,7 @@ async def test_jcodemunch_guide_honors_disabled_tools():
         config_module._GLOBAL_CONFIG["disabled_tools"] = [
             "jcodemunch_guide", "set_tool_tier", "announce_model",
         ]
+        config_module._GLOBAL_CONFIG["adaptive_tiering"] = True  # announce_model is published only then
         tools = await list_tools()
         names = {t.name for t in tools}
         assert "jcodemunch_guide" not in names

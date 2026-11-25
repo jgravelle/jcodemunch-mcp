@@ -23,8 +23,10 @@ generation without changing it.
 
 from __future__ import annotations
 
+import itertools
 import logging
 import sqlite3
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional, Union
@@ -48,6 +50,24 @@ def _text(value) -> Optional[str]:
     return None
 
 
+def committed_wal_stat(db_path: PathLike):
+    """The ``-wal`` sidecar's stat when it holds at least one frame, else None.
+
+    THE rule for whether a WAL sidecar is evidence of a write, shared by every
+    cache stamp. Opening a WAL-mode database creates an EMPTY ``-wal`` when
+    none exists, so a reader in another process makes one appear with a fresh
+    mtime; counting it told every other process the index had been written,
+    and agents sharing one index kept reloading each other. A commit appends
+    frames, so a non-empty ``-wal`` is counted, by size and mtime. ``-shm`` is
+    never evidence: readers write it on every read.
+    """
+    try:
+        st = Path(str(db_path) + "-wal").stat()
+    except OSError:
+        return None
+    return st if st.st_size > 0 else None
+
+
 def wal_sidecar_present(db_path: PathLike) -> bool:
     """Whether a ``-wal`` sidecar already exists beside this database."""
     try:
@@ -69,7 +89,9 @@ def readonly_uri(db_path: PathLike) -> str:
     a process moved the mtime mid-scan, ``index_changed_since_load`` reported
     ``channels.index: "rebuilding"``, and a genuine absence could not reach
     ``absent``. Reproduced 2026-08-02: sidecars ``(False, False)`` ->
-    ``(True, True)``, mtime moved.
+    ``(True, True)``, mtime moved. (Since ``committed_wal_stat``, the empty
+    ``-wal`` such an open creates no longer moves ``_db_mtime_ns``; avoiding
+    the sidecars still keeps a read from writing to the filesystem at all.)
 
     ``immutable=1`` alone is NOT safe when the sidecars are present, and the
     cost is worse than the docstring it replaces admitted. That flag tells
@@ -203,3 +225,96 @@ def describe(index) -> IndexGeneration:
     except Exception:
         logger.debug("Generation describe failed", exc_info=True)
         return IndexGeneration()
+
+
+# --- load identity -----------------------------------------------------------
+
+_LOAD_TOKENS = itertools.count(1)
+_LOAD_TOKEN_LOCK = threading.Lock()
+
+
+def load_token(index) -> Optional[int]:
+    """A token naming this loaded index OBJECT, or None when it cannot have one.
+
+    ``IndexStore.load_index`` returns the SAME object for as long as its own
+    rule says the copy still describes the .db: the stamp did not move, or it
+    moved and every meta row, ``content_generation`` included, is what the
+    load read (``sqlite_store._revalidate_cached``). Any other write,
+    including one from another process, makes the next load build a new
+    object. So "same token" is that rule's verdict, read for free, and a
+    cache keyed on it needs no second answer to "did the index change?"
+    (LEDGER L-330: the shared tool-result cache had no answer at all).
+
+    The token is minted once per object and records the object's ``id``, so a
+    ``copy.copy`` of an index, which carries the attribute over, is
+    recognised as a different object and gets its own. The counter never
+    repeats within a process, so an ``id`` reused after garbage collection
+    cannot revive an old token.
+
+    ``None`` (no index, or an object that cannot carry an attribute, such as
+    a ``__slots__`` view) is UNKNOWN, and a cache must treat it as a miss.
+    """
+    if index is None:
+        return None
+    try:
+        attrs = vars(index)
+    except TypeError:
+        return None
+    held = attrs.get("_load_token")
+    if isinstance(held, tuple) and len(held) == 2 and held[0] == id(index):
+        return held[1]
+    with _LOAD_TOKEN_LOCK:
+        held = attrs.get("_load_token")
+        if isinstance(held, tuple) and len(held) == 2 and held[0] == id(index):
+            return held[1]
+        token = next(_LOAD_TOKENS)
+        try:
+            attrs["_load_token"] = (id(index), token)
+        except Exception:
+            logger.debug("Could not stamp a load token", exc_info=True)
+            return None
+        return token
+
+
+# --- our own write-backs -----------------------------------------------------
+
+#: db path -> {mtime after: mtime before} for write-backs this process made
+#: that changed no symbol and no meta a reader gates on (the BM25 statistics
+#: and per-file token counts, after ``sqlite_store._restamp_after_bm25_write``
+#: confirmed nothing else moved). Bounded per path.
+_BENIGN_MOVES: "dict[str, dict[int, int]]" = {}
+_BENIGN_MAX = 64
+_BENIGN_LOCK = threading.Lock()
+
+
+def note_benign_rewrite(db_path: PathLike, before_ns: int, after_ns: int) -> None:
+    """Record that this process moved the .db from ``before_ns`` to ``after_ns``
+    by a write that leaves every answer the same. Never raises."""
+    try:
+        if before_ns == after_ns:
+            return
+        key = str(db_path)
+        with _BENIGN_LOCK:
+            moves = _BENIGN_MOVES.setdefault(key, {})
+            moves[int(after_ns)] = int(before_ns)
+            while len(moves) > _BENIGN_MAX:
+                moves.pop(next(iter(moves)))
+    except Exception:
+        logger.debug("benign rewrite not recorded", exc_info=True)
+
+
+def only_benign_rewrites(db_path: Optional[PathLike], before_ns: int, after_ns: int) -> bool:
+    """True when every move from ``before_ns`` to ``after_ns`` was one of our
+    own write-backs (``note_benign_rewrite``). Unknown is False."""
+    if not db_path:
+        return False
+    with _BENIGN_LOCK:
+        moves = dict(_BENIGN_MOVES.get(str(db_path)) or {})
+    seen = 0
+    cur = int(after_ns)
+    while cur != int(before_ns):
+        prev = moves.get(cur)
+        if prev is None or seen > _BENIGN_MAX:
+            return False
+        cur, seen = prev, seen + 1
+    return True

@@ -54,6 +54,23 @@ def _split_workers(argv: list[str]) -> tuple[str | None, list[str]]:
     return workers, rest
 
 
+def stamp_head(tree: str, commit: str, workers: str) -> dict:
+    """The stamp as written BEFORE the run (ok=false until it finishes).
+
+    `platform` says which machine's tier this is, so a stamp carried to another
+    checkout (import_full_stamp.py) still names where it ran.
+    """
+    return {
+        "tree": tree,
+        "ok": False,
+        "date": time.strftime("%Y-%m-%dT%H:%M:%S"),
+        "commit": commit,
+        # A cap set in the caller's environment counts too; "auto" is none.
+        "workers": workers,
+        "platform": sys.platform,
+    }
+
+
 def main(argv: list[str]) -> int:
     workers, argv = _split_workers(argv)
     env = dict(os.environ)
@@ -66,14 +83,7 @@ def main(argv: list[str]) -> int:
     (EVIDENCE / "full-failures.txt").unlink(missing_ok=True)
     tree = tree_id()
     commit = git("rev-parse", "--short", "HEAD").strip()
-    stamp = {
-        "tree": tree,
-        "ok": False,
-        "date": time.strftime("%Y-%m-%dT%H:%M:%S"),
-        "commit": commit,
-        # A cap set in the caller's environment counts too; "auto" is none.
-        "workers": env.get(WORKERS_ENV) or "auto",
-    }
+    stamp = stamp_head(tree, commit, env.get(WORKERS_ENV) or "auto")
     STAMP.write_text(json.dumps(stamp, indent=1), encoding="utf-8")
     t0 = time.monotonic()
     rc = subprocess.call(
@@ -121,4 +131,7 @@ def main(argv: list[str]) -> int:
 
 
 if __name__ == "__main__":
+    # Windows: a redirected stdout is cp1252; write UTF-8 (L-145, L-320).
+    sys.stdout.reconfigure(encoding="utf-8")
+    sys.stderr.reconfigure(encoding="utf-8")
     sys.exit(main(sys.argv[1:]))

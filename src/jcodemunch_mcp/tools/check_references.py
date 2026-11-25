@@ -11,7 +11,9 @@ import unicodedata
 from ._enclosing import attach_enclosing_symbols
 from typing import Optional
 
+from ..parser.imports import wildcard_edge_filter
 from ..storage import IndexStore
+from ..word_rule import word_pattern
 from ._utils import index_status_to_tool_error, resolve_repo
 
 
@@ -79,6 +81,138 @@ def _decode_escapes(text: str) -> str:
     return out.encode("utf-16-le", "surrogatepass").decode("utf-16-le", "replace")
 
 
+def _name_through(
+    lines: list[str], lo: int, hi: int, ident_lower: str, ident_exact: str, signature: str = ""
+) -> tuple[int, int]:
+    """A sibling definition's declaration: its first line through the first line
+    that names the identifier, so an annotation above the name does not leave
+    the name line counting. Only the first line when no line in the span names
+    it (LEDGER L-91).
+
+    ⚠⚠ The first line that names it is found two ways (LEDGER L-331):
+
+    - Within the lines the stored SIGNATURE spans, when the signature holds
+      the exact declared name as a token: the first line holding that exact
+      spelling as a whole token (the word rule), after decoding Unicode
+      escapes. A case-folded substring took `@FileAnno` or `@Profile` above
+      `public int file()` as the name line, and the declaration below it
+      counted as a use of the target. The escapes are decoded so an escaped
+      declaration (`int \\u0066ile()`) is found on its own line.
+    - Otherwise main's rule, unchanged: the first line whose folded text holds
+      the folded name.
+
+    ⚠⚠ The signature is the BOUND, and it is load-bearing: the exact search
+    finds a line at or after the folded one, so the excluded span can only
+    grow, and a span that grows past the declaration hides a call. A name
+    derived from the file name (a Razor component, `view Counter`, spanning
+    the whole file) has no declaration line spelling it, and an unbounded
+    search stopped at `App.Counter.Next()` in the body and licensed a delete
+    main blocks (L-331 review). The signature never includes the body, so a
+    line inside it is declaration.
+    """
+    for line_no in range(lo, min(max(lo, hi), len(lines)) + 1):
+        if ident_lower in _fold(lines[line_no - 1]):
+            folded = (lo, line_no)
+            break
+    else:
+        folded = (lo, lo)
+    word = re.compile(word_pattern(ident_exact))
+    if not signature or not word.search(_decode_escapes(signature)):
+        return folded
+    last = min(lo + signature.count("\n"), max(lo, hi), len(lines))
+    for line_no in range(lo, last + 1):
+        line = lines[line_no - 1]
+        if "\\" in line:
+            line = _decode_escapes(line)
+        if word.search(line):
+            return (lo, line_no)
+    return folded
+
+
+def _calls_beyond_declarations(line: str, ident_exact: str, declarations: int) -> bool:
+    """True when *line* calls the exact declared name beyond the *declarations*
+    same-named siblings whose name line it is (LEDGER L-329).
+
+    A call is the name as a whole token (the word rule) followed by optional
+    space and `(`. The declarations are taken to be the first *declarations*
+    tokens on the line, and each of those that is call-shaped (`int file()`,
+    `def file(self)`) is subtracted from the calls; one that is not
+    (`int file = ...`, Kotlin `val file get() = ...`) subtracts nothing, so a
+    call after it still counts. Two declarations sharing a line (an interface
+    overload pair, minified JS) are two call-shaped tokens and no call.
+    """
+    word = word_pattern(ident_exact)
+    tokens = list(re.finditer(word, line))
+    if len(tokens) <= declarations:
+        return False
+    call_after = re.compile(r"\s*\(")
+    calls = [bool(call_after.match(line, m.end())) for m in tokens]
+    return sum(calls) > sum(calls[:declarations])
+
+
+def _sibling_declarations(
+    lines: list[str], siblings: list[tuple[int, int, str]], ident_lower: str, ident_exact: str
+) -> list[tuple[int, int]]:
+    """The lines of each same-named sibling that are its declaration and nothing else.
+
+    `_name_through`'s span, except that a name line is given back when it calls
+    the name beyond the declarations whose name line it is, as a one-line
+    method does: `@Override public int file() { return new C().file(); }`,
+    Kotlin's `fun file() = C().file()`, a Python one-liner, or a field
+    initialised by a call (`int file = new C().file();`) (LEDGER L-329). Hiding
+    that line hid the call, and `check_delete_safe` graded the unused-looking
+    `C.file` `safe_to_delete` with no blockers.
+
+    ⚠ Exact case and call shape only. A parameter (`def file(self, file)`), a
+    type (`File file()`), a constructor in another case (`new File(...)`) or a
+    comment naming the name without `(` is not a call, so the declaration
+    stays out. A comment that writes `file()` IS counted, and so is a one-line
+    sibling that calls itself, the way a sibling's body lines already are
+    (name-based, not resolved). A call spelled with an escape or in another
+    case on that line stays hidden, as it was before this rule.
+    """
+    decls = [_name_through(lines, lo, hi, ident_lower, ident_exact, sig) for lo, hi, sig in siblings]
+    per_line: dict[int, int] = {}
+    for _lo, name_line in decls:
+        per_line[name_line] = per_line.get(name_line, 0) + 1
+    out = []
+    for decl_lo, name_line in decls:
+        if name_line <= len(lines) and _calls_beyond_declarations(
+            lines[name_line - 1], ident_exact, per_line[name_line]
+        ):
+            out.append((decl_lo, name_line - 1))
+        else:
+            out.append((decl_lo, name_line))
+    return out
+
+
+def first_match_line(ref: dict) -> int:
+    """The first matching line of one `content_references` entry.
+
+    The entry is `{file, matches: [{line, text}]}` and has no `line` of its
+    own; the preflights read one anyway, so every blocker said line 0.
+    """
+    matches = ref.get("matches") or []
+    return int(matches[0].get("line", 0) or 0) if matches else 0
+
+
+def target_span_of(sym: dict) -> Optional[tuple[str, int, int]]:
+    """``(file, first_line, last_line)`` of one symbol, or None when it has none.
+
+    None sends ``_check_single`` back to excluding every same-named definition,
+    the honest answer when the target's own lines are unknown.
+    """
+    file_path = sym.get("file") or ""
+    try:
+        lo = int(sym.get("line") or 0)
+        hi = int(sym.get("end_line") or lo)
+    except (TypeError, ValueError):
+        return None
+    if not file_path or lo <= 0:
+        return None
+    return (file_path, lo, max(lo, hi))
+
+
 def _check_single(
     identifier: str,
     index,
@@ -88,8 +222,15 @@ def _check_single(
     name: str,
     store: "IndexStore",
     start: float,
+    target_span: Optional[tuple[str, int, int]] = None,
 ) -> dict:
-    """Core logic for checking a single identifier against import + content data."""
+    """Core logic for checking a single identifier against import + content data.
+
+    ``target_span`` is ``(file, first_line, last_line)`` of the ONE symbol a
+    caller is asking about. Given it, only that span is excluded from the
+    content search; without it, every definition spelled like the identifier
+    is (LEDGER L-91).
+    """
     ident_lower = _fold(identifier)
     # The exclusion's key: the EXACT declared spelling, case included. An
     # exclusion REMOVES matches, so it must never widen (see `_fold`'s ⚠⚠):
@@ -103,9 +244,12 @@ def _check_single(
     # ── Import-level check ──────────────────────────────────────────────────
     import_references = []
     if index.imports is not None:
+        dead_wildcard = wildcard_edge_filter(index)
         for src_file, file_imports in index.imports.items():
             matches = []
             for imp in file_imports:
+                if dead_wildcard(imp, src_file):
+                    continue
                 named_match = any(_fold(n) == ident_lower for n in imp.get("names", []))
                 spec = imp["specifier"]
                 spec_stem = _fold(posixpath.splitext(posixpath.basename(spec))[0])
@@ -150,6 +294,9 @@ def _check_single(
     # the evidence is missing we degrade to the pre-v1.108.226 behaviour and
     # skip the file, which is the honest answer rather than a guess.
     defining_spans: dict[str, list[tuple[int, int]]] = {}
+    # The stored signature of each definition, by (file, first line): the
+    # bound on a sibling's declaration (`_name_through`, LEDGER L-331).
+    signatures: dict[tuple[str, int], str] = {}
     unspanned_files: set[str] = set()
     for sym in index.symbols:
         if sym.get("name", "") != ident_exact:
@@ -171,8 +318,44 @@ def _check_single(
         # itself; `lo > hi` would match nothing and report the signature as a
         # reference to itself.
         defining_spans.setdefault(file_path, []).append((lo, max(lo, hi)))
+        signatures.setdefault((file_path, lo), str(sym.get("signature") or ""))
+
+    # ⚠⚠ (LEDGER L-91) A caller that knows WHICH symbol it asks about excludes
+    # that symbol's whole span, and of every other same-named definition only
+    # its DECLARATION: from its first line through the first line that names
+    # the identifier (`_name_through`: by its exact spelling as a token
+    # within the stored signature's lines, LEDGER L-331), so an `@Override` or
+    # `[Attr]` line above it does not leave the name line counting. Hiding each sibling's
+    # whole body hid real callers: Java `B.file()` calling `new A().file()`
+    # was skipped as "a definition of `file`", and `check_delete_safe` graded
+    # the used `A.file` `safe_to_delete` with zero blockers. Hiding nothing of
+    # the siblings counted their declarations as uses instead (a partial
+    # class, an overload's signature, `def show` in another controller) and
+    # moved pinned verdicts. The narrower rule only ADDS matches, so it can
+    # hold a delete back and never licenses one. A sibling with no line no
+    # longer hides its whole file: a call there counts, at the cost of its
+    # declaration. A sibling's NAME line counts when it calls the name
+    # beyond its declarations, as a one-line method does
+    # (`_sibling_declarations`, LEDGER
+    # L-329).
+    sibling_spans: dict[str, list[tuple[int, int, str]]] = {}
+    if target_span is not None:
+        t_file, t_lo, t_hi = target_span
+        t_hi = max(t_lo, t_hi)
+        for file_path, spans in defining_spans.items():
+            for lo, hi in spans:
+                if file_path == t_file and lo == t_lo:
+                    continue
+                sibling_spans.setdefault(file_path, []).append(
+                    (lo, hi, signatures.get((file_path, lo), ""))
+                )
+        defining_spans = {t_file: [(t_lo, t_hi)]}
+        unspanned_files = set()
 
     content_references = []
+    # True once a matching file beyond the cap is seen: the scan reads one
+    # matching file past `max_content_results` to know the page was cut.
+    content_truncated = False
 
     if search_content:
         content_dir = store._content_dir(owner, name)
@@ -191,8 +374,15 @@ def _check_single(
             except OSError:
                 continue
 
+            file_lines = content.split("\n")
+            siblings = sibling_spans.get(file_path)
+            if siblings:
+                spans = list(spans) + _sibling_declarations(
+                    file_lines, siblings, ident_lower, ident_exact
+                )
+
             file_matches = []
-            for line_index, line in enumerate(content.split("\n")):
+            for line_index, line in enumerate(file_lines):
                 if ident_lower not in _fold(line):
                     continue
                 line_no = line_index + 1
@@ -204,10 +394,11 @@ def _check_single(
                 })
 
             if file_matches:
-                content_references.append({"file": file_path, "matches": file_matches})
-                # Stop after N files, not N lines
+                # Stop after N files, not N lines, and say so when a file was left out.
                 if len(content_references) >= max_content_results:
+                    content_truncated = True
                     break
+                content_references.append({"file": file_path, "matches": file_matches})
 
     content_count = len(content_references)
     attach_enclosing_symbols(content_references, index.symbols)
@@ -227,6 +418,7 @@ def _check_single(
 
     if search_content:
         result["content_references"] = content_references
+        result["content_truncated"] = content_truncated
 
     return result
 
@@ -306,7 +498,9 @@ def check_references(
     if identifier is not None and identifiers is not None and len(identifiers) == 0:
         identifiers = None
     if (identifier is None and identifiers is None) or (identifier is not None and identifiers is not None):
-        raise ValueError("Provide exactly one of 'identifier' or 'identifiers', not both and not neither.")
+        from ._arg_contract import ArgumentError
+
+        raise ArgumentError("Provide exactly one of 'identifier' or 'identifiers', not both and not neither.")
 
     start = time.perf_counter()
     max_content_results = max(1, min(max_content_results, 100))

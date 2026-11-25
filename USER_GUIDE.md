@@ -641,6 +641,32 @@ Fields: `schema`, `product`, `version`, `transport` (`stdio` / `sse` / `streamab
 
 Set `JCODEMUNCH_LAUNCH_ID` (or the suite-generic `MUNCH_LAUNCH_ID`) in the server's environment to have an opaque launch token echoed back as `launch_id`; unset means the field is omitted. The resource is computed on demand, reads nothing from disk, and writes nothing. Command lines, env, cwd, hostnames, and repo paths are deliberately excluded. The same contract ships in jdocmunch-mcp and jdatamunch-mcp.
 
+## Upgrading a running server
+
+Upgrading the package (`pip install -U`, `uv tool upgrade`, `pipx upgrade`) changes what a new process loads. A server that is already running, stdio or HTTP, keeps serving the code it imported at startup until it is restarted. Restart it through whatever owns it: the MCP client for a stdio server, the service manager for a shared HTTP server.
+
+`jcodemunch-mcp --version` starts a new process, so it reports what is installed, not what is serving. To check the serving instance:
+
+1. Read the installed version: `jcodemunch-mcp --version`.
+2. Restart the server.
+3. Ask the running server for its version. Each of these needs no index, no model call and no tool-tier change:
+   - `serverInfo.version` in the MCP `initialize` response.
+   - The `munch://runtime/identity` resource: `version`, plus `instance_id` and `process_start`, which change on every restart, and `build`, a digest of the installed source files that differs between two installs of the same version built from different code and matches for two installs of the same wheel (`null` with `build_reason` on a source or editable install).
+   - The `jcodemunch_guide` tool, field `version`. It is visible at every tool tier.
+4. Compare. The served version must equal the installed version, and `instance_id` must differ from the value you read before the restart. To tie an instance to one deploy, set `JCODEMUNCH_LAUNCH_ID` in the service's environment; the resource echoes it as `launch_id`.
+
+On the machine that runs the servers, `jcodemunch-mcp install-status` lists every running server that shares this index store (`CODE_INDEX_PATH`) and marks each one:
+
+- `[!] RESTART REQUIRED`: on a pip, uv tool or pipx install, the server's recorded version differs from the installed version. On a source install, the source changed after the server started.
+- `[ok]`: the server serves the installed version (on a source install: it started after the last source change).
+- `[?]`: unknown. The server runs from a different install (another virtual environment, a `uvx` cache), or an older release started it and did not record its install directory. Unknown is never reported as current.
+
+It reports only and stops nothing. It sees only servers registered under the same index store on the same machine; a service that runs under another account or another `CODE_INDEX_PATH` is not listed, so check that one through its own `serverInfo.version` or identity resource. `install-status --json` carries the same data under `servers`, with `restart_required` set to `true`, `false` or `null` per server, and `build` per server when that server recorded one (beside `installed_build` for this install). A deploy check that exits 0 only when at least one server is listed and every listed server is current, so an unreadable block, an empty list and an unknown all fail:
+
+```bash
+jcodemunch-mcp install-status --json | python -c "import json,sys; s=json.load(sys.stdin).get('servers'); sys.exit(0 if s and s.get('servers') and not s.get('restart_required') and not s.get('unknown') else 1)"
+```
+
 ---
 
 # 6. Tool reference
@@ -692,7 +718,7 @@ Set `JCODEMUNCH_LAUNCH_ID` (or the suite-generic `MUNCH_LAUNCH_ID`) in the serve
 | `find_references` | Find all files that import or reference a given identifier; supports batch via `identifiers` | `repo`, `identifier`, `identifiers`, `max_results` |
 | `check_references` | Quick dead-code check: is an identifier referenced anywhere? Combines import + content search | `repo`, `identifier`, `identifiers`, `search_content`, `max_content_results` |
 | `get_dependency_graph` | File-level dependency graph up to 3 hops; direction = imports, importers, or both | `repo`, `file`, `direction`, `depth` |
-| `get_blast_radius` | Which files break if this symbol changes? Returns confirmed/potential impacted files, `overall_risk_score`, `direct_dependents_count`; set `include_depth_scores=true` for `impact_by_depth` grouped by BFS layer; `include_source=true` returns source snippets and nearby symbols per entry (capped by `source_budget`); `decorator_filter` restricts to symbols with a given decorator | `repo`, `symbol`, `depth`, `include_depth_scores`, `include_source`, `source_budget`, `decorator_filter` |
+| `get_blast_radius` | Which files break if this symbol changes? Returns confirmed/potential impacted files, `overall_risk_score`, `direct_dependents_count`; set `include_depth_scores=true` for `impact_by_depth` grouped by BFS layer; `include_source=true` returns source snippets and nearby symbols per entry (capped by `source_budget`); `decorator_filter` restricts to symbols with a given decorator; `call_depth` above 0 adds symbol-level `callers` with `caller_count` (every depth), `direct_caller_count` and `callers_by_depth` | `repo`, `symbol`, `depth`, `call_depth`, `include_depth_scores`, `include_source`, `source_budget`, `decorator_filter` |
 | `get_call_hierarchy` | Callers and callees of a symbol, N levels deep (AST-derived on v8+ indexes, text heuristic fallback). Only depth-1 rows are direct; a deeper row names the row it is reached from (`via`), and `direct_caller_count` / `callers_by_depth` sit beside `caller_count`, which counts every depth | `repo`, `symbol_id`, `direction`, `depth` |
 | `get_impact_preview` | Transitive "what breaks?" analysis — follows call chains to show downstream impact | `repo`, `symbol_id` |
 | `get_hotspots` | Top-N high-risk symbols ranked by complexity x churn (git commit frequency) | `repo`, `top_n`, `days` |
@@ -701,7 +727,7 @@ Set `JCODEMUNCH_LAUNCH_ID` (or the suite-generic `MUNCH_LAUNCH_ID`) in the serve
 | `get_extraction_candidates` | Suggest functions that could be extracted from a file based on complexity and caller count | `repo`, `file_path`, `min_complexity`, `min_callers` |
 | `get_symbol_importance` | Rank symbols by architectural centrality using PageRank or in-degree on the import graph; surfaces the most load-bearing symbols in a repo | `repo`, `top_n`, `algorithm`, `scope` |
 | `find_dead_code` | Find symbols and files unreachable from any entry point via the import graph; entry points auto-detected (main, __init__, CLI decorators, etc.) | `repo`, `granularity`, `min_confidence`, `include_tests`, `entry_point_patterns` |
-| `get_changed_symbols` | Map a git diff to affected symbols; detects added/modified/removed/renamed symbols between two commits; optionally includes blast radius per changed symbol | `repo`, `since_sha`, `until_sha`, `include_blast_radius`, `max_blast_depth` |
+| `get_changed_symbols` | Map a git diff to affected symbols; detects added/modified/removed/renamed symbols between two commits, diffing a moved file against its old path and listing moves in `renamed_files`; optionally includes blast radius per changed symbol | `repo`, `since_sha`, `until_sha`, `include_blast_radius`, `max_blast_depth` |
 | `get_class_hierarchy` | Full inheritance chain (ancestors + descendants) across Python, TS, Java, C#, and more | `repo`, `class_name` |
 | `find_implementations` | Concrete implementations of an interface, abstract class, or method via multiple channels — SCIP/LSP evidence (1.0), AST hierarchy (0.85), duck-typed match (0.65), decorator handler (0.45); `_meta.confidence_provenance` states each channel's basis and measured precision/recall. Import compiler evidence first with `jcodemunch-mcp import-scip` for compile-time-grade results | `repo`, `symbol`, `cross_repo` |
 | `get_related_symbols` | Symbols related to a given symbol via co-location, shared importers, and name-token overlap | `repo`, `symbol_id`, `max_results` |

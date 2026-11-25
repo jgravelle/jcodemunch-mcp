@@ -81,7 +81,8 @@ def test_single_symbol_reports_the_missing_body(store_without_content):
 
     assert result["source"] == ""
     assert result["source_status"] == "content_cache_missing"
-    assert "Re-index" in result["source_unavailable_reason"]
+    # The remedy is the one-file repair, not a whole-repo re-index.
+    assert "index_file" in result["source_unavailable_reason"]
 
     verdict = result["_meta"]["verdict"]
     assert verdict["state"] == "degraded"

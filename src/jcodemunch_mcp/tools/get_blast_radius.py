@@ -17,7 +17,7 @@ from ..retrieval.verdict import (
 from ._dynamic_boundary import FILES_CAP as DYNAMIC_FILES_CAP, DynamicBoundary
 from ._utils import index_status_to_tool_error, resolve_repo, resolve_fqn
 from .package_registry import extract_root_package_from_specifier
-from ._call_graph import build_symbols_by_file, bfs_callers
+from ._call_graph import _ContentCache, build_symbols_by_file, bfs_callers, find_direct_callers, label_row_depths
 from ..word_rule import word_pattern
 from .find_dead_code import _is_test_file
 from .decision_context import resolve_decision_context
@@ -123,6 +123,41 @@ def _build_reverse_adjacency(
                 rev.setdefault(target, []).append(src_file)
     # Deduplicate
     return {k: list(dict.fromkeys(v)) for k, v in rev.items()}
+
+
+# Languages whose package is a directory: every file in it sees its siblings'
+# names with no import statement (Go). A language fact, not a repo heuristic:
+# the Go spec defines a package by its directory. That differs from
+# `_unresolved_package_edges` below, which measures how IMPORTS resolve, a
+# property of the resolver that a table would misstate.
+PACKAGE_DIRECTORY_LANGUAGES = frozenset({"go"})
+
+
+def with_same_package_peers(
+    rev: dict[str, list[str]], file_languages: Optional[dict]
+) -> dict[str, list[str]]:
+    """Return a copy of ``rev`` where each file in a package-directory language
+    also lists its same-directory, same-language siblings as importers (L-262).
+
+    A Go file calls a function from another file of its package with no import,
+    so the import graph alone never links them, and a callers query gated on it
+    missed every same-package caller.
+    """
+    by_dir: dict[tuple[str, str], list[str]] = {}
+    for f, lang in (file_languages or {}).items():
+        if lang in PACKAGE_DIRECTORY_LANGUAGES:
+            d = posixpath.dirname(f.replace("\\", "/"))
+            by_dir.setdefault((d, lang), []).append(f)
+    if not by_dir:
+        return rev
+    out = {k: list(v) for k, v in rev.items()}
+    for files in by_dir.values():
+        if len(files) < 2:
+            continue
+        for f in files:
+            peers = [p for p in files if p != f]
+            out[f] = list(dict.fromkeys(out.get(f, []) + peers))
+    return out
 
 
 def _unresolved_package_edges(
@@ -427,6 +462,70 @@ def _get_symbols_near_references(
     return result
 
 
+def _attach_runtime_to_blast(result: dict, store, owner: str, name: str) -> dict:
+    """Stamp runtime confidence on a blast-radius response, on the hit path too.
+
+    Runs AFTER the result cache, as `find_references` does: runtime ingest
+    (`import-trace`, the HTTP endpoints) writes no symbol and so never moves
+    the index load identity the cache checks (LEDGER L-330). Stamped before
+    the put, a cached answer kept the confidence of the call that filled it
+    after another process ingested new traces.
+    """
+    # Phase 2: runtime confidence — zero-cost no-op when no traces ingested.
+    # We stamp three surfaces:
+    #   1. `result["symbol"]._runtime_confidence` — the focal symbol's status
+    #   2. `result["confirmed"][i]._runtime_confidence` — file-level for downstream importers
+    #   3. `result["callers"][i]._runtime_confidence` — per-symbol when call_depth > 0
+    from ..runtime.confidence import (
+        attach_runtime_confidence as _attach_runtime,
+        attach_runtime_confidence_by_file as _attach_runtime_files,
+    )
+    _db_path_str = str(store._sqlite._db_path(owner, name))
+    # Focal symbol — wrap so the helper can stamp _runtime_confidence in-place
+    _focal_list = [result["symbol"]]
+    _focal_summary = _attach_runtime(_focal_list, _db_path_str, id_field="id")
+    # File-level on confirmed importers
+    _file_summary = _attach_runtime_files(result["confirmed"], _db_path_str, file_field="file")
+    # Symbol-level on callers (when present)
+    _caller_summary: dict = {}
+    if "callers" in result and result["callers"]:
+        _caller_summary = _attach_runtime(result["callers"], _db_path_str, id_field="id")
+    if _focal_summary or _file_summary or _caller_summary:
+        # Merge sources + take the freshest last_seen across the surfaces
+        _all_sources: set[str] = set()
+        _last_seen = ""
+        for s in (_focal_summary, _file_summary, _caller_summary):
+            for src in s.get("sources", []):
+                _all_sources.add(src)
+            if s.get("last_seen", "") > _last_seen:
+                _last_seen = s["last_seen"]
+        # Coverage = focal + caller per-symbol confirmations / total surfaces stamped
+        _stamped = (
+            len(_focal_list)
+            + len(result.get("confirmed", []))
+            + (len(result.get("callers", [])) if "callers" in result else 0)
+        )
+        _confirmed_count = sum(
+            1 for items in (_focal_list, result.get("confirmed", []), result.get("callers", []) if "callers" in result else [])
+            for e in items if isinstance(e, dict) and e.get("_runtime_confidence") == "confirmed"
+        )
+        from ..runtime.confidence import BODY_BASIS as _BODY_BASIS
+        from ..runtime.confidence import body_counts as _body_counts
+
+        result["_meta"]["runtime_freshness"] = {
+            "sources": sorted(_all_sources),
+            "last_seen": _last_seen,
+            "coverage_pct": round(100 * _confirmed_count / max(1, _stamped)),
+            # (#875 review) The probe's count, not a second one: this block is
+            # assembled from several stamped lists and dropped `body` before.
+            "body": _body_counts(
+                [*_focal_list, *result.get("confirmed", []), *result.get("callers", [])]
+            ),
+            "body_basis": _BODY_BASIS,
+        }
+    return result
+
+
 def get_blast_radius(
     repo: str,
     symbol: str,
@@ -474,7 +573,8 @@ def get_blast_radius(
 
     Returns:
         Dict with symbol info, confirmed/potential affected files, counts, and _meta.
-        When call_depth > 0: also includes ``callers`` and ``caller_count``.
+        When call_depth > 0: also includes ``callers``, ``caller_count`` (every
+        depth), ``direct_caller_count`` and ``callers_by_depth``.
     """
     # FQN resolution: translate PHP FQN → symbol name/id
     if fqn:
@@ -503,17 +603,40 @@ def get_blast_radius(
     # Check session cache before the expensive BFS + content scans
     repo_key = f"{owner}/{name}"
     specific_key = (symbol, depth, call_depth, bool(cross_repo), include_depth_scores, decorator_filter, include_source, source_budget, include_decisions)
-    cached = result_cache_get("get_blast_radius", repo_key, specific_key)
+    # The index is loaded first: the cache answers only for the load it was
+    # filled from, which is how another process's write reaches it (LEDGER
+    # L-330). A load already in memory costs path resolution and stats of two
+    # files, plus a read-only meta read when the .db stamp moved.
+    index = store.load_index(owner, name)
+    if not index:
+        return index_status_to_tool_error(store.inspect_index(owner, name))
+
+    # `decisions` is read from git, and a commit that changes nothing indexed
+    # leaves the load identity alone, so the live HEAD joins the key. An
+    # unreadable HEAD is UNKNOWN: the call neither reads nor fills the cache.
+    use_cache = True
+    if include_decisions:
+        from ..retrieval.subject_state import capture as _capture_subject
+
+        _live_head = _capture_subject(index).get("live_sha")
+        if _live_head:
+            specific_key = specific_key + (_live_head,)
+        else:
+            use_cache = False
+
+    cached = (
+        result_cache_get("get_blast_radius", repo_key, specific_key, index=index)
+        if use_cache
+        else None
+    )
     if cached is not None:
         result = dict(cached)
         result["_meta"] = {**cached.get("_meta", {}),
                            "timing_ms": round((time.perf_counter() - start) * 1000, 1),
                            "cache_hit": True}
-        return _attach_scip_to_blast(result, store, owner, name)
-
-    index = store.load_index(owner, name)
-    if not index:
-        return index_status_to_tool_error(store.inspect_index(owner, name))
+        return _attach_scip_to_blast(
+            _attach_runtime_to_blast(result, store, owner, name), store, owner, name
+        )
 
     if index.imports is None:
         return {
@@ -545,6 +668,53 @@ def get_blast_radius(
     # Build reverse adjacency (importer graph)
     source_files = frozenset(index.source_files)
     rev = _build_reverse_adjacency(index.imports, source_files, index.alias_map, getattr(index, "psr4_map", None))
+    # Go package peers call with no import (L-262). The callers pass reads every
+    # peer; the importer walk adds only the peers that call the symbol, so a
+    # same-package caller is a dependent and the rest of the package is not
+    # listed as a potential importer of a file it never names.
+    import_rev = rev
+    # One content cache and one symbol map for the peer pass, the importer
+    # loop and the callers pass, so no file is read twice (L-262 review).
+    file_cache = _ContentCache(store, owner, name, index)
+    _syms_by_file_memo: list = []
+
+    def _symbols_by_file() -> dict:
+        if not _syms_by_file_memo:
+            _syms_by_file_memo.append(build_symbols_by_file(index))
+        return _syms_by_file_memo[0]
+
+    peer_rev = with_same_package_peers(rev, getattr(index, "file_languages", None))
+    # The callers pass at depth 1 needs only the peers that may name the
+    # symbol. Deeper levels look for callers of OTHER names in this file, so
+    # they read every peer (L-262 review round 5).
+    depth1_rev = peer_rev
+    if peer_rev is not rev:
+        imported_by = rev.get(sym_file, [])
+        peers = [p for p in peer_rev.get(sym_file, []) if p not in imported_by]
+        if peers:
+            # A peer whose trigram row rules the name out cannot call it, so
+            # it is never opened. A missing or stale row says maybe.
+            from ..storage.text_filter import Filter as _TextFilter
+            try:
+                _tf = _TextFilter(store._content_dir(owner, name), sym_name.lower())
+                peers = [p for p in peers if not _tf.rules_out(p)[0]]
+                depth1_rev = dict(peer_rev)
+                depth1_rev[sym_file] = list(imported_by) + peers
+            except Exception:
+                import logging as _logging
+                _logging.getLogger(__name__).debug("peer prefilter failed", exc_info=True)
+        if peers:
+            calling = {
+                c["file"]
+                for c in find_direct_callers(
+                    index, store, owner, name, sym, {sym_file: peers},
+                    _symbols_by_file(), file_cache,
+                )
+            }
+            calling_peers = [p for p in peers if p in calling]
+            if calling_peers:
+                rev = dict(rev)
+                rev[sym_file] = list(imported_by) + calling_peers
 
     # BFS to collect all importing files
     importer_files, files_by_depth = _bfs_importers(sym_file, rev, depth)
@@ -555,7 +725,7 @@ def get_blast_radius(
     content_cache: dict[str, str] = {}
 
     for imp_file in importer_files:
-        content = store.get_file_content(owner, name, imp_file)
+        content = file_cache.content(imp_file)
         if content is not None:
             content_cache[imp_file] = content
         if content is None:
@@ -633,7 +803,8 @@ def get_blast_radius(
     for entry in confirmed:
         imp_file = entry["file"]
         # Which test files import imp_file?
-        test_importers = [f for f in rev.get(imp_file, []) if f in test_file_set]
+        # A Go test sits in its package with no import (L-262).
+        test_importers = [f for f in peer_rev.get(imp_file, []) if f in test_file_set]
         if not test_importers:
             entry["has_test_reach"] = False
             continue
@@ -697,9 +868,10 @@ def get_blast_radius(
     # Call-level analysis (optional, gated on call_depth > 0)
     callers: list[dict] = []
     if call_depth > 0:
-        symbols_by_file = build_symbols_by_file(index)
         callers, _ = bfs_callers(
-            index, store, owner, name, sym, rev, symbols_by_file, call_depth
+            index, store, owner, name, sym,
+            depth1_rev if call_depth == 1 else peer_rev,
+            _symbols_by_file(), call_depth, file_cache,
         )
 
     # An answer is "empty" only when every channel this call actually ran came
@@ -712,12 +884,17 @@ def get_blast_radius(
         and not callers
         and not cross_repo_confirmed
     )
+    # Same-package peers (L-262) can find dependents while the import graph
+    # still reaches nothing. A cross-package caller stays behind an unresolved
+    # package edge, so the package probe runs whenever the IMPORT graph found
+    # nothing, whatever the peers added.
+    graph_found_nothing = not import_rev.get(sym_file) and not cross_repo_confirmed
     verdict, unresolvable = blast_verdict(
         index,
         source_files,
         sym_file,
         0 if answered_nothing else max(total, len(confirmed), len(callers)) + cross_count,
-        probe=answered_nothing,
+        probe=graph_found_nothing,
     )
 
     elapsed = (time.perf_counter() - start) * 1000
@@ -766,8 +943,19 @@ def get_blast_radius(
     # reaches a default install (Standing lesson 08-30).
     if verdict.get("dynamic_imports_unfollowed"):
         result["dynamic_imports_unfollowed"] = verdict["dynamic_imports_unfollowed"]
+    # (L-262) A non-empty answer can still be incomplete: same-package callers
+    # found, a cross-package caller behind an unresolved package edge not. No
+    # absence carrier fires for a non-empty answer, so the reason rides in the
+    # body or a default install reads the partial list as complete.
+    if verdict.get("incomplete"):
+        result["incomplete"] = verdict["incomplete"]
     if call_depth > 0:
+        # `caller_count` stays the total over every depth; the direct and
+        # per-depth counts come from the rule get_call_hierarchy uses (L-240).
+        by_depth = label_row_depths(callers)
         result["caller_count"] = len(callers)
+        result["direct_caller_count"] = by_depth.get("1", 0)
+        result["callers_by_depth"] = by_depth
         result["callers"] = callers
     if cross_repo and cross_repo_confirmed:
         result["cross_repo_confirmed"] = cross_repo_confirmed
@@ -782,67 +970,18 @@ def get_blast_radius(
             for d in sorted(files_by_depth)
         ]
 
-    # Phase 2: runtime confidence — zero-cost no-op when no traces ingested.
-    # We stamp three surfaces:
-    #   1. `result["symbol"]._runtime_confidence` — the focal symbol's status
-    #   2. `result["confirmed"][i]._runtime_confidence` — file-level for downstream importers
-    #   3. `result["callers"][i]._runtime_confidence` — per-symbol when call_depth > 0
-    from ..runtime.confidence import (
-        attach_runtime_confidence as _attach_runtime,
-        attach_runtime_confidence_by_file as _attach_runtime_files,
-    )
-    _db_path_str = str(store._sqlite._db_path(owner, name))
-    # Focal symbol — wrap so the helper can stamp _runtime_confidence in-place
-    _focal_list = [result["symbol"]]
-    _focal_summary = _attach_runtime(_focal_list, _db_path_str, id_field="id")
-    # File-level on confirmed importers
-    _file_summary = _attach_runtime_files(result["confirmed"], _db_path_str, file_field="file")
-    # Symbol-level on callers (when present)
-    _caller_summary: dict = {}
-    if "callers" in result and result["callers"]:
-        _caller_summary = _attach_runtime(result["callers"], _db_path_str, id_field="id")
-    if _focal_summary or _file_summary or _caller_summary:
-        # Merge sources + take the freshest last_seen across the surfaces
-        _all_sources: set[str] = set()
-        _last_seen = ""
-        for s in (_focal_summary, _file_summary, _caller_summary):
-            for src in s.get("sources", []):
-                _all_sources.add(src)
-            if s.get("last_seen", "") > _last_seen:
-                _last_seen = s["last_seen"]
-        # Coverage = focal + caller per-symbol confirmations / total surfaces stamped
-        _stamped = (
-            len(_focal_list)
-            + len(result.get("confirmed", []))
-            + (len(result.get("callers", [])) if "callers" in result else 0)
-        )
-        _confirmed_count = sum(
-            1 for items in (_focal_list, result.get("confirmed", []), result.get("callers", []) if "callers" in result else [])
-            for e in items if isinstance(e, dict) and e.get("_runtime_confidence") == "confirmed"
-        )
-        from ..runtime.confidence import BODY_BASIS as _BODY_BASIS
-        from ..runtime.confidence import body_counts as _body_counts
-
-        result["_meta"]["runtime_freshness"] = {
-            "sources": sorted(_all_sources),
-            "last_seen": _last_seen,
-            "coverage_pct": round(100 * _confirmed_count / max(1, _stamped)),
-            # (#875 review) The probe's count, not a second one: this block is
-            # assembled from several stamped lists and dropped `body` before.
-            "body": _body_counts(
-                [*_focal_list, *result.get("confirmed", []), *result.get("callers", [])]
-            ),
-            "body_basis": _BODY_BASIS,
-        }
     # Decision context (read-only git archaeology) on request: focal symbol's
     # file first, then the confirmed affected files. Additive — absent the flag
     # the response is byte-identical to prior behavior. Computed before the cache
-    # write so a cached hit (keyed on include_decisions) carries it too.
+    # write so a cached hit carries it too; the key then holds the live HEAD.
     if include_decisions:
         decision_files = [sym_file] + [c["file"] for c in confirmed]
         result["decisions"] = resolve_decision_context(
             getattr(index, "source_root", None), decision_files,
         )
 
-    result_cache_put("get_blast_radius", repo_key, specific_key, result)
-    return _attach_scip_to_blast(result, store, owner, name)
+    if use_cache:
+        result_cache_put("get_blast_radius", repo_key, specific_key, result, index=index)
+    return _attach_scip_to_blast(
+        _attach_runtime_to_blast(result, store, owner, name), store, owner, name
+    )

@@ -25,6 +25,11 @@ class InferenceResult:
     input_tokens: int
     output_tokens: int
     cost_usd: float
+    # Of `input_tokens`, how many were read from or written to the provider's
+    # prompt cache. `input_tokens` stays the WHOLE prompt on every provider, so
+    # totals compare across runs; these say how it was billed.
+    cache_read_tokens: int = 0
+    cache_write_tokens: int = 0
 
 
 # Approximate costs per 1M tokens (input, output)
@@ -43,6 +48,10 @@ COST_TABLE: dict[str, tuple[float, float]] = {
     "gpt-4.1": (2.00, 8.00),
     "gpt-4.1-mini": (0.40, 1.60),
     "gpt-4.1-nano": (0.10, 0.40),
+    # The default from 2026-11-09. Short-context rate (prompts up to 272K input
+    # tokens; a longer prompt is billed 2x input and 1.5x output for the whole
+    # request). platform.openai.com/docs/models/gpt-6-luna, read 2026-11-09.
+    "gpt-6-luna": (0.10, 0.50),
     # Anthropic
     # Sonnet 5 carries an introductory rate of (2.00, 10.00) through 2026-08-31;
     # the standard rate is listed so a benchmark run does not read cheap after it lapses.
@@ -57,6 +66,21 @@ COST_TABLE: dict[str, tuple[float, float]] = {
     "claude-haiku-4-5": (1.00, 5.00),
     "claude-haiku-4-5-20251001": (1.00, 5.00),
 }
+
+
+# The OpenAI default. `gpt-4o-mini`, the default until 2026-11-09, is shut down on
+# 2027-01-14, and OpenAI names `gpt-6-luna` as its replacement
+# (platform.openai.com/docs/deprecations, notice of 2026-10-14). Its rows stay in
+# the tables so committed runs still price.
+OPENAI_DEFAULT_MODEL = "gpt-6-luna"
+
+# OpenAI reasoning models run with reasoning OFF, to keep the answer comparable
+# with the committed non-reasoning runs. With effort `none` they accept
+# `temperature` (docs/guides/latest-model: remove it only "when reasoning effort is
+# not `none`"). They take `max_completion_tokens`; `max_tokens` is deprecated and
+# not accepted by reasoning models (api-reference/chat). Models outside this set
+# are sent exactly the request they were sent before.
+_OPENAI_REASONING_NONE: frozenset[str] = frozenset({"gpt-6-luna"})
 
 
 # Anthropic models that still accept `temperature`. Sampling parameters were
@@ -113,10 +137,89 @@ _MAX_TOKENS = 2048
 _MAX_TOKENS_THINKING_ALWAYS_ON = 16000
 
 
-def _estimate_cost(model: str, input_tokens: int, output_tokens: int) -> float:
-    """Estimate cost in USD from token counts."""
+# Prompt-cache prices per 1M tokens: (cache read, cache write).
+#
+# OpenAI, from each model's row on platform.openai.com/docs/pricing (read
+# 2026-11-09). Models before GPT-5.6 carry NO cache-write charge
+# (docs/guides/prompt-caching, "Summary of model differences"), so a write on
+# them is priced at the plain input rate.
+#
+# Anthropic, from platform.claude.com/docs/en/about-claude/pricing (read
+# 2026-11-09): a cache read is 0.1x base input on every model in COST_TABLE, a
+# 5-minute write 1.25x, a 1-hour write 2x. munch-bench sends no `cache_control`,
+# so these are zero today; they are priced so a run that turns caching on does
+# not drop the cached tokens from its cost.
+#
+# ⚠ A model with no row here prices cached tokens at the PLAIN input rate. That
+# can only over-state a cost, never under-state it, which is the safe side for a
+# benchmark (the same reason `COST_TABLE`'s fallback is conservative).
+_OPENAI_CACHE_TABLE: dict[str, tuple[float, float]] = {
+    "gpt-4o": (1.25, 2.50),
+    "gpt-4o-mini": (0.075, 0.15),
+    "gpt-4.1": (0.50, 2.00),
+    "gpt-4.1-mini": (0.10, 0.40),
+    "gpt-4.1-nano": (0.025, 0.10),
+    # GPT-5.6 and later bill cache writes: 1.25x input for the 30-minute lifetime,
+    # the only one Chat Completions offers.
+    "gpt-6-luna": (0.01, 0.125),
+}
+_ANTHROPIC_CACHE_READ = 0.1
+_ANTHROPIC_CACHE_WRITE_5M = 1.25
+_ANTHROPIC_CACHE_WRITE_1H = 2.0
+
+
+def _cache_rates(model: str, input_rate: float) -> tuple[float, float, float]:
+    """(read, 5-minute-or-default write, 1-hour write) per 1M tokens for `model`."""
+    if model in _OPENAI_CACHE_TABLE:
+        read, write = _OPENAI_CACHE_TABLE[model]
+        return read, write, write
+    if model.startswith("claude-") and model in COST_TABLE:
+        return (
+            input_rate * _ANTHROPIC_CACHE_READ,
+            input_rate * _ANTHROPIC_CACHE_WRITE_5M,
+            input_rate * _ANTHROPIC_CACHE_WRITE_1H,
+        )
+    return input_rate, input_rate, input_rate
+
+
+def _estimate_cost(
+    model: str,
+    input_tokens: int,
+    output_tokens: int,
+    cache_read_tokens: int = 0,
+    cache_write_tokens: int = 0,
+    cache_write_1h_tokens: int = 0,
+) -> float:
+    """Estimate cost in USD from token counts.
+
+    `input_tokens` is the WHOLE prompt, cached parts included; `cache_read_tokens`,
+    `cache_write_tokens` (5-minute, or the only lifetime the provider has) and
+    `cache_write_1h_tokens` are the parts of it the provider billed at cache rates.
+    """
     costs = COST_TABLE.get(model, (1.0, 3.0))  # conservative default
-    return (input_tokens * costs[0] + output_tokens * costs[1]) / 1_000_000
+    read_rate, write_rate, write_1h_rate = _cache_rates(model, costs[0])
+    plain = max(input_tokens - cache_read_tokens - cache_write_tokens - cache_write_1h_tokens, 0)
+    return (
+        plain * costs[0]
+        + cache_read_tokens * read_rate
+        + cache_write_tokens * write_rate
+        + cache_write_1h_tokens * write_1h_rate
+        + output_tokens * costs[1]
+    ) / 1_000_000
+
+
+def _openai_cache_counts(usage) -> tuple[int, int]:
+    """(cache read, cache write) tokens from a Chat Completions `usage`, 0 when absent.
+
+    Both sit under `prompt_tokens_details` and are INCLUDED in `prompt_tokens`
+    (platform.openai.com/docs/api-reference/chat/object). `cache_write_tokens` is
+    read with getattr because older SDKs do not declare it.
+    """
+    details = getattr(usage, "prompt_tokens_details", None) if usage else None
+    if details is None:
+        return 0, 0
+    return (int(getattr(details, "cached_tokens", 0) or 0),
+            int(getattr(details, "cache_write_tokens", 0) or 0))
 
 
 def infer_groq(
@@ -164,7 +267,7 @@ def infer_groq(
 def infer_openai(
     context: str,
     question: str,
-    model: str = "gpt-4o-mini",
+    model: str = OPENAI_DEFAULT_MODEL,
     api_key: Optional[str] = None,
 ) -> InferenceResult:
     """Call OpenAI API for inference."""
@@ -181,13 +284,20 @@ def infer_openai(
             {"role": "user", "content": f"## Code Context\n\n{context}\n\n## Question\n\n{question}"},
         ],
         temperature=0.0,
-        max_tokens=2048,
+        **(
+            {"reasoning_effort": "none", "max_completion_tokens": _MAX_TOKENS}
+            if model in _OPENAI_REASONING_NONE
+            else {"max_tokens": _MAX_TOKENS}
+        ),
     )
     elapsed = time.perf_counter() - t0
 
     usage = response.usage
     input_tok = usage.prompt_tokens if usage else 0
     output_tok = usage.completion_tokens if usage else 0
+    # OpenAI caches a long prompt prefix on its own, so a benchmark run reads
+    # cache without asking for it; those tokens bill at the cached-input rate.
+    cache_read, cache_write = _openai_cache_counts(usage)
 
     return InferenceResult(
         answer=response.choices[0].message.content or "",
@@ -196,7 +306,9 @@ def infer_openai(
         wall_time_s=elapsed,
         input_tokens=input_tok,
         output_tokens=output_tok,
-        cost_usd=_estimate_cost(model, input_tok, output_tok),
+        cost_usd=_estimate_cost(model, input_tok, output_tok, cache_read, cache_write),
+        cache_read_tokens=cache_read,
+        cache_write_tokens=cache_write,
     )
 
 
@@ -232,8 +344,16 @@ def infer_anthropic(
     )
     elapsed = time.perf_counter() - t0
 
-    input_tok = response.usage.input_tokens
-    output_tok = response.usage.output_tokens
+    usage = response.usage
+    # Anthropic's `input_tokens` EXCLUDES cached tokens; reads and writes are
+    # reported beside it, writes split by lifetime under `cache_creation`.
+    cache_read = int(getattr(usage, "cache_read_input_tokens", 0) or 0)
+    write_total = int(getattr(usage, "cache_creation_input_tokens", 0) or 0)
+    creation = getattr(usage, "cache_creation", None)
+    write_1h = int(getattr(creation, "ephemeral_1h_input_tokens", 0) or 0) if creation else 0
+    write_5m = write_total - write_1h
+    input_tok = usage.input_tokens + cache_read + write_total
+    output_tok = usage.output_tokens
     # Take the first TEXT block rather than content[0]: on a model whose thinking
     # cannot be disabled (Fable 5) the first block is a thinking block, which has
     # no `.text` at all.
@@ -246,7 +366,9 @@ def infer_anthropic(
         wall_time_s=elapsed,
         input_tokens=input_tok,
         output_tokens=output_tok,
-        cost_usd=_estimate_cost(model, input_tok, output_tok),
+        cost_usd=_estimate_cost(model, input_tok, output_tok, cache_read, write_5m, write_1h),
+        cache_read_tokens=cache_read,
+        cache_write_tokens=write_total,
     )
 
 
@@ -267,7 +389,7 @@ def infer(
     """Dispatch inference to the appropriate provider."""
     defaults = {
         "groq": "llama-3.3-70b-versatile",
-        "openai": "gpt-4o-mini",
+        "openai": OPENAI_DEFAULT_MODEL,
         "anthropic": "claude-sonnet-5",
     }
     fn = PROVIDER_MAP.get(provider)

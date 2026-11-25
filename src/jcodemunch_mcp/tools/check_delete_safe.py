@@ -10,6 +10,9 @@ Verdict tiers (most-permissive first):
   - internal_only          — refs exist only within the symbol's own file
   - internal_uses_blocking — referenced by other symbols in this repo (refactor first)
   - external_uses_blocking — imported by other files in this repo
+  - file_import_only       — another file imports its FILE, but no other file
+                             names the symbol, so the block rests on the file
+                             import alone; still blocks, never terminal. L-348
   - scip_referenced        — compiler-verified references (SCIP) the import graph + text search missed
   - cross_repo_blocking    — used by other indexed repos (highest static severity)
   - runtime_observed       — Phase 7 traces show this code runs (red flag regardless of static refs)
@@ -26,8 +29,11 @@ Verdict tiers (most-permissive first):
                              (`import_module(f"adapters.{name}")`). The sites
                              are named. LEDGER L-70. Also a .NET control,
                              master page or build item, or a schema a build
-                             or code generator may compile, loaded by a path
-                             the index does not carry (`unseen_consumer`).
+                             or code generator may compile, or an ERB view
+                             rendered by name or by convention, reached by
+                             an edge the index does not carry
+                             (`unseen_consumer`), or a Go file no `go.mod` the index read
+                             covers (`go_module_unknown`, LEDGER L-59).
 
 ⚠⚠ **`corpus_inadequate`, `name_not_searchable` and `dynamic_import_boundary`
 each replace an absence verdict, never a blocking one.**
@@ -55,6 +61,7 @@ from ._test_paths import is_test_file as _is_test_file  # noqa: F401  (the one r
 from ._utils import index_status_to_tool_error, resolve_repo
 
 logger = logging.getLogger(__name__)
+
 
 # ---------------------------------------------------------------------------
 # Severity scoring for individual blockers (1-5, higher = more dangerous)
@@ -145,6 +152,42 @@ def _runtime_data_present(store: IndexStore, owner: str, name: str) -> bool:
     except Exception as exc:  # noqa: BLE001
         logger.debug("check_delete_safe: runtime probe skipped: %s", exc, exc_info=True)
         return False
+
+
+def _content_search_read_every(
+    index, store, owner: str, name: str, files: list[str], target_name: str
+) -> bool:
+    """True only when the reference search READ every file in `files`.
+
+    ⚠⚠ (LEDGER L-348 review) `check_references._check_single` skips a file in
+    silence when it is not in `index.source_files`, when its cached content is
+    missing or cannot be read, and when it holds a same-named definition with
+    no line span. Finding no reference in a file it skipped proves nothing, so
+    each of those cases answers False here. Mirrors that function's skip
+    conditions; it does not search for the name itself.
+    """
+    if not files:
+        return False
+    try:
+        source = set(index.source_files)
+        unspanned = {
+            s.get("file", "")
+            for s in index.symbols
+            if s.get("name") == target_name and not s.get("line")
+        }
+        content_dir = store._content_dir(owner, name)
+        for f in files:
+            if f not in source or f in unspanned:
+                return False
+            path = store._safe_content_path(content_dir, f)
+            if not path or not path.exists():
+                return False
+            with open(path, "r", encoding="utf-8", errors="replace", newline="") as fh:
+                fh.read(1)
+    except Exception:  # noqa: BLE001
+        logger.debug("check_delete_safe: importer content check failed", exc_info=True)
+        return False
+    return True
 
 
 def _check_dead_code_conf(repo: str, target_id: str, storage_path: Optional[str]) -> float:
@@ -263,6 +306,10 @@ def check_delete_safe(
     # ── Signal 3: identifier text refs (catches duck-typed callers) ────
     internal_ref_count = 0
     test_ref_count = 0
+    # (LEDGER L-348) Content references in any file but the target's own: when
+    # there are none, a file-level importer is the whole of an "external use".
+    refs_outside_target_file = 0
+    refs_searched = False
     try:
         from . import check_references  # noqa: PLC0415
         # ⚠⚠ (LEDGER L-89) EVERY file, never a page. The public tool caps its
@@ -272,16 +319,21 @@ def check_delete_safe(
         # `test_coverage_only`. An absence claim needs the whole corpus -- a
         # count taken after the page is cut describes the page (#559). The
         # cost is at most one full scan, which a no-match search pays anyway.
+        # (LEDGER L-91) Exclude the TARGET's span only: a same-named method
+        # elsewhere that calls the target is a caller, not "a definition".
         ref_entries = [check_references._check_single(
             identifier=target_name, index=index, search_content=True,
             max_content_results=max(1, len(index.source_files)),
             owner=owner, name=name, store=store, start=time.perf_counter(),
+            target_span=check_references.target_span_of(target),
         )]
         for entry in ref_entries:
             for ref in entry.get("content_references", []) or []:
                 ref_file = ref.get("file", "")
                 if not ref_file:
                     continue
+                if ref_file != target_file:
+                    refs_outside_target_file += 1
                 # ⚠⚠ `ref_file == target_file` used to be skipped here, and it
                 # was #406's defect one layer up: it discarded the FILE when the
                 # thing that must be excluded is the DEFINITION. Before
@@ -301,7 +353,7 @@ def check_delete_safe(
                         blockers.append({
                             "kind": "test_reference",
                             "file": ref_file,
-                            "line": ref.get("line", 0),
+                            "line": check_references.first_match_line(ref),
                             "severity": _SEVERITY_TEST_ONLY,
                         })
                 else:
@@ -310,9 +362,10 @@ def check_delete_safe(
                         blockers.append({
                             "kind": "internal_reference",
                             "file": ref_file,
-                            "line": ref.get("line", 0),
+                            "line": check_references.first_match_line(ref),
                             "severity": _SEVERITY_INTERNAL_REF,
                         })
+        refs_searched = True
     except Exception as exc:  # noqa: BLE001
         logger.debug("check_delete_safe: check_references skipped: %s", exc, exc_info=True)
 
@@ -381,6 +434,35 @@ def check_delete_safe(
         verdict = "cross_repo_blocking"
     elif scip_external_count > 0:
         verdict = "scip_referenced"
+    elif (
+        total_external_signals > 0
+        and refs_outside_target_file == 0
+        and internal_ref_count == 0
+        and test_ref_count == 0
+        and refs_searched
+        and _content_search_read_every(
+            index, store, owner, name,
+            # ⚠ (review round 2) The target's own file too: unread, its
+            # same-file uses go uncounted and "its own file included" is false.
+            [target_file] + [b["file"] for b in blockers if b.get("kind") == "external_import"],
+            target_name,
+        )
+    ):
+        # ⚠⚠ (LEDGER L-348) Another file imports the target's FILE, and no
+        # indexed file names the symbol, its own included.
+        # `external_uses_blocking` asserted a use nobody makes (an unexported
+        # helper beside an exported function). The delete stays blocked: a
+        # wildcard import, a computed member access or a re-export reaches a
+        # symbol without writing its name, and no text search sees them. So
+        # this verdict is BOUNDED, never terminal, and names the reading that
+        # settles it. Each condition is load-bearing:
+        #   - a same-file use is a found use; hiding it under this verdict
+        #     dropped it from the answer (review), so it stays external;
+        #   - `refs_searched`: a search that raised found nothing;
+        #   - the importers were READ: a search that skipped them (missing or
+        #     unreadable content, an unspanned same-named definition) found
+        #     nothing either, and called a named use "no other file names it".
+        verdict = "file_import_only"
     elif total_external_signals > 0:
         verdict = "external_uses_blocking"
     elif total_internal_signals > 0:
@@ -458,11 +540,13 @@ def check_delete_safe(
     dynamic_gap = None
     reaching = DynamicBoundary(index.imports).reaching(target.get("file", ""))
     # (LEDGER L-81) `name_not_searchable` gains the gap and the blocker and
-    # keeps its name, the narrower cause; skipping it hid the loaders.
+    # keeps its name, the narrower cause; skipping it hid the loaders. So does
+    # `file_import_only` (LEDGER L-348): a loader is one more way to reach it.
     if reaching and verdict in (
         "safe_to_delete", "internal_only", "test_coverage_only", "name_not_searchable",
+        "file_import_only",
     ):
-        if verdict != "name_not_searchable":
+        if verdict not in ("name_not_searchable", "file_import_only"):
             verdict = "dynamic_import_boundary"
         dynamic_gap = {
             "action": "read the named loaders for the module names they can produce",
@@ -482,9 +566,10 @@ def check_delete_safe(
             blocker["files_total"] = len(reaching)
         blockers.append(blocker)
 
-    # A .NET control, master page or build item, or a schema a build compiles,
-    # is reached by an edge the index does not carry (LoadControl, a stored
-    # control path, the project file, a code generator): the same unproven
+    # A .NET control, master page or build item, a schema a build compiles, or
+    # an ERB view, is reached by an edge the index does not carry (LoadControl,
+    # a stored control path, the project file, a code generator, `render` or a
+    # controller's convention): the same unproven
     # absence as a dynamic import, under the same verdict.
     unseen = unseen_consumer(
         target.get("file", ""),
@@ -502,6 +587,9 @@ def check_delete_safe(
                 "check for a build or code generator outside the index that "
                 "compiles this schema"
                 if unseen == "schema_consumer"
+                else "check for a `render` call naming this view, or a controller "
+                "action or framework that renders it by convention"
+                if unseen == "template_rendered"
                 else "check how the host loads this file (LoadControl, a stored "
                 "control path, the project file)"
             ),
@@ -517,17 +605,48 @@ def check_delete_safe(
             "severity": _SEVERITY_INTERNAL_REF,
         })
 
+    # (LEDGER L-59) A Go file no `go.mod` the index read covers: its imports
+    # could not be mapped to directories, so finding no importer is not
+    # evidence. `find_dead_code` caps the same file through the same rule;
+    # capping the report alone would leave this tool certifying the delete.
+    from .find_dead_code import go_file_outside_module_map  # noqa: PLC0415
+
+    if (
+        dynamic_gap is None
+        and go_file_outside_module_map(index, target.get("file", ""))
+        and verdict in ("safe_to_delete", "internal_only", "test_coverage_only", "name_not_searchable")
+    ):
+        if verdict != "name_not_searchable":
+            verdict = "dynamic_import_boundary"
+        unseen_gap = True
+        dynamic_gap = {
+            "action": "index the tree with its go.mod, or check its importers by hand",
+            "why": (
+                f"{target.get('file', '')} is a Go file no go.mod in the index covers, "
+                "so its package's import paths could not be mapped to files and finding "
+                "no importer is not evidence that nothing imports it"
+            ),
+        }
+        blockers.append({
+            "kind": "go_module_unknown",
+            "blockers": [dynamic_gap["why"]],
+            "severity": _SEVERITY_INTERNAL_REF,
+        })
+
     corpus_gap = None
     # ⚠ Evaluated after the dynamic gate too: when that gate has already
     # replaced the absence verdict, a thin corpus is still a blocker and a
     # gap, and dropping it would hide the re-index that could change the
     # answer. The dynamic verdict keeps the name; it is the narrower cause,
     # and so does `name_not_searchable` (LEDGER L-81).
+    # (LEDGER L-348 review) `file_import_only` is an absence claim too ("no
+    # indexed file names it"): a withheld or stale file can be the one that
+    # does. It keeps its name, the narrower cause, and gains the re-index gap.
     if not corpus_adequacy.adequate and verdict in (
         "safe_to_delete", "internal_only", "test_coverage_only", "dynamic_import_boundary",
-        "name_not_searchable",
+        "name_not_searchable", "file_import_only",
     ):
-        if verdict not in ("dynamic_import_boundary", "name_not_searchable"):
+        if verdict not in ("dynamic_import_boundary", "name_not_searchable", "file_import_only"):
             verdict = "corpus_inadequate"
         corpus_gap = {
             "action": "re-index this repo",
@@ -538,6 +657,25 @@ def check_delete_safe(
             "blockers": list(corpus_adequacy.blockers),
             "severity": _SEVERITY_INTERNAL_REF,
         })
+
+    # ── A file import is the only block (LEDGER L-348) ─────────────────
+    import_gap = None
+    if verdict == "file_import_only":
+        importer_files = [b["file"] for b in blockers if b.get("kind") == "external_import"]
+        shown = ", ".join(importer_files[:3]) + (
+            f" and {len(importer_files) - 3} more" if len(importer_files) > 3 else ""
+        )
+        import_gap = {
+            "action": (
+                "read the importing files for a wildcard import, a member access "
+                "by a computed name, or a re-export"
+            ),
+            "why": (
+                f"{shown} import {target_file}, but the reference search found "
+                f"{target_name!r} in no file it read, and it read those files and "
+                f"{target_file}"
+            ),
+        }
 
     # ── Confidence ─────────────────────────────────────────────────────
     # Start at dead-code confidence (or 0.5 baseline) and decay per blocker.
@@ -570,6 +708,14 @@ def check_delete_safe(
         confidence = 0.10  # compiler-proven external use
     elif verdict == "entry_point":
         confidence = 0.20
+    elif verdict == "file_import_only":
+        # ⚠⚠ (LEDGER L-348 review) The SAME confidence `external_uses_blocking`
+        # gives, never more. The first draft used UNPROVEN_CEILING, which
+        # caps a would-be-safe verdict DOWN; here it raised a blocking one from
+        # 0.25 to 0.6, so adding an importer made a symbol look safer than it
+        # did with none (0.45 as `internal_uses_blocking`). This verdict
+        # corrects a claim; it must not move any symbol toward safe.
+        confidence = 0.25
     elif verdict == "external_uses_blocking":
         confidence = 0.25
     elif verdict == "internal_uses_blocking":
@@ -615,6 +761,14 @@ def check_delete_safe(
         "internal_only": "Refs exist only in the same file. Safe with local refactor.",
         "internal_uses_blocking": (
             f"{internal_ref_count} internal reference(s) found. Rename/refactor callers first."
+        ),
+        "file_import_only": (
+            f"{import_gap['why']}. The import alone keeps this blocked: "
+            f"{import_gap['action']} before deleting."
+            if import_gap
+            else "Another file imports this file, but the reference search found this "
+            "symbol's name in no file it read, the importers and its own file among them. "
+            "Read the importing files before deleting."
         ),
         "external_uses_blocking": (
             f"{external_import_count} other file(s) in this repo import this. Update importers first."
@@ -673,6 +827,7 @@ def check_delete_safe(
             corpus_gap=corpus_gap,
             dynamic_gap=dynamic_gap,
             name_gap=unreachable_name,
+            import_gap=import_gap,
         ),
         "corpus_adequacy": corpus_adequacy.as_dict(),
         "signals": {

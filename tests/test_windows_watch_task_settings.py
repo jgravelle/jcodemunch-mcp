@@ -18,7 +18,6 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
-import tempfile
 import uuid
 import xml.etree.ElementTree as ET
 from pathlib import Path
@@ -60,7 +59,7 @@ class TestTaskXml:
         exec_ = self._xml().find("t:Actions/t:Exec", _NS)
 
         assert exec_.findtext("t:Command", namespaces=_NS) == f'"{_EXEC[0]}"'
-        assert exec_.findtext("t:Arguments", namespaces=_NS) == "-m jcodemunch_mcp watch-all"
+        assert exec_.findtext("t:Arguments", namespaces=_NS).startswith("-m jcodemunch_mcp watch-all --log-file ")
 
     def test_markup_in_the_interpreter_path_cannot_break_the_document(self):
         with patch.object(si, "_exec_cmd", lambda: [r"C:\a&b<c>\python.exe", "-m", "jcodemunch_mcp", "watch-all"]):
@@ -136,7 +135,8 @@ class TestStatusSaysWhenNothingRuns:
     def _status(self, *, state, settings=None):
         with patch.object(si, "_run_schtasks", lambda args: (0, "TaskName: \\jcodemunch-watch", "")), \
              patch.object(si, "_scheduled_task_state", lambda: state), \
-             patch.object(si, "_scheduled_task_settings", lambda: settings):
+             patch.object(si, "_scheduled_task_settings", lambda: settings), \
+             patch.object(si, "_scheduled_task_command", lambda: None):
             return si._status_windows()
 
     _FIXED = {
@@ -240,18 +240,24 @@ if _may_register_a_real_task():
         [None, [r"C:\Program Files\Python 3\python.exe", "-m", "jcodemunch_mcp", "watch-all"]],
         ids=["runner-interpreter", "path-with-a-space"],
     )
-    def test_task_scheduler_accepts_the_definition_and_matches_the_switch_form(exec_cmd):
+    def test_task_scheduler_accepts_the_definition_and_matches_the_switch_form(exec_cmd, tmp_path):
         """Every other test here asserts on the XML we write. Only Task
         Scheduler can say it ACCEPTS it, and a malformed definition would make
         `watch-install` fail for every Windows user. Registers our definition
         and the old switch form under throwaway names, compares what Windows
-        stored, deletes both. Never started: the action runs only at logon."""
-        cmd = si._exec_cmd() if exec_cmd is None else exec_cmd
+        stored, deletes both. Never started: the action runs only at logon.
+        The logon trigger's user is the one field that differs, by design
+        (#1564): it names the calling user."""
+        if exec_cmd is None:
+            cmd = si._windows_exec_cmd()
+        else:
+            with patch.object(si, "_exec_cmd", lambda: list(exec_cmd)):
+                cmd = si._windows_exec_cmd()
         suffix = uuid.uuid4().hex[:8]
         xml_name = f"{si.SERVICE_NAME}-ci-xml-{suffix}"
         old_name = f"{si.SERVICE_NAME}-ci-old-{suffix}"
-        xml_path = Path(tempfile.mkdtemp()) / "task.xml"
-        with patch.object(si, "_exec_cmd", lambda: list(cmd)):
+        xml_path = tmp_path / "task.xml"
+        with patch.object(si, "_windows_exec_cmd", lambda: list(cmd)):
             xml_path.write_text(si._windows_task_xml(), encoding="utf-16")
         cmd_str = " ".join(si._cmd_quote(x) for x in cmd)
         try:
@@ -278,7 +284,15 @@ if _may_register_a_real_task():
                     "arguments": exec_.findtext("t:Arguments", namespaces=_NS),
                 }
 
-            assert _kept(new) == _kept(old)
+            # #1564: the trigger names the calling user, so a shell that is not
+            # elevated may register it. That is the one field allowed to differ
+            # from the switch form; everything else must match.
+            kept_new, kept_old = _kept(new), _kept(old)
+            trigger_user = kept_new.pop("trigger_user")
+            kept_old.pop("trigger_user")
+            assert trigger_user, "the logon trigger names no user (#1564)"
+            assert trigger_user.split("\\")[-1].lower() == os.environ["USERNAME"].lower(), trigger_user
+            assert kept_new == kept_old
         finally:
             for name in (xml_name, old_name):
                 subprocess.run(["schtasks", "/Delete", "/F", "/TN", name], capture_output=True, check=False)

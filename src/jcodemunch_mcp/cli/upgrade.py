@@ -176,6 +176,11 @@ def run_upgrade(*, no_pip: bool = False, yes: bool = True) -> int:
 
     print("Refreshing hooks/config in-process (no pip required)...")
     refresh_rc = _refresh_hooks(yes=yes)
+    # #1435: an upgrade does not reach a server that is already running.
+    print(
+        "A running server keeps serving the code it loaded at startup. Run "
+        "`jcodemunch-mcp install-status` to see which servers need a restart."
+    )
 
     # A genuine pip failure is a real error the caller should see; a
     # pip-absent environment is not a failure (the package upgrade is the

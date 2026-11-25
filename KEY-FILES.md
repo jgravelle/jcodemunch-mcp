@@ -20,6 +20,7 @@ entry appears in both, or in neither.
 ```
 src/jcodemunch_mcp/
   watcher.py           # WatcherManager class (dynamic folder watching); watch_folders() wrapper
+  parent_watch.py      # (BACKLOG row 64) Stops a stdio server whose client process is gone even when stdin stays open: ParentWatch (PID + creation time), watched_parent() (steps past Windows launchers), start() (daemon poll thread). The rules it keeps are in its docstring
   redact.py            # Response-level secret redaction; regex patterns for AWS/GCP/Azure/JWT/GitHub/Slack/PEM/API keys/private IPs; redact_dict() post-processor
   config.py            # JSONC config: global + per-project layering, env var fallback, language/tool gating
   agent_selector.py    # Complexity scoring + model routing (off/manual/auto); default provider batting orders
@@ -35,7 +36,7 @@ src/jcodemunch_mcp/
     inference.py       # Groq API streaming + batch via OpenAI-compatible client
   parser/
     languages.py       # LANGUAGE_REGISTRY, extension → language map, LanguageSpec
-    extractor.py       # parse_file() dispatch; custom parsers for Erlang, Fortran, SQL, Razor, ASP.NET Web Forms
+    extractor.py       # parse_file() dispatch; custom parsers for Erlang, Fortran, SQL, Razor, ASP.NET Web Forms, Ruby ERB
     grammar_pack.py    # (#608) Which GENERATION of tree-sitter-language-pack is installed (bundled 0.x / download 1.x / absent) and what that costs; records a grammar-load failure per language, once, where the extractor used to swallow it as `[]`. A leaf that never calls the pack's network API: the unavailable-language list is what the extractor SAW fail, never a manifest lookup. Read by index_folder (warnings + `grammar_pack` block), evidence/capability.py (`grammar_source`) and install-status; on a bundled pack with no failures `notice()` is None so a 0.x result is byte-identical
     parse_budget.py    # (L-114, L-116) The per-file parse budget, enforced in the parser: `armed()` opens one deadline per `parse_file` call (a nested call shares it), counted in the parsing thread's own time between parses and by tree-sitter's wall timer inside one; `bind()` wraps a parser so tree-sitter's own timeout stops the parse at the deadline, and a cancel swallowed by a dedicated parser is still raised by `parse_file`. `checkpoint()` is the Python side: the first statement of every loop in the modules a parse runs through (three exemptions, named in the test) and called where a `Symbol` is built; `parse_file` reads the deadline once more at its end; it raises inside a `parse_file` call once the deadline has passed, and is one attribute read outside one. Stdlib-only leaf; `ParseBudgetExceeded` lives here and `tools/_indexing_pipeline` re-exports it.
     fqn.py             # PHP FQN ↔ symbol_id translation (PSR-4); symbol_to_fqn(), fqn_to_symbol()
@@ -57,7 +58,7 @@ src/jcodemunch_mcp/
     batch_summarize.py # 3-tier: Anthropic > Gemini > OpenAI-compat > signature fallback
   tools/
     index_repo.py      # GitHub indexer (async, httpx)
-    get_symbol.py      # get_symbol_source: shape-follows-input (id→flat, ids[]→{symbols,errors}). v1.108.70 bounded-source mode: optional source_start_line/source_end_line/max_source_lines/max_source_bytes/max_total_source_bytes return an explicitly-labeled slice (source_truncated + range/total metadata, source_is_bounded_view); verify stays full-body; context_lines+bound rejected. Pure helpers _utf8_safe_truncate + _bound_source
+    get_symbol.py      # get_symbol_source: shape-follows-input (id→flat, ids[]→{symbols,errors}). v1.108.70 bounded-source mode: optional source_start_line/source_end_line/max_source_lines/max_source_bytes/max_total_source_bytes return an explicitly-labeled slice (source_truncated + range/total metadata, source_is_bounded_view); verify stays full-body; context_lines+bound rejected. Pure helpers _utf8_safe_truncate + _bound_source. Class outline (default `class_body="outline"`): a `class` fetch collapses each method to its signature (`_class_outline`, members from one `open_selective(files=)` read via `_direct_members`, never `index.symbols`), labeled `source_outline` + `source_is_bounded_view`; `class_body="full"` or any bound returns the whole body
     search_columns.py  # Column search across dbt/SQLMesh models
     get_context_bundle.py   # Symbol + imports bundle; token_budget/budget_strategy
     get_ranked_context.py   # Query-driven budgeted context (BM25 + PageRank)
@@ -70,7 +71,7 @@ src/jcodemunch_mcp/
     package_registry.py # Cross-repo package registry: manifest parsing, registry building, specifier resolution
     get_cross_repo_map.py # Cross-repo dependency map at the package level
     _call_graph.py       # Shared AST-derived call-graph helpers (callers/callees, BFS); a BFS row deeper than 1 carries `via`, the row one level shallower
-    get_call_hierarchy.py # get_call_hierarchy: callers+callees for a symbol, N levels deep; rows ordered by depth, with direct and per-depth counts
+    get_call_hierarchy.py # get_call_hierarchy: callers+callees for a symbol, one hop unless `depth` asks for more (up to 5); rows ordered by depth, with direct and per-depth counts
     decision_context.py   # (v1.108.59) resolve_decision_context: read-only git-archaeology surfacer. Mines decision-bearing commits (revert/perf/refactor/rename/bugfix) for a set of files, reusing get_symbol_provenance's _run_git/_classify_commit/_extract_intent; dedupes by SHA, ranks by category weight × recency, emits digest + by_category + volatility + summary. Surface-only, nothing persisted. Consumed by get_blast_radius / get_impact_preview via include_decisions
     get_impact_preview.py # get_impact_preview: transitive "what breaks?" analysis. v1.108.59: include_decisions attaches a read-only `decisions` block (decision_context)
     plan_refactoring.py   # plan_refactoring: edit-ready plans for rename/move/extract/signature refactorings

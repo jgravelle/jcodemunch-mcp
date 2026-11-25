@@ -226,6 +226,65 @@ def _is_pid_alive(pid: int) -> bool:
 _FILETIME_EPOCH_DELTA = 11644473600
 
 
+# struct proc_bsdinfo (<sys/proc_info.h>): twelve uint32 fields, comm[16],
+# name[32], five uint32 and one int32, then pbi_start_tvsec and
+# pbi_start_tvusec as uint64. 136 bytes; the start sits at offset 120.
+_PROC_PIDTBSDINFO = 3
+_PROC_BSDINFO_SIZE = 136
+_BSDINFO_PID_OFFSET = 12
+_BSDINFO_START_OFFSET = 120
+
+
+def _parse_proc_bsdinfo(buf: bytes, pid: int) -> Optional[float]:
+    """The start time in a ``proc_bsdinfo`` record as epoch seconds, or None.
+
+    None for a short record, a record for another PID, or a zero start: each is
+    UNKNOWN, never a time to compare against.
+    """
+    import struct
+
+    if len(buf) < _PROC_BSDINFO_SIZE:
+        return None
+    (got_pid,) = struct.unpack_from("=I", buf, _BSDINFO_PID_OFFSET)
+    if got_pid != pid:
+        return None
+    sec, usec = struct.unpack_from("=QQ", buf, _BSDINFO_START_OFFSET)
+    if sec == 0:
+        return None
+    return sec + usec / 1e6
+
+
+def _darwin_process_start(pid: int) -> Optional[float]:
+    """macOS process start (epoch seconds) via libproc, or None.
+
+    ``p_start`` is stamped once at fork and is not re-derived from the current
+    clock, so two readings of one process agree exactly, like Windows'
+    FILETIME and unlike a value built from Linux's ``btime``.
+    """
+    if sys.platform != "darwin":
+        return None
+    try:
+        import ctypes
+
+        libproc = ctypes.CDLL("/usr/lib/libproc.dylib", use_errno=True)
+        libproc.proc_pidinfo.argtypes = [
+            ctypes.c_int,
+            ctypes.c_int,
+            ctypes.c_uint64,
+            ctypes.c_void_p,
+            ctypes.c_int,
+        ]
+        libproc.proc_pidinfo.restype = ctypes.c_int
+        buf = ctypes.create_string_buffer(_PROC_BSDINFO_SIZE)
+        n = libproc.proc_pidinfo(pid, _PROC_PIDTBSDINFO, 0, buf, _PROC_BSDINFO_SIZE)
+        if n != _PROC_BSDINFO_SIZE:
+            return None
+        return _parse_proc_bsdinfo(buf.raw, pid)
+    except (OSError, AttributeError, ValueError):
+        logger.debug("libproc start time unreadable for %s", pid, exc_info=True)
+        return None
+
+
 def _process_create_time(pid: int) -> Optional[float]:
     """OS creation time of an arbitrary PID as Unix-epoch seconds, or None.
 
@@ -244,6 +303,9 @@ def _process_create_time(pid: int) -> Optional[float]:
     only ever compared against ones produced by this same function on the same
     machine, so the domain only has to be internally stable (see the Linux
     branch comment for why boot-relative is the safe choice there).
+    macOS: libproc ``proc_pidinfo(PROC_PIDTBSDINFO)`` start time, epoch
+    seconds. Without it every identity check there was liveness alone, so a
+    reused PID read as the old process (first macOS full tier).
     Other platforms: None (identity check degrades to liveness-only).
     """
     if sys.platform == "win32":
@@ -312,6 +374,8 @@ def _process_create_time(pid: int) -> Optional[float]:
             return start_ticks / os.sysconf("SC_CLK_TCK")
         except (OSError, ValueError, IndexError):
             return None
+    elif sys.platform == "darwin":
+        return _darwin_process_start(pid)
     return None
 
 
@@ -347,7 +411,7 @@ def _process_wall_create_time(pid: int) -> Optional[float]:
     caller that acts on a stale verdict without it (the process registry, which
     has no flock) can only mis-PRUNE a diagnostics row, never start a watcher.
     """
-    if sys.platform == "win32":
+    if sys.platform in ("win32", "darwin"):
         return _process_create_time(pid)  # already epoch seconds there
     if sys.platform.startswith("linux"):
         since_boot = _process_create_time(pid)
@@ -407,8 +471,8 @@ def _flock_proves_a_holder(lock_fp: Path, expected_create_time: object) -> bool:
     Legacy locks only: a lock carrying a numeric ``create_time`` is decided
     exactly by #450. Callers consult this only AFTER ``_is_live_holder`` said
     stale, and a writer between its create and its flock has a live PID and
-    (Linux, Windows) a numeric ``create_time`` or (macOS, no creation-time
-    source) a live verdict, so the probe cannot reach the file IT READ while
+    a numeric ``create_time`` (Linux, Windows, macOS; elsewhere a live
+    verdict), so the probe cannot reach the file IT READ while
     that file's writer is mid-acquire. The residual window is a reader stalled
     >50 ms between its read and its open while another ``acquire`` replaces the
     file: that acquirer loses its flock race and returns False. Safe direction
@@ -530,16 +594,53 @@ def acquire(scope: str, target: str, storage_path: Optional[str] = None) -> bool
     }
     payload = json.dumps(metadata).encode("utf-8")
 
-    def _try_create() -> bool:
+    def _write_new(path: Path) -> None:
+        # 0o600: the metadata names a pid, a client id and a start time, and every
+        # reader is a process of the same user under the same storage root; the
+        # 0o644 it had made it world-readable for nothing (code-scanning alert 15).
+        fd = os.open(str(path), os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
         try:
-            # 0o600: the metadata names a pid, a client id and a start time, and every
-            # reader is a process of the same user under the same storage root; the
-            # 0o644 it had made it world-readable for nothing (code-scanning alert 15).
-            fd = os.open(str(lock_fp), os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+            os.write(fd, payload)
+        finally:
+            os.close(fd)
+
+    def _try_create() -> bool:
+        """Put a WHOLE lock file in place, or report that one exists.
+
+        ⚠⚠ The metadata is written to a private file and hard-linked into
+        place (#1519). Creating the lock with O_EXCL and writing after left
+        an empty file on disk for the length of the write; a rival reading
+        it then took the "corrupted" branch below, unlinked it with no
+        liveness check and created its own, and on Linux both processes
+        held the lock. ``os.link`` fails if the lock exists, so it is as
+        exclusive as O_EXCL and a reader sees no file or a whole one. A
+        filesystem without hard links falls back to the O_EXCL write.
+        """
+        tmp: Optional[Path] = lock_fp.with_name(
+            f"{lock_fp.name}.{os.getpid()}.{os.urandom(6).hex()}.tmp"
+        )
+        try:
+            _write_new(tmp)
+        except OSError:
+            logger.debug("could not write %s", tmp, exc_info=True)
+            tmp = None
+        if tmp is not None:
             try:
-                os.write(fd, payload)
+                os.link(str(tmp), str(lock_fp))
+                return True
+            except FileExistsError:
+                return False
+            except OSError:
+                logger.debug(
+                    "no hard link for %s; writing in place", lock_fp, exc_info=True
+                )
             finally:
-                os.close(fd)
+                try:
+                    tmp.unlink()
+                except OSError:
+                    logger.debug("could not remove %s", tmp, exc_info=True)
+        try:
+            _write_new(lock_fp)
             return True
         except FileExistsError:
             return False
@@ -572,7 +673,22 @@ def acquire(scope: str, target: str, storage_path: Optional[str] = None) -> bool
 
     # Stale-lock recovery: inspect existing holder.
     try:
-        existing = json.loads(lock_fp.read_text(encoding="utf-8"))
+        raw = lock_fp.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        # ⚠⚠ The holder released between our create and this read (#1519).
+        # Nothing is stale, so nothing is removed: a blind unlink here would
+        # delete the lock a third process linked in the meantime and hand the
+        # lock to two holders. Try the create once more instead.
+        if _try_create():
+            return _apply_flock()
+        logger.info("%s lock for %s was taken again before this retry", scope, target)
+        return False
+    except OSError:
+        raw = None
+    try:
+        if raw is None:
+            raise OSError("lock file unreadable")
+        existing = json.loads(raw)
         existing_pid = existing.get("pid")
         if existing_pid is None:
             logger.info("Removing stale %s lock for %s (no pid)", scope, target)

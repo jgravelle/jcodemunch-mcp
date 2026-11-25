@@ -15,7 +15,7 @@ uvx jcodemunch-mcp
 
 # jCodeMunch Quick Start
 
-Get from zero to 95% token savings in one command.
+Get from zero to symbol-level code retrieval in one command. What it saves per lookup, measured, is in the [benchmark](benchmarks/README.md).
 
 ---
 
@@ -43,6 +43,8 @@ jcodemunch-mcp init --yes --claude-md global --hooks --index --audit
 Run `jcodemunch-mcp init --dry-run` to preview what it would do without changing anything. Or try `jcodemunch-mcp init --demo` — walks through the full process without making changes, then prints what *would* have happened.
 
 After `init` completes, restart your MCP client(s). Confirm with `/mcp` in Claude Code — you should see `jcodemunch` listed as connected.
+
+After an upgrade, restart again: a running server keeps serving the code it started with. [Upgrading a running server](USER_GUIDE.md#upgrading-a-running-server) shows how to check the serving version, and `jcodemunch-mcp install-status` lists the servers that need a restart.
 
 > **Recommended:** use `uvx` instead of `pip install`. It resolves the package on demand and avoids PATH issues where MCP clients can't find the executable.
 
@@ -406,7 +408,7 @@ jCodeMunch is free for personal use. Commercial use needs a paid license — one
 not a subscription.
 
 * [**What it saves you**](https://jcodemunch.com/roi.php?utm_source=github&utm_medium=quickstart&utm_campaign=jcm_quickstart_footer) — put your team size and query volume into the ROI calculator
-* [**Pricing**](https://jcodemunch.com/?utm_source=github&utm_medium=quickstart&utm_campaign=jcm_quickstart_footer#pricing) — Builder $79 · Studio $349 · Platform $1,999
+* [**Pricing**](https://jcodemunch.com/?utm_source=github&utm_medium=quickstart&utm_campaign=jcm_quickstart_footer#pricing) — Builder $99 · Studio $449 · Platform $2,499, one-time, all three tools; Freelance $9.99 for your own freelance work under $10,000 a year
 * [**Live token counter**](https://jcodemunch.com/?utm_source=github&utm_medium=quickstart&utm_campaign=jcm_quickstart_footer) — what the whole user base has saved so far
 
 If jCodeMunch doesn't pay for itself, you don't pay for jCodeMunch.

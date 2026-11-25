@@ -1,0 +1,19 @@
+<%# Hand-written for jcodemunch's ERB tests: a Ruby host (a generator template) with tags inside a method body and at a class-name position. %>
+class Archive < ApplicationRecord
+  def self.table_label
+    "<%= table_name.humanize %>"
+  end
+
+  def summary
+    <% attributes.each do |attribute| -%>
+    puts <%= attribute.name.inspect %>
+    <% end -%>
+    nil
+  end
+end
+
+class <%= class_name %>Report
+  def generate
+    true
+  end
+end

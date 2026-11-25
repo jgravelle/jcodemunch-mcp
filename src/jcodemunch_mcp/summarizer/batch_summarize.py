@@ -25,6 +25,32 @@ _AUTO_DETECT_ORDER = [
     ("ZHIPUAI_API_KEY", "glm"),
     ("OPENROUTER_API_KEY", "openrouter"),
 ]
+# The model an OpenAI summarizer uses when neither OPENAI_MODEL nor
+# `summarizer_model` names one. OpenAI retires gpt-4o-mini on 2027-01-14 and
+# names gpt-6-luna as its replacement (developers.openai.com deprecations,
+# notice of 2026-10-14).
+OPENAI_DEFAULT_MODEL = "gpt-6-luna"
+# The default for any other OpenAI-compatible base (a local server, a
+# self-hosted gateway), which does not serve OpenAI's hosted models.
+OPENAI_LOCAL_DEFAULT_MODEL = "qwen3-coder"
+_OPENAI_HOSTED_HOST = "api.openai.com"
+
+
+def openai_default_model(base_url: Optional[str]) -> str:
+    """The model sent when nothing names one, decided by the base URL.
+
+    The one rule: `_create_summarizer` sends it and `config --check` reports it,
+    so the two cannot disagree. No base, or an OpenAI host (api.openai.com or a
+    regional host under it), gets the hosted default; any other base gets the
+    local default.
+    """
+    if not base_url:
+        return OPENAI_DEFAULT_MODEL
+    host = (urlparse(base_url.strip()).hostname or "").lower().rstrip(".")
+    hosted = host == _OPENAI_HOSTED_HOST or host.endswith("." + _OPENAI_HOSTED_HOST)
+    return OPENAI_DEFAULT_MODEL if hosted else OPENAI_LOCAL_DEFAULT_MODEL
+
+
 _VALID_PROVIDERS = {"anthropic", "gemini", "openai", "minimax", "glm", "openrouter", "none"}
 
 # Providers that bill a remote cloud account per call. A bare env key for any of
@@ -193,6 +219,24 @@ class BaseSummarizer:
         default_factory=threading.Lock, init=False, repr=False
     )
     _body_block_said: bool = field(default=False, init=False, repr=False)
+    # (#1282) Ids of the symbols sent to the provider that came back with no
+    # summary: a failed request, the circuit breaker, or a blank answer.
+    _failed_ids: set = field(default_factory=set, init=False, repr=False)
+
+    def failed_ids(self) -> set:
+        """Ids of the symbols the provider was asked for and did not summarize."""
+        with self._failure_lock:
+            return set(self._failed_ids)
+
+    def _fallback_failed(self, batch: list[Symbol]) -> None:
+        """Give each unsummarized symbol of a failed batch its signature fallback."""
+        failed = []
+        for sym in batch:
+            if not sym.summary:
+                sym.summary = signature_fallback(sym)
+                failed.append(sym.id)
+        with self._failure_lock:
+            self._failed_ids.update(failed)
 
     def _apply_summaries(self, batch: list[Symbol], summaries: list[str]) -> None:
         """Assign parsed summaries to symbols; signature-fallback the blanks.
@@ -206,6 +250,7 @@ class BaseSummarizer:
         """
         ai = 0
         fallback = 0
+        failed = []
         for sym, summary in zip(batch, summaries):
             if summary:
                 sym.summary = summary
@@ -213,7 +258,9 @@ class BaseSummarizer:
             else:
                 sym.summary = signature_fallback(sym)
                 fallback += 1
+                failed.append(sym.id)
         with self._failure_lock:
+            self._failed_ids.update(failed)
             self._ai_summary_count += ai
             self._post_response_fallbacks += fallback
 
@@ -332,9 +379,7 @@ class BaseSummarizer:
     def _run_batch(self, batch: list[Symbol]) -> None:
         """Run a single batch with circuit breaker check."""
         if self._circuit_broken:
-            for sym in batch:
-                if not sym.summary:
-                    sym.summary = signature_fallback(sym)
+            self._fallback_failed(batch)
             return
         self._summarize_one_batch(batch)
 
@@ -525,16 +570,17 @@ class BatchSummarizer(BaseSummarizer):
         except Exception as e:
             logger.warning("AI summarization failed, falling back to signature: %s", e)
             self._record_failure()
-            for sym in batch:
-                if not sym.summary:
-                    sym.summary = signature_fallback(sym)
+            self._fallback_failed(batch)
 
 
 @dataclass
 class GeminiBatchSummarizer(BaseSummarizer):
     """AI-based batch summarization using Google Gemini Flash (Tier 2)."""
 
-    model: str = "gemini-2.5-flash-lite"
+    # gemini-2.5-flash-lite is not deprecated, but Google limits 2.5 API access
+    # to users who have used it before, so a new install could not call it.
+    # Google recommends gemini-3.5-flash-lite for new projects (2026-11-12).
+    model: str = "gemini-3.5-flash-lite"
 
     def __post_init__(self):
         self.client = None
@@ -576,9 +622,7 @@ class GeminiBatchSummarizer(BaseSummarizer):
         except Exception as e:
             logger.warning("AI summarization failed, falling back to signature: %s", e)
             self._record_failure()
-            for sym in batch:
-                if not sym.summary:
-                    sym.summary = signature_fallback(sym)
+            self._fallback_failed(batch)
 
 
 @dataclass
@@ -589,7 +633,7 @@ class OpenAIBatchSummarizer(BaseSummarizer):
     and GLM-5.
     """
 
-    model: str = "qwen3-coder"
+    model: str = OPENAI_LOCAL_DEFAULT_MODEL
     api_base: Optional[str] = None
     api_key: str = "local-llm"
 
@@ -787,9 +831,7 @@ class OpenAIBatchSummarizer(BaseSummarizer):
         except Exception as e:
             logger.warning("AI summarization failed, falling back to signature: %s", e)
             self._record_failure()
-            for sym in batch:
-                if not sym.summary:
-                    sym.summary = signature_fallback(sym)
+            self._fallback_failed(batch)
 
 
 def get_model_name(repo: Optional[str] = None) -> Optional[str]:
@@ -818,6 +860,17 @@ def _create_summarizer(repo: Optional[str] = None) -> Optional[BaseSummarizer]:
     so `.jcodemunch.jsonc` overrides for `summarizer_model`, `summarizer_provider`,
     and `use_ai_summaries` are honored at runtime (#304).
     """
+    name = _named_provider(repo=repo)
+    if name is None:
+        return None
+    return _build_summarizer(name, repo=repo)
+
+
+def _named_provider(repo: Optional[str] = None) -> Optional[str]:
+    """The provider the configuration selects, or None when AI summaries are off
+    or no provider is selected. `_create_summarizer` builds its client from this
+    name; when that build fails, `summarize_symbols` reports the name as
+    unavailable (L-274), so both read one answer to "which provider"."""
     raw = _config.get("use_ai_summaries", "auto", repo=repo)
 
     # Normalize to disabled / explicit / auto
@@ -831,8 +884,6 @@ def _create_summarizer(repo: Optional[str] = None) -> Optional[BaseSummarizer]:
 
     if disabled:
         return None
-
-    model_override = get_model_name(repo=repo)
 
     if explicit_mode:
         # Use summarizer_provider from config; fall back to auto-detect if unset
@@ -854,7 +905,12 @@ def _create_summarizer(repo: Optional[str] = None) -> Optional[BaseSummarizer]:
             name = None if explicit_provider == "none" else explicit_provider
     else:
         name = get_provider_name(repo=repo)
+    return name
 
+
+def _build_summarizer(name: str, repo: Optional[str] = None) -> Optional[BaseSummarizer]:
+    """A summarizer for `name`, or None when its client cannot be built."""
+    model_override = get_model_name(repo=repo)
     if name == "anthropic":
         s = BatchSummarizer(repo=repo)
         return s if s.client else None
@@ -862,10 +918,11 @@ def _create_summarizer(repo: Optional[str] = None) -> Optional[BaseSummarizer]:
         s = GeminiBatchSummarizer(repo=repo)
         return s if s.client else None
     if name == "openai":
+        base_url = os.environ.get("OPENAI_API_BASE", "https://api.openai.com/v1")
         s = _make_openai_compat(
             api_key=os.environ.get("OPENAI_API_KEY", "local-llm"),
-            base_url=os.environ.get("OPENAI_API_BASE", "https://api.openai.com/v1"),
-            model=model_override or os.environ.get("OPENAI_MODEL", "gpt-4o-mini"),
+            base_url=base_url,
+            model=model_override or os.environ.get("OPENAI_MODEL", openai_default_model(base_url)),
             repo=repo,
         )
         return s if s.client else None
@@ -999,6 +1056,7 @@ def summarize_symbols(
     use_ai: bool = True,
     repo: Optional[str] = None,
     source_for: Optional[Callable[[str], Optional[str]]] = None,
+    report: Optional[dict] = None,
 ) -> list[Symbol]:
     """Full three-tier summarization.
 
@@ -1023,6 +1081,14 @@ def summarize_symbols(
 
     `source_for` maps a rel path to the text the index holds for that file; it is
     what `summarizer_body_chars` sends. Without it no symbol body is sent.
+
+    `report`, when given, receives `provider_failed`: the ids of the symbols
+    the provider was asked to summarize and did not (#1282). It is empty when
+    no provider was called, so a signature fallback outside it is the
+    pipeline's answer, never a provider failure. When the configuration names
+    a provider whose client cannot be built (a missing key, a remote base the
+    localhost rule refuses), `report` receives `provider_unavailable`: that
+    name (L-274). No request was sent, so nothing is in `provider_failed`.
     """
     # Tier 1: Extract from docstrings (gated by summarize_from_docstrings, P1.5)
     if _docstring_summaries_enabled(repo=repo):
@@ -1036,6 +1102,12 @@ def summarize_symbols(
         if summarizer:
             summarizer.source_for = source_for
             symbols = summarizer.summarize_batch(symbols)
+            if report is not None:
+                report["provider_failed"] = summarizer.failed_ids()
+        elif report is not None:
+            unavailable = _named_provider(repo=repo)
+            if unavailable:
+                report["provider_unavailable"] = unavailable
 
     # Tier 3: Signature fallback for any still missing
     for sym in symbols:
@@ -1043,3 +1115,75 @@ def summarize_symbols(
             sym.summary = signature_fallback(sym)
 
     return symbols
+
+
+def keep_stored_summaries(
+    symbols: list[Symbol],
+    stored: dict[str, tuple[str, str]],
+    report: dict,
+    *,
+    require_hash: bool = False,
+) -> dict[str, int]:
+    """Give back the stored summary a provider could not replace (#1282, L-274, L-323).
+
+    THE ONE rule every caller of `summarize_symbols` applies when it has a stored
+    summary to lose: `summarize_repo` and the indexer's re-parse paths.
+    `stored` maps a symbol id to its stored `(summary, content_hash)`.
+
+    A symbol keeps what was stored when the provider was asked for it and gave
+    no summary (`report["provider_failed"]`), or when the configured provider
+    never got a client (`report["provider_unavailable"]`) and the symbol was
+    left with its signature fallback. A docstring summary is the pipeline's own
+    answer and is written. A symbol whose body changed keeps nothing: a summary
+    of the old body is not a summary of this one.
+
+    ``require_hash`` is for a caller that re-parsed the file: the stored and
+    parsed symbols are two readings, so a summary is kept only when both carry
+    a content hash and the hashes match. A missing hash on either side is a
+    comparison that could not be made, never an unchanged body (several
+    extractors build symbols with no hash, and migrated rows store ``''``).
+    `summarize_repo` compares a stored row with itself and keeps the default.
+
+    Returns the counts the caller reports: `provider_fallbacks` (symbols the
+    provider was asked for and did not answer), `failed_kept` and
+    `unavailable_kept`.
+    """
+    failed = report.get("provider_failed") or set()
+    unavailable = report.get("provider_unavailable")
+    counts = {"provider_fallbacks": 0, "failed_kept": 0, "unavailable_kept": 0}
+    for sym in symbols:
+        was_failed = sym.id in failed
+        if was_failed:
+            counts["provider_fallbacks"] += 1
+        elif not unavailable:
+            continue
+        previous, previous_hash = stored.get(sym.id, ("", ""))
+        if not previous or previous == sym.summary:
+            continue
+        if require_hash:
+            if not (previous_hash and sym.content_hash and previous_hash == sym.content_hash):
+                continue
+        elif previous_hash and sym.content_hash and previous_hash != sym.content_hash:
+            continue
+        if was_failed:
+            sym.summary = previous
+            counts["failed_kept"] += 1
+        elif sym.summary == signature_fallback(sym):
+            sym.summary = previous
+            counts["unavailable_kept"] += 1
+    return counts
+
+
+def unavailable_reason(provider: str, kept: int) -> str:
+    """The `provider_unavailable_reason` every caller reports, in one wording."""
+    reason = (
+        f"summarizer provider '{provider}' is configured but its client could not be built "
+        "(a missing API key, its SDK package not installed, or a remote endpoint refused "
+        "without allow_remote_summarizer), so no request was sent"
+    )
+    if kept:
+        reason += (
+            f"; {kept} symbol(s) kept the summary they already had "
+            "instead of a signature fallback"
+        )
+    return reason

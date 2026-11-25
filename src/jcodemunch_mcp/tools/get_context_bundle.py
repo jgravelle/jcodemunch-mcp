@@ -15,14 +15,19 @@ _BYTES_PER_TOKEN = 4
 
 
 def _count_tokens(text: str) -> int:
-    """Estimate token count. Uses tiktoken (cl100k_base) when available, else len/4."""
+    """Estimate token count: cl100k_base when loaded, else len/4.
+
+    Through ``savings_tokenizer.count``, which never fetches the encoding in a
+    call (calling ``tiktoken.get_encoding`` here would, synchronously).
+    """
     if not text:
         return 0
-    try:
-        import tiktoken  # noqa: PLC0415
-        return len(tiktoken.get_encoding("cl100k_base").encode(text))
-    except ImportError:
+    from ..savings_tokenizer import count  # noqa: PLC0415
+
+    n = count(text)
+    if n is None:
         return max(1, len(text) // _BYTES_PER_TOKEN)
+    return n
 
 
 def _entry_tokens(entry: dict) -> int:
@@ -344,7 +349,10 @@ def get_context_bundle(
         # own hint points callers to, so leaving it silent here would hand the
         # redirected caller the identical unlabeled empty string.
         if source is None:
+            from ..retrieval.verdict import content_copy_missing_reason
+
             entry["source_status"] = "content_cache_missing"
+            entry["source_unavailable_reason"] = content_copy_missing_reason(sym["file"])
 
         if include_callers:
             entry["callers"] = _direct_callers(index, store, owner, name, sym["file"])
@@ -418,6 +426,8 @@ def get_context_bundle(
         }
         if e.get("source_status"):
             result["source_status"] = e["source_status"]
+        if e.get("source_unavailable_reason"):
+            result["source_unavailable_reason"] = e["source_unavailable_reason"]
         if include_callers:
             result["callers"] = e["callers"]
         if include_budget_report and budget_report is not None:

@@ -163,6 +163,11 @@ _BUILD_CONSUMED_SUFFIXES = (".resx", ".xaml", ".xsd", ".wsdl", ".props", ".targe
 # code generator outside the index may compile them.
 _SHARED_FORMAT_SUFFIXES = (".xsd", ".wsdl")
 _RUNTIME_LOADABLE_SUFFIXES = (".ascx", ".master")
+# An ERB view is rendered by a name the index does not resolve (Rails'
+# `render "shared/nav"` names `shared/_nav.html.erb`) or by a framework's
+# convention with no call at all. Kept apart from the .NET kinds so a Rails
+# app never reads as .NET (`has_dotnet_evidence`).
+_TEMPLATE_RENDERED_SUFFIXES = (".erb",)
 
 
 def _basename_lower(file_path: str) -> str:
@@ -199,7 +204,7 @@ def has_dotnet_evidence(source_files) -> bool:
 
 
 def unseen_consumer(file_path: str, *, dotnet: bool) -> Optional[str]:
-    """`build_consumed`, `schema_consumer`, `runtime_loadable`, or None.
+    """`build_consumed`, `schema_consumer`, `runtime_loadable`, `template_rendered`, or None.
 
     A host-invoked file is a root and never capped, so `Directory.Build.props`
     (also a `.props`) returns None. `dotnet` is `has_dotnet_evidence` for the
@@ -214,6 +219,8 @@ def unseen_consumer(file_path: str, *, dotnet: bool) -> Optional[str]:
         return "build_consumed"
     if base.endswith(_RUNTIME_LOADABLE_SUFFIXES):
         return "runtime_loadable"
+    if base.endswith(_TEMPLATE_RENDERED_SUFFIXES):
+        return "template_rendered"
     return None
 
 
@@ -606,6 +613,71 @@ def _script_entries(
             hit = _resolve_script_path(pkg_dir, entry_token, source_files, own_main, spec["suffixes"])
             if hit:
                 found.add(hit)
+    return found
+
+
+# (LEDGER L-321) Go runs a program from the `func main` of a `package main`, and
+# nothing imports it, so every `cmd/` program read as dead. The root is the
+# file that holds a top-level `func main` and opens with `package main`; its
+# same-package peers are live with it through the package rule (L-264). ⚠ The
+# symbol narrows the content reads to one file per program. ⚠ A `main.go` in a
+# library package is not a program, and a `func main` in a `_test.go` file runs
+# nothing, so neither is a root.
+# ⚠⚠ A `//go:build ignore` file (a `go generate` program) is NOT a root:
+# `go build` leaves it out of its directory's package, but the package rule
+# groups by directory, so rooting it would revive a dead library package beside
+# it (a false negative on a file main reports correctly).
+_GO_PACKAGE_CLAUSE_RE = re.compile(r"package\s+(\w+)\b")
+_GO_IGNORE_CONSTRAINT_RE = re.compile(r"//(?:go:build|\s*\+build)\s+ignore\b")
+
+
+def _go_main_program(content: str) -> bool:
+    """True when the file's own package clause is `main` and no build
+    constraint above it excludes the file."""
+    in_block = False
+    for line in content.splitlines():
+        s = line.strip()
+        if in_block:
+            if "*/" in s:
+                in_block = False
+                s = s.split("*/", 1)[1].strip()
+            else:
+                continue
+        if not s:
+            continue
+        if s.startswith("//"):
+            if _GO_IGNORE_CONSTRAINT_RE.match(s):
+                return False
+            continue
+        if s.startswith("/*"):
+            if "*/" not in s:
+                in_block = True
+            continue
+        m = _GO_PACKAGE_CLAUSE_RE.match(s)
+        return bool(m) and m.group(1) == "main"
+    return False
+
+
+def go_main_entries(index, store, owner: str, repo_name: str) -> set[str]:
+    """Go files that hold the `func main` of a `package main`."""
+    langs = getattr(index, "file_languages", None) or {}
+    candidates: set[str] = set()
+    for sym in getattr(index, "symbols", None) or ():
+        f = sym.get("file", "")
+        if not f.endswith(".go") or f.endswith("_test.go"):
+            continue
+        if langs and langs.get(f) not in (None, "go"):
+            continue
+        # A method named main is kind "method", so the kind check alone
+        # leaves only a top-level `func main`.
+        if sym.get("kind") != "function" or sym.get("name") != "main":
+            continue
+        candidates.add(f)
+    found: set[str] = set()
+    for f in sorted(candidates):
+        content = store.get_file_content(owner, repo_name, f)
+        if content and _go_main_program(content):
+            found.add(f)
     return found
 
 

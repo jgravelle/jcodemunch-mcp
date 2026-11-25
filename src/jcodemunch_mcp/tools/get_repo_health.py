@@ -15,6 +15,7 @@ tools — no logic is duplicated here.
 
 from __future__ import annotations
 
+import posixpath
 import re
 import time
 from typing import Optional
@@ -73,6 +74,19 @@ def _is_production_path(path: str) -> bool:
     if _NON_PRODUCTION_FILENAME_RE.search(norm):
         return False
     return True
+
+
+def _go_packages(index) -> dict:
+    """(L-264) ``{file: (directory, language)}`` for each file of a package-directory language."""
+    from .get_blast_radius import PACKAGE_DIRECTORY_LANGUAGES
+
+    langs = getattr(index, "file_languages", None) or {}
+    out: dict = {}
+    for f in index.source_files:
+        lang = langs.get(f)
+        if lang in PACKAGE_DIRECTORY_LANGUAGES:
+            out[f] = (posixpath.dirname(f.replace("\\", "/")), lang)
+    return out
 
 
 def _count_unstable_modules(index) -> tuple[int, int, int, Optional[str]]:
@@ -136,10 +150,27 @@ def _count_unstable_modules(index) -> tuple[int, int, int, Optional[str]]:
     production_files = [f for f in candidates if not spec.matches(f)]
     excluded = len(candidates) - len(production_files)
 
+    # (L-264) A Go package is one unit: an import by module path reaches ONE
+    # file of the package, and its files use each other with no import, so a
+    # file read alone shows Ca=0 beside its own imports and reads as unstable.
+    # Ca and Ce are counted for the package (files outside it, once each) and
+    # every file of it carries the package's reading. Other languages: as before.
+    package_of = _go_packages(index)
+    package_counts: dict = {}
+    for f, pkg in package_of.items():
+        ca_set, ce_set = package_counts.setdefault(pkg, (set(), set()))
+        ca_set.update(i for i in rev.get(f, []) if package_of.get(i) != pkg)
+        ce_set.update(t for t in fwd.get(f, []) if package_of.get(t) != pkg)
+
     unstable = 0
     for f in production_files:
-        ca = len(rev.get(f, []))
-        ce = len(fwd.get(f, []))
+        pkg = package_of.get(f)
+        if pkg is not None:
+            ca_set, ce_set = package_counts[pkg]
+            ca, ce = len(ca_set), len(ce_set)
+        else:
+            ca = len(rev.get(f, []))
+            ce = len(fwd.get(f, []))
         total = ca + ce
         if total > 0 and (ce / total) > 0.7:
             unstable += 1

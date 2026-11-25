@@ -133,28 +133,39 @@ def _tokenize(text: str) -> list[str]:
     result = []
     seen: set[str] = set()
     for tok in raw_tokens:
-        if _CJK_RE.fullmatch(tok):
-            # Bigram expansion; stemming/abbreviations are English-only.
-            for bg in _cjk_bigrams(tok):
-                result.append(bg)
-                seen.add(bg)
-            continue
-        if len(tok) < 2:
-            continue
-        result.append(tok)
-        seen.add(tok)
-        # Stemmed form
-        stemmed = _stem(tok)
-        if stemmed != tok and stemmed not in seen:
-            result.append(stemmed)
-            seen.add(stemmed)
-        # Abbreviation expansion (canonical forms, not stemmed)
-        for key in (tok, stemmed) if stemmed != tok else (tok,):
-            for exp in _ABBREV_MAP.get(key, ()):
-                if exp not in seen:
-                    result.append(exp)
-                    seen.add(exp)
+        always, if_new = _expand_word(tok)
+        for t in always:
+            result.append(t)
+            seen.add(t)
+        for t in if_new:
+            if t not in seen:
+                result.append(t)
+                seen.add(t)
     return result
+
+
+@functools.lru_cache(maxsize=65536)
+def _expand_word(tok: str) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """What one lowercased word contributes to a token bag.
+
+    Returns ``(always, if_new)``: tokens appended on every occurrence, then
+    tokens appended only if the bag does not hold them yet. It depends on the
+    word alone, so it is cached; the first search on a large index tokenizes
+    every symbol and meets each distinct word thousands of times.
+    """
+    if _CJK_RE.fullmatch(tok):
+        # Bigram expansion; stemming/abbreviations are English-only.
+        return tuple(_cjk_bigrams(tok)), ()
+    if len(tok) < 2:
+        return (), ()
+    stemmed = _stem(tok)
+    if_new: list[str] = []
+    if stemmed != tok:
+        if_new.append(stemmed)
+    # Abbreviation expansion (canonical forms, not stemmed)
+    for key in (tok, stemmed) if stemmed != tok else (tok,):
+        if_new.extend(_ABBREV_MAP.get(key, ()))
+    return (tok,), tuple(if_new)
 
 
 # --- Query words and test demotion (shared by every lexical scorer) -------- #
@@ -347,17 +358,50 @@ def is_data_symbol(sym: dict) -> bool:
     return any(c.isupper() for c in name) and name == name.upper()
 
 
+# Directories that hold copies of a library's code written to teach it:
+# tutorial snippets, runnable examples, demo apps. They reuse the library's
+# names (`docs_src/.../tutorial001.py::GzipRoute.get_route_handler` beside
+# `fastapi/routing.py`), and there are many of them, so a question about the
+# library returned the copies first. A directory component is matched, never
+# the filename, case-insensitively. `docs` is left out on purpose: a docs
+# directory can hold a site's own source.
+_EXAMPLE_DIRS = frozenset({
+    "example", "examples", "docs_src", "sample", "samples",
+    "demo", "demos", "tutorial", "tutorials",
+})
+
+# Words that make a query ABOUT examples; with one present they are not
+# weighted. Stems are listed because `query_terms` adds them.
+_EXAMPLE_INTENT = frozenset({
+    "example", "examples", "exampl", "sample", "samples", "demo", "demos",
+    "tutorial", "tutorials", "snippet", "snippets", "docs", "doc", "documentation",
+})
+
+# The multiplier for a symbol in an example directory: the test-file weight.
+# Chosen, not tuned. Only RANKING reads it, as with every factor here.
+EXAMPLE_WEIGHT = TEST_SYMBOL_WEIGHT
+
+
+def is_example_path(file_path: str) -> bool:
+    """True when a directory on the path names example or tutorial code."""
+    parts = [p for p in (file_path or "").replace("\\", "/").split("/") if p]
+    return any(p.lower() in _EXAMPLE_DIRS for p in parts[:-1])
+
+
 def rank_factor(sym: dict, terms: list[str]) -> tuple[float, str | None]:
     """The ranking multiplier for ``sym`` on this query, and why.
 
     One reason applies, the first that matches: ``test_file``
-    (`test_file_factor`), ``non_code_file`` (a NON_CODE_LANGUAGES symbol on a
-    query with no configuration, or styling, word) or ``data_kind``
-    (`is_data_symbol`, on a query with no value word). ``(1.0, None)``
-    otherwise."""
+    (`test_file_factor`), ``example_file`` (`is_example_path`, on a query
+    with no example word), ``non_code_file`` (a NON_CODE_LANGUAGES
+    symbol on a query with no configuration, or styling, word) or
+    ``data_kind`` (`is_data_symbol`, on a query with no value word).
+    ``(1.0, None)`` otherwise."""
     weight = test_file_factor(sym, terms)
     if weight != 1.0:
         return weight, "test_file"
+    if is_example_path(sym.get("file") or "") and not any(t in _EXAMPLE_INTENT for t in terms):
+        return EXAMPLE_WEIGHT, "example_file"
     lang = (sym.get("language") or "").lower()
     if lang in NON_CODE_LANGUAGES:
         intent = _CONFIG_INTENT if lang in _CONFIG_LANGUAGES else _STYLE_INTENT

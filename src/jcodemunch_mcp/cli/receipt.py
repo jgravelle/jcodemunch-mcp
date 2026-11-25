@@ -241,8 +241,9 @@ def _projects_roots(explicit: Optional[list[Path]] = None) -> list[Path]:
 
 def _index_root() -> Path:
     """Index storage root (honors CODE_INDEX_PATH, default ~/.code-index)."""
-    env = os.environ.get("CODE_INDEX_PATH")
-    return Path(env) if env else Path.home() / ".code-index"
+    from ..storage.tool_counters import storage_root
+
+    return Path(storage_root())
 
 
 def lifetime_meter(root: Optional[Path] = None) -> Optional[dict]:
@@ -254,16 +255,42 @@ def lifetime_meter(root: Optional[Path] = None) -> Optional[dict]:
     lifetime usage even when the local transcript history the window ledger
     scans has been cleared. Byte-approximate estimate, like the community
     meter it feeds. Returns None when absent/unreadable/empty.
+
+    ⚠ The dict also carries `savings_meter`'s label (`lifetime_status`,
+    `lifetime_measured_through`, `lifetime_stale_since`): a meter that stopped
+    taking calls showed its frozen total here as current (customer report,
+    1.108.407).
     """
-    path = (root or _index_root()) / "_savings.json"
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
+    from ..storage import savings_meter, token_tracker
+
+    base = root or _index_root()
+    # The meter's own reader (L-297): a file it refuses to add to is not a
+    # lifetime figure here either. This read took `True` as a total and raised
+    # OverflowError on `Infinity`.
+    data, _why = token_tracker._read_ledger(base / "_savings.json")
+    if not data:
         return None
-    total = data.get("total_tokens_saved")
-    if not isinstance(total, (int, float)) or total <= 0:
+    total = data.get("total_tokens_saved", 0)
+    if total <= 0:
         return None
-    return {"total_tokens_saved": int(total), "anon_id": data.get("anon_id")}
+    return {
+        "total_tokens_saved": int(total),
+        "anon_id": data.get("anon_id"),
+        **savings_meter.label_for_root(base, data),
+    }
+
+
+def lifetime_meter_refusal(root: Optional[Path] = None) -> Optional[str]:
+    """Why the savings file exists but gives no lifetime figure, or None.
+
+    None covers both a usable file and no file at all; :func:`lifetime_meter`
+    answers which. A refused file is the meter's own verdict, so the receipt
+    says so instead of reading as if nothing had been recorded yet.
+    """
+    from ..storage import token_tracker
+
+    _data, why = token_tracker._read_ledger((root or _index_root()) / "_savings.json")
+    return why
 
 
 def _result_byte_length(content) -> int:
@@ -530,6 +557,14 @@ def dollar_savings(savings_tokens: int, model: str) -> float:
     return (savings_tokens / 1_000_000.0) * rate
 
 
+def _refused_line(why: str) -> str:
+    """The text line for a savings file the meter refuses to add to."""
+    return (
+        f"Lifetime meter not shown: the index root's _savings.json {why}, so the "
+        "server does not add to it. Move it aside and the next tool call starts a new one.\n"
+    )
+
+
 def _write_lifetime(out: "io.StringIO", meter: dict, model: str) -> None:
     """Render the persistent lifetime-meter section."""
     total = meter["total_tokens_saved"]
@@ -539,6 +574,14 @@ def _write_lifetime(out: "io.StringIO", meter: dict, model: str) -> None:
     usd = dollar_savings(total, model)
     out.write("  Lifetime savings (jCodeMunch meter, all-time):\n")
     out.write(f"    Tokens saved:                {total:>15,}\n")
+    from ..storage import savings_meter
+
+    caveat = savings_meter.describe(meter)
+    if caveat:
+        # Never present a stopped or unreadable meter's total as current.
+        tail = ("calls after that date are not in this total" if meter.get(savings_meter.STATUS) == "stale"
+                else "this total may not include recent calls")
+        out.write(f"    Status: {caveat}; {tail}.\n")
     out.write(f"    Value at {model.title()} pricing (${rate:.2f}/MTok input):  ${usd:,.2f}\n")
     out.write("      Floor: priced once at the uncached list rate.\n")
     out.write("    Persistent per-call meter under the index root; survives\n")
@@ -563,6 +606,7 @@ def render_text(
     primary_only: bool = False,
     meter: Optional[dict] = None,
     window_label: Optional[str] = None,
+    meter_refused: Optional[str] = None,
 ) -> str:
     """Human-readable ledger output."""
     out = io.StringIO()
@@ -578,6 +622,8 @@ def render_text(
         out.write("reinstall; the lifetime meter below is the durable record.\n\n")
         if meter:
             _write_lifetime(out, meter, model)
+        elif meter_refused:
+            out.write(_refused_line(meter_refused))
         else:
             out.write("No lifetime meter data yet (index root _savings.json).\n")
         return out.getvalue()
@@ -614,6 +660,8 @@ def render_text(
 
     if meter:
         _write_lifetime(out, meter, model)
+    elif meter_refused:
+        out.write(_refused_line(meter_refused))
 
     if per_tool:
         out.write("  Top tools by savings:\n")
@@ -728,6 +776,7 @@ def render_json(
     by_day: Optional[list[dict]] = None,
     window: Optional[dict] = None,
     roots: Optional[list[Path]] = None,
+    meter_refused: Optional[str] = None,
 ) -> str:
     from ..retrieval.provenance import measured_provenance
 
@@ -756,6 +805,14 @@ def render_json(
             "tokens_saved": meter["total_tokens_saved"],
             "usd": dollar_savings(meter["total_tokens_saved"], model),
         }
+        from ..storage import savings_meter
+
+        for key in (savings_meter.STATUS, savings_meter.MEASURED_THROUGH, savings_meter.STALE_SINCE):
+            if key in meter:
+                payload["lifetime"][key] = meter[key]
+    elif meter_refused:
+        # Present and refused is not absent: say why instead of omitting the block.
+        payload["lifetime"] = {"refused": meter_refused}
     return json.dumps(payload, indent=2)
 
 
@@ -881,7 +938,9 @@ def main(argv: Optional[list[str]] = None) -> int:
 
     calls = list(iter_calls_multi(roots, since=since, until=until))
     agg = aggregate(calls)
-    meter = lifetime_meter()
+    meter_root = _index_root()
+    meter = lifetime_meter(meter_root)
+    meter_refused = None if meter else lifetime_meter_refusal(meter_root)
 
     if args.export:
         target = Path(args.export)
@@ -901,6 +960,7 @@ def main(argv: Optional[list[str]] = None) -> int:
                     by_day=aggregate_by_day(calls, model=args.model) if args.by_day else None,
                     window=window,
                     roots=roots,
+                    meter_refused=meter_refused,
                 ),
                 encoding="utf-8",
             )
@@ -922,8 +982,14 @@ def main(argv: Optional[list[str]] = None) -> int:
             model=args.model,
             meter=meter,
             window_label=_window_label(since, until) if explicit_window else None,
+            meter_refused=meter_refused,
         )
     )
+    from ..license_reminder import receipt_line
+
+    line = receipt_line()
+    if line:
+        sys.stdout.write(f"\n  {line}\n")
     return 0
 
 

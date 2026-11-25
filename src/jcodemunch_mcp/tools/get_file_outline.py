@@ -7,7 +7,7 @@ from typing import Optional
 
 from ..storage import IndexStore, record_savings, estimate_savings, cost_avoided
 from ..parser import Symbol, build_symbol_tree
-from ..retrieval.verdict import file_verdict_for_index
+from ..retrieval.verdict import file_verdict_for_index, withheld_file_info
 from ._utils import load_repo_index_or_error
 
 
@@ -21,7 +21,8 @@ def _get_file_outline_single(
 ) -> dict:
     """Core logic for a single file_path query. Returns the original flat shape."""
     if not index.has_source_file(file_path):
-        return {
+        withheld = withheld_file_info(index, file_path)
+        out = {
             "repo": f"{owner}/{name}",
             "file": file_path,
             "language": "",
@@ -29,10 +30,15 @@ def _get_file_outline_single(
             "symbols": [],
             "_meta": {
                 "verdict": file_verdict_for_index(
-                    index, present=False, requested_path=file_path
+                    index, present=False, requested_path=file_path, withheld=withheld
                 )
             },
         }
+        if withheld:
+            # #1396: in the body, because the default `meta_fields: []`
+            # strips `_meta` and the verdict with it.
+            out["withheld"] = withheld
+        return out
 
     # Filter symbols to this file
     file_symbols = [s for s in index.symbols if s.get("file") == file_path]
@@ -158,7 +164,9 @@ def get_file_outline(
     if file_path is not None and file_paths is not None and len(file_paths) == 0:
         file_paths = None
     if (file_path is None and file_paths is None) or (file_path is not None and file_paths is not None):
-        raise ValueError("Provide exactly one of 'file_path' or 'file_paths', not both and not neither.")
+        from ._arg_contract import ArgumentError
+
+        raise ArgumentError("Provide exactly one of 'file_path' or 'file_paths', not both and not neither.")
 
     start = time.perf_counter()
 

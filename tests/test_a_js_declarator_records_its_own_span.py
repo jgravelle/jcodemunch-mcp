@@ -9,7 +9,8 @@ not answer differently; JS has two channels (bindings, and the
 
 The rule here: the declaration (keyword included, `export` excluded as
 before) when it holds ONE declarator, the `variable_declarator` when it
-holds several; `signature` follows the span. A destructuring pattern is ONE
+holds several; `signature` starts with the span (a bound function's signature
+ends at its body, L-291). A destructuring pattern is ONE
 declarator however many names it binds, so `const { a, b } = o` keeps the
 declaration's span for both, the rule and not an exception (Go's
 `const D, E = 5, 6`). Java's `int a, b;` stays on its declaration (#823:
@@ -102,13 +103,18 @@ def test_a_pattern_beside_a_plain_declarator_records_each_declarator(language, f
 
 @pytest.mark.parametrize("language, filename", _LANGS)
 def test_the_function_expression_channel_follows_the_same_rule(language, filename):
-    """The same statement, the other channel; one rule for both."""
+    """The same statement, the other channel; one rule for both.
+
+    The span follows the declarator. The signature starts where the span
+    starts and ends at the function's body (L-263 review: a bound function's
+    signature carried its whole body), so it never holds a neighbour's text.
+    """
     assert _rows("const f = () => 1, g = function () {};\n", language, filename) == [
-        ("function", "f", 6, 11, "f = () => 1"),
-        ("function", "g", 19, 18, "g = function () {}"),
+        ("function", "f", 6, 11, "f = () =>"),
+        ("function", "g", 19, 18, "g = function ()"),
     ]
     assert _rows("const f = () => 1;\n", language, filename) == [
-        ("function", "f", 0, 18, "const f = () => 1;"),
+        ("function", "f", 0, 18, "const f = () =>"),
     ]
 
 

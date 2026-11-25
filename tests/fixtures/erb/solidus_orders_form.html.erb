@@ -1,0 +1,22 @@
+<%# Source: https://github.com/solidusio/solidus/blob/f41bf95d44143830fe4c7d16cc57851621c07d6a/backend/app/views/spree/admin/orders/_form.html.erb %>
+<%# Copyright (c) 2007-2014, Spree Commerce Inc. and other contributors; 2015-2026, Solidus contributors. Licensed under the BSD-3-Clause license; full text in SOURCES.md. %>
+<%# Vendored verbatim except for this provenance header. %>
+ <div data-hook="admin_order_form_fields">
+  <% if @line_item.try(:errors).present? %>
+    <%= render partial: 'spree/shared/error_messages', locals: { target: @line_item } %>
+  <% end %>
+
+  <%= render :partial => "spree/admin/orders/carton", collection: @order.cartons.order(:shipped_at), locals: { order: order } %>
+  <%= render :partial => "spree/admin/orders/shipment", collection: @order.shipments.order(:created_at), locals: { order: order } %>
+
+  <%= render "spree/admin/orders/order_details", { order: order } %>
+
+  <script>
+    var order_number = '<%= @order.number %>';
+    var shipments = [];
+
+    <% @order.shipments.each do |shipment| %>
+            shipments.push(<%== shipment.as_json(root: false, only: [:id, :tracking, :number, :state, :stock_location_id], include: [:inventory_units, :stock_location]).to_json %>);
+    <% end %>
+  </script>
+</div>

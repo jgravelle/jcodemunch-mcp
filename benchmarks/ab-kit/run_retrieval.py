@@ -41,4 +41,8 @@ def main():
     print(f"Done: {len(queries)} lookups. Report: {out / 'retrieval.md'}\n"
           "Unit: tokens of code returned per lookup (retrieval only, cl100k). Not a session or bill measure.")
 
-if __name__ == "__main__": main()
+if __name__ == "__main__":
+    # Windows: a redirected stdout is cp1252; write UTF-8 (L-145, L-320).
+    sys.stdout.reconfigure(encoding="utf-8")
+    sys.stderr.reconfigure(encoding="utf-8")
+    main()

@@ -100,26 +100,31 @@ class TestCasesBeyond513:
         )
 
 
-    def test_an_index_without_source_roots_rebuilds_once(self, repo, monkeypatch):
+    def test_an_index_without_source_roots_rebuilds_once(self, repo):
         """A legacy index carrying no `source_roots` has unknown coverage, and
         unknown is not full. One rebuild resolves it rather than diffing a full
         corpus against a marker that says nothing."""
-        from jcodemunch_mcp.storage import IndexStore
-
         repo.index()
-        store = IndexStore(base_path=repo.store_path)
         result = repo.index()
         assert result["performed_incremental"] is True  # precondition
 
-        real_load = store.__class__.load_index
+        # Made legacy in the store itself, not by patching one reader: the
+        # base index is read through `open_selective` as well as `load_index`,
+        # and a mock on one read site stops covering the other. An index from
+        # v12 or earlier has no `source_roots` meta row at all.
+        import sqlite3
 
-        def load_without_roots(self, owner, name, *a, **kw):
-            index = real_load(self, owner, name, *a, **kw)
-            if index is not None:
-                index.source_roots = []
-            return index
+        from jcodemunch_mcp.storage import sqlite_store as _sq
 
-        monkeypatch.setattr(store.__class__, "load_index", load_without_roots)
+        owner, name = result["repo"].split("/", 1)
+        db_path = _sq.SQLiteIndexStore(base_path=repo.store_path)._db_path(owner, name)
+        conn = sqlite3.connect(str(db_path))
+        try:
+            conn.execute("DELETE FROM meta WHERE key = 'source_roots'")
+            conn.commit()
+        finally:
+            conn.close()
+        _sq._index_cache.clear()
 
         degraded = repo.index()
 

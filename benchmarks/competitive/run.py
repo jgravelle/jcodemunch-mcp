@@ -496,8 +496,11 @@ def main(argv=None) -> int:
         return 0
     finally:
         if not a.keep_scratch:
-            shutil.rmtree(scratch, ignore_errors=True)
+            corpora_mod.remove_tree(scratch)
 
 
 if __name__ == "__main__":
+    # Windows: a redirected stdout is cp1252; write UTF-8 (L-145, L-320).
+    sys.stdout.reconfigure(encoding="utf-8")
+    sys.stderr.reconfigure(encoding="utf-8")
     sys.exit(main())

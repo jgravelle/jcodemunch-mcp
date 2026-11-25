@@ -75,6 +75,8 @@ _CAUSE = {
     ("check_delete_safe", "corpus_inadequate"): "corpus_gap",
     ("check_delete_safe", "name_not_searchable"): "name_gap",
     ("check_delete_safe", "dynamic_import_boundary"): "dynamic_gap",
+    # (LEDGER L-348) the file import is the only block; reading the importers settles it.
+    ("check_delete_safe", "file_import_only"): "import_gap",
     ("check_edit_safe", "dynamic_import_boundary"): "dynamic_gap",
 }
 

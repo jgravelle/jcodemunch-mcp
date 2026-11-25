@@ -10,17 +10,20 @@ from typing import Callable, Optional
 from .. import config as _config
 from ..parser import get_language_for_path
 from ..parser.context import discover_providers, collect_metadata
-from ..parser.context.framework_profiles import detect_framework
 from ..security import validate_path
 from ..storage import IndexStore
 from ..storage.index_store import _file_hash, _get_git_head, _get_git_branch
-from ._indexing_pipeline import parse_and_prepare_incremental
+from ._indexing_pipeline import (
+    parse_and_prepare_incremental,
+    stored_summary_map,
+    summary_report_fields,
+)
 from .index_folder import (
-    _framework_ignore_patterns,
     _gitignore_specs_on_path,
     _scan_package_json_forced_paths,
     _should_index_file,
     _walk_filter_config,
+    profile_ignore_patterns_for,
 )
 from .resolve_repo import _independent_repo_between
 
@@ -158,8 +161,9 @@ _OVERRIDE = {
     "nuget_packages": "`skip_nuget_packages: false`",
     "virtualenv": "`skip_virtualenvs: false`",
     "extra_ignore": (
-        "`extra_ignore_patterns` without the matching entry (a framework "
-        "profile's pattern has no setting)"
+        "`extra_ignore_patterns` without the matching entry, or with a "
+        "`!<pattern>` negation that matches the file (a framework profile's "
+        "pattern is overridden that way, #1398)"
     ),
     "too_large": "a larger `max_file_size`",
     "secret": "`exclude_secret_patterns` with a glob that matches the file",
@@ -187,8 +191,8 @@ def _walk_root_for(index, source_root: Path, rel_path: str) -> Path:
     """The root the full walk that covers ``rel_path`` starts from.
 
     A git-root index built by `index_folder(<repo>/sub)` walks only ``sub``
-    (v1.96) and records it in ``source_roots``; that walk reads `.gitignore`
-    files and project config from ``sub`` down, never from the git root. The
+    (v1.96) and records it in ``source_roots``; that walk reads project config
+    from ``sub``, and since #1563 its `.gitignore` chain from the git root. The
     longest recorded prefix holding the file is its walk; a file under none of
     them (or an index that predates ``source_roots``) is judged as a full walk
     from ``source_root`` would judge it.
@@ -203,16 +207,23 @@ def _walk_root_for(index, source_root: Path, rel_path: str) -> Path:
 
 def _walk_refusal(
     file_path: Path, source_root: Path, walk_root: Path, rel_path: str,
+    forced_paths_for=None,
 ) -> Optional[dict]:
     """The refusal for a file the full walk would not index, or None.
+
+    ``forced_paths_for(walk_root)`` replaces the package.json pre-scan a caller
+    asking about MANY files wants to pay once: the scan walks the whole tree,
+    and it runs for every file over the size cap.
+    It must return what `_scan_package_json_forced_paths` returns; refresh on
+    read passes a per-check memo of exactly that function.
 
     ⚠⚠ L-142: this used to apply ONE rule of the walk's filter (`is_secret_file`),
     so a file under `node_modules/`, `.next/`, a `CACHEDIR.TAG` directory or a
     gitignored path answered `success: True` and the next full walk deleted it.
     Every input now comes from the walk's own assembly in `index_folder`:
     `_walk_filter_config` (size cap, ignore patterns, skip switches, skip-dir
-    regex), `_framework_ignore_patterns` (merged into the walk's ignore
-    patterns), `_gitignore_specs_on_path`, and the predicate `_should_index_file`.
+    regex), `profile_ignore_patterns_for` (passed as the walk's lowest-precedence
+    profile patterns, #1398), `_gitignore_specs_on_path`, and the predicate `_should_index_file`.
     Never copy a rule or an input into this function.
 
     ⚠ ``file_path`` is already resolved, so the symlink rule never fires (the
@@ -222,20 +233,22 @@ def _walk_refusal(
     """
     cfg = _walk_filter_config(
         walk_root,
-        extra_ignore_patterns=(
-            _framework_ignore_patterns(detect_framework(source_root)) or None
-        ),
+        profile_patterns=profile_ignore_patterns_for(source_root) or None,
         per_file=True,
     )
     # The walk exempts package.json entry points from the size cap (#25). Scan
     # only when the exemption could change the answer, as the watcher does.
     try:
         if file_path.stat().st_size > cfg.max_size:
-            cfg.forced_paths = _scan_package_json_forced_paths(walk_root)
+            cfg.forced_paths = (forced_paths_for or _scan_package_json_forced_paths)(walk_root)
     except OSError:
         pass
+    # ⚠ The .gitignore chain starts at ``source_root`` (the git root), not at
+    # ``walk_root``: a subdirectory walk reads the git root's .gitignore files
+    # too since #1563, so a file under a root-ignored folder is refused here as
+    # the walk refuses it. Project config still comes from ``walk_root``.
     ok, reason, _rel, _warning = _should_index_file(
-        file_path, cfg, _gitignore_specs_on_path(walk_root, file_path)
+        file_path, cfg, _gitignore_specs_on_path(source_root, file_path)
     )
     if ok:
         return None
@@ -401,13 +414,16 @@ def index_file(
         return refusal
 
     try:
+        # The mtime is taken BEFORE the read: taken after, an edit landing
+        # between the two stores the old content under the new edit's mtime,
+        # and refresh_on_read (which compares mtimes) never repairs it.
+        file_mtime = os.stat(file_path).st_mtime_ns
         with open(file_path, "r", encoding="utf-8", errors="replace", newline="") as f:
             content = f.read()
     except Exception as e:
         return {"success": False, "error": f"Failed to read file: {e}"}
 
     file_hash = _file_hash(content)
-    file_mtime = os.stat(file_path).st_mtime_ns
 
     # Load existing index to check if file has changed
     # Detect branch for branch-aware indexing
@@ -430,7 +446,14 @@ def index_file(
     stored_hash = index.file_hashes.get(rel_path)
     is_new = rel_path not in index.file_hashes
 
-    if not is_new and stored_hash == file_hash:
+    # A file whose cached copy is gone is re-parsed even when its hash
+    # matches, which is what makes `index_file` the one-file repair.
+    _copy_missing = (
+        not is_new
+        and stored_hash == file_hash
+        and bool(store.missing_cached_copies(owner, name, [rel_path]))
+    )
+    if not is_new and stored_hash == file_hash and not _copy_missing:
         # File unchanged — update mtime only if needed, then early exit
         if index.file_mtimes.get(rel_path) != file_mtime:
             store.incremental_save(
@@ -463,6 +486,15 @@ def index_file(
     if progress_cb:
         progress_cb(0, 1, rel_path)
     warnings: list[str] = []
+    parse_failed: list[str] = []
+    # (L-323) The file's stored summaries, so a provider that cannot answer
+    # does not leave signature fallbacks over the bodies this edit did not touch.
+    summary_report: dict = {}
+    stored_summaries: dict = {}
+    if use_ai_summaries and not is_new:
+        _rows = store.read_file_symbols(owner, name, [rel_path])
+        if _rows:
+            stored_summaries = stored_summary_map(_rows[2])
     new_symbols, file_summaries, file_languages, file_imports, _no_symbols = (
         parse_and_prepare_incremental(
             files_to_parse={rel_path},
@@ -471,6 +503,9 @@ def index_file(
             use_ai_summaries=use_ai_summaries,
             warnings=warnings,
             repo=str(source_root),
+            parse_failures=parse_failed,
+            stored_summaries=stored_summaries,
+            summary_report=summary_report,
         )
     )
 
@@ -522,6 +557,9 @@ def index_file(
             file_hashes={rel_path: file_hash},
             file_mtimes={rel_path: file_mtime},
         )
+        from .index_folder import _store_parse_failures
+
+        _store_parse_failures(store, owner, name, {rel_path}, parse_failed)
     if progress_cb:
         progress_cb(1, 1, rel_path)
 
@@ -534,6 +572,7 @@ def index_file(
         "indexed_at": updated.indexed_at if updated else "",
         "duration_seconds": round(time.monotonic() - t0, 2),
     }
+    result.update(summary_report_fields(summary_report))
     if _is_branch_delta:
         result["branch"] = _current_branch
         result["branch_delta"] = True

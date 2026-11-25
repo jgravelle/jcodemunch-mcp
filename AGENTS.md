@@ -56,6 +56,7 @@ jCodemunch-MCP indexes this repository's symbols and how they relate. Use it whe
   - DO check `related_existing` files — they show what's nearby, not what exists
   - Anything short of citable proves nothing (`absence_citable: false`, `citable: false`, or neither field present). Read the note or `absence_blocked_by`; if it names the index, re-index, then search again.
 - If `verdict: "low_confidence_matches"`: examine the matches critically before assuming they implement the feature
+- If `verdict: "no_exact_match"`: no symbol has the name you searched; the rows only share words with it. Do not treat any row as that symbol; if you expected it to exist, re-index
 
 **After editing files:**
 - If PostToolUse hooks are installed (Claude Code only), edited files are auto-reindexed
@@ -68,6 +69,10 @@ jCodemunch-MCP indexes this repository's symbols and how they relate. Use it whe
 
 ## Model-Driven Tool Tiering
 
-Your jcodemunch-mcp server can narrow the exposed tool list to suit the model you are running as. It is off unless `adaptive_tiering` is enabled in the server's config, and while it is off a model id changes nothing. Where it is on, pass your model id, exactly as your runner prints it, as `model="<your-model-id>"` on a `plan_turn` call you are already making, or call `announce_model(model="...")` once.
+Your jcodemunch-mcp server can narrow the exposed tool list to suit the model you are running as. It is off unless `adaptive_tiering` is enabled in the server's config, and while it is off a model id changes nothing.
+
+Where it is on, pass your model id, exactly as your runner prints it, as `model="<your-model-id>"` on a `plan_turn` call you are already making.
+
+Or call `announce_model(model="...")` once; the server lists that tool only while `adaptive_tiering` is on.
 
 The server reads the model's family from the id (Opus, Sonnet, Haiku, GPT, o1, Llama), so any current id works and none needs listing here.

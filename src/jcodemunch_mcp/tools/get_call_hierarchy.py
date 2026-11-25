@@ -1,12 +1,23 @@
 """get_call_hierarchy: callers and callees for any indexed symbol, N levels deep."""
 
+import logging
+import re
 import time
 from typing import Optional
 
 from ..storage import IndexStore
 from ._utils import index_status_to_tool_error, resolve_repo
-from .get_blast_radius import _build_reverse_adjacency, _find_symbol
-from ._call_graph import build_symbols_by_file, bfs_callers, bfs_callees
+from .get_blast_radius import _build_reverse_adjacency, _find_symbol, with_same_package_peers
+from ._call_graph import (
+    C_UMBRELLA_HOPS,
+    _is_file_local,
+    bfs_callees,
+    bfs_callers,
+    build_symbols_by_file,
+    c_text_reach,
+    is_c_family_file,
+    label_row_depths,
+)
 from ._scip_consume import open_scip_reader, scip_meta_and_stale, scip_meta_block
 from ..retrieval.verdict import (
     build_verdict,
@@ -14,6 +25,8 @@ from ..retrieval.verdict import (
     index_changed_since_load as _index_changed_since_load,
     symbol_not_found,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def _attach_scip_to_hierarchy(response: dict, store, owner: str, name: str) -> dict:
@@ -126,34 +139,7 @@ def _label_depths(response: dict) -> None:
         ("callers", "direct_caller_count", "callers_by_depth"),
         ("callees", "direct_callee_count", "callees_by_depth"),
     ):
-        rows = response.get(key) or []
-        by_id = {r.get("id"): r for r in rows}
-        resolved: dict[Optional[str], Optional[int]] = {}
-
-        def depth_of(r: dict, seen: frozenset = frozenset()) -> Optional[int]:
-            rid = r.get("id")
-            if rid in resolved:
-                return resolved[rid]
-            parent = by_id.get(r.get("via"))
-            if parent is not None and rid not in seen:
-                pd = depth_of(parent, seen | {rid})
-                d = pd + 1 if pd is not None else None
-            else:
-                raw = r.get("depth")
-                d = raw if isinstance(raw, int) and not isinstance(raw, bool) and raw >= 1 else None
-            resolved[rid] = d
-            return d
-
-        for r in rows:
-            d = depth_of(r)
-            if d is not None:
-                r["depth"] = d
-        rows.sort(key=lambda r: resolved.get(r.get("id")) or 10**9)
-        counts: dict[str, int] = {}
-        for r in rows:
-            d = resolved.get(r.get("id"))
-            label = str(d) if d is not None else "unknown"
-            counts[label] = counts.get(label, 0) + 1
+        counts = label_row_depths(response.get(key) or [])
         response[direct_key] = counts.get("1", 0)
         response[by_depth_key] = counts
 
@@ -162,7 +148,7 @@ def get_call_hierarchy(
     repo: str,
     symbol_id: str,
     direction: str = "both",
-    depth: int = 3,
+    depth: int = 1,
     storage_path: Optional[str] = None,
 ) -> dict:
     """Return incoming callers and outgoing callees for a symbol, N levels deep.
@@ -175,12 +161,18 @@ def get_call_hierarchy(
         repo: Repository identifier (owner/repo or just repo name).
         symbol_id: Symbol name or full ID to analyse. Use search_symbols to find IDs.
         direction: 'callers' | 'callees' | 'both'. Default 'both'.
-        depth: Maximum hops to traverse (1–5). Default 3.
+        depth: Maximum hops to traverse (1–5). Default 1, the direct rows:
+            each further hop can multiply the reply (CHANGELOG, this fix).
         storage_path: Custom storage path.
 
     Returns:
         Dict with symbol info, callers list, callees list, depth_reached, and _meta.
         Each caller/callee entry includes {id, name, kind, file, line, depth}.
+        A caller entry also carries ``call_lines``: the lines in its body that
+        call the target (capped at CALL_LINES_CAP). The response carries
+        ``call_sites``: ``file:line`` of each call by a direct caller (capped at
+        CALL_SITES_CAP). A row whose lines could not be read carries
+        ``call_lines: None`` and names why in ``call_lines_unknown``.
     """
     depth = max(1, min(depth, 5))
     if direction not in ("callers", "callees", "both"):
@@ -225,6 +217,10 @@ def get_call_hierarchy(
         frozenset(index.source_files),
         getattr(index, "alias_map", None),
         getattr(index, "psr4_map", None),
+    )
+    # A Go file's package siblings call it with no import (L-262).
+    reverse_adj = with_same_package_peers(
+        reverse_adj, getattr(index, "file_languages", None)
     )
 
     callers: list[dict] = []
@@ -371,7 +367,148 @@ def get_call_hierarchy(
     # and must be allowed to reduce what we report as excluded.
     if direction in ("callers", "both"):
         _attach_caller_gate_disclosure(response, index, sym, reverse_adj)
+        _attach_call_lines(response, index, store, owner, name)
+        _attach_c_text_only(response, index, sym, reverse_adj, symbols_by_file)
     return response
+
+
+def _attach_c_text_only(response: dict, index, sym: dict, reverse_adj, symbols_by_file) -> None:
+    """(L-339) Say that a C/C++ callers answer is a text match and can be short.
+
+    v1 records no C/C++ call references, so every caller is ``text_matched``
+    and an empty list is what the text search found, never a proven zero
+    (L-59's lesson). TOP LEVEL, not ``_meta``: ``meta_fields: []`` is the
+    default and strips ``_meta``, which would delete the warning on exactly
+    the installs that need it.
+    """
+    if not is_c_family_file(sym.get("file", "")):
+        return
+    callers = response.get("callers") or []
+    if any(c.get("resolution") != "text_matched" for c in callers):
+        return  # a compiler- or AST-grade edge answered; not text-only
+    _files, cap_reached = c_text_reach(index, sym, reverse_adj, symbols_by_file)
+    if _is_file_local(sym):
+        where = (
+            "this function is static, so only a function in its own file that "
+            "mentions the name is read"
+        )
+    else:
+        where = (
+            "a function that mentions the name, in this file or in a file that "
+            "includes a header declaring it, through at most "
+            f"{C_UMBRELLA_HOPS} umbrella headers"
+        )
+    # ⚠ `umbrella_hop_cap_reached` is measured for the asked symbol only; a
+    # caller of a caller (depth 2 and beyond) is found by the same walk but is
+    # not reported here.
+    response["callers_text_only"] = {
+        "basis": "text_matched",
+        "may_miss_callers": True,
+        "umbrella_hop_cap": C_UMBRELLA_HOPS,
+        "umbrella_hop_cap_reached": cap_reached,
+        "detail": (
+            f"C/C++ callers come from a text search: {where}. A caller reached "
+            "through a longer include chain, a macro or a function pointer can be "
+            "missing, so an empty list is not proof that nothing calls it."
+        ),
+    }
+
+
+# A caller row carried only its DEFINITION line, so "where is f called" still
+# sent the agent into each caller to find the call. These bound the lines added
+# per row and the flat file:line list (1.x list-field rule: bounded on arrival).
+CALL_LINES_CAP = 10
+CALL_SITES_CAP = 50
+CALL_LINES_BASIS = "name_in_caller_body"
+# Text before a match that makes it a definition, not a call.
+_DEF_PREFIX = re.compile(r"\b(?:def|function|func|fn|fun|sub|proc)\s+$")
+
+
+def _call_lines_in(lines: list[str], start: int, end: int, target: str) -> list[int]:
+    """1-based lines in [start, end] where ``target(`` is called, as a word.
+
+    ``obj.target(`` counts; ``def target(`` does not. Comments and strings are
+    not told apart (the response's ``call_lines_basis`` says so).
+    """
+    if not target or start <= 0:
+        return []
+    pat = re.compile(r"(?<![\w$])" + re.escape(target) + r"\s*\(")
+    found: list[int] = []
+    for n in range(start, min(max(end, start), len(lines)) + 1):
+        text = lines[n - 1]
+        for m in pat.finditer(text):
+            if not _DEF_PREFIX.search(text[: m.start()]):
+                found.append(n)
+                break
+    return found
+
+
+def _attach_call_lines(response: dict, index, store, owner: str, name: str) -> None:
+    """Add ``call_lines`` to each caller row and a flat ``call_sites`` list.
+
+    Every row carries the same four keys, cut or not, so the compact encoding
+    decodes an uncut row as it was sent. A row whose lines could not be read
+    (the file could not be read, or the index holds no ``end_line`` for the
+    caller, so its body span is unknown) carries ``call_lines: None`` and a
+    reason in ``call_lines_unknown``; ``[]`` means the body was read and holds
+    no textual call. ``call_sites_total`` counts only the direct callers whose
+    lines were read, and ``call_sites_unknown_callers`` says how many it left
+    out.
+    """
+    callers = response.get("callers") or []
+    symbol_index: dict = getattr(index, "_symbol_index", {}) or {}
+    target_name = str((response.get("symbol") or {}).get("name", "")).split(".")[-1]
+    file_lines: dict[str, Optional[list[str]]] = {}
+
+    def lines_of(path: str) -> Optional[list[str]]:
+        if path not in file_lines:
+            try:
+                content = store.get_file_content(owner, name, path)
+            except Exception:
+                logger.debug("call_lines: could not read %s", path, exc_info=True)
+                content = None
+            file_lines[path] = None if content is None else content.splitlines()
+        return file_lines[path]
+
+    sites: list[str] = []
+    unknown_rows = 0
+    unknown_direct = 0
+    for row in callers:
+        full = symbol_index.get(row.get("id", "")) or {}
+        path = row.get("file") or full.get("file") or ""
+        start = int(row.get("line") or full.get("line") or 0)
+        end = int(full.get("end_line") or 0)
+        via = symbol_index.get(row.get("via", "")) if row.get("via") else None
+        target = str(via.get("name", "")).split(".")[-1] if via else target_name
+        lines = lines_of(path) if path else None
+        if not path or lines is None:
+            reason: Optional[str] = "file_unreadable"
+        elif start <= 0 or end < start:
+            reason = "no_end_line"
+        else:
+            reason = None
+        if reason is not None or lines is None:
+            row["call_lines"] = None
+            row["call_lines_total"] = None
+            row["call_lines_truncated"] = None
+            row["call_lines_unknown"] = reason
+            unknown_rows += 1
+            if row.get("depth", 1) == 1:
+                unknown_direct += 1
+            continue
+        found = _call_lines_in(lines, start, end, target)
+        row["call_lines"] = found[:CALL_LINES_CAP]
+        row["call_lines_total"] = len(found)
+        row["call_lines_truncated"] = len(found) > CALL_LINES_CAP
+        row["call_lines_unknown"] = None
+        if row.get("depth", 1) == 1:
+            sites.extend(f"{path}:{n}" for n in found)
+    response["call_sites"] = sites[:CALL_SITES_CAP]
+    response["call_sites_total"] = len(sites)
+    response["call_sites_truncated"] = len(sites) > CALL_SITES_CAP
+    response["call_sites_unknown_callers"] = unknown_direct
+    response["call_lines_unknown_count"] = unknown_rows
+    response["call_lines_basis"] = CALL_LINES_BASIS
 
 
 def _attach_caller_gate_disclosure(

@@ -123,7 +123,10 @@ def _rebind_repo(cwd: str | None) -> bool:
 
 def read_hook_input() -> dict:
     try:
-        raw = sys.stdin.read()
+        # The payload is UTF-8. sys.stdin decodes with the console code page
+        # (cp1252 on Windows), which garbles non-ASCII text and raises on
+        # bytes cp1252 leaves undefined (L-320).
+        raw = sys.stdin.buffer.read().decode("utf-8", errors="replace")
         payload = json.loads(raw) if raw.strip() else {}
     except (json.JSONDecodeError, OSError):
         return {}

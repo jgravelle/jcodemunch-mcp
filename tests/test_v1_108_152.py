@@ -75,7 +75,11 @@ def test_launch_id_omitted_when_unset(monkeypatch):
 
 
 def test_process_start_is_os_derived_on_supported_platforms():
-    if os.name != "nt" and not os.path.exists("/proc/self/stat"):
+    if (
+        os.name != "nt"
+        and not os.path.exists("/proc/self/stat")
+        and sys.platform != "darwin"
+    ):
         pytest.skip("no OS probe on this platform")
     runtime_identity._process_start = None
     ps = runtime_identity.get_process_start()
@@ -90,6 +94,7 @@ def test_probe_failure_discloses_self_recorded(monkeypatch):
 
     monkeypatch.setattr(runtime_identity, "_windows_process_start", _boom)
     monkeypatch.setattr(runtime_identity, "_linux_process_start", _boom)
+    monkeypatch.setattr(runtime_identity, "_darwin_process_start", _boom)
     runtime_identity._process_start = None
     ps = runtime_identity.get_process_start()
     assert ps["source"] == "self_recorded"

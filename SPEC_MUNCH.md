@@ -118,7 +118,7 @@ carry the same information in a schema file instead):
 
 - `__tables` — comma-separated table schema. One entry per table:
   `<tag>:<original_key>:<col1>|<col2>|...:<type1>|<type2>|...`.
-  Types are `int`, `float`, `bool`, or `str`. Example:
+  Types are `int`, `float`, `bool`, `str` or `json`. Example:
   `t:references:file|line|kind:str|int|str`.
 - `__stypes` — pipe-separated scalar type map for any non-string top-level
   scalar. Example: `total:int|ratio:float|ok:bool`.
@@ -182,6 +182,9 @@ On decode, each field is coerced using the column's declared type:
 - `int` — `int(raw)`, unchanged on `ValueError`.
 - `float` — `float(raw)`, unchanged on `ValueError`.
 - `bool` — `T → True`, anything else → `False`.
+- `json` — `json.loads(raw)`. A column gets this type when any of its cells
+  holds a list or dict; every non-empty cell of it is written as JSON text,
+  so a string, number or bool beside a list decodes to itself.
 - Empty field (`""`) always decodes to `None`.
 
 ---

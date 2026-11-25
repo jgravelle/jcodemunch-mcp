@@ -41,6 +41,8 @@ from __future__ import annotations
 
 import logging
 import sqlite3
+import threading
+from pathlib import Path
 from typing import Iterable, Optional
 
 from ..storage import generation as _generation
@@ -60,6 +62,61 @@ _BODY_UNKNOWN = "unknown"
 # INGEST, recorded only when the file on disk matched the index then, against
 # the body it holds now. Not a digest of the code the trace ran.
 BODY_BASIS = "index_body_at_ingest"
+
+# (L-330) db path -> the .db stamp at which `runtime_calls` was READ and found
+# empty. A blast-radius or find_references cache hit stamps runtime confidence
+# on every call, and with no traces ingested that was a read-only open and a
+# query per surface for an answer that cannot change until the database is
+# written. The stamp (mtime and size of the `.db` and a committed `-wal`,
+# `_memo_stamp`) is sampled BEFORE the
+# probe, so a write landing during it moves the stamp and the next call reads
+# again; an ingest from any process moves it too. Only an answer the query
+# established is kept: an unreadable stamp or a failed query is UNKNOWN, and
+# UNKNOWN reads the table every time.
+_EMPTY_AT: dict = {}
+_EMPTY_LOCK = threading.Lock()
+_EMPTY_MAX = 64
+
+
+def _memo_stamp(db_path: str):
+    """``(.db mtime, .db size, -wal mtime, -wal size)``, or None when unreadable.
+
+    The sizes are what an mtime alone misses: two commits inside one
+    filesystem mtime tick leave every mtime where it was, and a read between
+    them would keep "no traces" until some later write. A commit appends
+    WAL frames (or, after a checkpoint, grows the .db), so the size moves
+    even when the tick does not. ``committed_wal_stat`` is the one rule for
+    which ``-wal`` counts as a write.
+    """
+    try:
+        st = Path(str(db_path)).stat()
+    except OSError:
+        return None
+    wal = _generation.committed_wal_stat(db_path)
+    return (
+        st.st_mtime_ns,
+        st.st_size,
+        wal.st_mtime_ns if wal is not None else None,
+        wal.st_size if wal is not None else None,
+    )
+
+
+def _empty_known(db_path: str):
+    """``(True, stamp)`` when this stamp was read and found empty, else ``(False, stamp)``."""
+    stamp = _memo_stamp(db_path)
+    if stamp is None:
+        return False, None
+    with _EMPTY_LOCK:
+        return _EMPTY_AT.get(str(db_path)) == stamp, stamp
+
+
+def _note_empty(db_path: str, stamp, probe: "RuntimeConfidenceProbe") -> None:
+    if stamp is None or not probe.established_empty:
+        return
+    with _EMPTY_LOCK:
+        _EMPTY_AT[str(db_path)] = stamp
+        while len(_EMPTY_AT) > _EMPTY_MAX:
+            _EMPTY_AT.pop(next(iter(_EMPTY_AT)))
 
 
 def body_counts(entries: Iterable) -> dict[str, int]:
@@ -97,6 +154,10 @@ class RuntimeConfidenceProbe:
     def __init__(self, conn: Optional[sqlite3.Connection]) -> None:
         self._conn = conn
         self._has_runtime: Optional[bool] = None
+        #: True only when the query ran and found no row (L-330). A missing
+        #: connection or a failed query reads as no-runtime for annotation,
+        #: as before, but is not an established absence.
+        self.established_empty = False
 
     @property
     def has_runtime(self) -> bool:
@@ -110,6 +171,7 @@ class RuntimeConfidenceProbe:
             return False
         try:
             row = self._conn.execute("SELECT 1 FROM runtime_calls LIMIT 1").fetchone()
+            self.established_empty = row is None
             return row is not None
         except sqlite3.Error:
             # Schema missing (pre-v14 DB) — treat as no runtime
@@ -287,6 +349,9 @@ def attach_runtime_confidence(
     """
     if not db_path:
         return {}
+    empty, stamp = _empty_known(db_path)
+    if empty:
+        return {}
     try:
         # A read-only open must not create -shm/-wal, which would bump the
         # index db's mtime and invalidate the CodeIndex LRU cache
@@ -300,6 +365,7 @@ def attach_runtime_confidence(
     try:
         probe = RuntimeConfidenceProbe(conn)
         if not probe.has_runtime:
+            _note_empty(db_path, stamp, probe)
             return {}
         probe.annotate(entries, id_field=id_field)
         return probe.summary(entries)
@@ -323,6 +389,9 @@ def attach_runtime_confidence_by_file(
     """
     if not db_path:
         return {}
+    empty, stamp = _empty_known(db_path)
+    if empty:
+        return {}
     try:
         # See attach_runtime_confidence: same sidecar-aware read contract, same
         # reason. #398 Arc 1.
@@ -332,6 +401,7 @@ def attach_runtime_confidence_by_file(
     try:
         probe = RuntimeConfidenceProbe(conn)
         if not probe.has_runtime:
+            _note_empty(db_path, stamp, probe)
             return {}
         files = [e.get(file_field) for e in entries if isinstance(e, dict) and e.get(file_field)]
         if not files:

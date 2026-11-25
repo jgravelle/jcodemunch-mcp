@@ -81,7 +81,14 @@ def test_mcpb_manifest_derives_the_identifier_rather_than_copying_it() -> None:
 # on checkout, so a byte digest is a property of the checkout rather than of the
 # terms: this pin was red on all four Ubuntu legs and green on all four Windows
 # legs on its first run. **A license says the same thing in either encoding.**
-_LICENSE_DIGEST = "a6982f160837edfc3a953484fda3339bca7fd61a154343c849730203ba97b7ec"
+#
+# ⚠ Version 1.3 (effective 2026-11-23) is the one recorded exception to the rule above.
+# It ADDS the Freelance grant, which by the rule's own wording is substantive,
+# and J ruled it minor (HQ DECISIONS row 1543): it only adds a permission, so
+# an allowlist approved for 1.x loses nothing and need not re-approve. The
+# identifier stays -1. The judgement was made at the edit, which is what this
+# pin exists to force; a future grant needs its own ruling, not this one.
+_LICENSE_DIGEST = "dabd522d07acd0cc773f184da1474bfb9c77d6796a204231abfacc1d6b5323f2"
 
 
 def _license_terms() -> bytes:

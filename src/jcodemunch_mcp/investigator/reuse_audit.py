@@ -124,6 +124,8 @@ class Candidate:
     channel: str
     strength: float
     signature: str = ""
+    # search_symbols cuts a long signature and says so; the flag travels with it.
+    signature_truncated: bool = False
     summary: str = ""
     live: Optional[bool] = None
     reference_count: Optional[int] = None
@@ -143,6 +145,8 @@ class Candidate:
         }
         if self.signature:
             d["signature"] = self.signature
+        if self.signature_truncated:
+            d["signature_truncated"] = True
         if self.summary:
             d["summary"] = self.summary
         if self.reference_count is not None:
@@ -391,6 +395,7 @@ def _collect(
             channel=channel,
             strength=strength,
             signature=(row.get("signature") or "").strip(),
+            signature_truncated=bool(row.get("signature_truncated")),
             summary=(row.get("summary") or "").strip(),
             why=why,
         )
@@ -619,8 +624,7 @@ def investigate_reuse_before_write(
     # `strong_match` and `adapt_floor` would be parameters that grade nothing
     # and every verdict would ride on obligation status alone. It also disables
     # the result cache (`_cacheable = not debug`), which is correct rather than
-    # incidental: of the three result-cache consumers only `search_symbols`
-    # revalidates, and an absence claim replayed from a cached row is the exact
+    # incidental: an absence claim replayed from a cached row is the exact
     # shape #377 item 3 exists to refuse.
     #
     # Cost, measured on this repository's own index (~25k symbols): a debug

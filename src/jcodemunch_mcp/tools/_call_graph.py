@@ -260,6 +260,42 @@ class FileWords:
         return found[0] < start or found[-1] >= end
 
 
+# Symbol kinds whose body holds declarations only, never a call, per language.
+# A Go `type X interface { DeleteItem(id string) error }` names a method it
+# declares; with its methods unindexed, the text pass read that as a call
+# once same-package peers made the interface's file a candidate (L-262).
+_NO_CODE_KINDS: dict[str, frozenset[str]] = {
+    "go": frozenset({"type", "interface", "struct"}),
+}
+
+
+def _same_named_declarations_removed(
+    file_lines: list[str], sym: dict, decl_lines: Optional[set], name: str
+) -> str:
+    """*sym*'s body with the first mention of *name* removed on every line
+    where a symbol called *name* is declared (L-262 review).
+
+    A declaration names itself: `func (g *Group) Use()` beside the target
+    `Engine.Use`, or an interface whose body declares `DeleteItem`, is not a
+    call. Only another mention can be one, so a wrapper whose body calls the
+    target is still found.
+    """
+    line = sym.get("line", 0)
+    if not line:
+        return ""
+    end_line = sym.get("end_line", line)
+    if not decl_lines:
+        return _symbol_body(file_lines, sym)
+    out: list[str] = []
+    pattern = re.compile(word_pattern(name))
+    for n in range(max(1, line), min(len(file_lines), end_line) + 1):
+        text = file_lines[n - 1]
+        if n in decl_lines:
+            text = pattern.sub(" ", text, count=1)
+        out.append(text)
+    return "\n".join(out)
+
+
 def _symbol_body(file_lines: list[str], sym: dict) -> str:
     """Slice *file_lines* to the lines covered by *sym* (1-indexed)."""
     line = sym.get("line", 0)
@@ -293,20 +329,31 @@ class _ContentCache:
     argument so direct callers of the finders keep their original behavior.
     """
 
-    __slots__ = ("_store", "_owner", "_repo", "_content", "_lines")
+    __slots__ = ("_store", "_owner", "_repo", "_index", "_content", "_lines")
 
-    def __init__(self, store: "IndexStore", owner: str, repo_name: str):
+    def __init__(
+        self, store: "IndexStore", owner: str, repo_name: str,
+        index: Optional["CodeIndex"] = None,
+    ):
         self._store = store
         self._owner = owner
         self._repo = repo_name
+        # With the index, a read checks the file against it instead of opening
+        # a SQLite connection per file (L-262 review round 4 measured that as most of the call).
+        self._index = index
         self._content: dict[str, Optional[str]] = {}
         self._lines: dict[str, list[str]] = {}
 
     def content(self, file_path: str) -> Optional[str]:
         if file_path not in self._content:
-            self._content[file_path] = self._store.get_file_content(
-                self._owner, self._repo, file_path
-            )
+            if self._index is None:
+                self._content[file_path] = self._store.get_file_content(
+                    self._owner, self._repo, file_path
+                )
+            else:
+                self._content[file_path] = self._store.get_file_content(
+                    self._owner, self._repo, file_path, _index=self._index
+                )
         return self._content[file_path]
 
     def lines(self, file_path: str) -> list[str]:
@@ -444,7 +491,7 @@ def constructors_as_their_classes(symbols, importers: dict[str, list[str]]) -> l
     subclass constructor that never calls up still counts for its ancestors
     (JavaScript requires the call; Python does not). Toward not reporting.
     """
-    from .get_class_hierarchy import _parse_bases  # noqa: PLC0415  (it imports nothing of ours)
+    from .get_class_hierarchy import _parse_bases, _strip_comments  # noqa: PLC0415  (it imports nothing of ours)
 
     classes_by_id: dict[str, dict] = {}
     # (base name, file of the subclass) -> the subclasses
@@ -455,8 +502,10 @@ def constructors_as_their_classes(symbols, importers: dict[str, list[str]]) -> l
         if (sym.get("language") or "") not in CONSTRUCTOR_WORDS or not sym.get("id") or not sym.get("name"):
             continue
         classes_by_id[sym["id"]] = sym
-        extends = (sym.get("signature") or "").split(" implements ", 1)[0]
-        for base in _parse_bases(extends):
+        # Cut `implements` off the comment-free text: a comment naming the word
+        # (`/* not implements X */`) must not end the base list (L-261).
+        extends = re.split(r"\simplements\s", _strip_comments(sym.get("signature") or "", sym.get("language")), maxsplit=1)[0]
+        for base in _parse_bases(extends, sym.get("language")):
             children.setdefault((base, sym.get("file") or ""), []).append(sym)
     if not classes_by_id:
         return []
@@ -804,6 +853,241 @@ def _dispatch_callers(index: "CodeIndex", sym: dict, symbols_by_file: dict[str, 
     return results
 
 
+_C_SOURCE_SUFFIXES = (".c", ".cc", ".cpp", ".cxx")
+_C_HEADER_SUFFIXES = (".h", ".hh", ".hpp", ".hxx")
+
+
+def _declaring_headers(
+    index: "CodeIndex", sym: dict, symbols_by_file: dict[str, list[dict]]
+) -> list[str]:
+    """Headers a C/C++ source includes that declare a symbol of *sym*'s name.
+
+    A caller includes the header, never the source, so the import graph links
+    it to the declaration and the definition shows no callers. The definition
+    takes the callers of a same-named declaration in a header its OWN file
+    includes; a source that does not include the header takes nothing, and
+    neither does a ``static`` definition, which no other file can call.
+    """
+    sym_file: str = sym.get("file", "")
+    sym_name: str = sym.get("name", "")
+    if not sym_file.lower().endswith(_C_SOURCE_SUFFIXES) or not sym_name:
+        return []
+    if _is_file_local(sym):
+        return []
+    from ..parser.imports import resolve_specifier
+
+    source_files_fs = set(index.source_files)
+    alias_map = getattr(index, "alias_map", {}) or {}
+    psr4_map = getattr(index, "psr4_map", None)
+    headers: list[str] = []
+    for imp in (index.imports or {}).get(sym_file, []):
+        target = resolve_specifier(imp["specifier"], sym_file, source_files_fs, alias_map, psr4_map)
+        if (
+            target
+            and target != sym_file
+            and target not in headers
+            and target.lower().endswith(_C_HEADER_SUFFIXES)
+            and any(s.get("name") == sym_name for s in symbols_by_file.get(target, []))
+        ):
+            headers.append(target)
+    return headers
+
+
+def _is_file_local(sym: dict) -> bool:
+    """A C/C++ function whose signature declares it ``static``.
+
+    Only the words before the function's NAME are read, so an attribute that
+    carries parentheses (``__attribute__((unused)) static int f(...)``) does
+    not hide the storage class.
+    """
+    signature = sym.get("signature") or ""
+    name = sym.get("name") or ""
+    match = re.search(word_pattern(name) + r"\s*\(", signature) if name else None
+    head = signature[: match.start()] if match else signature.split("(", 1)[0]
+    # A word inside a string or a parenthesised argument (``MACRO(static)``,
+    # ``__attribute__((section("static")))``) is not the storage class.
+    head = re.sub(r'"(?:[^"\\]|\\.)*"', " ", head)
+    while True:
+        stripped = re.sub(r"\([^()]*\)", " ", head)
+        if stripped == head:
+            break
+        head = stripped
+    return "static" in re.findall(r"[A-Za-z_]\w*", head)
+
+
+def _defines_own(symbols: list[dict], name: str) -> bool:
+    """A C source defines a function of *name* itself (not a ``;`` prototype).
+
+    C has no overloads or namespaces, so its calls to *name* reach its own
+    definition and it is not a caller of the one a header declares. A C++
+    file is never excluded this way: an overload, a namespaced or an
+    anonymous-namespace function of that name can sit beside a real call to
+    the header's.
+    """
+    return any(
+        s.get("name") == name
+        and s.get("language") == "c"
+        and s.get("kind") == "function"
+        and not (s.get("signature") or "").rstrip().endswith(";")
+        for s in symbols
+    )
+
+
+# (LEDGER L-339) How many umbrella headers (a header that includes a header)
+# the text search follows from a declaring header before it stops. The stop is
+# disclosed in `get_call_hierarchy`'s `callers_text_only`; the full
+# include-chain rule is v2.
+C_UMBRELLA_HOPS = 4
+
+
+def is_c_family_file(path: str) -> bool:
+    return (path or "").lower().endswith(_C_SOURCE_SUFFIXES + _C_HEADER_SUFFIXES)
+
+
+def _is_prototype(s: dict) -> bool:
+    return s.get("kind") == "function" and (s.get("signature") or "").rstrip().endswith(";")
+
+
+class _CNameTable:
+    """Per-name C/C++ definitions and prototypes, built once per symbol table.
+
+    ``c_text_reach`` runs for every node of a caller traversal, and the two
+    rules that read the whole corpus (one definition of the name; who writes
+    its prototype) walked every symbol on every node until this table was
+    built once per traversal (review of L-339).
+    """
+
+    def __init__(self, symbols_by_file: dict[str, list[dict]]) -> None:
+        self.definitions: dict[str, list[str]] = {}
+        self.proto_sources: dict[str, list[str]] = {}
+        self.proto_headers: dict[str, list[str]] = {}
+        for f, syms in symbols_by_file.items():
+            low = f.lower()
+            source = low.endswith(_C_SOURCE_SUFFIXES)
+            header = low.endswith(_C_HEADER_SUFFIXES)
+            if not (source or header):
+                continue
+            for s in syms:
+                name = s.get("name")
+                if not name or s.get("kind") != "function":
+                    continue
+                if _is_prototype(s):
+                    bucket = self.proto_sources if source else self.proto_headers
+                    files = bucket.setdefault(name, [])
+                    if not files or files[-1] != f:
+                        files.append(f)
+                elif source and not _is_file_local(s):
+                    self.definitions.setdefault(name, []).append(s.get("id", ""))
+
+
+# One slot: a traversal passes the same `symbols_by_file` to every node.
+# ⚠⚠ The key and the table are ONE tuple, read once and published by one
+# assignment. Tool calls run on worker threads (`asyncio.to_thread`), and a
+# slot written in two steps let a slow build for one repo overwrite the table
+# under another repo's key (review of L-339, reproduced). Two threads racing
+# now at worst build the same table twice. The slot keeps the last symbol map
+# alive until the next C/C++ traversal replaces it.
+_NAME_TABLE: tuple = (None, None)
+
+
+def _name_table(symbols_by_file: dict[str, list[dict]]) -> _CNameTable:
+    global _NAME_TABLE
+    key, table = _NAME_TABLE
+    if key is symbols_by_file and table is not None:
+        return table
+    table = _CNameTable(symbols_by_file)
+    _NAME_TABLE = (symbols_by_file, table)
+    return table
+
+
+def _only_definition(sym: dict, table: _CNameTable) -> bool:
+    """*sym* is the one non-static C function definition of its name.
+
+    The two L-339 rules that reach a definition WITHOUT the include graph (a
+    definition that skips its header, a caller that writes its own prototype)
+    are safe only then: with two definitions nothing says which one is called.
+    ⚠ C only. In C++ a bare name does not identify a function: a namespace, an
+    anonymous namespace or an overload gives a second `f` the name alone
+    cannot tell apart, and review measured each one taking another `f`'s
+    callers under this rule.
+    """
+    if sym.get("language") != "c" or sym.get("kind") != "function" or _is_file_local(sym):
+        return False
+    return table.definitions.get(sym.get("name", ""), []) == [sym.get("id", "")]
+
+
+def c_text_reach(
+    index: "CodeIndex",
+    sym: dict,
+    reverse_adj: dict[str, list[str]],
+    symbols_by_file: dict[str, list[dict]],
+) -> tuple[list[str], bool]:
+    """(L-339) The files the C/C++ text search reads beyond the definition's importers.
+
+    Returns ``(files, hop_cap_reached)``. The files are, in order:
+
+    - the definition's own file (a same-file caller, ``static`` included);
+    - the importers of each declaring header, and of every header that
+      includes one, up to ``C_UMBRELLA_HOPS`` headers deep;
+    - for a C definition whose file includes no declaring header and that is
+      the only non-static definition of its name, every header that declares it;
+    - on the same condition, every C/C++ source that writes its own
+      prototype of the name.
+
+    ``hop_cap_reached`` is True only when the walk left a header that some
+    file includes unvisited. Every caller found through them is still
+    ``text_matched``.
+    """
+    sym_file: str = sym.get("file", "")
+    sym_name: str = sym.get("name", "")
+    if not is_c_family_file(sym_file) or not sym_name:
+        return [], False
+    files: list[str] = [sym_file]
+    if _is_file_local(sym):
+        return files, False
+
+    table = _name_table(symbols_by_file)
+    starts = list(_declaring_headers(index, sym, symbols_by_file))
+    if sym_file.lower().endswith(_C_HEADER_SUFFIXES):
+        starts.append(sym_file)
+    only = _only_definition(sym, table)
+    if not starts and only:
+        starts = list(table.proto_headers.get(sym_name, []))
+
+    def _take(f: str) -> None:
+        if f not in files and not _defines_own(symbols_by_file.get(f, []), sym_name):
+            files.append(f)
+
+    seen: set[str] = set(starts)
+    frontier = list(starts)
+    cap_reached = False
+    for hop in range(C_UMBRELLA_HOPS + 1):
+        nxt: list[str] = []
+        for header in frontier:
+            for f in reverse_adj.get(header, []):
+                if f.lower().endswith(_C_HEADER_SUFFIXES):
+                    if f in seen:
+                        continue
+                    if hop == C_UMBRELLA_HOPS:
+                        # Only a header something includes leaves a caller unread.
+                        if reverse_adj.get(f):
+                            cap_reached = True
+                        continue
+                    seen.add(f)
+                    nxt.append(f)
+                else:
+                    _take(f)
+        frontier = nxt
+        if not frontier:
+            break
+
+    if only:
+        for f in table.proto_sources.get(sym_name, []):
+            if f != sym_file:
+                _take(f)
+    return files, cap_reached
+
+
 def find_direct_callers(
     index: "CodeIndex",
     store: "IndexStore",
@@ -853,9 +1137,23 @@ def find_direct_callers(
         return []
 
     callers: list[dict] = []
-    seen_ids: set[str] = set(ast_caller_ids) | lsp_ids
+    seen_ids: set[str] = set(ast_caller_ids) | lsp_ids | {sym.get("id", "")}
+    # The files to scan: the symbol's importers, then, for C/C++, the files
+    # `c_text_reach` names (its own file, the importers of each declaring
+    # header and of the umbrella headers above it; L-339). One derivation:
+    # the direct-header loop that stood here is the walk's first hop.
+    scan_files: list[str] = list(reverse_adj.get(sym_file, []))
+    for f in c_text_reach(index, sym, reverse_adj, symbols_by_file)[0]:
+        if f not in scan_files:
+            scan_files.append(f)
+    # Lines where a symbol of the same name is DECLARED, per file (L-262).
+    decl_lines: dict[str, set[int]] = {}
+    for f in scan_files:
+        lines = {s.get("line") for s in symbols_by_file.get(f, []) if s.get("name") == sym_name}
+        if lines:
+            decl_lines[f] = lines
 
-    for imp_file in reverse_adj.get(sym_file, []):
+    for imp_file in scan_files:
         if content_cache is not None:
             file_content = content_cache.content(imp_file)
         else:
@@ -875,7 +1173,11 @@ def find_direct_callers(
             cid = candidate.get("id", "")
             if not cid or cid in seen_ids or not candidate.get("line"):
                 continue
-            body = _symbol_body(file_lines, candidate)
+            if candidate.get("kind") in _NO_CODE_KINDS.get(candidate.get("language", ""), ()):
+                continue
+            body = _same_named_declarations_removed(
+                file_lines, candidate, decl_lines.get(imp_file), sym_name
+            )
             if body and _word_match(body, sym_name):
                 seen_ids.add(cid)
                 callers.append({
@@ -993,6 +1295,47 @@ def find_direct_callees(
 # BFS traversals
 # ---------------------------------------------------------------------------
 
+def label_row_depths(rows: list[dict]) -> dict[str, int]:
+    """Re-derive each row's depth, order *rows* by it in place, and count each depth.
+
+    THE one depth rule for a caller or callee list: `get_call_hierarchy` and
+    `get_blast_radius` both call it (L-240), so a direct count can never mean
+    two things. A row's depth is one more than the row it is reached through
+    (``via``), so a row promoted to depth 1 shortens every chain through it; a
+    row with no usable depth counts under ``"unknown"``, sorts last and is never
+    direct. The sort is stable, so the walk's order holds within a depth.
+    Returns ``{"1": n, "2": n, ...}``; the direct count is ``counts.get("1", 0)``.
+    """
+    by_id = {r.get("id"): r for r in rows}
+    resolved: dict[Optional[str], Optional[int]] = {}
+
+    def depth_of(r: dict, seen: frozenset = frozenset()) -> Optional[int]:
+        rid = r.get("id")
+        if rid in resolved:
+            return resolved[rid]
+        parent = by_id.get(r.get("via"))
+        if parent is not None and rid not in seen:
+            pd = depth_of(parent, seen | {rid})
+            d = pd + 1 if pd is not None else None
+        else:
+            raw = r.get("depth")
+            d = raw if isinstance(raw, int) and not isinstance(raw, bool) and raw >= 1 else None
+        resolved[rid] = d
+        return d
+
+    for r in rows:
+        d = depth_of(r)
+        if d is not None:
+            r["depth"] = d
+    rows.sort(key=lambda r: resolved.get(r.get("id")) or 10**9)
+    counts: dict[str, int] = {}
+    for r in rows:
+        d = resolved.get(r.get("id"))
+        label = str(d) if d is not None else "unknown"
+        counts[label] = counts.get(label, 0) + 1
+    return counts
+
+
 def bfs_callers(
     index: "CodeIndex",
     store: "IndexStore",
@@ -1002,6 +1345,7 @@ def bfs_callers(
     reverse_adj: dict[str, list[str]],
     symbols_by_file: dict[str, list[dict]],
     max_depth: int,
+    content_cache: Optional[_ContentCache] = None,
 ) -> tuple[list[dict], int]:
     """BFS over callers up to *max_depth* hops.
 
@@ -1015,7 +1359,8 @@ def bfs_callers(
     results: list[dict] = []
     depth_reached = 0
     symbol_index: dict[str, dict] = getattr(index, "_symbol_index", {})
-    content_cache = _ContentCache(store, owner, repo_name)
+    if content_cache is None:
+        content_cache = _ContentCache(store, owner, repo_name)
 
     # Depth-1 callers
     for c in find_direct_callers(index, store, owner, repo_name, sym, reverse_adj, symbols_by_file, content_cache):

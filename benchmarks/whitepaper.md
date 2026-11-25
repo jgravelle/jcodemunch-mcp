@@ -556,13 +556,17 @@ The issue is not the model. It is how we feed it.
 
 ## Appendix A: Reproduction Instructions
 
+The pinned clone, checkout and index steps are in
+[`REPRODUCING.md`](REPRODUCING.md). Indexing a repo's current `main` measures a
+different tree than the one reported here.
+
 ```bash
 pip install jcodemunch-mcp tiktoken
 
-# Index the three canonical repos
-jcodemunch index_repo expressjs/express
-jcodemunch index_repo fastapi/fastapi
-jcodemunch index_repo gin-gonic/gin
+# Clone each repo and check out the commit REPRODUCING.md names, then:
+jcodemunch-mcp index ./express --no-ai-summaries
+jcodemunch-mcp index ./fastapi --no-ai-summaries
+jcodemunch-mcp index ./gin --no-ai-summaries
 
 # Run AST benchmark (prints markdown table + grand summary)
 python benchmarks/harness/run_benchmark.py

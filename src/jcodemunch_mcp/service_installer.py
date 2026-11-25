@@ -118,15 +118,84 @@ def _uninstall_systemd() -> dict:
     return {"platform": "systemd", "unit": str(unit_path), "removed": removed}
 
 
+# What `systemctl is-active` prints when it reached the service manager. Any
+# other output (an empty stdout, a bus or permission error on stderr) means the
+# query did not happen, so the service's state is UNKNOWN, never inactive.
+_SYSTEMD_ACTIVE_STATES = frozenset({"active", "reloading", "refreshing"})
+# `unknown` is what older systemd (219, RHEL/CentOS 7) prints for a unit it
+# never loaded: a query that succeeded, settled by the unit-file check below.
+_SYSTEMD_INACTIVE_STATES = frozenset(
+    {"inactive", "failed", "activating", "deactivating", "maintenance", "unknown"}
+)
+_SYSTEMD_PROBE_TIMEOUT_SECONDS = 5.0
+
+
+def _systemd_probe_error(stderr: str) -> str:
+    """A stable class for a probe that did not reach the user's service manager."""
+    low = stderr.lower()
+    if "permission denied" in low or "access denied" in low:
+        return "permission_denied"
+    if (
+        "dbus_session_bus_address" in low
+        or "xdg_runtime_dir" in low
+        or "user scope bus" in low
+        or "failed to connect to bus" in low
+    ):
+        return "no_user_bus"
+    return "probe_failed"
+
+
 def _status_systemd() -> dict:
+    """The watch service's state on systemd: `active`, `inactive`,
+    `not_installed` or `unknown`.
+
+    `active` is None when the probe could not ask. A process started without
+    the user's session bus (`DBUS_SESSION_BUS_ADDRESS`, `XDG_RUNTIME_DIR`) gets
+    a bus error and a nonzero exit, and reading that as inactive told the user
+    a running watcher was stopped (reported against jdocmunch-mcp#206). The
+    state is read from what `is-active` printed, never from its exit code.
+    """
     if shutil.which("systemctl") is None:
-        return {"platform": "systemd", "active": False, "reason": "systemctl not found"}
-    result = subprocess.run(
-        ["systemctl", "--user", "is-active", f"{SERVICE_NAME}.service"],
-        capture_output=True, text=True, encoding="utf-8", errors="replace", check=False,
-    )
-    state = result.stdout.strip() or result.stderr.strip()
-    return {"platform": "systemd", "active": state == "active", "state": state}
+        # The installer refuses without systemctl, so no unit of ours can run.
+        return {
+            "platform": "systemd", "active": False, "status": "not_installed",
+            "reason": "systemctl not found",
+        }
+    try:
+        result = subprocess.run(
+            ["systemctl", "--user", "is-active", f"{SERVICE_NAME}.service"],
+            capture_output=True, text=True, encoding="utf-8", errors="replace",
+            check=False, timeout=_SYSTEMD_PROBE_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired:
+        return {
+            "platform": "systemd", "active": None, "status": "unknown",
+            "probe_error": "timeout",
+            "detail": f"systemctl --user is-active did not answer in {_SYSTEMD_PROBE_TIMEOUT_SECONDS:g} s",
+        }
+    except OSError as exc:
+        return {
+            "platform": "systemd", "active": None, "status": "unknown",
+            "probe_error": "probe_failed", "detail": str(exc),
+        }
+    out = (result.stdout or "").strip()
+    err = (result.stderr or "").strip()
+    state = out.splitlines()[0].strip() if out else ""
+    if state in _SYSTEMD_ACTIVE_STATES:
+        return {"platform": "systemd", "active": True, "status": "active", "state": state}
+    if state in _SYSTEMD_INACTIVE_STATES:
+        installed = _systemd_unit_path().exists()
+        return {
+            "platform": "systemd", "active": False,
+            "status": "inactive" if installed else "not_installed",
+            "state": state,
+        }
+    return {
+        "platform": "systemd", "active": None, "status": "unknown",
+        "probe_error": _systemd_probe_error(err),
+        "state": out or err,
+        "detail": err or out or f"systemctl --user is-active exited {result.returncode} with no output",
+    }
 
 
 # ── launchd (macOS) ─────────────────────────────────────────────────────────
@@ -190,11 +259,50 @@ def _uninstall_launchd() -> dict:
 
 
 def _status_launchd() -> dict:
-    result = subprocess.run(
-        ["launchctl", "list", LAUNCHD_LABEL],
-        capture_output=True, text=True, encoding="utf-8", errors="replace", check=False,
-    )
-    return {"platform": "launchd", "active": result.returncode == 0, "detail": result.stdout.strip()}
+    """`active` keeps its meaning (the job is loaded); `status` is read from
+    what `launchctl` said, never from its exit code alone. A label launchd
+    does not know is `inactive` when our plist exists and `not_installed`
+    when it does not; any other failure is `unknown`."""
+    try:
+        result = subprocess.run(
+            ["launchctl", "list", LAUNCHD_LABEL],
+            capture_output=True, text=True, encoding="utf-8", errors="replace",
+            check=False, timeout=_SYSTEMD_PROBE_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired:
+        return {
+            "platform": "launchd", "active": None, "status": "unknown",
+            "probe_error": "timeout",
+            "detail": f"launchctl list did not answer in {_SYSTEMD_PROBE_TIMEOUT_SECONDS:g} s",
+        }
+    except OSError as exc:
+        return {
+            "platform": "launchd", "active": None, "status": "unknown",
+            "probe_error": "probe_failed", "detail": str(exc),
+        }
+    out = (result.stdout or "").strip()
+    err = (result.stderr or "").strip()
+    if result.returncode == 0:
+        # Loaded. A job with no `"PID" =` line is loaded but not running (it
+        # exited or crashed), so it is `inactive` though `active` keeps meaning
+        # "loaded".
+        running = '"PID" =' in out
+        return {
+            "platform": "launchd", "active": True,
+            "status": "active" if running else "inactive", "detail": out,
+        }
+    if "could not find service" in (err + " " + out).lower():
+        installed = _launchd_plist_path().exists()
+        return {
+            "platform": "launchd", "active": False,
+            "status": "inactive" if installed else "not_installed",
+            "detail": err or out,
+        }
+    return {
+        "platform": "launchd", "active": None, "status": "unknown",
+        "probe_error": "permission_denied" if "permission" in err.lower() else "probe_failed",
+        "detail": err or out or f"launchctl list exited {result.returncode} with no output",
+    }
 
 
 # ── Task Scheduler (Windows) ────────────────────────────────────────────────
@@ -308,6 +416,39 @@ def _scheduled_task_state() -> Optional[str]:
     return state or None
 
 
+def _watch_task_registered() -> Optional[bool]:
+    """Whether the watch task is registered: True, False, or None when that
+    could not be asked. The answer is a fixed token the script prints, so it
+    does not depend on the display language (the reason `State` is read from
+    the enum above)."""
+    # `absent` only for Get-ScheduledTask's own not-found error id, which is
+    # invariant across display languages. A missing cmdlet is also category
+    # ObjectNotFound (CommandNotFoundException), so the category alone is not
+    # enough. An access, CIM or module-load failure prints `error` and reads
+    # as unknown, never as a task that is not there.
+    script = (
+        f"try {{ $null = Get-ScheduledTask -TaskName '{SERVICE_NAME}' -ErrorAction Stop; 'present' }}"
+        " catch { if ($_.FullyQualifiedErrorId -like '*_NotFound_*,Get-ScheduledTask') { 'absent' } else { 'error' } }"
+    )
+    try:
+        result = subprocess.run(
+            ["powershell", "-NoProfile", "-NonInteractive", "-Command", script],
+            capture_output=True, check=False, timeout=30,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+    except (OSError, subprocess.SubprocessError):
+        logger.debug("Get-ScheduledTask existence probe failed", exc_info=True)
+        return None
+    if result.returncode != 0:
+        return None
+    word = _decode_windows_output(result.stdout or b"").strip()
+    if word == "present":
+        return True
+    if word == "absent":
+        return False
+    return None
+
+
 # ⚠⚠ L-149: `schtasks /Create` with switches takes Task Scheduler's defaults for
 # everything it has no switch for, and three of those defaults kill a watcher on
 # a laptop: it does not START on battery, it is STOPPED when the machine goes on
@@ -315,7 +456,14 @@ def _scheduled_task_state() -> Optional[str]:
 # the task is registered from this definition. Everything the switch form set is
 # kept: a logon trigger, the limited run level, the running interpreter as the
 # action, one instance at a time. The principal names no UserId, so `schtasks`
-# registers it for the calling user, as the switch form did.
+# registers it for the calling user, as the switch form did. The trigger is the
+# one deliberate difference from the switch form (#1564, next).
+# ⚠⚠ #1564 (@rknighton): the LOGON TRIGGER must name the user. A trigger with
+# no UserId fires at ANY user's logon, and registering that from a shell that
+# is not elevated is refused with "Access is denied", so `watch-install` worked
+# only from an elevated shell. The reporter measured both halves: a UserId in
+# the trigger registers without elevation, and one in the principal alone does
+# not. An elevated shell registers either form, so it cannot show the defect.
 _WINDOWS_TASK_TEMPLATE = """<?xml version="1.0" encoding="UTF-16"?>
 <Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
   <RegistrationInfo>
@@ -323,7 +471,7 @@ _WINDOWS_TASK_TEMPLATE = """<?xml version="1.0" encoding="UTF-16"?>
   </RegistrationInfo>
   <Triggers>
     <LogonTrigger>
-      <Enabled>true</Enabled>
+      <Enabled>true</Enabled>{trigger_user}
     </LogonTrigger>
   </Triggers>
   <Principals>
@@ -350,19 +498,79 @@ _WINDOWS_TASK_TEMPLATE = """<?xml version="1.0" encoding="UTF-16"?>
 """
 
 
-def _windows_task_xml() -> str:
-    """The task definition `_install_windows` registers (L-149)."""
+def _windowless(interpreter: str) -> Optional[Path]:
+    """`pythonw.exe` beside a console `python.exe`, or None when there is none."""
+    path = Path(interpreter)
+    if path.name.lower() != "python.exe":
+        return None
+    windowless = path.with_name("pythonw.exe")
+    return windowless if windowless.is_file() else None
+
+
+def _windows_exec_cmd() -> list[str]:
+    """The Windows task's command: no console window, and a log file to write to.
+
+    `python.exe` is a console program, so a logon task that starts it opens a
+    console window at every sign-in and keeps it open while the watcher runs.
+    `pythonw.exe` opens none, but it has no stderr either, so the log goes to a
+    file under the log dir. Under pythonw, `watch-all` re-runs itself in a
+    console-less `python.exe` (`windowless.py`), so the git processes it starts
+    open no window either. Without a `pythonw.exe` beside the interpreter the
+    console one is kept: a visible window beats a task that cannot start.
+    """
     exe, *rest = _exec_cmd()
+    windowless = _windowless(exe)
+    if windowless is not None:
+        exe = str(windowless)
+    return [exe, *rest, "--log-file", str(_log_dir() / "watch-all.log")]
+
+
+_NAME_SAM_COMPATIBLE = 2  # EXTENDED_NAME_FORMAT: DOMAIN\user
+
+
+def _windows_user_id() -> Optional[str]:
+    """The calling user as ``DOMAIN\\user``, or None when it cannot be read.
+
+    `GetUserNameExW` answers for the process token, so it names the account
+    `schtasks` registers the task for even when the environment was changed.
+    The environment is the fallback. None leaves the trigger without a UserId,
+    the pre-#1564 form, which still registers from an elevated shell.
+    """
+    try:
+        import ctypes
+
+        secur32 = ctypes.windll.secur32  # type: ignore[attr-defined]
+        size = ctypes.c_ulong(0)
+        secur32.GetUserNameExW(_NAME_SAM_COMPATIBLE, None, ctypes.byref(size))
+        if size.value:
+            buf = ctypes.create_unicode_buffer(size.value)
+            if secur32.GetUserNameExW(_NAME_SAM_COMPATIBLE, buf, ctypes.byref(size)) and buf.value:
+                return buf.value
+    except Exception:
+        logger.debug("GetUserNameExW failed; falling back to the environment", exc_info=True)
+    user = os.environ.get("USERNAME", "").strip()
+    domain = os.environ.get("USERDOMAIN", "").strip()
+    if user:
+        return f"{domain}\\{user}" if domain else user
+    return None
+
+
+def _windows_task_xml() -> str:
+    """The task definition `_install_windows` registers (L-149, #1564)."""
+    exe, *rest = _windows_exec_cmd()
+    user_id = _windows_user_id()
+    trigger_user = f"\n      <UserId>{_xml_escape(user_id)}</UserId>" if user_id else ""
     return _WINDOWS_TASK_TEMPLATE.format(
         command=_xml_escape(_cmd_quote(exe)),
         arguments=_xml_escape(" ".join(_cmd_quote(x) for x in rest)),
+        trigger_user=trigger_user,
     )
 
 
 def _install_windows() -> dict:
     _log_dir().mkdir(parents=True, exist_ok=True)
-    # schtasks /Create does not persist stdout redirection; rely on Python logging
-    # (watcher.py writes to stderr) and inspect via Event Viewer if needed.
+    # The task cannot redirect stdout, and pythonw has none, so the command passes
+    # --log-file into this directory (`_windows_exec_cmd`).
     # ⚠ The file is written in the encoding its declaration names; schtasks
     # rejects a document whose bytes disagree with it.
     fd, xml_path = tempfile.mkstemp(prefix=f"{SERVICE_NAME}-", suffix=".xml")
@@ -445,6 +653,28 @@ def _scheduled_task_settings() -> Optional[dict]:
     }
 
 
+def _scheduled_task_command() -> Optional[str]:
+    """The program the installed task starts, or None if it could not be read."""
+    script = (
+        "$ErrorActionPreference='Stop';"
+        f"(Get-ScheduledTask -TaskName '{SERVICE_NAME}').Actions[0].Execute"
+    )
+    try:
+        result = subprocess.run(
+            ["powershell", "-NoProfile", "-NonInteractive", "-Command", script],
+            capture_output=True, check=False, timeout=30,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+    except (OSError, subprocess.SubprocessError):
+        logger.debug("Get-ScheduledTask action probe failed", exc_info=True)
+        return None
+    if result.returncode != 0:
+        logger.debug("Get-ScheduledTask action returned %s", result.returncode)
+        return None
+    command = _decode_windows_output(result.stdout or b"").strip()
+    return command or None
+
+
 def _status_windows() -> dict:
     _rc, stdout, _stderr = _run_schtasks(
         ["schtasks", "/Query", "/TN", SERVICE_NAME, "/FO", "LIST"]
@@ -459,9 +689,18 @@ def _status_windows() -> dict:
         # confident `false` pass for a measurement.
         active = "Running" in stdout or "Ready" in stdout
         source = "display_text"
+    if state is None:
+        # The display-text fallback is not a measurement (non-English Windows
+        # reads every task as not running), so it never earns `inactive`. A
+        # task that is not registered at all is a successful answer, read
+        # without display text.
+        status = "not_installed" if _watch_task_registered() is False else "unknown"
+    else:
+        status = "active" if active else "inactive"
     out: dict = {
         "platform": "schtasks",
         "active": active,
+        "status": status,
         "state": state,
         "state_source": source,
         # ⚠ `active` keeps #469's meaning (the task exists and is enabled). This
@@ -495,6 +734,15 @@ def _status_windows() -> dict:
                 f"battery or after 72 hours ({', '.join(old)}); re-run "
                 "`jcodemunch-mcp watch-install` to replace it"
             )
+    command = _scheduled_task_command()
+    if command is not None:
+        out["command"] = command
+        if _windowless(command.strip().strip('"')) is not None:
+            warnings.append(
+                "task starts the console interpreter (python.exe), which opens "
+                "a console window at every sign-in; re-run "
+                "`jcodemunch-mcp watch-install` to register pythonw.exe instead"
+            )
     if warnings:
         out["warnings"] = warnings
     return out
@@ -526,14 +774,23 @@ def uninstall_service() -> dict:
 
 
 def service_status() -> dict:
+    """The watch service's state. Every answer carries `status`: `active`,
+    `inactive`, `not_installed` or `unknown`, read from what the probe said
+    and never from an exit code alone. `active` keeps each platform's
+    existing meaning: None where the systemd or launchd probe could not ask,
+    and the display-text fallback on Windows (named by `state_source`). A
+    reader that needs the classification reads `status`."""
     sys_ = platform.system()
     if sys_ == "Linux":
-        return _status_systemd()
-    if sys_ == "Darwin":
-        return _status_launchd()
-    if sys_ == "Windows":
-        return _status_windows()
-    return {"platform": sys_, "active": False, "reason": "unsupported"}
+        out = _status_systemd()
+    elif sys_ == "Darwin":
+        out = _status_launchd()
+    elif sys_ == "Windows":
+        out = _status_windows()
+    else:
+        out = {"platform": sys_, "active": False, "status": "not_installed", "reason": "unsupported"}
+    out.setdefault("status", "unknown")
+    return out
 
 
 # ── escaping helpers ────────────────────────────────────────────────────────

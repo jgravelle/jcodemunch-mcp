@@ -27,6 +27,8 @@ from array import array
 from pathlib import Path
 from typing import Iterable, Optional
 
+from . import listing_stat as _listing_stat
+
 logger = logging.getLogger(__name__)
 
 SUFFIX = ".textfilter"
@@ -120,14 +122,8 @@ def content_stat(content_dir: Path, rel_path: str) -> Optional[tuple[int, int]]:
     """(size, mtime_ns) of a cached file, or None. No realpath: this only
     decides whether a row describes the file, and a path that could leave the
     content directory gets None, so it is scanned through the guarded route."""
-    parts = rel_path.replace("\\", "/").split("/")
-    if (
-        not rel_path
-        or rel_path.startswith("/")
-        or any(p in ("", ".", "..") for p in parts)
-    ):
-        return None
-    if ":" in parts[0]:
+    parts = _listing_stat.rel_parts(rel_path)
+    if parts is None:
         return None
     try:
         st = os.stat(os.path.join(str(content_dir), *parts))
@@ -251,12 +247,22 @@ class Filter:
         self.rows = load(content_dir) if self.grams else {}
         self.skipped = 0
         self._repairs: list = []
+        # One listing per folder on Windows; see storage/listing_stat.py.
+        self._listing = (
+            _listing_stat.ListingStat(content_dir) if _listing_stat.ENABLED else None
+        )
+
+    def _stat(self, rel_path: str) -> Optional[tuple[int, int]]:
+        if self._listing is not None:
+            st = self._listing.stat(rel_path)
+            return None if st is None else (st.st_size, st.st_mtime_ns)
+        return content_stat(self.content_dir, rel_path)
 
     def rules_out(self, rel_path: str) -> tuple[bool, Optional[tuple[int, int]]]:
         """(skip?, stat taken before any read). Skip only on a matching stamp."""
         if not self.grams:
             return False, None
-        stamp = content_stat(self.content_dir, rel_path)
+        stamp = self._stat(rel_path)
         row = self.rows.get(rel_path)
         if stamp is not None and row is not None and (row[0], row[1]) == stamp:
             if not may_contain(row[2], row[3], self.grams):

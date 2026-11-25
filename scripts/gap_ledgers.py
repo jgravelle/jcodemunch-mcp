@@ -95,6 +95,10 @@ LEDGERS: frozenset[tuple[str, str]] = frozenset(
 #: `check()` green: a ledger moved here stops asking for an issue.
 NOT_LEDGERS: dict[tuple[str, str], str] = {
     (
+        "test_honored_aliases_are_not_reported_ignored.py",
+        "NOT_HONORED_WHEN_UNDECLARED",
+    ): "deliberate: render_diagram's open_in_viewer is declared only while the viewer setting is on, and does nothing while it is off",
+    (
         "test_config_isolation_guard.py",
         "EXEMPT",
     ): "deliberate: modules that exercise the real config path, each named with its reason",
@@ -123,6 +127,10 @@ NOT_LEDGERS: dict[tuple[str, str], str] = {
         "_EXEMPT",
     ): "the file names the historical values in its own docstring",
     ("test_sdist_exclusions.py", "ALLOWED_ROOT_FILES"): "the sdist allowlist itself",
+    (
+        "test_instructions_name_only_published_tools.py",
+        "_NOT_TOOL_NAMES",
+    ): "prose words in the instructions that the tool-name regex also matches; they name no tool",
     (
         "test_file_pattern_anchoring.py",
         "_ALLOWED",
@@ -481,4 +489,8 @@ def main(argv=None) -> int:
 
 
 if __name__ == "__main__":
+    # Windows: a redirected stdout is cp1252, and this prints text read from
+    # CHANGELOG.md and LEDGER.md (L-145, L-281).
+    sys.stdout.reconfigure(encoding="utf-8")
+    sys.stderr.reconfigure(encoding="utf-8")
     sys.exit(main())

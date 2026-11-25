@@ -3,7 +3,10 @@
 from .. import schema_driven as sd
 
 TOOLS = ("search_symbols",)
-ENCODING_ID = "ss1"
+# ss2: optional `signature_truncated` column, written only when a row's
+# signature was cut to SIGNATURE_MAX_CHARS. ss1 payloads decode unchanged.
+ENCODING_ID = "ss2"
+LEGACY_ENCODING_IDS = ("ss1",)
 
 _TABLES = [
     sd.TableSpec(
@@ -11,7 +14,8 @@ _TABLES = [
         tag="s",
         cols=["id", "name", "kind", "file", "line", "score", "signature", "summary"],
         intern=["file", "id"],
-        types={"line": "int", "score": "float"},
+        types={"line": "int", "score": "float", "signature_truncated": "bool"},
+        optional=["signature_truncated"],
     ),
 ]
 _SCALARS = ("result_count", "query", "repo")

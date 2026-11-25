@@ -370,7 +370,9 @@ class TestPublicSurface:
         """
         src = Path(token_tracker.__file__).read_text(encoding="utf-8")
         close_at = src.index("atexit.register(_state.close_perf_dbs)")
-        flush_at = src.index("atexit.register(_state.flush)")
+        # The final flush is `_exit_flush` since it keeps an unwritten batch on
+        # disk; the ordering it must keep with the closer is unchanged.
+        flush_at = src.index("atexit.register(_exit_flush)")
         assert close_at < flush_at, (
             "close_perf_dbs must be registered BEFORE flush; atexit runs LIFO, so "
             "this ordering makes flush run first and the close last"

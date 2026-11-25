@@ -10,7 +10,7 @@ import sys
 import threading
 from collections import deque
 from pathlib import Path
-from typing import Optional
+from typing import Iterable, Optional
 
 from .astro_shared import mask_html_comments_keep_offsets, split_astro_frontmatter
 from .languages import template_underlying_language
@@ -104,13 +104,50 @@ _GO_IMPORT_ENTRY = re.compile(r"""(?:\w+\s+)?["']([^"']+)["']""")
 # Java/Kotlin: import com.example.Foo
 # (L-177) Kotlin's `import a.b.D as E` names `D`; without the alias clause the
 # line matched nothing and the file had no edge to `a.b.D`. Java has no `as`.
-_JAVA_IMPORT = re.compile(r"""^import\s+(?:static\s+)?([\w.]+)(?:\s+as\s+\w+)?\s*;?$""", re.MULTILINE)
+# (#1374) `[ \t\r]*` before the anchor: `$` stops at the newline, so a bare
+# `;?$` lost every `;`-terminated import followed by a carriage return (a
+# CRLF checkout) or by trailing spaces. That is every Java import; Kotlin
+# without `;` was unaffected.
+_JAVA_IMPORT = re.compile(r"""^import\s+(?:static\s+)?([\w.]+)(?:\s+as\s+\w+)?\s*;?[ \t\r]*$""", re.MULTILINE)
+
+# (#1375) `import a.b.*` names a package, `import static a.b.C.*` a class's
+# members. `_JAVA_IMPORT` cannot match either: `[\w.]+` stops at the `*`.
+_JAVA_WILDCARD_IMPORT = re.compile(r"""^import\s+(static\s+)?([\w.]+)\.\*\s*;?[ \t\r]*$""", re.MULTILINE)
+# (#1377) The file's own package: Java ends the line with `;`, Kotlin need not,
+# and a Kotlin segment may be backticked. Read from the body with comments and
+# strings removed, so a trailing comment does not hide it and a `package` line
+# inside a comment or a raw string is not taken for it.
+_JVM_PACKAGE = re.compile(r"""^[ \t]*package\s+([\w.`]+)\s*;?[ \t\r]*$""", re.MULTILINE)
+# What the type names of a JVM file are read from: comments and string
+# literals removed first, so a name in a doc comment or a string is no use.
+_JVM_NOISE = re.compile(
+    r"""/\*.*?\*/|//[^\n]*|\"\"\".*?\"\"\"|"(?:\\.|[^"\\\n])*"|'(?:\\.|[^'\\\n])*'""",
+    re.DOTALL,
+)
+# A type name used bare: not after `.` (a member, `Hosts.MAX`, or a fully
+# qualified name, `com.other.Hosts`, neither of which the wildcard supplies).
+_JVM_TYPE_NAME = re.compile(r"""(?<![\w.$])([A-Z][A-Za-z0-9_]*)\b""")
+# A constant (`MAX_VALUE`) is no class name.
+_JVM_CONSTANT = re.compile(r"""^[A-Z][A-Z0-9]*_[A-Z0-9_]*$""")
+# A declaration keyword, not `Hosts::class` or `x.object`, then the name on
+# the same line: `\s+` let `Hosts::class` at a line end declare the first
+# name of the next line, which then shadowed the wildcard.
+_JVM_DECLARED_TYPE = re.compile(
+    r"""(?<![\w.:$])(?:class|interface|enum|record|object|typealias)[ \t]+([A-Z][A-Za-z0-9_]*)"""
+)
 
 # Rust: use crate::foo::{Bar, Baz}
 _RUST_USE = re.compile(r"""^use\s+([\w::{},\s*]+)\s*;""", re.MULTILINE)
 
 # C/C++/ObjC: #include <foo>  or  #include "foo"
-_C_INCLUDE = re.compile(r"""^#include\s+[<"]([^>"]+)[>"]""", re.MULTILINE)
+# (#1315) Every spelling a preprocessor accepts: indented, with space after the
+# `#` (both common inside `#if` blocks), Objective-C's `#import` (the usual form
+# there) and GCC's `#include_next`. Only the bare `#include` was read before.
+# ⚠ Read line by line, not preprocessed: an include inside `#if 0` or a
+# `/* */` block is an edge too (the bare form already was), MSVC's `#import
+# "x.tlb"` gives an edge that never resolves, and a backslash-continued
+# include is not read.
+_C_INCLUDE = re.compile(r"""^[ \t]*#[ \t]*(?:include_next|include|import)[ \t]*[<"]([^>"\n]+)[>"]""", re.MULTILINE)
 
 # Assembly: .include "foo" / .incbin "foo" / %include "foo"
 _ASM_INCLUDE = re.compile(r"""^\s*[.%]include\s+["']([^"']+)["']""", re.MULTILINE | re.IGNORECASE)
@@ -991,7 +1028,104 @@ def _extract_java_imports(content: str, language: str) -> list[dict]:
         parts = qualified.rsplit(".", 1)
         names = [parts[-1]] if len(parts) > 1 else []
         edges.append({"specifier": qualified, "names": names})
+    own = _JVM_PACKAGE.search(_JVM_NOISE.sub(" ", content))
+    own_package = own.group(1).replace("`", "") if own else None
+    edges.extend(_jvm_wildcard_edges(content, edges, own_package))
     return edges
+
+
+def _jvm_wildcard_edges(content: str, explicit: list[dict], own_package: Optional[str] = None) -> list[dict]:
+    """(#1375) The edges a wildcard import stands for.
+
+    ``import static a.b.C.*`` is an edge to ``a.b.C``, the class whose members
+    it imports. ``import a.b.*`` names a package, and every resolver consumer
+    maps ONE specifier to ONE file, so it becomes one ``a.b.Name`` edge per
+    type name the file uses, each marked ``wildcard: "a.b.*"``. Resolution
+    keeps the names the package declares and drops the rest (``String``,
+    ``Override``) against the file set at query time, so a class added to the
+    package later resolves without re-parsing this file.
+
+    A name the file imports explicitly, or declares itself, is not a wildcard
+    edge: both shadow the wildcard in Java and Kotlin.
+
+    (#1377) The file's own package is an implicit `import <package>.*`:
+    same-package classes use each other with no import line, so without
+    these edges `find_dead_code` read a class used only by its package as
+    dead. They are marked `same_package` as well as `wildcard`, so every
+    consumer that drops a dead wildcard edge drops these the same way. Only
+    capitalised type names are read; a Kotlin top-level function used from
+    the same package is not an edge.
+    """
+    found = list(_JAVA_WILDCARD_IMPORT.finditer(content))
+    if not found and not own_package:
+        return []
+    edges: list[dict] = []
+    packages: list[str] = []
+    for m in found:
+        if m.group(1):
+            edges.append({"specifier": m.group(2), "names": []})
+        elif m.group(2) not in packages:
+            packages.append(m.group(2))
+    if own_package and own_package not in packages:
+        packages.append(own_package)
+    if not packages:
+        return edges
+    body = _JVM_NOISE.sub(" ", content)
+    shadowed = {n for e in explicit for n in e["names"]}
+    shadowed.update(_JVM_DECLARED_TYPE.findall(body))
+    names: list[str] = []
+    seen: set[str] = set()
+    for line in body.splitlines():
+        if line.lstrip().startswith(("import ", "package ")):
+            continue
+        for n in _JVM_TYPE_NAME.findall(line):
+            if n not in seen and n not in shadowed and not _JVM_CONSTANT.match(n):
+                seen.add(n)
+                names.append(n)
+    for pkg in packages:
+        for n in names:
+            edge = {"specifier": f"{pkg}.{n}", "names": [n], "wildcard": f"{pkg}.*"}
+            if pkg == own_package:
+                edge["same_package"] = True
+            edges.append(edge)
+    return edges
+
+
+def wildcard_edge_filter(index):
+    """(#1375) A predicate ``(imp, importer_path) -> bool``: True for a dead wildcard edge.
+
+    The file set is frozen once, on the first wildcard edge, so a caller that
+    walks every import of a repository with no wildcard pays nothing for it.
+    An index with no file set cannot say an edge is dead, so it keeps every one.
+    """
+    frozen: list = []
+
+    def dead(imp: dict, importer_path: str) -> bool:
+        if not imp.get("wildcard"):
+            return False
+        if not frozen:
+            files = getattr(index, "source_files", None)
+            frozen.append(None if files is None else frozenset(files))
+        if frozen[0] is None:
+            return False
+        return is_unresolved_wildcard_edge(imp, importer_path, frozen[0])
+
+    return dead
+
+
+def is_unresolved_wildcard_edge(imp: dict, importer_path: str, source_files) -> bool:
+    """(#1375) True for a wildcard edge whose class the package does not declare.
+
+    `import a.b.*` is stored as one `a.b.Name` edge per type name the file
+    uses; `a.b.String` resolves to nothing and is no import of `String`. A
+    tool that matches edges by name without resolving them (find_references,
+    check_references, plan_refactoring) skips these, or it would list every
+    wildcard importer as importing `String`. `source_files` is the index's
+    frozenset, built once per call by the caller.
+    """
+    if not imp.get("wildcard"):
+        return False
+    return resolve_specifier(imp.get("specifier", ""), importer_path, source_files) is None
 
 
 def _extract_rust_imports(content: str) -> list[dict]:
@@ -1612,6 +1746,81 @@ def _extract_aspx_imports(content: str) -> list[dict]:
     return edges
 
 
+_XAML_SUFFIX = ".xaml"
+# A C# code-behind sits beside its view as `<view>.xaml.cs`. A VB code-behind
+# (`.xaml.vb`) is not linked: an edge per language doubles every name match in
+# the reference tools, and the extractor cannot see which file exists.
+_XAML_CODE_BEHIND_SUFFIX = ".cs"
+_XAML_CLASS = re.compile(r"""\bx:Class\s*=\s*(?:"([^"]*)"|'([^']*)')""")
+_XML_COMMENT = re.compile(r"<!--.*?-->", re.DOTALL)
+# An event attribute, by its last dotted segment (`Click`, `TextChanged`,
+# `Mouse.MouseDown`, `PreviewKeyDown`, MAUI's `Clicked`). XAML has no marker for
+# an event, so the name's ending is the evidence; `Handler` is an EventSetter's.
+_XAML_EVENT_ATTR = re.compile(
+    r"(?:[A-Z]\w*)?(?:Click|Clicked|Changed|Changing|Loaded|Unloaded|Loading|"
+    r"Opened|Opening|Closed|Closing|Checked|Unchecked|Indeterminate|Pressed|"
+    r"Released|Tapped|Holding|Entered|Exited|Enter|Leave|Down|Up|Move|Moved|"
+    r"Wheel|Drop|Over|Executed|Activated|Deactivated|Focus|Focused|Unfocused|"
+    r"Completed|Started|Requested|Initialized|Invoked|Toggled|Selected|"
+    r"Unselected|Scroll|Scrolled|Expanded|Collapsed|Appearing|Disappearing|"
+    r"Input|Navigated|Navigating|Rendered|Updated|Error|Failed)|Handler"
+)
+# Boolean and capability properties that end like an event (`IsChecked`,
+# `IsSelected`, `CanContentScroll`, `AllowDrop`).
+_XAML_PROPERTY_PREFIXES = ("Is", "Can", "Has", "Allow")
+# A value no method can carry; a Binding's `NotifyOnSourceUpdated="True"` ends
+# like an event.
+_XAML_LITERALS = frozenset({"true", "false"})
+
+
+def _xaml_handler_names(content: str) -> list[str]:
+    """Method names wired to event attributes in XAML markup.
+
+    Only an event-shaped attribute names a handler, the Web Forms rule
+    (`_aspx_handler_names` reads `On*=` only): a layout value
+    (`HorizontalAlignment="Center"`) or button text (`Content="OK"`) would
+    otherwise ride on the edge as an imported name, and `find_references`,
+    `check_references` and `get_tectonic_map` match edge names repo-wide.
+    Namespaced attributes, markup extensions (`{Binding X}`) and commented-out
+    elements name nothing.
+    """
+    found: list[str] = []
+    seen: set[str] = set()
+    for raw in _aspx_tags(_XML_COMMENT.sub(" ", content)):
+        if raw.startswith(("</", "<?", "<!")):
+            continue
+        for attr_name, value in _aspx_attr_pairs(_ASPX_TAG_ATTR, raw):
+            if ":" in attr_name:
+                continue
+            event = attr_name.rsplit(".", 1)[-1]
+            if event.startswith(_XAML_PROPERTY_PREFIXES) or not _XAML_EVENT_ATTR.fullmatch(event):
+                continue
+            value = value.strip()
+            if (not _ASPX_HANDLER_NAME.match(value) or value.lower() in _XAML_LITERALS
+                    or value in seen):
+                continue
+            seen.add(value)
+            found.append(value)
+    return found
+
+
+def _extract_xaml_imports(content: str, file_path: str) -> list[dict]:
+    """An edge from a XAML view to its code-behind, carrying the class and handler names (L-202).
+
+    Only a view with `x:Class` has a code-behind; a resource dictionary or an
+    `App.xaml` without one gets no edge. The names are what keep markup-wired
+    handlers off the dead-code lists, the Web Forms `markup_event` edge's twin.
+    """
+    m = _XAML_CLASS.search(content)
+    if not m:
+        return []
+    cls = (m.group(1) or m.group(2) or "").strip().rsplit(".", 1)[-1]
+    names = sorted({cls, *_xaml_handler_names(content)} - {""})
+    base = posixpath.basename(file_path.replace("\\", "/"))
+    return [{"specifier": base + _XAML_CODE_BEHIND_SUFFIX, "names": names,
+             "xaml_binding": "code_behind"}]
+
+
 def _extract_astro_imports(content: str) -> list[dict]:
     """Extract imports from Astro frontmatter + synthetic template usage edges."""
     frontmatter, template_body, _, _ = split_astro_frontmatter(content)
@@ -2022,6 +2231,10 @@ def extract_imports(content: str, file_path: str, language: str,
             return []
 
     extractor = _LANGUAGE_EXTRACTORS.get(language)
+    # XAML is indexed as `xml`, which has no extractor of its own: only a
+    # `.xaml` view has a code-behind to point at (L-202).
+    if extractor is None and language == "xml" and file_path.lower().endswith(_XAML_SUFFIX):
+        extractor = lambda c: _extract_xaml_imports(c, file_path)  # noqa: E731
     if extractor is None:
         return []
     try:
@@ -2045,6 +2258,41 @@ _JS_EXTENSIONS = (
 _PY_EXTENSIONS = (".py",)
 _RUBY_EXTENSIONS = (".rb",)
 _ALL_EXTENSIONS = _JS_EXTENSIONS + _PY_EXTENSIONS + _RUBY_EXTENSIONS + (".go",)
+# (#1316) The file forms `_candidates` tries, by the importer's own extension:
+# a suffix, or (for Python) a package folder's `__init__.py`. JavaScript is
+# first in `_candidates`' order already, so only the others need trying ahead
+# of it. ⚠ Go is deliberately absent: a Go import names a package DIRECTORY, so
+# preferring a `util.go` file over `util.js` would rank one wrong file over
+# another.
+# Every extension `languages.py` maps to Ruby: a `.rake` file requires `.rb`
+# files the same way (L-294 review). A test binds this to that table.
+_RUBY_IMPORTERS = (".rb", ".rake")
+_OWN_FIRST_GROUPS = {
+    **{e: (".py", "/__init__.py") for e in (".py", ".pyi")},
+    **{e: _RUBY_EXTENSIONS for e in _RUBY_IMPORTERS},
+}
+
+
+# (L-294) Importers whose language loads only its own forms: a Ruby `require`
+# of an extensionless name reads `.rb` (or a compiled extension, which is not
+# indexed), never a `.py` or `.js` file. For these `_candidates` stops after
+# the own forms, so a missing `.rb` file is no edge rather than an edge to a
+# file Ruby cannot load. Keyed by the forms tuple `_own_forms` returns.
+_OWN_FORMS_ONLY = frozenset({_RUBY_EXTENSIONS})
+
+
+def _own_forms(importer_path: str) -> tuple[str, ...]:
+    """The file forms an importer's own language reads, to try first (#1316).
+
+    `_candidates` adds every known extension in one fixed order, JavaScript
+    then `.py` then `.rb`, so `require_relative '../measure'` from a Ruby file
+    took `measure.py` over the `measure.rb` beside it, and a Python `import
+    utils` (or `from .utils import x`, or `import app.utils`) took `utils.js`.
+    Empty for every other importer, whose order is unchanged.
+    """
+    return _OWN_FIRST_GROUPS.get(posixpath.splitext(importer_path or "")[1], ())
+
+
 _RACKET_EXTENSIONS = (".rkt", ".rktl", ".rktd")
 
 # TypeScript's ESM rules require the specifier to name the EMITTED file, so a
@@ -2180,8 +2428,14 @@ def _sql_stems_for(key: frozenset) -> dict[str, str]:
     return stems
 
 
-def _candidates(base: str) -> list[str]:
+def _candidates(base: str, own: tuple[str, ...] = ()) -> list[str]:
     """Generate path candidates with and without extension.
+
+    ``own`` is `_own_forms(importer)`: for an extensionless or dotted-stem
+    *base* those forms come right after *base* itself, ahead of the fixed
+    JavaScript-first order (#1316). Every caller that knows its importer
+    passes it, so a new call site inherits the rule. For a language in
+    `_OWN_FORMS_ONLY` (Ruby) nothing else is tried (L-294).
 
     Cases:
     - No extension (`./foo`): try every known source extension and the
@@ -2197,6 +2451,10 @@ def _candidates(base: str) -> list[str]:
     """
     cands = [base]
     _, ext = posixpath.splitext(base)
+    if own and (not ext or (ext not in _ALL_EXTENSIONS and ext not in _JS_SPECIFIER_REWRITES)):
+        cands.extend(base + e for e in own)
+        if own in _OWN_FORMS_ONLY:
+            return cands
     if not ext:
         for e in _ALL_EXTENSIONS:
             cands.append(base + e)
@@ -2319,6 +2577,409 @@ def _gleam_source_roots(source_files) -> tuple[str, ...]:
     return result
 
 
+# (#1374) JVM imports. A `.kts` file (a Gradle script) imports classes but is
+# not one, so it is an importer and never a target. Java and Kotlin import each
+# other freely, so both target extensions are tried for every JVM importer.
+_JVM_IMPORTER_EXTENSIONS = (".java", ".kt", ".kts")
+_JVM_TARGET_EXTENSIONS = (".java", ".kt")
+_JVM_SOURCE_DIRS = ("java", "kotlin")
+
+# Cache: frozenset(source_files) -> {class path: ((file, module), ...)}.
+# Same keying rationale as _python_roots_cache, bounded like the specifier memo
+# because the class map holds an entry per JVM file, and read and written
+# under _TAIL_MEMO_LOCK as the memos are: graph tools run on worker threads,
+# and an unlocked evict beside a clear raises inside the tool.
+_jvm_layout_cache: dict[frozenset, dict] = {}
+# (#1377) frozenset(source_files) -> the class-path directories that hold a
+# JVM file, i.e. the packages. Same keying, bound and lock as the class map.
+_jvm_package_cache: dict[frozenset, frozenset] = {}
+
+
+def _jvm_split(path: str) -> tuple[Optional[str], Optional[str], str]:
+    """``(source root, module dir, path below the root)`` for a JVM file path.
+
+    A Maven or Gradle source root is ``<module>/src/<sourceSet>/java`` or
+    ``.../kotlin`` (``<module>`` may be empty, or several directories deep).
+    The first such run from the left is the root. A file under none has root
+    and module None and its whole path is the class path (the repo-root layout).
+    """
+    parts = path.split("/")
+    for i in range(len(parts) - 3):
+        if parts[i] == "src" and parts[i + 2] in _JVM_SOURCE_DIRS:
+            return "/".join(parts[: i + 3]), "/".join(parts[:i]), "/".join(parts[i + 3 :])
+    return None, None, path
+
+
+def _jvm_classes(source_files) -> dict:
+    """Map each class path (``a/b/C``) to the JVM files that declare it, once per file set.
+
+    The class path is the file's path below its Maven or Gradle source root
+    (``_jvm_split``), or its whole path for a file under none.
+    """
+    cache_key = source_files if isinstance(source_files, frozenset) else frozenset(source_files)
+    with _TAIL_MEMO_LOCK:
+        cached = _jvm_layout_cache.get(cache_key)
+    if cached is not None:
+        return cached
+
+    classes: dict[str, list[tuple[str, Optional[str]]]] = {}
+    for f in source_files:
+        if not f.endswith(_JVM_TARGET_EXTENSIONS):
+            continue
+        _, module, below = _jvm_split(f)
+        stem = below.rsplit(".", 1)[0]
+        classes.setdefault(stem, []).append((f, module))
+
+    result = {k: tuple(v) for k, v in classes.items()}
+    with _TAIL_MEMO_LOCK:
+        if cache_key not in _jvm_layout_cache and len(_jvm_layout_cache) >= _TAIL_MEMO_MAX:
+            _jvm_layout_cache.pop(next(iter(_jvm_layout_cache)), None)
+        _jvm_layout_cache[cache_key] = result
+    return result
+
+
+def _jvm_packages(source_files) -> frozenset:
+    """(#1377) The class-path directories that hold a JVM file, once per file set."""
+    cache_key = source_files if isinstance(source_files, frozenset) else frozenset(source_files)
+    with _TAIL_MEMO_LOCK:
+        cached = _jvm_package_cache.get(cache_key)
+    if cached is not None:
+        return cached
+    result = frozenset(posixpath.dirname(k) for k in _jvm_classes(cache_key))
+    with _TAIL_MEMO_LOCK:
+        if cache_key not in _jvm_package_cache and len(_jvm_package_cache) >= _TAIL_MEMO_MAX:
+            _jvm_package_cache.pop(next(iter(_jvm_package_cache)), None)
+        _jvm_package_cache[cache_key] = result
+    return result
+
+
+def _resolve_jvm_import(specifier: str, importer_path: str, source_files) -> Optional[str]:
+    """Resolve a Java or Kotlin import to the file that declares the class.
+
+    ``a.b.C`` names ``a/b/C.java`` or ``a/b/C.kt`` under any source root, or at
+    the repo root. When the full name matches no file, trailing segments are
+    dropped, down to two: that is ``import static a.b.C.member`` and a nested
+    class ``a.b.Outer.Inner``, both of which live in the outer class's file.
+    Among several matches the importer's own module wins, then its own
+    language, then the path. A JDK or library name matches nothing, so None.
+
+    (#1377) A shorter name reached by dropping segments is skipped when it is
+    also a package: ``a.b.util.String`` names something IN the ``a/b/util/``
+    package, never in a sibling file ``a/b/util.kt``. Without this a wildcard
+    or same-package edge to a JDK name resolved to that file.
+    """
+    if not specifier or "/" in specifier or "\\" in specifier:
+        return None
+    segments = specifier.split(".")
+    if not all(segments):
+        return None
+    classes = _jvm_classes(source_files)
+    _, own_module, _ = _jvm_split(importer_path)
+    if own_module is None:
+        own_module = posixpath.dirname(importer_path)
+    own_ext = ".java" if importer_path.endswith(".java") else ".kt"
+    packages: Optional[frozenset] = None
+    for n in range(len(segments), 1, -1):
+        path = "/".join(segments[:n])
+        hits = classes.get(path)
+        if hits and n < len(segments):
+            if packages is None:
+                packages = _jvm_packages(source_files)
+            if path in packages:
+                continue
+        if hits:
+            best = min(
+                hits,
+                key=lambda h: (h[1] != own_module, not h[0].endswith(own_ext), h[0]),
+            )
+            return best[0]
+    return None
+
+
+# (#1376) The key that marks an edge `augment_jvm_declaration_edges` added. Its
+# value is the specifier the import wrote, so the edge can be traced back.
+JVM_DECLARED_EDGE_KEY = "declared_by"
+
+
+def augment_jvm_declaration_edges(imports: dict, symbols, source_files) -> int:
+    """(#1376) Add an edge to the file that declares a top-level name a JVM import names.
+
+    `import com.acme.app.mapper.buildSnapshot` imports a top-level Kotlin
+    function from `SnapshotMapper.kt`, and one Kotlin file can declare several
+    classes, so the name is often not a file name and `_resolve_jvm_import`
+    finds nothing. When it finds nothing, the specifier minus its last segment
+    names a package directory below a source root, and the last segment names
+    a top-level declaration (no parent) in a `.kt` or `.java` file there. A
+    nested name (`pkg.Extra.Inner`) drops trailing segments as the resolver does.
+
+    The edge the import wrote is kept, and one is ADDED whose specifier is the
+    declaring file's class path, which `resolve_specifier` matches directly:
+    the Racket collection-path shape, so the resolver stays path-only and its
+    call sites keep their single-target contract. Added edges carry
+    `JVM_DECLARED_EDGE_KEY` and are removed and derived again on every call,
+    so a declaration that moved to another file moves its edge on the next
+    load. Runs at every `CodeIndex` construction. Returns the number added.
+    """
+    if not imports:
+        return 0
+    fs = source_files if isinstance(source_files, frozenset) else frozenset(source_files)
+    # (class-path dir, name) -> files that declare it. Each file's module,
+    # class path and language are worked out once here, not per import.
+    declared: dict[tuple[str, str], list[str]] = {}
+    file_info: dict[str, tuple[Optional[str], str, bool]] = {}
+
+    def _info(f: str) -> tuple[Optional[str], str, bool]:
+        got = file_info.get(f)
+        if got is None:
+            _, module, below = _jvm_split(f)
+            got = (module, below, f.endswith(".java"))
+            file_info[f] = got
+        return got
+
+    # Java reaches a Kotlin file's top-level declarations through the class the
+    # compiler generates for the file, `<Stem>Kt` (`import a.b.SnapshotMapperKt;`
+    # or `import static a.b.SnapshotMapperKt.buildSnapshot;`). A file renamed
+    # with `@file:JvmName` is not seen.
+    for f in fs:
+        if f.endswith(".kt"):
+            below = _info(f)[1]
+            stem = posixpath.basename(below)[: -len(".kt")]
+            declared.setdefault((posixpath.dirname(below), stem + "Kt"), []).append(f)
+    for s in symbols or ():
+        f = s.get("file") or ""
+        if s.get("parent") or not f.endswith(_JVM_TARGET_EXTENSIONS) or f not in fs:
+            continue
+        name = s.get("name") or ""
+        if not name:
+            continue
+        declared.setdefault((posixpath.dirname(_info(f)[1]), name), []).append(f)
+    # (target, importer module, importer is Java) -> the file the resolver binds
+    # it to: the same few targets come back for many importers.
+    bound: dict[tuple[str, Optional[str], bool], Optional[str]] = {}
+    added = 0
+    for importer, edges in imports.items():
+        if not edges or not importer.endswith(_JVM_IMPORTER_EXTENSIONS):
+            continue
+        kept = written_imports(edges)
+        if len(kept) != len(edges):
+            edges[:] = kept
+        if not declared:
+            continue
+        present = {e.get("specifier") for e in edges}
+        _, own_module, _ = _jvm_split(importer)
+        if own_module is None:
+            own_module = posixpath.dirname(importer)
+        own_java = importer.endswith(".java")
+        new: dict[str, dict] = {}
+        for e in edges:
+            spec = e.get("specifier") or ""
+            if not spec or spec.startswith(".") or "/" in spec or "\\" in spec:
+                continue
+            segments = spec.split(".")
+            if len(segments) < 2 or not all(segments):
+                continue
+            # A name the resolver already binds needs no derived edge. Ask the
+            # resolver itself: a copy of its rule drifted from it once (#1377,
+            # a dropped-segment name that is also a package resolves to nothing).
+            if _resolve_jvm_import(spec, importer, fs) is not None:
+                continue
+            for n in range(len(segments), 1, -1):
+                hits = declared.get(("/".join(segments[: n - 1]), segments[n - 1]))
+                if not hits:
+                    continue
+                ranked = sorted(
+                    set(hits),
+                    key=lambda h: (_info(h)[0] != own_module, _info(h)[2] != own_java, h),
+                )
+                for best in ranked:
+                    if best == importer:
+                        continue
+                    target = _info(best)[1].rsplit(".", 1)[0].replace("/", ".")
+                    # ⚠ The added specifier must resolve back to the file that
+                    # declares the name. The resolver picks among the files
+                    # sharing the class path, which can be another module's
+                    # file of the same name, or a `.java` file beside a Kotlin
+                    # facade's `.kt`. Such a target is skipped, not bound.
+                    key = (target, own_module, own_java)
+                    if key not in bound:
+                        bound[key] = _resolve_jvm_import(target, importer, fs)
+                    if bound[key] != best:
+                        continue
+                    if target in new:
+                        names = new[target]["names"]
+                        names.extend(x for x in (e.get("names") or []) if x not in names)
+                    elif target not in present:
+                        edge = {k: v for k, v in e.items() if k != "specifier"}
+                        edge["specifier"] = target
+                        edge["names"] = list(e.get("names") or [])
+                        edge[JVM_DECLARED_EDGE_KEY] = spec
+                        new[target] = edge
+                        added += 1
+                    break
+                break
+        if new:
+            edges.extend(new.values())
+    return added
+
+
+def written_imports(edges: list) -> list:
+    """(#1376) The import edges a file wrote, without the ones derived at the index.
+
+    A derived edge is computed from the whole index's symbols each time a
+    `CodeIndex` is built, so storing one would freeze it: an incremental save
+    rewrites only the changed files' rows, and a stored edge to a declaration
+    that has since moved would be served by any reader that skips the
+    re-derivation. Every write of `files.imports` goes through this.
+    """
+    if not edges:
+        return edges
+    if not any(k in e for e in edges for k in _DERIVED_EDGE_KEYS):
+        return edges
+    return [e for e in edges if not any(k in e for k in _DERIVED_EDGE_KEYS)]
+
+
+# (L-264) The key that marks an edge `augment_go_module_edges` added. Its value
+# is the module path the import wrote, so the edge can be traced back.
+GO_MODULE_EDGE_KEY = "go_module_of"
+
+# A `module` directive: `module github.com/x/y`, optionally quoted, optionally
+# followed by a `//` comment.
+_GO_MODULE_LINE = re.compile(r'^\s*module\s+"?([^\s"]+)"?\s*(?://.*)?$', re.M)
+
+
+def go_modules(source_root: str, source_files) -> dict[str, str]:
+    """Map each Go module path to its directory, read from the `go.mod` files.
+
+    `go.mod` is not an indexed file, so it is read from disk. Only the
+    directories that hold `.go` files, and their ancestors, are looked at: a
+    module with no Go file is reached by no import. The directory is
+    root-relative POSIX, `""` for the root. A `go.mod` that cannot be read, or
+    has no `module` line, adds nothing.
+    """
+    if not source_root:
+        return {}
+    dirs: set[str] = set()
+    for f in source_files:
+        if f.endswith(".go"):
+            d = posixpath.dirname(f)
+            while d not in dirs:
+                dirs.add(d)
+                if not d:
+                    break
+                d = posixpath.dirname(d)
+    root = Path(source_root)
+    modules: dict[str, str] = {}
+    for d in sorted(dirs):
+        gomod = root / d / "go.mod" if d else root / "go.mod"
+        try:
+            text = gomod.read_text("utf-8", errors="replace")
+        except OSError:
+            continue
+        m = _GO_MODULE_LINE.search(text)
+        if m and m.group(1) not in modules:
+            modules[m.group(1)] = d
+    return modules
+
+
+def augment_go_module_edges(
+    imports: dict, source_root: str, source_files, modules: Optional[dict[str, str]] = None
+) -> int:
+    """(L-264) Add an edge from a Go import by module path to the package it names.
+
+    `import "github.com/gin-gonic/gin/binding"` in gin's `context.go` names
+    the `binding/` directory of the module `go.mod` declares as
+    `github.com/gin-gonic/gin`. The resolver reads no `go.mod`, so the import
+    reached no file, and every file of an in-module package showed zero
+    importers.
+
+    The edge the import wrote is kept, and one is ADDED to one `.go` file of
+    the package's directory: the Kotlin declaration shape, so the resolver
+    stays path-only and its call sites keep their single-target contract. A
+    package is a directory, and one file stands for it: the non-test file
+    named after the directory if there is one, else the first non-test file
+    by name. Reaching the rest of the package is the readers' job
+    (`find_dead_code` treats the package as the unit; `with_same_package_peers`
+    adds the peers for the callers and blast-radius walks).
+
+    ⚠ Only a path under a module declared in this tree is read: the standard
+    library (`errors`) and a dependency (`github.com/gin-contrib/sse`) name
+    no directory here, and matching them by their last segment would give a
+    same-named directory importers it does not have. A path that merely
+    starts with the module's text (`.../ginx`) is not under it. The longest
+    module path wins, so a nested module's own `go.mod` decides for its tree.
+
+    Added edges carry `GO_MODULE_EDGE_KEY` and are removed and derived again
+    on every call, and `written_imports` keeps them out of storage, so a
+    package that moved moves its edge on the next load. Runs at every
+    `CodeIndex` construction. Returns the number added.
+    """
+    if not imports:
+        return 0
+    go_files = [f for f in source_files if f.endswith(".go")]
+    if not go_files:
+        return 0
+    if modules is None:
+        modules = go_modules(source_root, go_files)
+    by_dir: dict[str, list[str]] = {}
+    for f in sorted(go_files):
+        by_dir.setdefault(posixpath.dirname(f), []).append(f)
+    # Longest module path first, so a nested module is asked before its parent.
+    ordered = sorted(modules.items(), key=lambda kv: -len(kv[0]))
+
+    def _package_file(d: str) -> Optional[str]:
+        files = by_dir.get(d)
+        if not files:
+            return None
+        # A directory of `_test.go` files alone is no importable package.
+        plain = [f for f in files if not f.endswith("_test.go")]
+        if not plain:
+            return None
+        named = f"{d}/{posixpath.basename(d)}.go" if d else None
+        if named in plain:
+            return named
+        return plain[0]
+
+    added = 0
+    for importer, edges in imports.items():
+        if not edges or not importer.endswith(".go"):
+            continue
+        kept = [e for e in edges if GO_MODULE_EDGE_KEY not in e]
+        if len(kept) != len(edges):
+            edges[:] = kept
+        if not ordered:
+            continue
+        present = {e.get("specifier") for e in edges}
+        importer_dir = posixpath.dirname(importer)
+        new: dict[str, dict] = {}
+        for e in edges:
+            spec = e.get("specifier") or ""
+            if not spec or spec.startswith("."):
+                continue
+            for module, mod_dir in ordered:
+                if spec == module:
+                    rest = ""
+                elif spec.startswith(module + "/"):
+                    rest = spec[len(module) + 1:]
+                else:
+                    continue
+                pkg_dir = posixpath.join(mod_dir, rest) if mod_dir and rest else (mod_dir or rest)
+                target = _package_file(pkg_dir)
+                if target and posixpath.dirname(target) != importer_dir:
+                    rel = posixpath.relpath(target, importer_dir or ".")
+                    rel = rel if rel.startswith("../") else "./" + rel
+                    if rel not in new and rel not in present:
+                        new[rel] = {"specifier": rel, "names": [], GO_MODULE_EDGE_KEY: spec}
+                        added += 1
+                break
+        if new:
+            edges.extend(new.values())
+    return added
+
+
+# Every key an index-time augmentation marks its added edges with.
+_DERIVED_EDGE_KEYS = (JVM_DECLARED_EDGE_KEY, GO_MODULE_EDGE_KEY)
+
+
 def _python_package_parents(source_files) -> dict[str, tuple[str, ...]]:
     """Map every package basename to the parent dirs where it appears.
 
@@ -2431,12 +3092,23 @@ def _norm_alias_replacement(rep: str, tsconfig_dir_rel: str = "") -> str:
         return (base + "/*") if is_wildcard else base
 
 
-def _load_tsconfig_aliases(source_root: str) -> dict[str, list[str]]:
+def _load_tsconfig_aliases(
+    source_root: str, known_files: "Optional[Iterable[str]]" = None
+) -> dict[str, list[str]]:
     """Read tsconfig.json / jsconfig.json path aliases for a project root.
 
     Returns a dict mapping tsconfig pattern strings (e.g. ``"@/*"``) to lists
     of normalized replacement strings (e.g. ``["src/*"]``).  All replacements
     are repo-root-relative.  Results are module-level cached by source_root.
+
+    ``known_files`` is a complete list of the repo's files (an index's own
+    ``source_files``) when the caller has one. If it names no tsconfig or
+    jsconfig file, the tree walk is skipped: on a repo with none it read
+    every directory to depth 5 and found nothing, and every cold load paid
+    for it. ⚠ Pass it only when the list is whole; ``None``
+    keeps the walk. ⚠⚠ A skipped walk is never cached: the cache is keyed by
+    ``source_root`` alone, so a result read off an old file list would answer
+    a later load whose list now names a tsconfig.
     """
     if not source_root:
         return {}
@@ -2543,11 +3215,19 @@ def _load_tsconfig_aliases(source_root: str) -> dict[str, list[str]]:
         except PermissionError:
             pass
 
+    if known_files is not None and not any(_is_tsconfig_name(f) for f in known_files):
+        return alias_map  # walk skipped: not cached, see above
     _walk_tsconfigs(root, 0)
 
     with _ALIAS_MAP_LOCK:
         _alias_map_cache[source_root] = alias_map
     return alias_map
+
+
+def _is_tsconfig_name(rel_path: str) -> bool:
+    """True for a file the tsconfig walk would read: ``tsconfig*.json`` or ``jsconfig*.json``."""
+    base = rel_path.replace("\\", "/").rsplit("/", 1)[-1]
+    return base.endswith(".json") and (base.startswith("tsconfig") or base.startswith("jsconfig"))
 
 
 def _expand_aliases(specifier: str, alias_map: dict[str, list[str]]) -> list[str]:
@@ -2725,7 +3405,56 @@ def _resolve_python_relative(
     if not base:
         return None
 
-    for candidate in _candidates(base):
+    for candidate in _candidates(base, _own_forms(importer_path)):
+        if candidate in source_files:
+            return candidate
+    return None
+
+
+# Folders tried as include roots after the importer's folder and the repo root,
+# when the header is there. The real roots live in the build files
+# (`include_directories`, `-I`), which are not read; these two cover the
+# common layouts (#1315: OpenStudio puts its root at `src/`).
+_C_INCLUDE_ROOTS = ("include", "src")
+
+
+@functools.lru_cache(maxsize=8192)
+def _is_c_family_importer(importer_path: str) -> bool:
+    """True when the importer's language reads its imports as `#include`.
+
+    ⚠ Asks the two authorities instead of listing extensions: the path's
+    language (which settles `.m` between Objective-C and MATLAB) and whether
+    that language's extractor is `_extract_c_imports`. A language added to the
+    C family later inherits the rule. ⚠ Cached by path (the language lookup is
+    most of a resolve's cost without it); `clear_resolution_caches` clears it,
+    so a change to the extension table is seen after `invalidate_cache`.
+    """
+    from .languages import get_language_for_path
+
+    try:
+        lang = get_language_for_path(importer_path)
+    except Exception:
+        logger.debug("language not found for %s", importer_path, exc_info=True)
+        return False
+    return lang is not None and _LANGUAGE_EXTRACTORS.get(lang) is _extract_c_imports
+
+
+def _resolve_c_include(specifier: str, importer_path: str, source_files: set[str]) -> Optional[str]:
+    """Where a compiler finds `#include "spec"` or `#include <spec>` (#1315).
+
+    Order: the importer's folder, the repo root, then `include/` and `src/`.
+    ⚠ The stored edge keeps the path text only, not the quotes or brackets, so
+    an angle include is tried in the importer's folder too, which a compiler
+    does only for a quoted one. That can link `<config.h>` to a `config.h`
+    beside the importer when the one meant is elsewhere.
+    ⚠ The name is matched EXACTLY: an include always names the whole file, and
+    adding other languages' extensions would link `#include <vector>` to a
+    `vector.py` in the same folder.
+    """
+    importer_dir = posixpath.dirname(importer_path)
+    bases = [importer_dir, ""] + [r for r in _C_INCLUDE_ROOTS if r != importer_dir]
+    for base in bases:
+        candidate = posixpath.normpath(posixpath.join(base, specifier)) if base else posixpath.normpath(specifier)
         if candidate in source_files:
             return candidate
     return None
@@ -2757,6 +3486,49 @@ def resolve_specifier(
     Returns:
         The matching source file path, or None if unresolvable.
     """
+    # (#1317) The whole answer is memoized per file set, alias map and PSR-4
+    # map, keyed by importer and specifier: every graph tool resolves every
+    # import of the repository on every call, and the answer is a pure function
+    # of these five arguments. A builder that passes the index's own frozenset
+    # inherits it; a plain set is resolved as before.
+    memo = _answer_memo(source_files, alias_map, psr4_map)
+    if memo is None:
+        return _resolve_specifier_uncached(specifier, importer_path, source_files, alias_map, psr4_map)
+    key = (importer_path, specifier)
+    hit = memo.get(key, _TAIL_MISS)
+    if hit is _TAIL_MISS:
+        hit = _resolve_specifier_uncached(specifier, importer_path, source_files, alias_map, psr4_map)
+        memo[key] = hit
+    return hit
+
+
+def _resolve_specifier_uncached(
+    specifier: str,
+    importer_path: str,
+    source_files: set[str],
+    alias_map: Optional[dict[str, list[str]]] = None,
+    psr4_map: Optional[dict[str, str]] = None,
+) -> Optional[str]:
+    """`resolve_specifier` without the memo; see its docstring."""
+    # C, C++, Objective-C and Arduino `#include` (#1315). ⚠ A miss returns None
+    # and does NOT fall through: the later steps read the name as another
+    # language would (added extensions, SQL stems, Python module paths), and an
+    # include names a whole file, so they could only invent an edge
+    # (`<vector>` to `vector.py`, `"config.h"` to `config/h.py`). The one thing
+    # they found correctly, the file at the repo root, is a base tried here.
+    # An edge can MOVE: a header beside the importer now wins over one of the
+    # same name at the root, which is the one the compiler picks.
+    if not specifier.startswith(".") and _is_c_family_importer(importer_path):
+        return _resolve_c_include(specifier, importer_path, source_files)
+
+    # Java and Kotlin `import a.b.C` (#1374). ⚠ Gated on the IMPORTER's
+    # extension, and a miss returns None without falling through, the C-family
+    # rule: the later steps read a dotted name as a Python module path and try
+    # every JavaScript, Python and Ruby extension, so `java.util.List` bound a
+    # `java/util/List.ts` while a real `Hosts.java` resolved to nothing.
+    if importer_path.endswith(_JVM_IMPORTER_EXTENSIONS) and not specifier.startswith("."):
+        return _resolve_jvm_import(specifier, importer_path, source_files)
+
     # Relative import
     if specifier.startswith("."):
         # Python's relative form is NOT a path. `..parser.fqn` means "up one
@@ -2783,7 +3555,7 @@ def resolve_specifier(
 
         importer_dir = posixpath.dirname(importer_path)
         joined = posixpath.normpath(posixpath.join(importer_dir, specifier))
-        for c in _candidates(joined):
+        for c in _candidates(joined, _own_forms(importer_path)):
             if c in source_files:
                 return c
         return None
@@ -2834,6 +3606,15 @@ def resolve_specifier(
     # Namespace="Utils" %>` bound an unrelated `utils.js` in any ancestor
     # directory, and `check_delete_safe` blocked that file's deletion as final
     # (review of #1012). A namespace resolves to nothing, here or below.
+    # A XAML code-behind is the view's sibling and nothing else: climbing like
+    # Web Forms would bind a same-named file in an ancestor (L-202).
+    if importer_path.lower().endswith(_XAML_SUFFIX):
+        joined = posixpath.normpath(
+            posixpath.join(posixpath.dirname(importer_path), specifier)
+        )
+        if joined in source_files:
+            return joined
+        return _lowercase_paths(source_files).get(joined.lower())
     if not specifier.startswith((".", "/")) and importer_path.lower().endswith(
         _ASPX_MARKUP_SUFFIXES
     ):
@@ -2895,13 +3676,17 @@ def resolve_specifier(
     # map alone, so it is computed once per specifier and file set: the
     # import-graph builders resolve every import of every file, and a large
     # repository repeats the same specifiers across thousands of files.
+    # ⚠ (#1316) The answer also depends on the importer's language group
+    # (`_own_forms`), so the memo key carries it: a Ruby answer cached first
+    # must not be served to a Python importer of the same name.
     if not importer_path.endswith(".gleam"):
         memo = _tail_memo(source_files, alias_map)
         if memo is not None:
-            hit = memo.get(specifier, _TAIL_MISS)
+            key = (specifier, _own_forms(importer_path))
+            hit = memo.get(key, _TAIL_MISS)
             if hit is _TAIL_MISS:
                 hit = _resolve_tail(specifier, importer_path, source_files, alias_map)
-                memo[specifier] = hit
+                memo[key] = hit
             return hit
     return _resolve_tail(specifier, importer_path, source_files, alias_map)
 
@@ -2926,6 +3711,65 @@ def clear_resolution_caches() -> None:
         _sql_stem_by_files.clear()
     with _TAIL_MEMO_LOCK:
         _tail_memos.clear()
+        _answer_memos.clear()
+        _jvm_layout_cache.clear()
+        _jvm_package_cache.clear()
+    _is_c_family_importer.cache_clear()
+    global _last_answer_memo
+    _last_answer_memo = None
+
+
+# (#1317) Whole answers, per file set: {frozenset: [(alias_map, psr4_map, memo)]},
+# memo keyed (importer, specifier). Bounded like the tail memo: at most
+# _TAIL_MEMO_MAX file sets, oldest first, each with at most _TAIL_MEMO_MAX map
+# pairs. A memo has no entry cap of its own; it holds one entry per distinct
+# (importer, specifier) its file set was asked about, which is bounded by that
+# repository's imports. Process memory only, nothing written.
+_answer_memos: dict[frozenset, list] = {}
+
+
+def _answer_memo(source_files, alias_map, psr4_map) -> Optional[dict]:
+    """The answer memo for one file set and pair of maps, or None if not cacheable.
+
+    ⚠ The maps are matched by IDENTITY, as the tail memo does: an index hands
+    the same objects to every caller, and comparing two maps by value on every
+    call would cost what the memo saves. An empty map and None resolve alike.
+    """
+    global _last_answer_memo
+    if not isinstance(source_files, frozenset):
+        return None
+    alias_map = alias_map or None
+    psr4_map = psr4_map or None
+    # ⚠ Identity fast path. A builder makes a NEW `frozenset(index.source_files)`
+    # per call and passes that one object for every import; a dict lookup with
+    # an equal-but-different key compares every path, so without this every
+    # call would pay a comparison of the whole file set.
+    last = _last_answer_memo
+    if last is not None and last[0] is source_files and last[1] is alias_map and last[2] is psr4_map:
+        return last[3]
+    memo = _answer_memo_slow(source_files, alias_map, psr4_map)
+    _last_answer_memo = (source_files, alias_map, psr4_map, memo)
+    return memo
+
+
+_last_answer_memo: Optional[tuple] = None
+
+
+def _answer_memo_slow(source_files: frozenset, alias_map, psr4_map) -> dict:
+    with _TAIL_MEMO_LOCK:
+        entries = _answer_memos.get(source_files)
+        if entries is None:
+            if len(_answer_memos) >= _TAIL_MEMO_MAX:
+                _answer_memos.pop(next(iter(_answer_memos)))
+            entries = _answer_memos[source_files] = []
+        for held_alias, held_psr4, memo in entries:
+            if held_alias is alias_map and held_psr4 is psr4_map:
+                return memo
+        memo = {}
+        if len(entries) >= _TAIL_MEMO_MAX:
+            entries.pop(0)
+        entries.append((alias_map, psr4_map, memo))
+        return memo
 
 
 def _tail_memo(source_files, alias_map) -> Optional[dict]:
@@ -2958,8 +3802,9 @@ def _resolve_tail(
     alias_map: Optional[dict[str, list[str]]],
 ) -> Optional[str]:
     """resolve_specifier's absolute, Gleam, Python-module, alias and stem steps."""
+    own = _own_forms(importer_path)
     # Absolute: try direct match first (e.g., for Go or absolute paths)
-    for c in _candidates(specifier):
+    for c in _candidates(specifier, own):
         if c in source_files:
             return c
 
@@ -2979,11 +3824,11 @@ def _resolve_tail(
         # "Own" roots share the importer's package dir (the part above
         # src/test), so a test module prefers its package's src/ root too.
         # A root-level src/test (dirname "") means a single-package repo.
-        own = [
+        own_roots = [
             r for r in roots
             if not posixpath.dirname(r) or importer_path.startswith(posixpath.dirname(r) + "/")
         ]
-        for root in own + [r for r in roots if r not in own]:
+        for root in own_roots + [r for r in roots if r not in own_roots]:
             prefixed = f"{root}/{candidate}"
             if prefixed in source_files:
                 return prefixed
@@ -3001,13 +3846,13 @@ def _resolve_tail(
     ):
         module_path = specifier.replace(".", "/")
         # Try direct (repo-root layout)
-        for c in _candidates(module_path):
+        for c in _candidates(module_path, own):
             if c in source_files:
                 return c
         # Try with each detected Python source root as a prefix
         for root in _python_source_roots(source_files):
             prefixed = f"{root}/{module_path}" if root else module_path
-            for c in _candidates(prefixed):
+            for c in _candidates(prefixed, own):
                 if c in source_files:
                     return c
         # Fallback for runtime-injected source roots (conftest.py sys.path
@@ -3025,20 +3870,24 @@ def _resolve_tail(
                 if parent in seen_roots:
                     continue  # already tried above
                 prefixed = f"{parent}/{module_path}" if parent else module_path
-                for c in _candidates(prefixed):
+                for c in _candidates(prefixed, own):
                     if c in source_files:
                         return c
 
     # Alias expansion (tsconfig compilerOptions.paths: @/*, $lib/*, etc.)
     if alias_map:
         for expanded in _expand_aliases(specifier, alias_map):
-            for c in _candidates(expanded):
+            for c in _candidates(expanded, own):
                 if c in source_files:
                     return c
 
     # Stem matching fallback: bare names like dbt ref('dim_client')
     # resolve to any .sql file whose stem matches.  Uses a cached stem
     # dict to avoid O(n) scans on repeated calls with the same source_files.
+    # Not for an importer that reads only its own forms (L-294): a Ruby
+    # `require 'utils'` never loads `utils.sql`.
+    if own in _OWN_FORMS_ONLY:
+        return None
     if "/" not in specifier and "." not in specifier and "\\" not in specifier:
         return _get_sql_stems(source_files).get(specifier.lower())
 

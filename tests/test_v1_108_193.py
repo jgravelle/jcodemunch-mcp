@@ -64,7 +64,7 @@ class TestMaxFileSizeIsMovable:
         assert DEFAULT_MAX_FILE_SIZE == 500 * 1024
         assert get_max_file_size() == DEFAULT_MAX_FILE_SIZE
 
-    def test_index_folder_resolves_rather_than_hardcoding(self, monkeypatch):
+    def test_index_folder_resolves_rather_than_hardcoding(self, monkeypatch, tmp_path):
         """The constant used to be passed straight through, which is why no
         route existed at all.
 
@@ -100,13 +100,11 @@ class TestMaxFileSizeIsMovable:
 
         monkeypatch.setattr(security._config, "get", fake_get)
 
-        import tempfile
-        from pathlib import Path
-
-        d = Path(tempfile.mkdtemp())
+        d = tmp_path / "src"
+        d.mkdir()
         (d / "a.py").write_text("x = 1\n", encoding="utf-8")
         mod.index_folder(
-            str(d), use_ai_summaries=False, storage_path=tempfile.mkdtemp()
+            str(d), use_ai_summaries=False, storage_path=str(tmp_path / "store")
         )
 
         assert seen, "index_folder never consulted the max_file_size resolver"
@@ -289,8 +287,12 @@ class TestWithheldFilesBreakCompleteness:
         assert cov["withheld"] == {"too_large": 2}
         assert cov["skip_counts"] == {"too_large": 2, "binary": 5}
 
-    def test_the_three_withheld_reasons(self):
-        assert WITHHELD_SKIP_REASONS == {"too_large", "file_limit", "unreadable"}
+    def test_the_withheld_reasons(self):
+        # `parse_failed` joined in L-316: a file whose parse ran past the
+        # budget or raised is real, current and wanted, and its symbols are
+        # missing because of our parser. Exact equality stays, so a reason
+        # added or dropped by accident still fails here.
+        assert WITHHELD_SKIP_REASONS == {"too_large", "file_limit", "unreadable", "parse_failed"}
 
     def test_file_limit_counts_too(self):
         assert _cov({"file_limit": 300})["complete"] is False

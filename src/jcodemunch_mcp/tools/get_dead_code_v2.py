@@ -39,10 +39,12 @@ from ._entry_points import (
     entry_point_spec,
     has_dotnet_evidence,
     is_host_invoked,
+    go_main_entries,
     package_json_entries as _package_json_entries,
     unseen_consumer,
 )
 from .find_dead_code import _matches_any_pattern, unmatched_patterns
+from .get_blast_radius import with_same_package_peers
 from ._runtime_discovery import discover_dynamic_packages
 from ._dynamic_boundary import FILES_CAP, DynamicBoundary
 from ._test_paths import is_test_file as _is_test_file  # noqa: F401  (the one rule, LEDGER L-101)
@@ -1211,6 +1213,13 @@ def get_dead_code_v2(
     psr4_map = getattr(index, "psr4_map", None)
     rev = _build_reverse_adjacency(index.imports, source_files, alias_map, psr4_map)
     forward = _build_forward_adjacency(index.imports, source_files, alias_map, psr4_map)
+    # (L-264) A Go package's files call each other with no import, so each
+    # file lists its peers in both directions: the reachability walk below
+    # starts from entry points, so a package nothing reaches stays unreached,
+    # and the caller search reads the peers a same-package call sits in.
+    file_languages = getattr(index, "file_languages", None)
+    rev = with_same_package_peers(rev, file_languages)
+    forward = with_same_package_peers(forward, file_languages)
 
     # Pre-compute reachable files from entry points (Signal 1 input).
     # Two heuristics: (a) classic filename match (app.py, main.py, etc.);
@@ -1260,11 +1269,16 @@ def get_dead_code_v2(
         if f in source_files
     }
 
-    extra_entries = pkg_entries | declared_entries | dynamic_entries
+    # (L-321) a Go `package main` program; `rev`/`forward` already carry
+    # its same-package peers. ⚠ Kept apart from `pkg_entries`, which `_meta`
+    # publishes as `package_json_entries`.
+    go_main = go_main_entries(index, store, owner, name)
+
+    extra_entries = pkg_entries | go_main | declared_entries | dynamic_entries
     entry_point_count = (
         sum(1 for f in index.source_files
             if _is_entry_point(f) or f in declared_entries)
-        + len(pkg_entries - declared_entries)
+        + len((pkg_entries | go_main) - declared_entries)
     )
     reachable_files = _reachable_from_entry_points(
         list(index.source_files), rev, forward, extra_entries=extra_entries
@@ -1537,8 +1551,10 @@ def get_dead_code_v2(
             "note": (
                 "unreachable_file was not decided for these files: a .NET project "
                 "file may consume them (build_consumed), a build or code generator may "
-                "compile a schema (schema_consumer), or a user control or master "
-                "page may be loaded by path at runtime (runtime_loadable); "
+                "compile a schema (schema_consumer), a user control or master "
+                "page may be loaded by path at runtime (runtime_loadable), or an "
+                "ERB view may be rendered by name or by convention "
+                "(template_rendered); "
                 "imported_by_one counts the files such a file imports. The index "
                 "carries neither edge. Their other signals still vote."
             ),

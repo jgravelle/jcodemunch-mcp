@@ -3,10 +3,10 @@
     "queries": 59,
     "catalog_actions": 91,
     "menu_recall": {
-      "@1": 49.2,
-      "@3": 69.5,
-      "@5": 76.3,
-      "@10": 81.4
+      "@1": 50.8,
+      "@3": 72.9,
+      "@5": 79.7,
+      "@10": 86.4
     },
     "route_recall": {
       "@1": 72.9,
@@ -52,16 +52,13 @@
       "find every place we swallow an exception without logging",
       "I need this function plus everything it imports",
       "what is the import chain from this file outward",
-      "what are the natural modules in this system",
-      "how concentrated is this codebase and how deep does it nest",
-      "how risky is this pull request",
       "how often does this file get touched",
       "how complicated is this one function",
       "how much of this code actually runs in production"
     ],
     "leakage": {
       "mean_name_overlap": 0.133,
-      "mean_desc_overlap": 0.388,
+      "mean_desc_overlap": 0.429,
       "queries_containing_target_name_token": 19,
       "high_leak_queries": [
         "what columns does the orders model have",
@@ -272,7 +269,7 @@
         "get_dead_code_v2"
       ],
       "leak_name": 0.333,
-      "leak_desc": 0.462
+      "leak_desc": 0.538
     },
     {
       "query": "I do not know this repo, what should I look at first",
@@ -339,7 +336,7 @@
         "get_file_risk"
       ],
       "leak_name": 0.333,
-      "leak_desc": 0.111
+      "leak_desc": 0.333
     },
     {
       "query": "I need this function plus everything it imports",
@@ -405,7 +402,7 @@
         "get_blast_radius"
       ],
       "leak_name": 0.0,
-      "leak_desc": 0.714
+      "leak_desc": 0.857
     },
     {
       "query": "who calls this",
@@ -482,8 +479,8 @@
       "route_path": "rule",
       "menu_top3": [
         "get_class_hierarchy",
-        "check_references",
-        "find_implementations"
+        "check_delete_safe",
+        "check_edit_safe"
       ],
       "route_proposed": [
         "get_class_hierarchy"
@@ -568,12 +565,12 @@
       "menu_top3": [
         "get_symbol_provenance",
         "get_context_bundle",
-        "get_dependency_cycles"
+        "get_blast_radius"
       ],
       "route_proposed": [
         "get_symbol_provenance",
         "get_context_bundle",
-        "get_dependency_cycles"
+        "get_blast_radius"
       ],
       "leak_name": 0.0,
       "leak_desc": 0.444
@@ -675,19 +672,19 @@
       "targets": [
         "get_tectonic_map"
       ],
-      "menu_rank": null,
+      "menu_rank": 3,
       "route_rank": 1,
       "route_path": "rule",
       "menu_top3": [
         "get_call_hierarchy",
         "get_coupling_metrics",
-        "index_dependency"
+        "get_tectonic_map"
       ],
       "route_proposed": [
         "get_tectonic_map"
       ],
       "leak_name": 0.0,
-      "leak_desc": 0.25
+      "leak_desc": 0.625
     },
     {
       "query": "where is every route annotation in the project",
@@ -759,7 +756,7 @@
       "targets": [
         "get_architecture_metrics"
       ],
-      "menu_rank": null,
+      "menu_rank": 4,
       "route_rank": 1,
       "route_path": "rule",
       "menu_top3": [
@@ -771,7 +768,7 @@
         "get_architecture_metrics"
       ],
       "leak_name": 0.0,
-      "leak_desc": 0.3
+      "leak_desc": 0.6
     },
     {
       "query": "which symbols matter most architecturally",
@@ -803,19 +800,19 @@
         "get_hotspots",
         "get_repo_health"
       ],
-      "menu_rank": 6,
+      "menu_rank": 5,
       "route_rank": 1,
       "route_path": "rule",
       "menu_top3": [
-        "get_pr_risk_profile",
         "embed_repo",
-        "get_cross_repo_map"
+        "get_cross_repo_map",
+        "get_repo_map"
       ],
       "route_proposed": [
         "get_file_risk"
       ],
       "leak_name": 0.333,
-      "leak_desc": 0.25
+      "leak_desc": 0.375
     },
     {
       "query": "is it safe to delete this function",
@@ -837,7 +834,7 @@
         "check_rename_safe"
       ],
       "leak_name": 0.667,
-      "leak_desc": 0.857
+      "leak_desc": 1.0
     },
     {
       "query": "will renaming this collide with something else",
@@ -935,17 +932,18 @@
       "targets": [
         "get_pr_risk_profile"
       ],
-      "menu_rank": null,
+      "menu_rank": 1,
       "route_rank": 1,
       "route_path": "rule",
       "menu_top3": [
+        "get_pr_risk_profile",
         "test_summarizer"
       ],
       "route_proposed": [
         "get_pr_risk_profile"
       ],
       "leak_name": 0.0,
-      "leak_desc": 0.167
+      "leak_desc": 1.0
     },
     {
       "query": "how often does this file get touched",
@@ -957,14 +955,14 @@
       "route_rank": null,
       "route_path": "fallback",
       "menu_top3": [
-        "get_file_content",
         "get_file_outline",
-        "get_file_tree"
+        "get_file_tree",
+        "get_file_content"
       ],
       "route_proposed": [
-        "get_file_content",
         "get_file_outline",
-        "get_file_tree"
+        "get_file_tree",
+        "get_file_content"
       ],
       "leak_name": 0.333,
       "leak_desc": 0.143
@@ -979,9 +977,9 @@
       "route_rank": 1,
       "route_path": "rule",
       "menu_top3": [
-        "check_references",
-        "get_file_risk",
-        "get_parity_map"
+        "check_delete_safe",
+        "check_edit_safe",
+        "check_references"
       ],
       "route_proposed": [
         "get_symbol_complexity"
@@ -996,7 +994,7 @@
         "get_architecture_metrics",
         "get_coupling_metrics"
       ],
-      "menu_rank": 5,
+      "menu_rank": 6,
       "route_rank": null,
       "route_path": "fallback",
       "menu_top3": [
@@ -1172,18 +1170,18 @@
       "targets": [
         "index_repo"
       ],
-      "menu_rank": 5,
+      "menu_rank": 6,
       "route_rank": null,
       "route_path": "fallback",
       "menu_top3": [
         "get_project_intel",
         "assemble_task_context",
-        "get_churn_rate"
+        "get_pr_risk_profile"
       ],
       "route_proposed": [
         "get_project_intel",
         "assemble_task_context",
-        "get_churn_rate"
+        "get_pr_risk_profile"
       ],
       "leak_name": 0.0,
       "leak_desc": 0.2
@@ -1294,7 +1292,7 @@
         "get_changed_symbols"
       ],
       "leak_name": 0.333,
-      "leak_desc": 0.5
+      "leak_desc": 0.75
     },
     {
       "query": "draw me a diagram of that",

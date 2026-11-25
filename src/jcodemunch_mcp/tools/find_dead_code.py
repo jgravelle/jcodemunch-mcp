@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import fnmatch
 import logging
+import posixpath
 import re
 import time
 from typing import Optional
@@ -16,6 +17,7 @@ from ._entry_points import (
     entry_point_spec,
     has_dotnet_evidence,
     is_host_invoked,
+    go_main_entries,
     package_json_entries as _package_json_entries,
     unseen_consumer,
 )
@@ -131,6 +133,47 @@ def unmatched_patterns(patterns: Optional[list[str]], source_files) -> list[str]
     return [p for p in patterns if not any(_matches_any_pattern(f, [p]) for f in files)]
 
 
+def go_file_outside_module_map(index, path: str) -> bool:
+    """(LEDGER L-59) A Go file no `go.mod` the index read covers.
+
+    Only `go.mod` maps a Go import path to a directory, and the index builds
+    its Go edges from the map it read at load (`CodeIndex.go_module_dirs`,
+    L-264). A file outside every module directory has an import graph nobody
+    could build, so "no importer" is unknown for it, not zero. The one rule
+    `find_dead_code` and `check_delete_safe` both read.
+    """
+    if not (path or "").endswith(".go"):
+        return False
+    dirs = getattr(index, "go_module_dirs", ()) or ()
+    return not any(d == "" or path.startswith(d + "/") for d in dirs)
+
+
+def _live_go_packages(index, rev: dict[str, list[str]], live_roots: set[str]) -> set[str]:
+    """(L-264) The files of every package-directory package something outside it reaches.
+
+    A package is the files of one language in one directory, the rule
+    `with_same_package_peers` uses. It is live when one of its files is a
+    live root or is imported by a file outside the package.
+    """
+    from .get_blast_radius import PACKAGE_DIRECTORY_LANGUAGES  # a module-level import is a cycle
+
+    langs = getattr(index, "file_languages", None) or {}
+    packages: dict[tuple[str, str], list[str]] = {}
+    for f in index.source_files:
+        lang = langs.get(f)
+        if lang in PACKAGE_DIRECTORY_LANGUAGES:
+            packages.setdefault((posixpath.dirname(f.replace("\\", "/")), lang), []).append(f)
+    live: set[str] = set()
+    for files in packages.values():
+        members = set(files)
+        if any(
+            f in live_roots or any(i not in members for i in rev.get(f, ()))
+            for f in files
+        ):
+            live.update(files)
+    return live
+
+
 def _has_entry_point_decorator(sym: dict) -> bool:
     for dec in sym.get("decorators") or []:
         if ENTRY_POINT_DECORATOR_RE.search(str(dec)):
@@ -233,6 +276,9 @@ def find_dead_code(
     # so the file was misclassified as `all_importers_dead` at confidence 0.7.
     pkg_entries = _package_json_entries(index, store, owner, name)
     live_roots.update(pkg_entries)
+    # (L-321) a Go `package main` program is a root; its peers follow
+    # through the package rule below.
+    live_roots.update(go_main_entries(index, store, owner, name))
 
     # -----------------------------------------------------------------------
     # Phase 1b: render-edge reachability (#461)
@@ -287,6 +333,13 @@ def find_dead_code(
     dynamic = discover_dynamic_packages(index, store, owner, name)
     live_roots.update(f for f in dynamic.roots if f in source_files)
 
+    # (L-264) A Go package is one unit: its files call each other with no
+    # import, so a file whose only users are its peers has no importer and
+    # read as dead. A package with a live root, or an importer from outside
+    # it, is live, every file of it. A package only its own files reach is
+    # not, and is still reported whole.
+    package_live = _live_go_packages(index, rev, live_roots)
+
     # -----------------------------------------------------------------------
     # Phase 2: content check for `if __name__ == "__main__"` (Python only,
     # only for files not yet classified as live and with zero importers)
@@ -328,13 +381,25 @@ def find_dead_code(
     # both tools share. An opaque site caps nothing and is disclosed.
     boundary = DynamicBoundary(index.imports)
     boundary_withheld = 0
-    unseen_withheld = {"build_consumed": 0, "schema_consumer": 0, "runtime_loadable": 0}
+    # (LEDGER L-59) A Go import names a module path, and only `go.mod` maps a
+    # module path to a directory (L-264 adds those edges at load). A Go file
+    # under no readable `go.mod` -- none in the tree, or an `index_repo`
+    # snapshot with no local tree -- has an import graph nobody could build,
+    # so its empty walk is unknown, not zero. Read by MODULE, never by name:
+    # matching an unresolved specifier against a directory's name withheld
+    # real findings beside every stdlib and dependency import (`net/http` and
+    # `http/`, `github.com/pkg/errors` and `errors/`; review of L-59).
+    go_unknown_withheld = 0
+    unseen_withheld = {
+        "build_consumed": 0, "schema_consumer": 0, "runtime_loadable": 0,
+        "template_rendered": 0,
+    }
     dotnet = has_dotnet_evidence(index.source_files)
 
     dead_files: list[dict] = []
 
     for f in sorted(index.source_files):
-        if f in live_roots:
+        if f in live_roots or f in package_live:
             continue
         if not include_tests and _is_test_file(f):
             continue
@@ -348,7 +413,7 @@ def find_dead_code(
             # Check for cascading dead code: all importers themselves have
             # zero importers and are not live roots
             all_dead = all(
-                not rev.get(imp) and imp not in live_roots
+                not rev.get(imp) and imp not in live_roots and imp not in package_live
                 for imp in importers
             )
             if all_dead:
@@ -358,13 +423,16 @@ def find_dead_code(
                 continue  # file is reachable, skip
 
         reaching = boundary.reaching(f)
+        # The map the index built its Go edges from (L-264), never a second
+        # read of `go.mod`, which can disagree with the edges it explains.
+        go_unknown = reason == "zero_importers" and go_file_outside_module_map(index, f)
         unseen = unseen_consumer(f, dotnet=dotnet)
         if unseen is None and reason == "all_importers_dead":
             # A codebehind whose only importer is itself unproven inherits the cap.
             unseen = next(
                 filter(None, (unseen_consumer(i, dotnet=dotnet) for i in importers)), None
             )
-        file_ceiling = min(ceiling, UNPROVEN_CEILING) if (reaching or unseen) else ceiling
+        file_ceiling = min(ceiling, UNPROVEN_CEILING) if (reaching or go_unknown or unseen) else ceiling
         capped = min(confidence, file_ceiling)
         if capped < min_confidence:
             # Only the files the boundary itself withheld: one the corpus
@@ -372,6 +440,8 @@ def find_dead_code(
             if min(confidence, ceiling) >= min_confidence:
                 if reaching:
                     boundary_withheld += 1
+                elif go_unknown:
+                    go_unknown_withheld += 1
                 elif unseen:
                     unseen_withheld[unseen] += 1
             continue
@@ -390,6 +460,7 @@ def find_dead_code(
             entry["confidence_capped_by"] = (
                 list(adequacy.blockers)
                 + (["dynamic_import_boundary"] if reaching else [])
+                + (["go_module_unknown"] if go_unknown else [])
                 + ([unseen] if unseen else [])
             )
         if reaching:
@@ -509,12 +580,21 @@ def find_dead_code(
             "dynamic import scoped to their package can load them "
             "(pass min_confidence=0 to see them with the sites named)"
         )
+    if go_unknown_withheld:
+        result["go_module_unknown_withheld"] = go_unknown_withheld
+        analysis_notes.append(
+            f"{go_unknown_withheld} Go file(s) with no static importer were withheld: no "
+            "readable go.mod maps their imports, so the import graph could not be built "
+            "for them (pass min_confidence=0 to see them)"
+        )
     _unseen_why = {
         "build_consumed": "a .NET project file may consume them (EmbeddedResource, Page, "
         "Import)",
         "schema_consumer": "a build or code generator outside the index may compile them",
         "runtime_loadable": ".NET user controls and master pages can be loaded by path at "
         "runtime (LoadControl, a stored control path, MasterPageFile set in code)",
+        "template_rendered": "an ERB view is rendered by name (Rails `render \"shared/nav\"` "
+        "for `shared/_nav.html.erb`) or by a framework's convention",
     }
     for kind, n in unseen_withheld.items():
         if n:

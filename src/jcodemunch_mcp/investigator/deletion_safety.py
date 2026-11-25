@@ -354,11 +354,21 @@ def investigate_deletion_safety(
         text_ob.evidence.append("Text sweep disabled by caller")
     else:
         try:
-            from ..tools.search_text import search_text  # noqa: PLC0415
+            from ..tools.search_text import SCAN_LIMIT_MAX, search_text  # noqa: PLC0415
 
-            hits = search_text(repo, target_name, storage_path=storage_path)
+            # L-309: the tool's page is 20 lines, and a name its own file
+            # mentions that often fills the page with its own file, so a use
+            # elsewhere was never returned. Ask for the whole match set.
+            hits = search_text(
+                repo, target_name, storage_path=storage_path, scan_limit=SCAN_LIMIT_MAX
+            )
             text_ob.calls = 1
             results = hits.get("results") or []
+            # What the answer says it did not search: the one reading the
+            # Grep-answer hook also uses.
+            from ..retrieval.verdict import search_text_cut_short  # noqa: PLC0415
+
+            cut_short = search_text_cut_short(hits)
             other_files = [
                 r.get("file")
                 for r in results
@@ -384,6 +394,19 @@ def investigate_deletion_safety(
                         f"{', '.join(dead_m[:3])}"
                     ]
                     text_ob.detail = {"in_unreachable_files": dead_m}
+                    if cut_short:
+                        text_ob.status = UNESTABLISHED
+                        text_ob.evidence.append(
+                            "The sweep was cut short: " + "; ".join(cut_short)
+                        )
+            elif cut_short:
+                # A found use refutes whatever the sweep missed; finding none
+                # in a partial sweep proves nothing.
+                text_ob.status = UNESTABLISHED
+                text_ob.evidence.append(
+                    f"No other file seen, but the sweep was cut short: "
+                    f"{'; '.join(cut_short)}"
+                )
             else:
                 text_ob.status = SATISFIED
                 text_ob.evidence.append(

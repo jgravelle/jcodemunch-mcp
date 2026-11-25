@@ -103,6 +103,7 @@ class SelectiveIndexView:
     __slots__ = (
         "_partial", "_promote", "_full", "_fetch_symbol", "_extra",
         "_promotions", "_promoted_by", "_generation", "_generation_moved",
+        "_imports_loader",
         *_PROVENANCE,
         *EXACT_FIELDS,
     )
@@ -114,7 +115,12 @@ class SelectiveIndexView:
         promote: Callable[[], Optional[object]],
         fetch_symbol: Callable[[str], Optional[dict]],
         generation: Optional[str] = None,
+        imports_loader: Optional[Callable[[], Optional[dict]]] = None,
     ) -> None:
+        """``imports_loader``: decodes ``imports`` from the rows this view was
+        read from. When given, ``partial.imports`` is a placeholder and the
+        field is decoded on first access, from the same snapshot, so its value
+        is the one an eager decode gives."""
         object.__setattr__(self, "_partial", partial)
         object.__setattr__(self, "_promote", promote)
         object.__setattr__(self, "_fetch_symbol", fetch_symbol)
@@ -130,6 +136,10 @@ class SelectiveIndexView:
             object.__setattr__(self, field, getattr(partial, field, None))
         for field in EXACT_FIELDS:
             object.__setattr__(self, field, getattr(partial, field, None))
+        object.__setattr__(self, "_imports_loader", imports_loader)
+        if imports_loader is not None:
+            # Left unset, so the first read reaches __getattr__ and decodes.
+            object.__delattr__(self, "imports")
 
     # -- the exact half ---------------------------------------------------- #
 
@@ -171,6 +181,13 @@ class SelectiveIndexView:
         """
         if attr.startswith("__") and attr.endswith("__"):
             raise AttributeError(attr)
+        if attr == "imports" and self._imports_loader is not None:
+            # Exact, from this view's own snapshot: never a promotion.
+            value = self._imports_loader()
+            object.__setattr__(self, "imports", value)
+            object.__setattr__(self, "_imports_loader", None)
+            self._partial.imports = value
+            return value
         return getattr(self._promoted(attr), attr)
 
     def _promoted(self, because: str = "unknown"):
@@ -227,6 +244,20 @@ class SelectiveIndexView:
     def selective_symbol_count(self) -> int:
         """Rows this view was opened with, before any targeted fetches."""
         return len(self._partial.symbols)
+
+    @property
+    def generation(self) -> Optional[str]:
+        """The ``indexed_at`` this view's single read transaction saw, or None."""
+        return self._generation
+
+    def selected_symbols(self) -> list:
+        """The symbol rows this view was opened with (by id or by file), only those.
+
+        Not the corpus. A caller that needs every symbol reads ``.symbols``,
+        which promotes; this exists for a caller that asked for named files and
+        wants exactly their rows without paying for the rest.
+        """
+        return list(self._partial.symbols)
 
     def __repr__(self) -> str:  # pragma: no cover - debugging aid
         state = f"promoted by {self._promoted_by!r}" if self.promoted else "selective"

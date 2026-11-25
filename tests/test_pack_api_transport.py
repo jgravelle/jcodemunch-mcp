@@ -26,6 +26,7 @@ from jcodemunch_mcp.cli.install_pack import (
     _list_packs,
     _pack_api_headers,
 )
+from tests.conftest_helpers import stream_through_get
 
 
 # ── The request we send ───────────────────────────────────────────────────
@@ -91,6 +92,7 @@ def test_the_catalog_request_carries_them(mock_httpx):
 def test_the_download_request_carries_them_without_a_key(mock_httpx, tmp_path):
     """The keyless download is the case the issue was filed about: a free pack
     on a seat with no license, which is precisely the audience it exists for."""
+    stream_through_get(mock_httpx)
     resp = MagicMock()
     resp.status_code = 200
     resp.headers = {"content-type": "text/html"}   # what the CDN served
@@ -194,6 +196,7 @@ _LICENSE_REFUSAL = json.dumps({
 def test_a_sent_key_is_not_answered_with_use_the_license_flag(
     mock_httpx, tmp_path, capsys
 ):
+    stream_through_get(mock_httpx)
     mock_httpx.HTTPError = httpx.HTTPError
     mock_httpx.get.return_value = _FakeResponse(
         403, "application/json", _LICENSE_REFUSAL
@@ -215,6 +218,7 @@ def test_a_keyless_seat_still_gets_the_servers_hint(mock_httpx, tmp_path, capsys
     """Non-vacuity. Without a key the hint is CORRECT and actionable — someone
     who owns a license and forgot the flag needs to be told. Suppressing it for
     everyone would trade one bad message for another."""
+    stream_through_get(mock_httpx)
     mock_httpx.HTTPError = httpx.HTTPError
     mock_httpx.get.return_value = _FakeResponse(
         403, "application/json", _LICENSE_REFUSAL

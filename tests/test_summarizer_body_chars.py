@@ -191,25 +191,38 @@ def test_a_key_the_cap_would_cut_is_redacted_before_the_cut():
     assert "sk-ant" not in prompt
 
 
-def test_default_is_zero_and_a_project_config_turns_it_on_for_that_repo_only(tmp_path):
+def test_default_is_zero_and_a_project_config_can_only_lower_it(tmp_path):
+    """The user's own config turns body text on; a project file may lower it
+    for its repo, never raise it."""
     from jcodemunch_mcp import config as cfg
 
-    on, off = tmp_path / "on", tmp_path / "off"
-    for repo in (on, off):
+    lower, higher, plain = tmp_path / "lower", tmp_path / "higher", tmp_path / "plain"
+    for repo in (lower, higher, plain):
         repo.mkdir()
-    (on / ".jcodemunch.jsonc").write_text('{"summarizer_body_chars": 1500}')
+    (lower / ".jcodemunch.jsonc").write_text('{"summarizer_body_chars": 0}')
+    (higher / ".jcodemunch.jsonc").write_text('{"summarizer_body_chars": 1500}')
     syms = [_symbol("app.py", "plain")]
-    cfg.load_project_config(str(on))
+    for repo in (lower, higher):
+        cfg.load_project_config(str(repo))
     try:
+        assert cfg.DEFAULTS["summarizer_body_chars"] == 0
         env, client = _local_env()
         with env, client:
-            assert cfg.DEFAULTS["summarizer_body_chars"] == 0
-            for repo, expected in ((on, True), (off, False)):
+            # Nothing in the user's config: the project cannot turn it on.
+            summarizer = OpenAIBatchSummarizer(repo=str(higher))
+            summarizer.source_for = FILES.get
+            assert "body:" not in summarizer._build_prompt(syms)
+        env, client = _local_env()
+        # The user's own value, in the global config `get` compares with
+        # (`_config` above replaces `get` and would skip the project file).
+        with env, client, patch.dict(cfg._GLOBAL_CONFIG, {"summarizer_body_chars": 1500}):
+            for repo, expected in ((plain, True), (lower, False)):
                 summarizer = OpenAIBatchSummarizer(repo=str(repo))
                 summarizer.source_for = FILES.get
                 assert ("body:" in summarizer._build_prompt(syms)) is expected
     finally:
-        cfg._PROJECT_CONFIGS.pop(cfg._resolve_repo_key(str(on)), None)
+        for repo in (lower, higher):
+            cfg._PROJECT_CONFIGS.pop(cfg._resolve_repo_key(str(repo)), None)
 
 
 # --- the remote gate: one test per provider ---------------------------------

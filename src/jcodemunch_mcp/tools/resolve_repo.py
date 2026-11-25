@@ -106,6 +106,38 @@ def _git_common_dir_cheap(path: Path) -> Optional[Path]:
     return None
 
 
+def _enclosing_git_common_dir(path: Path, stop: Optional[Path] = None) -> Optional[Path]:
+    """The common-dir of the nearest folder at or above `path` holding a `.git`.
+
+    L-235: a subdirectory of a linked worktree has no `.git` of its own, so
+    `_git_common_dir_cheap` alone gave it no identity and `resolve_repo` lost
+    the `canonical_candidates` hint the worktree root gets. The nearest `.git`
+    decides, as it does for git: an independent repo nested inside a worktree
+    answers for itself. Filesystem reads only, one `exists` per level (jcm#303).
+    `stop` bounds the walk (inclusive); a test passes it so a `.git` above the
+    temporary folder cannot answer.
+    """
+    try:
+        current = path.resolve()
+    except (OSError, ValueError):
+        return None
+    bound = stop.resolve() if stop is not None else None
+    while True:
+        try:
+            has_git = (current / ".git").exists()
+        except OSError:
+            logger.debug("could not stat %s/.git", current, exc_info=True)
+            return None
+        if has_git:
+            return _git_common_dir_cheap(current)
+        if bound is not None and current == bound:
+            return None
+        parent = current.parent
+        if parent == current:
+            return None
+        current = parent
+
+
 def _git_toplevel(path: Path) -> Optional[Path]:
     """Get the git repository root for a path, or None.
 
@@ -194,6 +226,8 @@ def _build_indexed_response(
         except Exception:
             cap = {}
         if cap.get("truncated"):
+            from ..security import cap_remedy, cap_setting
+
             result["truncated"] = True
             result["files_discovered"] = cap.get("files_discovered")
             result["files_indexed"] = cap.get("files_indexed")
@@ -201,10 +235,14 @@ def _build_indexed_response(
             result["truncation_warning"] = (
                 f"Index truncated by the file cap: {cap.get('files_discovered')} files "
                 f"discovered, {cap.get('files_indexed')} indexed, "
-                f"{cap.get('files_skipped_cap')} dropped (max_folder_files="
-                f"{cap.get('max_folder_files')}). Entire files are missing from search "
-                f"results. Raise max_folder_files in config.jsonc (or set "
-                f"JCODEMUNCH_MAX_FOLDER_FILES) and re-index."
+                f"{cap.get('files_skipped_cap')} dropped ({cap_setting(cap)}). "
+                "Entire files are missing from search "
+                "results. "
+                + (
+                    cap_remedy(cap)
+                    or "Raise max_folder_files in config.jsonc (or set "
+                    "JCODEMUNCH_MAX_FOLDER_FILES) and re-index."
+                )
             )
     return result
 
@@ -391,6 +429,38 @@ def _attach_working_tree_mismatch(result: dict, p_resolved: Path) -> None:
     }
 
 
+def separate_copy(result: object) -> "Optional[tuple[str, str]]":
+    """`(repo, indexed_root)` when `result` is a resolve_repo answer for a separate
+    copy of a repo indexed from another folder, else None.
+
+    The server's startup check and the PreToolUse hook both read this, so a
+    moved or copied checkout is decided by `_attach_working_tree_mismatch` alone
+    and never by a second path rule. A copy whose repo identity does not match
+    the index (no `.git`, another folder name) is not flagged there, so it is
+    not one here either.
+    """
+    if not isinstance(result, dict) or result.get("indexed") is not True:
+        return None
+    if result.get("working_tree_mismatch") is not True:
+        return None
+    root = ((result.get("_meta") or {}).get("working_tree") or {}).get("indexed_root")
+    root = root or result.get("source_root")
+    repo = result.get("repo")
+    if not root or not repo:
+        return None
+    return str(repo), str(root)
+
+
+def separate_copy_sentence(repo: str, indexed_root: str) -> str:
+    """The one sentence a separate copy is told, naming the folder the index reads."""
+    return (
+        f"jCodemunch: this folder is a separate copy of {repo}, which is indexed "
+        f"from {indexed_root}. Its tools answer from that folder, not this one. "
+        'To index this folder, call index_folder with {"path": ".", "identity_mode": "local"} '
+        '(on the counter surface: order("index_folder", <those args>, allow_state_change=true)).'
+    )
+
+
 def resolve_repo(path: str, storage_path: Optional[str] = None) -> dict:
     """Resolve a filesystem path to its indexed repo identifier.
 
@@ -446,8 +516,13 @@ def _find_canonical_candidates(
     only, no subprocess) for both the input path and every candidate path.
     Accepts a pre-fetched `repos` list so the caller can avoid a redundant
     `store.list_repos()` round-trip.
+
+    The queried path walks up to its nearest `.git` (L-235), so a folder inside
+    a worktree is matched like the worktree root. A source root is NOT walked:
+    a candidate is a checkout root, and an index of a subtree of the canonical
+    is not offered as the repo for a worktree.
     """
-    common = _git_common_dir_cheap(path)
+    common = _enclosing_git_common_dir(path)
     if common is None:
         return []
 

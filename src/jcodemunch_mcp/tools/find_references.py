@@ -4,6 +4,7 @@ import posixpath
 import time
 from typing import Optional
 
+from ..parser.imports import wildcard_edge_filter
 from ..storage import IndexStore, result_cache_get, result_cache_put
 from ..storage.generation import connect_readonly
 from ._utils import index_status_to_tool_error, resolve_repo
@@ -16,8 +17,11 @@ def _build_import_name_index(index) -> dict[str, list[tuple[str, dict]]]:
     Built once per CodeIndex, cached on index._import_name_index.
     """
     inv: dict[str, list[tuple[str, dict]]] = {}
+    dead_wildcard = wildcard_edge_filter(index)
     for src_file, file_imports in index.imports.items():
         for imp in file_imports:
+            if dead_wildcard(imp, src_file):
+                continue
             for n in imp.get("names", []):
                 inv.setdefault(n.lower(), []).append((src_file, imp))
             spec_stem = posixpath.splitext(posixpath.basename(imp["specifier"]))[0].lower()
@@ -432,7 +436,9 @@ def find_references(
     if identifier is not None and identifiers is not None and len(identifiers) == 0:
         identifiers = None
     if (identifier is None and identifiers is None) or (identifier is not None and identifiers is not None):
-        raise ValueError("Provide exactly one of 'identifier' or 'identifiers', not both and not neither.")
+        from ._arg_contract import ArgumentError
+
+        raise ArgumentError("Provide exactly one of 'identifier' or 'identifiers', not both and not neither.")
 
     start = time.perf_counter()
     max_results = max(1, min(max_results, 200))
@@ -456,7 +462,7 @@ def find_references(
     else:
         repo_key = f"{owner}/{name}"
         specific_key = (identifier, max_results, include_call_chain)
-        cached = result_cache_get("find_references", repo_key, specific_key)
+        cached = result_cache_get("find_references", repo_key, specific_key, index=index)
         if cached is not None:
             result = dict(cached)
             result["_meta"] = {**cached["_meta"],
@@ -471,7 +477,7 @@ def find_references(
             include_call_chain=include_call_chain,
             store=store,
         )
-        result_cache_put("find_references", repo_key, specific_key, result)
+        result_cache_put("find_references", repo_key, specific_key, result, index=index)
         return _attach_scip_to_response(
             _attach_runtime_to_response(result, store, owner, name),
             store, owner, name,

@@ -164,6 +164,7 @@ def capture(index, *, include_tree: bool = False, fresh_head: bool = False) -> d
         state["generation"] = gen.generation
         state["index_sha"] = gen.indexed_revision
         state["db_mtime_ns"] = gen.db_mtime_ns
+        state["db_path"] = gen.db_path
         live = None
         if source_root:
             try:
@@ -210,7 +211,12 @@ def changed(
         return f"the index was rebuilt {when}"
     b_db, a_db = before.get("db_mtime_ns"), after.get("db_mtime_ns")
     if b_db is not None and a_db is not None and b_db != a_db:
-        return f"the index was rewritten {when}"
+        # This process's own BM25 / token-count write-back moves the .db and
+        # changes no answer; only a move it did not make is a rewrite.
+        from ..storage.generation import only_benign_rewrites
+
+        if not only_benign_rewrites(after.get("db_path"), b_db, a_db):
+            return f"the index was rewritten {when}"
     b_sha, a_sha = before.get("live_sha"), after.get("live_sha")
     if b_sha and a_sha and b_sha != a_sha:
         return (

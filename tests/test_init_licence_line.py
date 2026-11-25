@@ -49,7 +49,7 @@ def test_a_real_run_ends_with_the_licence_line_after_done(quiet_init, capsys):
     lines = [ln for ln in out.splitlines() if ln.strip()]
     done = next(i for i, ln in enumerate(lines) if ln.startswith("Done."))
     tail = "\n".join(lines[done + 1:])
-    assert "Using jCodeMunch at work? A commercial license is $79, one time:" in tail
+    assert "Using jCodeMunch at work? A commercial license is $99, one time:" in tail
     assert "https://jcodemunch.com/descriptions.php?utm_source=cli&utm_medium=install&utm_campaign=license-line" in tail
     assert "(30-day money-back guarantee; terms: https://jcodemunch.com/guarantee.php?utm_source=cli&utm_medium=install&utm_campaign=license-line)" in tail
     assert out.count("descriptions.php") == 1
@@ -57,7 +57,7 @@ def test_a_real_run_ends_with_the_licence_line_after_done(quiet_init, capsys):
 
 def test_a_licensed_install_by_env_prints_no_licence_line(quiet_init, capsys, monkeypatch):
     """jjg's promise: paid clients are never marketed to (DECISIONS 2026-10-20).
-    The $79 line is a sales line, so a configured key suppresses it."""
+    The license line is a sales line, so a configured key suppresses it."""
     monkeypatch.setenv("JCODEMUNCH_LICENSE_KEY", "jcm-test-key-not-real")
     out = _run(capsys, dry_run=False)
     assert "Done." in out

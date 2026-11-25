@@ -9,7 +9,7 @@ from ..parser.context import ContextProvider, enrich_symbols, collect_extra_impo
 from ..parser.imports import extract_imports
 from ..parser.parse_budget import ParseBudgetExceeded  # noqa: F401  (re-exported: callers catch it by this path)
 from ..parser.symbols import Symbol
-from ..summarizer import summarize_symbols, generate_file_summaries
+from ..summarizer import keep_stored_summaries, summarize_symbols, generate_file_summaries
 
 logger = logging.getLogger(__name__)
 
@@ -92,6 +92,7 @@ def parse_immediate(
     active_providers: Optional[list[ContextProvider]] = None,
     warnings: Optional[list[str]] = None,
     repo: Optional[str] = None,
+    parse_failures: Optional[list] = None,
 ) -> tuple[list[Symbol], dict[str, str], dict[str, str], dict[str, list[dict]], list[str]]:
     """Parse files and enrich, but skip AI summarization for immediate return.
 
@@ -137,6 +138,8 @@ def parse_immediate(
         except Exception as e:
             warnings.append(f"Failed to parse {rel_path}: {e}")
             logger.debug("PARSE ERROR (parse_immediate): %s — %s", rel_path, e)
+            if parse_failures is not None:
+                parse_failures.append(rel_path)
 
     # 2. Enrich with context providers
     if providers and new_symbols:
@@ -217,8 +220,16 @@ def parse_and_prepare_incremental(
     use_ai_summaries: bool = True,
     warnings: Optional[list[str]] = None,
     repo: Optional[str] = None,
+    parse_failures: Optional[list] = None,
+    stored_summaries: Optional[dict[str, tuple[str, str]]] = None,
+    summary_report: Optional[dict] = None,
 ) -> tuple[list[Symbol], dict[str, str], dict[str, str], dict[str, list[dict]], list[str]]:
     """Shared incremental pipeline: parse, enrich, summarize, extract metadata.
+
+    ``stored_summaries`` (symbol id -> stored ``(summary, content_hash)``, from
+    `stored_summary_map`) and ``summary_report`` let a re-parse keep a stored
+    summary the provider could not replace (L-323); `summarize_with_kept`
+    fills the report.
 
     Args:
         files_to_parse: Set of rel_paths to process (changed + new).
@@ -258,6 +269,8 @@ def parse_and_prepare_incremental(
         except Exception as e:
             warnings.append(f"Failed to parse {rel_path}: {e}")
             logger.debug("PARSE ERROR (incremental): %s — %s", rel_path, e)
+            if parse_failures is not None:
+                parse_failures.append(rel_path)
 
     logger.info(
         "Incremental parsing — with symbols: %d, no symbols: %d",
@@ -270,7 +283,9 @@ def parse_and_prepare_incremental(
         enrich_symbols(new_symbols, providers)
 
     # 3. Summarize (repo passed for project-aware config reads, #304)
-    new_symbols = summarize_symbols(new_symbols, use_ai=use_ai_summaries, repo=repo, source_for=file_contents.get)
+    new_symbols = summarize_with_kept(
+        new_symbols, use_ai_summaries, repo, file_contents.get, stored_summaries, summary_report,
+    )
 
     # 4. Build symbols-by-file map, file summaries, file languages
     symbols_map: dict[str, list] = defaultdict(list)
@@ -299,6 +314,74 @@ def parse_and_prepare_incremental(
         collect_extra_imports(providers, file_imports)
 
     return new_symbols, file_summaries, file_langs, file_imports, no_symbols_files
+
+
+def stored_summary_map(
+    existing_symbols: list[dict], files: Optional[set[str]] = None
+) -> dict[str, tuple[str, str]]:
+    """symbol id -> stored ``(summary, content_hash)``, for `keep_stored_summaries`.
+
+    ``files`` limits it to the files a re-parse is about to summarize.
+    """
+    return {
+        s["id"]: (s.get("summary") or "", s.get("content_hash") or "")
+        for s in existing_symbols
+        if s.get("id") and s.get("summary") and (files is None or s.get("file") in files)
+    }
+
+
+def summarize_with_kept(
+    symbols: list[Symbol],
+    use_ai_summaries: bool,
+    repo: Optional[str],
+    source_for,
+    stored_summaries: Optional[dict[str, tuple[str, str]]],
+    summary_report: Optional[dict],
+) -> list[Symbol]:
+    """`summarize_symbols`, then the keep rule, for a caller with stored summaries (L-323).
+
+    Without a ``summary_report`` it is `summarize_symbols` unchanged. With one,
+    the report gets ``provider_unavailable`` (a configured provider that never
+    got a client), ``provider_fallbacks`` and the ``failed_kept`` /
+    ``unavailable_kept`` counts, added to whatever an earlier batch of the same
+    run put there.
+    """
+    if summary_report is None:
+        return summarize_symbols(symbols, use_ai=use_ai_summaries, repo=repo, source_for=source_for)
+    report: dict = {}
+    symbols = summarize_symbols(
+        symbols, use_ai=use_ai_summaries, repo=repo, source_for=source_for, report=report,
+    )
+    counts = keep_stored_summaries(symbols, stored_summaries or {}, report, require_hash=True)
+    if report.get("provider_unavailable"):
+        summary_report["provider_unavailable"] = report["provider_unavailable"]
+    for key, n in counts.items():
+        summary_report[key] = summary_report.get(key, 0) + n
+    return symbols
+
+
+def summary_report_fields(summary_report: Optional[dict]) -> dict:
+    """The index result keys for a summary report, empty when there is nothing to say.
+
+    The same names `summarize_repo` returns, so a reader checks one spelling.
+    """
+    from ..summarizer import unavailable_reason
+
+    if not summary_report:
+        return {}
+    out: dict = {}
+    kept = summary_report.get("failed_kept", 0) + summary_report.get("unavailable_kept", 0)
+    if summary_report.get("provider_fallbacks"):
+        out["provider_fallbacks"] = summary_report["provider_fallbacks"]
+    if kept:
+        out["previous_summaries_kept"] = kept
+    provider = summary_report.get("provider_unavailable")
+    if provider:
+        out["provider_unavailable"] = provider
+        out["provider_unavailable_reason"] = unavailable_reason(
+            provider, summary_report.get("unavailable_kept", 0)
+        )
+    return out
 
 
 def _split_for_summarization(
