@@ -1,6 +1,12 @@
 {
-  "current": "1.108.489",
+  "current": "1.108.490",
   "entries": [
+    {
+      "version": "1.108.490",
+      "date": "2026-11-24",
+      "title": "A subfolder index reads the root .gitignore, and watch-install needs no elevated shell",
+      "summary": "Indexing a subfolder read only the .gitignore files from that folder down, so it added files the repository root's .gitignore excludes, and the next full index removed them with no message. The subfolder walk, paths= from a subfolder and index_file now read the .gitignore chain from the git root down. On Windows, watch-install registered a logon task with no user, which Windows refuses from a shell that is not elevated; the task now names the calling user. Both reported by @rknighton (#1563, #1564)."
+    },
     {
       "version": "1.108.489",
       "date": "2026-11-24",

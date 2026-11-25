@@ -456,7 +456,14 @@ def _watch_task_registered() -> Optional[bool]:
 # the task is registered from this definition. Everything the switch form set is
 # kept: a logon trigger, the limited run level, the running interpreter as the
 # action, one instance at a time. The principal names no UserId, so `schtasks`
-# registers it for the calling user, as the switch form did.
+# registers it for the calling user, as the switch form did. The trigger is the
+# one deliberate difference from the switch form (#1564, next).
+# ⚠⚠ #1564 (@rknighton): the LOGON TRIGGER must name the user. A trigger with
+# no UserId fires at ANY user's logon, and registering that from a shell that
+# is not elevated is refused with "Access is denied", so `watch-install` worked
+# only from an elevated shell. The reporter measured both halves: a UserId in
+# the trigger registers without elevation, and one in the principal alone does
+# not. An elevated shell registers either form, so it cannot show the defect.
 _WINDOWS_TASK_TEMPLATE = """<?xml version="1.0" encoding="UTF-16"?>
 <Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
   <RegistrationInfo>
@@ -464,7 +471,7 @@ _WINDOWS_TASK_TEMPLATE = """<?xml version="1.0" encoding="UTF-16"?>
   </RegistrationInfo>
   <Triggers>
     <LogonTrigger>
-      <Enabled>true</Enabled>
+      <Enabled>true</Enabled>{trigger_user}
     </LogonTrigger>
   </Triggers>
   <Principals>
@@ -518,12 +525,45 @@ def _windows_exec_cmd() -> list[str]:
     return [exe, *rest, "--log-file", str(_log_dir() / "watch-all.log")]
 
 
+_NAME_SAM_COMPATIBLE = 2  # EXTENDED_NAME_FORMAT: DOMAIN\user
+
+
+def _windows_user_id() -> Optional[str]:
+    """The calling user as ``DOMAIN\\user``, or None when it cannot be read.
+
+    `GetUserNameExW` answers for the process token, so it names the account
+    `schtasks` registers the task for even when the environment was changed.
+    The environment is the fallback. None leaves the trigger without a UserId,
+    the pre-#1564 form, which still registers from an elevated shell.
+    """
+    try:
+        import ctypes
+
+        secur32 = ctypes.windll.secur32  # type: ignore[attr-defined]
+        size = ctypes.c_ulong(0)
+        secur32.GetUserNameExW(_NAME_SAM_COMPATIBLE, None, ctypes.byref(size))
+        if size.value:
+            buf = ctypes.create_unicode_buffer(size.value)
+            if secur32.GetUserNameExW(_NAME_SAM_COMPATIBLE, buf, ctypes.byref(size)) and buf.value:
+                return buf.value
+    except Exception:
+        logger.debug("GetUserNameExW failed; falling back to the environment", exc_info=True)
+    user = os.environ.get("USERNAME", "").strip()
+    domain = os.environ.get("USERDOMAIN", "").strip()
+    if user:
+        return f"{domain}\\{user}" if domain else user
+    return None
+
+
 def _windows_task_xml() -> str:
-    """The task definition `_install_windows` registers (L-149)."""
+    """The task definition `_install_windows` registers (L-149, #1564)."""
     exe, *rest = _windows_exec_cmd()
+    user_id = _windows_user_id()
+    trigger_user = f"\n      <UserId>{_xml_escape(user_id)}</UserId>" if user_id else ""
     return _WINDOWS_TASK_TEMPLATE.format(
         command=_xml_escape(_cmd_quote(exe)),
         arguments=_xml_escape(" ".join(_cmd_quote(x) for x in rest)),
+        trigger_user=trigger_user,
     )
 
 

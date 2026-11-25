@@ -3542,3 +3542,9 @@ The 1.108.485 entry, verbatim as it stood in `CLAUDE.md`:
 The 1.108.486 entry, verbatim as it stood in `CLAUDE.md`:
 
 - **Prior (1.108.486):** **every license covers all three tools, and a $9.99 Freelance license** (#1551): one price per tier for jCodeMunch, jDocMunch and jDataMunch together, `LICENSE` 1.3 with the Freelance section (identifier unchanged), and the `init` line, license reminder, README and QUICKSTART carry the new prices. Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-24, release 1.108.490)
+
+The 1.108.487 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.487):** **`get_changed_symbols` says that its `cross_repo` argument does nothing** (L-57): passing it emits a `FutureWarning`, and the argument is still accepted. Full text: `CHANGELOG.md`.
