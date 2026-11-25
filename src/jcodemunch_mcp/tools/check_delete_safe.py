@@ -442,7 +442,9 @@ def check_delete_safe(
         and refs_searched
         and _content_search_read_every(
             index, store, owner, name,
-            [b["file"] for b in blockers if b.get("kind") == "external_import"],
+            # ⚠ (review round 2) The target's own file too: unread, its
+            # same-file uses go uncounted and "its own file included" is false.
+            [target_file] + [b["file"] for b in blockers if b.get("kind") == "external_import"],
             target_name,
         )
     ):
@@ -538,11 +540,13 @@ def check_delete_safe(
     dynamic_gap = None
     reaching = DynamicBoundary(index.imports).reaching(target.get("file", ""))
     # (LEDGER L-81) `name_not_searchable` gains the gap and the blocker and
-    # keeps its name, the narrower cause; skipping it hid the loaders.
+    # keeps its name, the narrower cause; skipping it hid the loaders. So does
+    # `file_import_only` (LEDGER L-348): a loader is one more way to reach it.
     if reaching and verdict in (
         "safe_to_delete", "internal_only", "test_coverage_only", "name_not_searchable",
+        "file_import_only",
     ):
-        if verdict != "name_not_searchable":
+        if verdict not in ("name_not_searchable", "file_import_only"):
             verdict = "dynamic_import_boundary"
         dynamic_gap = {
             "action": "read the named loaders for the module names they can produce",
@@ -667,8 +671,9 @@ def check_delete_safe(
                 "by a computed name, or a re-export"
             ),
             "why": (
-                f"{shown} import {target_file}, but no indexed file names "
-                f"{target_name!r}, its own file included"
+                f"{shown} import {target_file}, but the reference search found "
+                f"{target_name!r} in no file it read, and it read those files and "
+                f"{target_file}"
             ),
         }
 
@@ -761,7 +766,8 @@ def check_delete_safe(
             f"{import_gap['why']}. The import alone keeps this blocked: "
             f"{import_gap['action']} before deleting."
             if import_gap
-            else "Another file imports this file, but no indexed file names this symbol. "
+            else "Another file imports this file, but the reference search found this "
+            "symbol's name in no file it read, the importers and its own file among them. "
             "Read the importing files before deleting."
         ),
         "external_uses_blocking": (

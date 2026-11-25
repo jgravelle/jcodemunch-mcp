@@ -16,15 +16,16 @@ The properties, not the mechanism:
 - it never moves a symbol toward safe: its confidence is never above the
   `external_uses_blocking` it replaces;
 - it is an absence claim, so it needs evidence of absence: a same-file use, a
-  reference search that raised, or an importer the search could not read all
-  keep `external_uses_blocking`;
+  reference search that raised, or an importer or the symbol's own file the
+  search could not read all keep `external_uses_blocking`;
 - on a corpus that cannot back an absence claim it gains the re-index gap.
 
 NON-VACUITY: the four `file_import_only` tests fail on main, which returns
-`external_uses_blocking` for each. The rest pass on both sides, and two of them
-are the witnesses for guards a deletion would otherwise leave unnoticed: the
-unreadable importer (the content check) and the raised search
-(`refs_searched`). Each was confirmed to fail with its guard removed.
+`external_uses_blocking` for each. The rest pass on both sides, and three of
+them are the witnesses for guards a deletion would otherwise leave unnoticed:
+the unreadable importer and the unreadable own file (the content check) and
+the raised search (`refs_searched`). Each was confirmed to fail with its guard
+removed.
 """
 from __future__ import annotations
 
@@ -171,6 +172,23 @@ def test_an_importer_the_search_could_not_read_keeps_the_external_verdict(tmp_pa
     assert cached and cached.exists(), cached
     cached.unlink()
     assert _check(repo, store, "pub")["verdict"] == "external_uses_blocking"
+
+
+def test_the_symbols_own_file_unread_keeps_the_external_verdict(tmp_path):
+    # GUARD WITNESS (the target file in the read check): `priv` is used only
+    # inside its own file. With that file's cached content gone the search
+    # cannot see the use, so the absence is not established.
+    repo, store = _index(tmp_path, {
+        "esm.mjs": "function priv() { return 3; }\nexport function pub() { return priv(); }\n",
+        "use_esm.mjs": "import { pub } from './esm.mjs';\npub();\n",
+    })
+    assert _check(repo, store, "priv")["verdict"] == "external_uses_blocking"
+    owner, name = repo.split("/", 1)
+    st = IndexStore(base_path=store)
+    cached = st._safe_content_path(st._content_dir(owner, name), "esm.mjs")
+    assert cached and cached.exists(), cached
+    cached.unlink()
+    assert _check(repo, store, "priv")["verdict"] == "external_uses_blocking"
 
 
 def test_a_reference_search_that_raised_keeps_the_external_verdict(tmp_path, monkeypatch):
