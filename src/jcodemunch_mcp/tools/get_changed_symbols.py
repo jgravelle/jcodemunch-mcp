@@ -6,6 +6,7 @@ import logging
 import re
 import subprocess
 import time
+import warnings
 from pathlib import Path
 from typing import Optional
 
@@ -179,6 +180,7 @@ def get_changed_symbols(
         max_blast_depth: Hop limit for blast radius traversal (capped at 5).
         suppress_meta: Strip the _meta envelope from the response.
         storage_path: Custom storage path.
+        cross_repo: Deprecated and ignored (L-57); passing it warns.
 
     Returns:
         Dict with from_sha, to_sha, changed_files, changed_symbols, added_symbols,
@@ -200,6 +202,16 @@ def get_changed_symbols(
     """
     start = time.perf_counter()
     max_blast_depth = max(1, min(max_blast_depth, 5))
+    # (L-57) `cross_repo` was accepted and never read: the MCP schema never
+    # offered it and the blast walk is local-only. Removing it would break a
+    # direct Python caller on 1.x, so it stays and says it does nothing.
+    if cross_repo is not None:
+        warnings.warn(
+            "get_changed_symbols: cross_repo has no effect (the blast radius is "
+            "local-only) and is deprecated",
+            FutureWarning,
+            stacklevel=2,
+        )
 
     try:
         owner, name = resolve_repo(repo, storage_path)

@@ -245,7 +245,9 @@ if _may_register_a_real_task():
         Scheduler can say it ACCEPTS it, and a malformed definition would make
         `watch-install` fail for every Windows user. Registers our definition
         and the old switch form under throwaway names, compares what Windows
-        stored, deletes both. Never started: the action runs only at logon."""
+        stored, deletes both. Never started: the action runs only at logon.
+        The logon trigger's user is the one field that differs, by design
+        (#1564): it names the calling user."""
         if exec_cmd is None:
             cmd = si._windows_exec_cmd()
         else:
@@ -282,7 +284,15 @@ if _may_register_a_real_task():
                     "arguments": exec_.findtext("t:Arguments", namespaces=_NS),
                 }
 
-            assert _kept(new) == _kept(old)
+            # #1564: the trigger names the calling user, so a shell that is not
+            # elevated may register it. That is the one field allowed to differ
+            # from the switch form; everything else must match.
+            kept_new, kept_old = _kept(new), _kept(old)
+            trigger_user = kept_new.pop("trigger_user")
+            kept_old.pop("trigger_user")
+            assert trigger_user, "the logon trigger names no user (#1564)"
+            assert trigger_user.split("\\")[-1].lower() == os.environ["USERNAME"].lower(), trigger_user
+            assert kept_new == kept_old
         finally:
             for name in (xml_name, old_name):
                 subprocess.run(["schtasks", "/Delete", "/F", "/TN", name], capture_output=True, check=False)

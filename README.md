@@ -72,6 +72,7 @@ Full methodology, pinned commits, harness, and known caveats: [benchmarks/METHOD
 
 ### Mentioned by
 
+- **SI Plugins**: *"Rank #2 of 19 in Code intelligence and review"*, 91% positive from 23 independent users on Reddit (read 2026-11-23) · [jCodeMunch reviews on SI Plugins](https://superintelligence-plugins.com/tools/jcodemunch/)
 - **Artur Skowroński** (VirtusLab): *"roughly 80% fewer tokens, or 5× more efficient — index once, query cheaply forever"* · [GitHub All-Stars #15](https://virtuslab.com/blog/ai/code-munch-mcp-your-agent-starts-navigating)
 - **Traci Lim** (AWS · ASEAN AI Lead): *"structural queries that native tools can't answer: find_importers, get_blast_radius, get_class_hierarchy, find_dead_code"* · [5 Repos That Save Token Usage in Claude Code](https://www.tracilzw.com/posts/5-repos-save-token-usage-claude-code)
 - **Julian Horsey** (Geeky Gadgets): *"3,850 tokens reduced to just 700 — a 5.5× improvement"* · [JCodeMunch AI Token Saver](https://www.geeky-gadgets.com/jcodemunch-mcp-token-savings/)
@@ -362,9 +363,9 @@ Both keys change what the parser emits for *unchanged* files, so a change to eit
 
 jCodeMunch-MCP is released under the **jCodeMunch-MCP Dual-Use License** ([full terms](LICENSE)). **Free for non-commercial use. Commercial use requires a paid license**, one-time, sold by jMunch LLC via Stripe:
 
-**jCodeMunch-only:** [Builder, $79](https://jcodemunch.com/descriptions.php?utm_medium=readme&utm_campaign=jcm_readme_tiers#builder) (1 developer) · [Studio, $349](https://jcodemunch.com/descriptions.php?utm_medium=readme&utm_campaign=jcm_readme_tiers#studio) (up to 5) · [Platform, $1,999](https://jcodemunch.com/descriptions.php?utm_medium=readme&utm_campaign=jcm_readme_tiers#platform) (org-wide internal deployment)
+[Builder $99](https://jcodemunch.com/descriptions.php?utm_medium=readme&utm_campaign=jcm_readme_tiers#builder) (1 developer) · [Studio $449](https://jcodemunch.com/descriptions.php?utm_medium=readme&utm_campaign=jcm_readme_tiers#studio) (up to 5 developers) · [Platform $2,499](https://jcodemunch.com/descriptions.php?utm_medium=readme&utm_campaign=jcm_readme_tiers#platform) (org-wide internal deployment), one-time, all three tools (jCodeMunch, jDocMunch and jDataMunch).
 
-**Full jMunch suite (code + docs + data):** [Trio Builder, $99](https://jcodemunch.com/descriptions.php?utm_medium=readme&utm_campaign=jcm_readme_tiers#builder) · [Trio Studio, $449](https://jcodemunch.com/descriptions.php?utm_medium=readme&utm_campaign=jcm_readme_tiers#studio) · [Trio Platform, $2,499](https://jcodemunch.com/descriptions.php?utm_medium=readme&utm_campaign=jcm_readme_tiers#platform)
+**Freelancing or running a side project?** The Freelance license is $9.99 one-time, for your own freelance work and side projects that brought in under $10,000 in the last 12 months. Your employer's work needs Builder. What you paid counts toward Builder.
 
 Not sure it's worth it? Run your own numbers through the [ROI calculator](https://jcodemunch.com/roi.php?utm_medium=readme&utm_campaign=jcm_readme_bottom), or forward [the finance-team version](https://jcodemunch.com/for-finance.php?utm_medium=readme&utm_campaign=jcm_readme_bottom) to whoever signs off. The guarantee stands: if jCodeMunch doesn't pay for itself, you don't pay for jCodeMunch.
 

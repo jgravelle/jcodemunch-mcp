@@ -1,6 +1,36 @@
 {
-  "current": "1.108.485",
+  "current": "1.108.490",
   "entries": [
+    {
+      "version": "1.108.490",
+      "date": "2026-11-24",
+      "title": "A subfolder index reads the root .gitignore, and watch-install needs no elevated shell",
+      "summary": "Indexing a subfolder read only the .gitignore files from that folder down, so it added files the repository root's .gitignore excludes, and the next full index removed them with no message. The subfolder walk, paths= from a subfolder and index_file now read the .gitignore chain from the git root down. On Windows, watch-install registered a logon task with no user, which Windows refuses from a shell that is not elevated; the task now names the calling user. Both reported by @rknighton (#1563, #1564)."
+    },
+    {
+      "version": "1.108.489",
+      "date": "2026-11-24",
+      "title": "An index on an unplugged drive survives server start",
+      "summary": "Every server start deleted the index of a folder that was not there at that moment, so a folder on an unplugged USB drive or an unmounted volume lost its index and needed a full re-index when the drive came back. The sweep now deletes only when the drive that holds the folder is present, keeps the index when it cannot tell, and no longer checks network folders on Windows at start."
+    },
+    {
+      "version": "1.108.488",
+      "date": "2026-11-24",
+      "title": "A Bearer token with ~ + / = or ! is redacted whole",
+      "summary": "The redactor cut a Bearer token at the first character outside letters, digits, _, - and ., so part of a token, or all of a Salesforce token, could reach a tool answer. It now takes every character RFC 6750 allows, plus ! with or without backslash escapes, and runtime trace redaction uses the same pattern. Reported by @goranai, who also sent a fix in #1559."
+    },
+    {
+      "version": "1.108.487",
+      "date": "2026-11-24",
+      "title": "get_changed_symbols says that its cross_repo argument does nothing",
+      "summary": "get_changed_symbols accepted a cross_repo argument that nothing read, so a Python caller who set it got a local-only blast radius with no sign the flag did nothing. A call that passes it now emits a FutureWarning saying it has no effect and is deprecated. The argument is still accepted, so no existing call breaks under default warning filters. MCP callers are unaffected."
+    },
+    {
+      "version": "1.108.486",
+      "date": "2026-11-23",
+      "title": "Every license covers all three tools, and a $9.99 Freelance license",
+      "summary": "Licenses are now one price per tier for jCodeMunch, jDocMunch and jDataMunch together: Builder $99, Studio $449, Platform $2,499, one-time. A new Freelance license, $9.99 one-time, covers one person's own freelance work and side projects that brought in under $10,000 in the last 12 months. Licenses bought before today stay valid. LICENSE is now version 1.3, and the init closing line, the license reminder and the README carry the new prices."
+    },
     {
       "version": "1.108.485",
       "date": "2026-11-22",

@@ -87,6 +87,146 @@ under its lock. The store now also refuses a moved index before it takes the
 lock, and refuses when it cannot read the index's timestamp, where before a
 later read could succeed and the write-back went ahead.
 
+## [1.108.490] - 2026-11-24 - a subfolder index reads the root .gitignore, and watch-install needs no elevated shell
+
+### Indexing a subfolder applies the repository's own .gitignore (#1563)
+
+Reported by @rknighton. `index_folder(<repo>/sub)` read only the `.gitignore`
+files from `sub` down, so it added files that the repository root's
+`.gitignore` excludes. The index is keyed from the git root, and the next root
+index applied the root's `.gitignore` and removed those files with no message,
+taking their symbols with them. `paths=` from the subfolder had the same gap,
+and `index_file` mirrored the subfolder walk, so it accepted the same files.
+
+The subfolder walk, `paths=` from a subfolder and `index_file` now read the
+`.gitignore` chain from the git root down, the same chain the root index reads.
+A file a root `.gitignore` excludes is left out by every route. A file listed
+in `paths=` gets a warning when it is skipped as gitignored; a listed folder
+counts its skipped files and warns about none. Project config is still read from the
+folder that was indexed. A test that required the subfolder walk to index a
+root-ignored file is replaced (`harness/retired.json`).
+
+### `watch-install` registers its Windows task without an elevated shell (#1564)
+
+Reported by @rknighton. The task definition gave its logon trigger no user. A
+logon trigger with no user fires when anyone logs on, and Windows refuses to
+register that from a shell that is not elevated, so `watch-install` stopped
+with "Access is denied" for anyone who ran it normally. The reporter tested
+both places a user can go: in the trigger, the task registers without
+elevation; in the principal alone, it does not. The trigger now names the
+calling user (`DOMAIN\user`, read from the process token, with `USERDOMAIN` and
+`USERNAME` as the fallback). When no user can be read, the trigger stays as it
+was, and that form still registers from an elevated shell.
+
+An elevated shell registers either form, so the refusal can't be reproduced
+from one. The tests pin the cause in the generated XML: the trigger carries the
+user, the user is XML-escaped, and the principal is unchanged. The Windows CI
+test that registers the task beside the old switch form compared every field,
+the trigger's user included, so it required the any-user trigger. It now
+requires the trigger to name the calling user and everything else to match.
+It and the fixed definition were registered and deleted under throwaway names
+on Windows 11 from an elevated shell. Neither was run from a non-elevated one
+here; the reporter's test covers that case.
+
+## [1.108.489] - 2026-11-24 - an index on an unplugged drive survives server start
+
+### An index on an unplugged drive survives server start (L-347)
+
+Every server start deleted the index of any folder that was not a directory at
+that moment. A folder on a USB drive that is unplugged, a network share that is
+disconnected or a volume that is not mounted is not a directory then either, so
+its index was deleted the same way as a removed worktree's, and the user paid a
+full re-index when the drive came back. Reproduced on 1.108.487: an index whose
+folder is on an unmapped `Z:` drive was deleted by the sweep.
+
+The sweep now deletes an index only when the folder is missing and the drive
+that holds it is present: on Windows the drive letter, on macOS and Linux a
+mount check on `/Volumes/<v>`, `/mnt/<v>`, `/media/...` and
+`/run/media/<user>/<v>`. A folder removed from any other place on a present
+drive is still cleaned up. When the drive cannot be checked (a path written on
+another operating system, or a check that fails), the index is kept.
+
+A network folder on Windows (a UNC path in either slash spelling, or a drive
+letter Windows reports as a network drive) is no longer checked at server
+start at all, and its index is kept. The sweep runs before the server answers,
+and the first check of a share on an unreachable host took 41.46 s on a
+Windows 11 box (a repeat took 0.67 s). Keeping the index and checking it would
+have put that wait on every start; before this change it happened once and
+then the index was deleted. What Windows reports for a disconnected mapped
+drive was not measured. On macOS and Linux a network mount (SMB or NFS under
+`/Volumes` or `/mnt`) has no shape to recognise without touching it, so it is
+still checked at start, as before.
+
+What the fix cannot tell apart, in both directions: a volume mounted outside
+those folders on macOS or Linux, or into an NTFS folder on Windows, reads as
+part of the main drive, so its folder still reads as removed while it is
+unplugged. A plain folder (not a mount) under `/mnt`, `/media` or `/Volumes`
+reads as an unmounted volume, so its index is kept after the folder is removed,
+because an unmounted volume leaves the same empty folder behind. Kept indexes
+cost storage until they are deleted by hand. A Windows device path (`\\?\` or
+`\\.\`) reads as a network path and is always kept.
+
+## [1.108.488] - 2026-11-24 - a Bearer token with ~ + / = or ! is redacted whole
+
+### A Bearer token with `~ + / =` or `!` is redacted whole (#1558)
+
+Reported by @goranai, who also sent a fix in #1559. The redactor's `bearer_token` pattern took only letters,
+digits, `_`, `-` and `.` after `Bearer`, so a token holding any other character
+was cut there. If that character came after the first 20, the head was
+redacted and the tail sent out in the tool response; if it came within them,
+nothing was redacted at all. That second case covers every Salesforce access
+token, which is a 15-character org id, a `!`, then the rest. Salesforce's own
+cURL examples write that `!` as `\!`, and the same line stored JSON-escaped
+reads `\\!`.
+
+The pattern now takes RFC 6750's bearer token characters (letters, digits,
+`- . _ ~ + /`, trailing `=`) plus `!` and `!` after any run of backslashes,
+and still needs 20 of them after the `Authorization` header prefix. Runtime
+trace redaction reads the same pattern, so trace ingest is covered by the same
+change. A test redacts each token shape in the report, plus the JSON-escaped
+Salesforce line and a `+` within the first 20 characters, and checks nothing of
+the token is left after the marker. It also checks that a closing quote, an
+escaped JSON quote, a placeholder such as `${TOKEN}` and a short value are
+left alone. The wider set errs toward redacting: a path or `+suffix` written
+straight after a token, with no space, is now redacted with it.
+
+## [1.108.487] - 2026-11-24 - get_changed_symbols says that its cross_repo argument does nothing
+
+### get_changed_symbols says that its cross_repo argument does nothing (L-57)
+
+`get_changed_symbols` accepted `cross_repo` and nothing read it. The MCP schema
+never offered it and the dispatcher never passed it, so only a Python caller
+could set it, and that caller got the same local-only blast radius with no
+sign the flag had done nothing. A call that passes it now emits a
+`FutureWarning` saying it has no effect and is deprecated. The
+argument is still accepted, so under default warning filters no existing
+call breaks; a caller running with warnings as errors gets one. MCP callers
+are unaffected: the server's argument check already reported the key as
+ignored. A test also fails if the function gains a parameter its body never
+reads as a name.
+
+## [1.108.486] - 2026-11-23 - every license covers all three tools, and a $9.99 Freelance license
+
+### Every license covers all three tools, and a $9.99 Freelance license (license 1.3)
+
+Licenses are now one price per tier for jCodeMunch, jDocMunch and jDataMunch
+together: Builder $99, Studio $449, Platform $2,499, one-time. The
+jCodeMunch-only prices ($79, $349, $1,999) and the jDocMunch-only and
+jDataMunch-only licenses are no longer sold. Every license bought before today
+stays valid.
+
+The new Freelance license is $9.99 one-time. It is for one person's own
+freelance work and side projects that brought in under $10,000 in the last 12
+months, with or without a day job. Work for an employer needs Builder, and what
+a Freelance holder paid counts toward it.
+
+`LICENSE` gains the Freelance section and the new price list, and its link moves
+from the retired j.gravelle.us site to jcodemunch.com. The license is now
+version 1.3. The Freelance section only adds a permission, so the identifier
+stays `LicenseRef-jCodeMunch-Dual-Use-1` and an allowlist approved for it needs
+no change. The `init` closing line, the license reminder (CLI, tool answer
+and `receipt`), the README and QUICKSTART carry the new prices.
+
 ## [1.108.485] - 2026-11-22 - a capped re-index says which of its files came from an earlier index, and a compact blast radius keeps every top-level key
 
 ### A compact get_blast_radius answer keeps every top-level key the tool returns (L-58)

@@ -408,7 +408,7 @@ jCodeMunch is free for personal use. Commercial use needs a paid license — one
 not a subscription.
 
 * [**What it saves you**](https://jcodemunch.com/roi.php?utm_source=github&utm_medium=quickstart&utm_campaign=jcm_quickstart_footer) — put your team size and query volume into the ROI calculator
-* [**Pricing**](https://jcodemunch.com/?utm_source=github&utm_medium=quickstart&utm_campaign=jcm_quickstart_footer#pricing) — Builder $79 · Studio $349 · Platform $1,999
+* [**Pricing**](https://jcodemunch.com/?utm_source=github&utm_medium=quickstart&utm_campaign=jcm_quickstart_footer#pricing) — Builder $99 · Studio $449 · Platform $2,499, one-time, all three tools; Freelance $9.99 for your own freelance work under $10,000 a year
 * [**Live token counter**](https://jcodemunch.com/?utm_source=github&utm_medium=quickstart&utm_campaign=jcm_quickstart_footer) — what the whole user base has saved so far
 
 If jCodeMunch doesn't pay for itself, you don't pay for jCodeMunch.
