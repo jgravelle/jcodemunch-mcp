@@ -1110,24 +1110,24 @@ fails without clearing the persisted index. Legitimate binary exclusions
 still allow deletion reconciliation. Explicit-path incremental refreshes also
 reconcile deleted requested files.
 
-On an incremental run, a changed file that discovery accepts but that
-`index_folder` cannot read (a sharing violation, a permission error) keeps its
-stored symbols, hash and mtime. The response names it in `unread_files`
-(absolute paths) and in `warnings`. The watcher keeps its retry pending for
-such a file, and `refresh` records it as a batch error, so it does not stamp
-`parser_generation`.
-
-A file that the discovery filters cannot stat or read (skip reason
-`unreadable`) is on disk, so an incremental run does not delete its stored
-rows. If the call named the file (a watcher change, or a `paths=` entry), the
-response also lists it in `unread_files`. A stored file that the call did not
-name keeps its rows and is not listed, because no edit of it is pending.
-A full walk that finds no other change writes coverage again when its
-`unreadable` count differs from the stored one, so coverage reads incomplete
-while the file stays unreadable, and complete again after a walk reads it.
-A kept unreadable file also keeps its recorded parse failure. A file under a
-listed directory is kept only if the `.gitignore` files above that directory
-do not exclude it.
+A file or directory that discovery or the read cannot open (skip reason
+`unreadable`: a sharing violation, a permission error) is on disk, so an
+incremental run does not delete the stored rows it holds. The stored coverage
+records it in `unreadable_files` (a directory as `dir/`), and that record
+governs it:
+- While the record has entries, coverage reads `complete: false`, with
+  `withheld.unreadable` equal to their number, so absence claims are refused.
+- A walk of a folder replaces the entries inside that folder only. The
+  targeted routes (`changed_paths=`, `paths=`, `index_file`) add what they
+  could not read and remove what they read or deleted.
+- A route that finds a recorded file readable again reads and hashes it even
+  when its mtime did not change, then removes it from the record.
+- A recorded file keeps its recorded parse failure.
+If the call named the file (a watcher change, or a `paths=` entry), the
+response also lists it in `unread_files` (absolute paths). The watcher keeps
+its retry pending for it, and `refresh` records it as a batch error, so it
+does not stamp `parser_generation`. A file under a listed directory is kept
+only if the `.gitignore` files above that directory do not exclude it.
 
 On a successful save after full discovery, any `unreadable` count marks coverage
 `complete: false`, so absence claims are refused. Failed empty scans preserve

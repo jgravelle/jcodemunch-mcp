@@ -277,11 +277,12 @@ def test_an_unreadable_failed_file_keeps_its_failure(project, tmp_path, monkeypa
     assert locked.get("success"), locked
     assert "slow_module.py" in (_coverage(locked, tmp_path).get("parse_failed_files") or [])
     state["locked"] = False
+    # Readable again with the same mtime: the unreadable record makes the walk
+    # re-read it, so the failure clears on a real parse, never on a skip.
     readable = _incremental(project, tmp_path)
-    assert readable.get("message") == "No changes detected", readable
+    assert readable.get("changed") == 1, readable
     cov = _coverage(readable, tmp_path)
-    assert cov.get("complete") is False, cov
-    assert (cov.get("withheld") or {}).get("parse_failed") == 1, cov
+    assert "parse_failed" not in (cov.get("withheld") or {}), cov
 
 
 def test_a_subfolder_walk_keeps_the_failure_of_a_sibling_folder(tmp_path, monkeypatch):
@@ -291,14 +292,11 @@ def test_a_subfolder_walk_keeps_the_failure_of_a_sibling_folder(tmp_path, monkey
     from `a/` alone and dropped `b/failed.py`'s failure (Codex review on #1567)."""
     import builtins
     import os
-    import shutil
     import subprocess
 
     from jcodemunch_mcp import security
     from jcodemunch_mcp.tools import index_folder as index_folder_module
 
-    if shutil.which("git") is None:
-        pytest.skip("git is not installed")
     monkeypatch.setenv("CODE_INDEX_PATH", str(tmp_path / "storage"))
     root = tmp_path / "repo"
     (root / "a").mkdir(parents=True)

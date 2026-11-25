@@ -1382,6 +1382,79 @@ def test_a_no_change_walk_records_an_unreadable_file_in_coverage(tmp_path, monke
     assert "withheld" not in coverage, coverage
 
 
+def test_a_kept_file_is_read_again_when_its_mtime_did_not_move(tmp_path, monkeypatch):
+    """A replacement that keeps the mtime and is unreadable during a walk keeps
+    the old rows. When it is readable again, the mtime check alone skipped it
+    and its text stayed absent (Codex review on #1567). The unreadable record
+    makes the next walk read it."""
+    from jcodemunch_mcp.storage import IndexStore
+    from jcodemunch_mcp.tools.index_folder import index_folder
+
+    root = tmp_path / "repo"
+    root.mkdir()
+    code = root / "code.py"
+    code.write_text("def before(): pass\n", encoding="utf-8")
+    (root / "other.py").write_text("def other(): pass\n", encoding="utf-8")
+    storage = str(tmp_path / "store")
+    result = index_folder(str(root), use_ai_summaries=False, context_providers=False, storage_path=storage)
+    owner, name = result["repo"].split("/", 1)
+    stat = code.stat()
+    code.write_text("def after(): pass\n", encoding="utf-8")
+    os.utime(code, ns=(stat.st_atime_ns, stat.st_mtime_ns))
+    reads = _fail_reads_of(monkeypatch, code, discovery=True)
+
+    def walk():
+        return index_folder(
+            str(root), use_ai_summaries=False, context_providers=False,
+            storage_path=storage, incremental=True,
+        )
+
+    walk()
+    reads["fail"] = False
+    walk()
+    names = {symbol["name"] for symbol in IndexStore(base_path=storage).load_index(owner, name).symbols}
+    assert names == {"after", "other"}, "a kept file was never read again"
+
+
+def test_a_subfolder_walk_keeps_a_sibling_unreadable_entry(tmp_path, monkeypatch):
+    """A walk of `a/` once compared its own unreadable count with the coverage
+    of the whole index and recorded `complete: True` over an unreadable file
+    in `b/` (Codex review on #1567)."""
+    import subprocess
+
+    from jcodemunch_mcp.storage import IndexStore
+    from jcodemunch_mcp.tools.index_folder import index_folder
+
+    root = tmp_path / "repo"
+    (root / "a").mkdir(parents=True)
+    (root / "b").mkdir()
+    subprocess.run(["git", "init", "-q", str(root)], check=True)
+    (root / "a" / "ok.py").write_text("def in_a(): pass\n", encoding="utf-8")
+    locked = root / "b" / "locked.py"
+    locked.write_text("def in_b(): pass\n", encoding="utf-8")
+    (root / "b" / "fine.py").write_text("def also_b(): pass\n", encoding="utf-8")
+    storage = str(tmp_path / "store")
+
+    def walk(folder):
+        result = index_folder(
+            str(root / folder), use_ai_summaries=False, context_providers=False,
+            storage_path=storage, incremental=True,
+        )
+        assert result["success"], result
+        return result
+
+    walk("b")
+    first = walk("a")
+    owner, name = first["repo"].split("/", 1)
+    locked.write_text("def in_b_changed(): pass\n", encoding="utf-8")
+    _fail_reads_of(monkeypatch, locked, discovery=True)
+    walk("b")
+    walk("a")
+    coverage = IndexStore(base_path=storage).load_index(owner, name).coverage
+    assert coverage["complete"] is False, coverage
+    assert "b/locked.py" in coverage.get("unreadable_files", []), coverage
+
+
 def test_an_unreadable_file_nobody_named_keeps_its_rows_and_no_retry(tmp_path, monkeypatch):
     """A walk that cannot read a stored file it was not asked about keeps the
     rows and names nothing in `unread_files`: no edit of it is pending, so a

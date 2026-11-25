@@ -63,28 +63,26 @@ case existed before this change too. The targeted path of `index_folder`
 down to the changed file, as the walk does. It read the root's `.gitignore`
 only (#306), so a file event indexed a file that a nested `.gitignore`
 excludes. During a pending retry, a batch with a folder event takes this path
-and not the walk, so this change made that case more frequent. A changed
-file that `index_folder` cannot read, for example because of a sharing
-violation, now keeps its stored symbols, hash and mtime. The response names
-it in `unread_files`. Before, a walk kept such a named file in its changed
-set with no content, so the save deleted its symbols, the call reported
-success and the watcher cleared its retry. The targeted path kept the rows
-but reported `No changes detected`. The watcher now keeps the retry pending
-for an unread file, and `refresh` records it as a batch error, so it does
-not stamp `parser_generation` over old rows. The same holds for a file that
-the discovery filters cannot stat or sniff (`unreadable`): the walk and the
-`paths=` route treated it as deleted, and the targeted path dropped its
-event. Each case reported success, so the file stayed out of the index after
-the lock ended. Its stored rows now stay. A file the call named is listed in
-`unread_files`, and a stored file nobody named keeps its rows with no retry.
-The `paths=` route also stops reading a failed binary sniff as binary. A walk
-whose only delta is such a file returns `No changes detected`, and that return
-now records the `unreadable` count in coverage. Before, it kept
-`complete: True`, so `search_text` reported the file's text as absent. A kept
-unreadable file also keeps its recorded parse failure, a subfolder walk keeps
-the parse failures of the stored files outside it, and for `paths=['sub']`
-an unreadable file under `sub` passes the ancestor `.gitignore` filter before
-it is kept. Another writer's success retains that pending work's
+and not the walk, so this change made that case more frequent. A file
+that `index_folder` cannot read, for example because of a sharing violation,
+now keeps its stored rows and is recorded in coverage as unread. Before, the
+walk and the `paths=` route deleted it or saved it with no symbols, the
+targeted path dropped its event, and each reported success, so the watcher
+cleared its retry and the file stayed out of the index after the lock ended.
+One record, `unreadable_files` in the stored coverage, now holds every file
+and directory discovery or the read could not open, and every route keeps it:
+- while it has entries, coverage reads `complete: false` with that many
+  `unreadable` files, so no absence claim rests on rows nobody read;
+- a walk replaces only the entries inside its own folder, so a walk of `a/`
+  keeps an entry from `b/`, and the targeted routes amend it;
+- any route that finds a recorded file readable again reads it, even with an
+  unchanged mtime, so a replacement that kept the old mtime is seen.
+A file the call named is also listed in `unread_files`: the watcher keeps its
+retry and `refresh` records a batch error. A kept file keeps its recorded parse
+failure, a subfolder walk keeps those of the files outside it, and for
+`paths=['sub']` an unreadable file under `sub` passes the ancestor
+`.gitignore` filter first. The `paths=` route also stops reading a failed
+binary sniff as binary. Another writer's success retains that pending work's
 age and cause until full recovery.
 The pending-work age spans attempts, while an active attempt reports its own
 elapsed time. These measurements come from the watcher running in the queried

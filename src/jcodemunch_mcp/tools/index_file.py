@@ -559,7 +559,8 @@ def index_file(
         )
         from .index_folder import _store_parse_failures
 
-        _store_parse_failures(store, owner, name, {rel_path}, parse_failed)
+        # The file was read, so it leaves the unreadable record too.
+        _store_parse_failures(store, owner, name, {rel_path}, parse_failed, verified={rel_path})
     if progress_cb:
         progress_cb(1, 1, rel_path)
 
