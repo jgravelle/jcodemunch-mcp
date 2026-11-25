@@ -2,6 +2,22 @@
 
 ## [Unreleased]
 
+### Indexing a subfolder applies the repository's own .gitignore (#1563)
+
+Reported by @rknighton. `index_folder(<repo>/sub)` read only the `.gitignore`
+files from `sub` down, so it added files that the repository root's
+`.gitignore` excludes. The index is keyed from the git root, and the next root
+index applied the root's `.gitignore` and removed those files with no message,
+taking their symbols with them. `paths=` from the subfolder had the same gap,
+and `index_file` mirrored the subfolder walk, so it accepted the same files.
+
+The subfolder walk, `paths=` from a subfolder and `index_file` now read the
+`.gitignore` chain from the git root down, the same chain the root index reads.
+A file a root `.gitignore` excludes is left out by every route, and a `paths=`
+call says it skipped a gitignored file. Project config is still read from the
+folder that was indexed. A test that required the subfolder walk to index a
+root-ignored file is replaced (`harness/retired.json`).
+
 ## [1.108.488] - 2026-11-24 - a Bearer token with ~ + / = or ! is redacted whole
 
 ### A Bearer token with `~ + / =` or `!` is redacted whole (#1558)

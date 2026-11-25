@@ -1874,6 +1874,7 @@ def resolve_explicit_paths(
     cap_dropped: Optional[list] = None,
     profile_patterns: Optional[list[str]] = None,
     extra_ignore_patterns: Optional[list[str]] = None,
+    gitignore_root: Optional[Path] = None,
 ) -> tuple[list[Path], list[str], dict[str, int], list[str]]:
     """Materialise a caller-supplied list of paths into the (files, warnings,
     skip_counts, requested_rels) shape that the standard indexing pipeline
@@ -1903,7 +1904,9 @@ def resolve_explicit_paths(
     still do not apply, so a caller can name a generated source file.
     ``honor_gitignore=False`` is for ``index_dependency`` alone, which indexes
     its own filtered snapshot of a package whose .gitignore often lists
-    ``dist/``.
+    ``dist/``. ``gitignore_root``, when it is above ``walk_root`` (the git
+    root of a subdirectory walk), is where that .gitignore chain starts, so
+    the listed route and the walk agree with the root walk (#1563).
 
     Used by ``index_folder(paths=...)`` so agents can re-index exactly the
     files they already know about (git-diff list, edited-files list,
@@ -1933,6 +1936,16 @@ def resolve_explicit_paths(
 
     cap = max_files if max_files is not None else 10_000_000
     gitignore_cache: dict = {}
+    # Where the .gitignore chain starts: the git root above a subdirectory
+    # walk, else ``walk_root`` (#1563).
+    gi_root = Path(walk_root).resolve()
+    if gitignore_root is not None:
+        try:
+            _gr = Path(gitignore_root).resolve()
+            if gi_root.is_relative_to(_gr):
+                gi_root = _gr
+        except (OSError, ValueError):
+            logger.debug("gitignore root %s not usable", gitignore_root, exc_info=True)
     # Files accepted after the cap filled: cut, not absent (see cap_dropped).
     overflow: list[Path] = []
 
@@ -1987,8 +2000,9 @@ def resolve_explicit_paths(
                     continue  # recounted below from what this call cut
                 skip_counts[k] = skip_counts.get(k, 0) + v
             # The subtree walk reads the .gitignore files inside ``p``; the
-            # ones above it, up to ``walk_root``, are applied here.
-            above = _gitignore_specs_on_path(walk_root, p) if honor_gitignore and p != walk_root else []
+            # ones above it, from ``gi_root`` (the git root, #1563), are
+            # applied here.
+            above = _gitignore_specs_on_path(gi_root, p) if honor_gitignore and p != gi_root else []
             # The profile's patterns are root-relative (spring-boot's
             # `src/test/`), so they are matched here against ``walk_root``,
             # not passed to the subtree walk rooted at ``p``.
@@ -2027,7 +2041,7 @@ def resolve_explicit_paths(
             skip_counts["secret"] = skip_counts.get("secret", 0) + 1
             continue
 
-        if honor_gitignore and _explicit_path_is_gitignored(walk_root, p, gitignore_cache):
+        if honor_gitignore and _explicit_path_is_gitignored(gi_root, p, gitignore_cache):
             warnings.append(f"Skipped gitignored file: {_rel}")
             skip_counts["gitignore"] = skip_counts.get("gitignore", 0) + 1
             continue
@@ -2073,11 +2087,15 @@ def discover_local_files(
     cap_dropped: Optional[list] = None,
     oversize_out: Optional[list] = None,
     profile_ignore_patterns: Optional[list[str]] = None,
+    gitignore_root: Optional[Path] = None,
 ) -> tuple[list[Path], list[str], dict[str, int]]:
     """Discover source files in a local folder with security filtering.
 
     ``profile_ignore_patterns`` are a detected framework profile's defaults;
     they rank below every pattern the user wrote (#1398).
+
+    ``gitignore_root``, when given and above ``folder_path``, is where the
+    .gitignore chain starts: the git root of a subdirectory walk (#1563).
 
     ``oversize_out``, when given, receives ``(path, size, max_size)`` for each
     file refused for size, so the coverage record can name them (#1396).
@@ -2146,6 +2164,19 @@ def discover_local_files(
     # Pre-compute string-based gitignore specs — built incrementally during
     # the walk below (P8: single os.walk pass instead of two).
     gitignore_str_specs: list[tuple[str, pathspec.PathSpec]] = []
+    # ⚠ #1563: a walk of `<repo>/sub` starts at `sub`, so the walk alone reads
+    # only the .gitignore files from `sub` down. The index is keyed from the git
+    # root, and the next root walk applies the root's .gitignore, so a file this
+    # walk added was dropped there with no message. The chain from
+    # `gitignore_root` down to the walked folder's parent is read first; the
+    # walk adds the folder's own .gitignore at its first step, as before.
+    if gitignore_root is not None:
+        try:
+            _gr = Path(gitignore_root).resolve()
+            if _gr != root and root.is_relative_to(_gr):
+                gitignore_str_specs.extend(_gitignore_specs_on_path(_gr, root))
+        except (OSError, ValueError):
+            logger.debug("gitignore chain above %s not read", root, exc_info=True)
 
     root_str = str(root)  # root is already resolved above
 
@@ -3137,6 +3168,7 @@ def index_folder(
                 cap_dropped=_cap_dropped_paths,
                 profile_patterns=_profile_ignore or None,
                 extra_ignore_patterns=extra_ignore_patterns or None,
+                gitignore_root=Path(_git_root_for_walk) if _git_root_for_walk else None,
             )
         else:
             source_files, discover_warnings, skip_counts = discover_local_files(
@@ -3148,6 +3180,7 @@ def index_folder(
                 cap_dropped=_cap_dropped_paths,
                 oversize_out=_oversize_found,
                 profile_ignore_patterns=_profile_ignore or None,
+                gitignore_root=Path(_git_root_for_walk) if _git_root_for_walk else None,
             )
         warnings.extend(discover_warnings)
         logger.info("Discovery skip counts: %s", skip_counts)
