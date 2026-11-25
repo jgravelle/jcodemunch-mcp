@@ -149,6 +149,34 @@ class TestMarkReindexFailed:
 
 
 class TestGetReindexStatus:
+    def test_retry_entries_of_two_watch_tasks_on_one_repo_are_separate(self, monkeypatch):
+        from types import SimpleNamespace
+        from jcodemunch_mcp import reindex_state
+        from jcodemunch_mcp.reindex_state import set_reindex_retry
+
+        monkeypatch.setattr(reindex_state, "time", SimpleNamespace(monotonic=lambda: 100.0))
+        mark_reindex_start("test/repo")
+        mark_reindex_failed("test/repo", "writer busy")
+        set_reindex_retry("test/repo", 140.0, 2, owner="/repo/a")
+        set_reindex_retry("test/repo", 110.0, 1, owner="/repo/b")
+        status = get_reindex_status("test/repo")
+        assert status["retry_in_ms"] == 10000
+        assert status["retry_attempts"] == 3
+
+        set_reindex_retry("test/repo", None, owner="/repo/b")
+        mark_reindex_done("test/repo")
+        status = get_reindex_status("test/repo")
+        assert status["retry_in_ms"] == 40000
+        assert status["retry_attempts"] == 2
+        assert status["index_stale"] is True
+        assert status["last_reindex_error"] == "writer busy"
+
+        set_reindex_retry("test/repo", None, owner="/repo/a")
+        mark_reindex_done("test/repo")
+        assert get_reindex_status("test/repo") == {
+            "index_stale": False, "reindex_in_progress": False, "stale_since_ms": None,
+        }
+
     def test_pending_work_age_and_last_error_survive_a_retry_but_not_success(self, monkeypatch):
         from types import SimpleNamespace
         from jcodemunch_mcp import reindex_state

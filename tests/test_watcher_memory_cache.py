@@ -909,6 +909,78 @@ async def test_stopped_watcher_does_not_advertise_a_retry(tmp_path, monkeypatch)
     assert get_watch_status(storage, check_freshness=False, check_completeness=False)["any_retry_pending"] is False
 
 
+async def test_watch_tasks_sharing_a_repo_key_keep_each_others_retry(tmp_path, monkeypatch):
+    """Two watched subfolders of one repository share one repo key under git
+    identity. One task's success or exit must not clear the other's retry."""
+    import asyncio
+
+    from jcodemunch_mcp import reindex_state, watcher
+
+    Change = pytest.importorskip("watchfiles").Change
+    folder_a = tmp_path / "a"
+    folder_b = tmp_path / "b"
+    for folder in (folder_a, folder_b):
+        folder.mkdir()
+        (folder / "code.py").write_text("def f(): pass\n", encoding="utf-8")
+    storage = str(tmp_path / "store")
+    repo = "shared/repo"
+    a_failed = asyncio.Event()
+    b_indexed = asyncio.Event()
+
+    def index(**kwargs):
+        if kwargs["path"] == str(folder_a):
+            return {"success": False, "error": "writer busy"}
+        return {"success": True, "file_hashes_delta": {}}
+
+    async def events(folder_path, *args, **kwargs):
+        if folder_path == str(folder_a):
+            yield {(Change.modified, str(folder_a / "code.py"))}
+            a_failed.set()
+        else:
+            await a_failed.wait()
+            yield {(Change.modified, str(folder_b / "code.py"))}
+            b_indexed.set()
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr(watcher, "_local_repo_id", lambda *args, **kwargs: repo)
+    monkeypatch.setattr(watcher, "index_folder", index)
+    monkeypatch.setattr(watcher, "_safe_awatch", events)
+    tasks = {
+        folder: asyncio.create_task(watcher._watch_single(
+            str(folder), 200, False, storage, None, False,
+            skip_initial_index=True, quiet=True, context_providers=False,
+        ))
+        for folder in (folder_a, folder_b)
+    }
+
+    async def stop(folder):
+        tasks[folder].cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await tasks[folder]
+
+    try:
+        await asyncio.wait_for(b_indexed.wait(), timeout=10)
+        status = reindex_state.get_reindex_status(repo)
+        assert "retry_in_ms" in status, "the other task's success cleared this task's retry"
+        assert status.get("retry_attempts") == 1
+        assert status["index_stale"] is True
+        assert status["last_reindex_error"] == "writer busy"
+
+        await stop(folder_b)
+        status = reindex_state.get_reindex_status(repo)
+        assert "retry_in_ms" in status, "the other task's exit cleared this task's retry"
+        assert status["index_stale"] is True
+
+        await stop(folder_a)
+        status = reindex_state.get_reindex_status(repo)
+        assert "retry_in_ms" not in status
+        assert "retry_attempts" not in status
+    finally:
+        for task in tasks.values():
+            task.cancel()
+        await asyncio.gather(*tasks.values(), return_exceptions=True)
+
+
 @pytest.mark.parametrize("other_success", [False, True])
 async def test_other_reindex_does_not_hide_the_watchers_retry(tmp_path, monkeypatch, other_success):
     from types import SimpleNamespace

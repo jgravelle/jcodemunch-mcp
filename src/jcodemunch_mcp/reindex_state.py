@@ -16,7 +16,7 @@ from __future__ import annotations
 import threading
 import time
 from typing import Optional, NamedTuple
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 # ── NamedTuple for watcher changes ────────────────────────────────────────────
@@ -43,9 +43,12 @@ class _RepoState:
     reindex_error: Optional[str] = None
     # Retained during retries so starting another attempt doesn't hide its cause.
     last_reindex_error: Optional[str] = None
-    # Owned by the watch task, independently of other writers' attempts.
-    retry_at: Optional[float] = None
-    retry_attempts: int = 0
+    # Retry schedules of watch tasks, keyed by the owning watched folder:
+    # owner -> (retry_at or None while the attempt runs, failed attempts).
+    # More than one watch task can share one repo key (git identity: two
+    # watched subfolders of one repository), so each task writes and clears
+    # only its own entry. Other writers' attempts never touch this.
+    retries: dict = field(default_factory=dict)
     last_reindex_start: float = 0.0
     last_reindex_done: float = 0.0
     last_result: Optional[dict] = None
@@ -141,9 +144,9 @@ def mark_reindex_done(repo: str, result: Optional[dict] = None) -> None:
         state.reindex_finished = True
         state.reindex_error = None
         state.last_reindex_done = time.monotonic()
-        if not state.retry_attempts:
-            # Another writer's success does not reconcile the watcher's older
-            # failed work. Keep its age and cause until that recovery finishes.
+        if not state.retries:
+            # Another writer's success does not reconcile a watch task's older
+            # failed work. Keep its age and cause until every recovery finishes.
             state.last_reindex_error = None
             state.stale_since = None
         state.consecutive_failures = 0   # reset failure counter on success
@@ -174,7 +177,7 @@ def mark_reindex_failed(repo: str, error: str, *, fatal: bool = False) -> None:
         state.reindex_finished = True
         state.reindex_error = error          # stored internally always
         state.last_reindex_error = error
-        if state.retry_at is not None and state.stale_since is None:
+        if state.retries and state.stale_since is None:
             state.stale_since = time.monotonic()
         state.consecutive_failures += 1
         if fatal:
@@ -184,16 +187,27 @@ def mark_reindex_failed(repo: str, error: str, *, fatal: bool = False) -> None:
         _repo_events[repo].set()
 
 
-def set_reindex_retry(repo: str, retry_at: Optional[float], attempts: int = 0) -> None:
-    """Publish the owning watch task's retry schedule, or clear it on exit.
+def set_reindex_retry(
+    repo: str,
+    retry_at: Optional[float],
+    attempts: int = 0,
+    *,
+    owner: str,
+) -> None:
+    """Publish one watch task's retry schedule, or clear it.
 
-    Generic reindex lifecycle calls cannot clear this schedule: another writer
-    completing or failing does not cancel the watch task's pending work.
+    ``owner`` names the watch task (its watched folder). An entry with no
+    deadline and no attempts is removed, so a task that recovers or stops
+    clears its own schedule and leaves other tasks on the same repo key alone.
+    Generic reindex lifecycle calls cannot clear these schedules: another
+    writer completing or failing does not cancel a watch task's pending work.
     """
     with _states_lock:
         state = _get_state(repo)
-        state.retry_at = retry_at
-        state.retry_attempts = attempts
+        if retry_at is None and not attempts:
+            state.retries.pop(owner, None)
+        else:
+            state.retries[owner] = (retry_at, attempts)
 
 
 # ── Query functions ──────────────────────────────────────────────────────────
@@ -208,10 +222,12 @@ def get_reindex_status(repo: str) -> dict:
         reindex_error: Error string (only on 2nd+ consecutive failure).
         reindex_failures: Failure count (only on 2nd+ consecutive failure).
         last_reindex_error: Last failure, retained through retries until success.
-        retry_in_ms: Time until a scheduled retry (only while one is pending).
-        retry_attempts: Failed watcher attempts in the current recovery,
-            including targeted edits during backoff. Those targeted failures
-            do not advance backoff; use retry_in_ms for the next full retry.
+        retry_in_ms: Time until the next scheduled retry of any watch task on
+            this repo (only while one is pending).
+        retry_attempts: Failed watcher attempts in the current recoveries,
+            summed over the watch tasks on this repo, including targeted
+            edits during backoff. Those targeted failures do not advance
+            backoff; use retry_in_ms for the next full retry.
         reindex_elapsed_ms: Duration of the current attempt (only while active).
     """
     with _states_lock:
@@ -231,10 +247,12 @@ def get_reindex_status(repo: str) -> dict:
             status["reindex_elapsed_ms"] = round((now - state.last_reindex_start) * 1000)
         if state.last_reindex_error is not None:
             status["last_reindex_error"] = state.last_reindex_error
-        if state.retry_at is not None:
-            status["retry_in_ms"] = max(0, round((state.retry_at - now) * 1000))
-        if state.retry_attempts:
-            status["retry_attempts"] = state.retry_attempts
+        deadlines = [at for at, _ in state.retries.values() if at is not None]
+        if deadlines:
+            status["retry_in_ms"] = max(0, round((min(deadlines) - now) * 1000))
+        attempts = sum(n for _, n in state.retries.values())
+        if attempts:
+            status["retry_attempts"] = attempts
         # Expose error details on the 2nd+ consecutive failure (transient
         # tolerance), or immediately when the failure is fatal — a fatal failure
         # won't self-heal, so hiding the first one would let watch-status report

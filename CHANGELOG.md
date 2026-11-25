@@ -44,7 +44,10 @@ the first failure through recovery. That count includes targeted edits that
 fail during backoff; those failures do not change the full-retry deadline.
 Other indexing operations cannot erase the watcher's retry schedule. Stopping
 or cancelling the watcher clears that schedule while retaining the last
-failure for diagnosis. Another writer's success retains that pending work's
+failure for diagnosis. Each watch task owns its own schedule, keyed by its
+watched folder: under git identity two watched subfolders of one repository
+share one repo key, and one task's success or exit no longer clears the
+other's pending retry or stale flag. Another writer's success retains that pending work's
 age and cause until full recovery.
 The pending-work age spans attempts, while an active attempt reports its own
 elapsed time. These measurements come from the watcher running in the queried

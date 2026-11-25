@@ -906,7 +906,9 @@ async def _watch_single(
         if not keep_deadline:
             _reindex_retry_at = time.monotonic() + _reindex_retry_delay
             _reindex_retry_delay = min(_reindex_retry_delay * 2, _REINDEX_RETRY_MAX_SECONDS)
-        set_reindex_retry(repo_id, _reindex_retry_at, _reindex_retry_attempts)
+        set_reindex_retry(
+            repo_id, _reindex_retry_at, _reindex_retry_attempts, owner=folder_path,
+        )
 
     try:
         if initial_failed:
@@ -1045,7 +1047,7 @@ async def _watch_single(
                     continue
 
                 if full_retry:
-                    set_reindex_retry(repo_id, None, _reindex_retry_attempts)
+                    set_reindex_retry(repo_id, None, _reindex_retry_attempts, owner=folder_path)
                     # Capture before indexing: a commit made during the attempt
                     # must still be detected on subsequent idle wake-ups.
                     _retry_head_signature = await asyncio.to_thread(_git_head_signature, folder_path)
@@ -1136,7 +1138,7 @@ async def _watch_single(
                         _reindex_retry_at = None
                         _reindex_retry_attempts = 0
                         _reindex_retry_delay = _REINDEX_RETRY_SECONDS
-                        set_reindex_retry(repo_id, None)
+                        set_reindex_retry(repo_id, None, owner=folder_path)
                     mark_reindex_done(repo_id, result)
                 else:
                     _schedule_reindex_retry(keep_deadline=targeted_during_retry)
@@ -1153,7 +1155,9 @@ async def _watch_single(
     finally:
         # A stopped or cancelled watch task cannot carry out its pending retry.
         # Retain the failure and stale flag as history, not a promise of work.
-        set_reindex_retry(repo_id, None)
+        # Clear only this task's entry: another watch task on the same repo
+        # key keeps its own pending retry.
+        set_reindex_retry(repo_id, None, owner=folder_path)
 
 
 # ---------------------------------------------------------------------------
