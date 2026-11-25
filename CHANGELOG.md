@@ -95,6 +95,8 @@ failed updates keeps retrying at the capped interval until it recovers or
 the watcher stops. A full retry also updates HEAD-move tracking without
 hiding a commit made during the attempt.
 
+## [1.108.491] - 2026-11-25 - a delete blocked only by a file import says so
+
 ### A delete blocked only by a file import says so (L-348)
 
 `check_delete_safe` counted every file that imports the target's file as an
