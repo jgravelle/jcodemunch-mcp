@@ -67,6 +67,8 @@ def test_every_behaviour_knob_reaches_the_watcher():
         "path": "the watcher supplies the folder it is watching",
         "paths": "explicit file list; the watcher passes changed_paths instead",
         "changed_paths": "the watcher COMPUTES this from filesystem events",
+        "discover": "the watcher COMPUTES this per batch: a folder event or a "
+                    "full retry makes the run a walk that still names its files",
         "incremental": "a watcher reindex is incremental by definition",
         "progress_cb": "an in-process callback, not a user-facing setting",
         "force_reparse": "belongs to `refresh`, which is a different command",

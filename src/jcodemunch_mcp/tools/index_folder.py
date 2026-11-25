@@ -2333,6 +2333,7 @@ def index_folder(
     paths_honor_gitignore: bool = True,
     max_folder_files: Optional[int] = None,
     cap_key: Optional[str] = None,
+    discover: bool = False,
 ) -> dict:
     """Index a local folder containing source code.
 
@@ -2350,6 +2351,13 @@ def index_folder(
             (change_type, absolute_path) tuples where change_type is one of
             "added", "modified", "deleted".  When provided with incremental=True
             and an existing index, skips full directory discovery (~3s → ~50ms).
+        discover: Walk the whole tree even when ``changed_paths`` is given
+            (the watcher: a batch with a folder event, or a full retry). The
+            walk's own filters still decide which files are indexed. Each
+            named file that the walk keeps is parsed again, even when its
+            mtime did not move, and a named file past ``max_folder_files`` is
+            promoted into the walk, so the cap status follows it. Not part
+            of the MCP tool schema.
         identity_mode: "config" (default), "local", or "git". Local mode keeps
             v1.90 path-hash identity; git mode opts in to git-root identity.
         force_reparse: Re-parse the files listed in `paths` even when their
@@ -2399,8 +2407,10 @@ def index_folder(
     # ⚠ A targeted run (`paths=` or the watcher's `changed_paths=`) knows
     # exactly which files it touched, so it can answer the question. A full run
     # cannot and still evicts, which is the pre-existing behaviour untouched.
+    # ⚠ A `discover=True` walk names files but can find others (a moved-in
+    # folder with its own tsconfig), so it cannot answer and still evicts.
     _targeted = paths if paths else (
-        [c[1] for c in changed_paths] if changed_paths else None
+        [c[1] for c in changed_paths] if changed_paths and not discover else None
     )
     if _targeted is None or _tsconfig_touched(_targeted):
         _imap_cache.pop(str(folder_path), None)
@@ -2651,7 +2661,7 @@ def index_folder(
         # ── Fast path: watcher-driven incremental reindex ──
         # When the watcher provides the exact change set, skip full directory
         # discovery (~3s on Windows) and only process the affected files.
-        if changed_paths and incremental and not _paths_forced:
+        if changed_paths and incremental and not _paths_forced and not discover:
             # ── Per-phase timings (#557) ──
             # `duration_seconds` alone cannot say WHERE a slow event went, and
             # a maintainer who cannot reproduce it has nothing to work from but
@@ -3760,6 +3770,24 @@ def index_folder(
                     )
                     warnings[warnings.index(_cap_rebuild_warning)] = _updated
                     _cap_rebuild_warning = _updated
+
+            # A walk with a watcher change set (discover=True, or a fast path
+            # that fell through) knows which files changed. The mtime check can
+            # miss a named edit (a replacement that keeps the mtime, or a save
+            # that failed after it wrote), so each named file the walk kept is
+            # parsed again. Only files this walk accepted: its filters stand.
+            if changed_paths:
+                _settled_named = set(changed) | set(new) | set(deleted)
+                _named = set()
+                for _ch in changed_paths:
+                    _ctype, _cpath, _ = _watcher_change_parts(_ch)
+                    if _ctype == "deleted":
+                        continue
+                    _rel = _rel_to_root(Path(_cpath), folder_path)
+                    if _rel is not None and _rel in file_mtimes and _rel not in _settled_named:
+                        _named.add(_rel)
+                if _named:
+                    changed = sorted(set(changed) | _named)
 
             # Subset refresh (paths=[...]): detect_changes_with_mtimes diffs the
             # supplied subset against the ENTIRE stored index, so every unlisted

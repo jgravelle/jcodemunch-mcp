@@ -76,7 +76,9 @@ def _run(monkeypatch, root: Path, storage: str, batches: list[set]) -> list[dict
 
 
 def _rewalks(calls: list[dict]) -> int:
-    return sum(1 for c in calls if c.get("changed_paths") is None)
+    # A walk is `discover=True` (it still names the batch's files) or, from a
+    # caller that names none, `changed_paths=None`.
+    return sum(1 for c in calls if c.get("discover") or c.get("changed_paths") is None)
 
 
 def test_a_new_file_beside_its_modified_folder_is_a_targeted_reindex(tmp_path, monkeypatch, change):

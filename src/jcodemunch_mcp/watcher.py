@@ -899,11 +899,10 @@ async def _watch_single(
     _reindex_retry_at: Optional[float] = None
     _reindex_retry_attempts = 0
     _reindex_retry_delay = _REINDEX_RETRY_SECONDS
-    # Files named by failed batches. The full retry walks the tree with no
-    # changed_paths, and index_folder keeps a file past the max_folder_files
-    # cap without reading it again unless a changed path names it. So a
-    # retry whose walk the cap cut reads these files again on the targeted
-    # path after the walk.
+    # Files named by failed batches. The full retry is a walk, and a walk
+    # finds changes by mtime and keeps a file past the max_folder_files cap
+    # without reading it again. So the retry names these files to the walk
+    # (discover=True), which parses each one again.
     _retry_files: set[str] = set()
 
     def _schedule_reindex_retry(*, keep_deadline: bool = False) -> None:
@@ -1063,6 +1062,18 @@ async def _watch_single(
                     # Capture before indexing: a commit made during the attempt
                     # must still be detected on subsequent idle wake-ups.
                     _retry_head_signature = await asyncio.to_thread(_git_head_signature, folder_path)
+                if needs_discovery:
+                    # Trees may move in or out without individual file events,
+                    # so this is a walk (discover=True). It still names the
+                    # files of this batch and of earlier failed batches: the
+                    # walk parses each one it keeps again (its mtime can miss
+                    # the edit) and reads one past max_folder_files, with the
+                    # walk's own filters and cap status.
+                    _named = {c.path for c in watcher_changes}
+                    watcher_changes = watcher_changes + [
+                        WatcherChange("modified", p, "__cache_miss__")
+                        for p in sorted(_retry_files - _named) if os.path.isfile(p)
+                    ]
                 mark_reindex_start(repo_id)
                 result = await asyncio.to_thread(
                     index_folder,
@@ -1073,40 +1084,9 @@ async def _watch_single(
                     extra_ignore_patterns=extra_ignore_patterns,
                     follow_symlinks=follow_symlinks,
                     incremental=True,
-                    # Trees may move in or out without individual file events.
-                    changed_paths=None if needs_discovery else watcher_changes,
+                    changed_paths=watcher_changes,
+                    discover=needs_discovery,
                 )
-                if needs_discovery and result.get("success") and result.get("truncated"):
-                    # Only a walk that the cap cut can have skipped a named file:
-                    # one from a failed batch, or one in this batch beside the
-                    # folder event that made it a walk.
-                    _reread = [
-                        WatcherChange("modified", p, "__cache_miss__")
-                        for p in sorted(_retry_files | _batch_files) if os.path.isfile(p)
-                    ]
-                    if _reread:
-                        # The walk keeps a file past the cap unread; naming it
-                        # in changed_paths makes index_folder read it again.
-                        reread = await asyncio.to_thread(
-                            index_folder,
-                            path=folder_path,
-                            use_ai_summaries=use_ai_summaries,
-                            context_providers=context_providers,
-                            storage_path=storage_path,
-                            extra_ignore_patterns=extra_ignore_patterns,
-                            follow_symlinks=follow_symlinks,
-                            incremental=True,
-                            changed_paths=_reread,
-                        )
-                        if not reread.get("success"):
-                            result = reread
-                        elif reread.get("message") != "No changes detected":
-                            # The walk's own changes have no hash delta, so the
-                            # report below reloads the whole hash cache.
-                            result = {
-                                k: v for k, v in reread.items()
-                                if k not in ("file_hashes_delta", "file_hashes_removed")
-                            }
                 if result.get("success"):
                     if full_retry:
                         _retry_files.clear()

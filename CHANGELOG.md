@@ -47,13 +47,18 @@ or cancelling the watcher clears that schedule while retaining the last
 failure for diagnosis. Each watch task owns its own schedule, keyed by its
 watched folder: under git identity two watched subfolders of one repository
 share one repo key, and one task's success or exit no longer clears the
-other's pending retry or stale flag. A full retry walks the tree with no
-named changes, and so does a batch that a folder event turns into a walk.
-That walk keeps a file past `max_folder_files` without reading it again.
-So when the cap cuts a walk, the watcher now reads the files of the batch
-and of earlier failed batches again on the targeted path. Before, an edit
-to such a file reported `No changes detected` and kept its old copy until
-another edit. The batch case existed before this change too. Another writer's success retains that pending work's
+other's pending retry or stale flag. A full retry walks the tree, and so
+does a batch that a folder event turns into a walk. Such a walk found
+changes by mtime and named no file, so it kept a file past
+`max_folder_files` without reading it again, and it missed an edit that
+kept the old mtime. Both reported `No changes detected` and kept the old
+copy until another edit. The watcher now names the files of the batch and
+of earlier failed batches to the walk (`index_folder(discover=True)`, a
+Python keyword that is not in the tool schema). The walk parses each named
+file that its own filters accept again, so a nested `.gitignore` still
+excludes a file. It promotes a named file past the cap in the same save,
+so the stored cap status and coverage describe what was read. The batch
+case existed before this change too. Another writer's success retains that pending work's
 age and cause until full recovery.
 The pending-work age spans attempts, while an active attempt reports its own
 elapsed time. These measurements come from the watcher running in the queried

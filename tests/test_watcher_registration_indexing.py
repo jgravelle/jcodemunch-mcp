@@ -220,6 +220,7 @@ class _WatchTrace:
             entry = {
                 "start": self._now(),
                 "changed_paths": None if changed is None else sorted(self._change(c) for c in changed)[:8],
+                "discover": bool(kwargs.get("discover")),
             }
             self.calls.append(entry)
             try:
@@ -654,7 +655,8 @@ async def test_unknown_deletion_burst_keeps_fast_path_until_an_indexed_tree_is_g
 
     def recording_index_folder(**kwargs):
         result = real_index_folder(**kwargs)
-        calls.append(kwargs["changed_paths"])
+        # A walk (discover=True) is recorded as None, a targeted run as its paths.
+        calls.append(None if kwargs.get("discover") else kwargs["changed_paths"])
         return result
 
     monkeypatch.setattr(watchfiles, "awatch", injected)

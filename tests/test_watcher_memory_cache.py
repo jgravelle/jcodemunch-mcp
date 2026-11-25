@@ -963,6 +963,11 @@ async def test_retry_rereads_failed_files_past_the_folder_cap(tmp_path, monkeypa
             # The root event (the rescan _safe_awatch yields) makes it a walk.
             yield batch | {(Change.modified, str(root))}
         assert names() == {"new0", "new1", "new2"}, "the walk kept a capped file's old copy"
+        index = store.load_index(owner, name)
+        # Every file is read now, so the stored cap status and coverage must
+        # not still call the index partial (search_text refuses absence then).
+        assert (index.file_cap_status or {}).get("truncated") is not True, index.file_cap_status
+        assert (index.coverage or {}).get("complete") is not False, index.coverage
         status = reindex_state.get_reindex_status(result["repo"])
         assert "retry_in_ms" not in status
         assert status["index_stale"] is False
@@ -970,6 +975,100 @@ async def test_retry_rereads_failed_files_past_the_folder_cap(tmp_path, monkeypa
     monkeypatch.setattr(watcher, "time", SimpleNamespace(monotonic=lambda: now))
     monkeypatch.setattr(reindex_state, "time", SimpleNamespace(monotonic=lambda: now))
     monkeypatch.setattr(watcher, "index_folder", index)
+    monkeypatch.setattr(watcher, "_safe_awatch", events)
+    await watcher._watch_single(
+        str(root), 200, False, storage, None, False,
+        skip_initial_index=True, quiet=True, context_providers=False,
+    )
+
+
+async def test_retry_reparses_a_failed_edit_that_kept_its_mtime(tmp_path, monkeypatch):
+    """A walk finds changes by mtime. An edit that keeps the old mtime (a
+    timestamp-preserving replacement) and whose save failed is still known to
+    the watcher, so the full retry must parse that file again."""
+    import os
+    from types import SimpleNamespace
+
+    from jcodemunch_mcp import reindex_state, watcher
+    from jcodemunch_mcp.storage import IndexStore
+
+    Change = pytest.importorskip("watchfiles").Change
+    root = tmp_path / "repo"
+    root.mkdir()
+    code = root / "code.py"
+    code.write_text("def before(): pass\n", encoding="utf-8")
+    storage = str(tmp_path / "store")
+    real_index = watcher.index_folder
+    result = real_index(str(root), use_ai_summaries=False, context_providers=False, storage_path=storage)
+    assert result["success"], result
+    owner, name = result["repo"].split("/", 1)
+    store = IndexStore(base_path=storage)
+    stat = code.stat()
+    blocked = True
+
+    def index(**kwargs):
+        if blocked:
+            return {"success": False, "error": "writer busy"}
+        return real_index(**kwargs)
+
+    now = 0.0
+
+    async def events(*args, **kwargs):
+        nonlocal now, blocked
+        code.write_text("def after(): pass\n", encoding="utf-8")
+        os.utime(code, ns=(stat.st_atime_ns, stat.st_mtime_ns))
+        yield {(Change.modified, str(code))}
+        blocked = False
+        now = 5.0
+        yield set()
+        names = {symbol["name"] for symbol in store.load_index(owner, name).symbols}
+        assert names == {"after"}, "the retry trusted the old mtime"
+        assert reindex_state.get_reindex_status(result["repo"])["index_stale"] is False
+
+    monkeypatch.setattr(watcher, "time", SimpleNamespace(monotonic=lambda: now))
+    monkeypatch.setattr(reindex_state, "time", SimpleNamespace(monotonic=lambda: now))
+    monkeypatch.setattr(watcher, "index_folder", index)
+    monkeypatch.setattr(watcher, "_safe_awatch", events)
+    await watcher._watch_single(
+        str(root), 200, False, storage, None, False,
+        skip_initial_index=True, quiet=True, context_providers=False,
+    )
+
+
+async def test_a_capped_walk_keeps_files_a_nested_gitignore_excludes(tmp_path, monkeypatch):
+    """The walk applies every discovery filter. Naming a file to it must not
+    index a file that a nested .gitignore excludes."""
+    from jcodemunch_mcp import config as config_module
+    from jcodemunch_mcp import watcher
+    from jcodemunch_mcp.storage import IndexStore
+
+    Change = pytest.importorskip("watchfiles").Change
+    root = tmp_path / "repo"
+    sub = root / "sub"
+    sub.mkdir(parents=True)
+    (sub / ".gitignore").write_text("private.py\n", encoding="utf-8")
+    sources = [root / "a.py", root / "b.py"]
+    for i, path in enumerate(sources):
+        path.write_text(f"def old{i}(): pass\n", encoding="utf-8")
+    private = sub / "private.py"
+    storage = str(tmp_path / "store")
+    result = watcher.index_folder(str(root), use_ai_summaries=False, context_providers=False, storage_path=storage)
+    assert result["success"], result
+    owner, name = result["repo"].split("/", 1)
+    store = IndexStore(base_path=storage)
+    monkeypatch.setitem(config_module._GLOBAL_CONFIG, "max_folder_files", 1)
+
+    async def events(*args, **kwargs):
+        for i, path in enumerate(sources):
+            path.write_text(f"def new{i}(): pass\n", encoding="utf-8")
+        private.write_text("def secret(): pass\n", encoding="utf-8")
+        yield {(Change.modified, str(root)), (Change.added, str(private))} | {
+            (Change.modified, str(path)) for path in sources
+        }
+        index = store.load_index(owner, name)
+        assert "sub/private.py" not in (index.file_hashes or {}), "a nested .gitignore was undone"
+        assert {symbol["name"] for symbol in index.symbols} == {"new0", "new1"}
+
     monkeypatch.setattr(watcher, "_safe_awatch", events)
     await watcher._watch_single(
         str(root), 200, False, storage, None, False,
@@ -1150,7 +1249,8 @@ async def test_new_edits_stay_targeted_without_postponing_full_recovery(tmp_path
         return {symbol["name"] for symbol in index.symbols}
 
     def index(**kwargs):
-        requests.append(kwargs["changed_paths"])
+        # A walk (discover=True) is recorded as None, a targeted run as its paths.
+        requests.append(None if kwargs.get("discover") else kwargs["changed_paths"])
         if len(requests) == 1:
             saved = real_index(**kwargs)
             assert saved["success"], saved
