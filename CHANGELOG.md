@@ -35,6 +35,47 @@ The tool description lists the new verdict, which adds 4 tokens to the
 `check_edit_safe` makes the same file-level claim for `signature_impact`; that
 is tracked separately (L-349).
 
+## [1.108.490] - 2026-11-24 - a subfolder index reads the root .gitignore, and watch-install needs no elevated shell
+
+### Indexing a subfolder applies the repository's own .gitignore (#1563)
+
+Reported by @rknighton. `index_folder(<repo>/sub)` read only the `.gitignore`
+files from `sub` down, so it added files that the repository root's
+`.gitignore` excludes. The index is keyed from the git root, and the next root
+index applied the root's `.gitignore` and removed those files with no message,
+taking their symbols with them. `paths=` from the subfolder had the same gap,
+and `index_file` mirrored the subfolder walk, so it accepted the same files.
+
+The subfolder walk, `paths=` from a subfolder and `index_file` now read the
+`.gitignore` chain from the git root down, the same chain the root index reads.
+A file a root `.gitignore` excludes is left out by every route. A file listed
+in `paths=` gets a warning when it is skipped as gitignored; a listed folder
+counts its skipped files and warns about none. Project config is still read from the
+folder that was indexed. A test that required the subfolder walk to index a
+root-ignored file is replaced (`harness/retired.json`).
+
+### `watch-install` registers its Windows task without an elevated shell (#1564)
+
+Reported by @rknighton. The task definition gave its logon trigger no user. A
+logon trigger with no user fires when anyone logs on, and Windows refuses to
+register that from a shell that is not elevated, so `watch-install` stopped
+with "Access is denied" for anyone who ran it normally. The reporter tested
+both places a user can go: in the trigger, the task registers without
+elevation; in the principal alone, it does not. The trigger now names the
+calling user (`DOMAIN\user`, read from the process token, with `USERDOMAIN` and
+`USERNAME` as the fallback). When no user can be read, the trigger stays as it
+was, and that form still registers from an elevated shell.
+
+An elevated shell registers either form, so the refusal can't be reproduced
+from one. The tests pin the cause in the generated XML: the trigger carries the
+user, the user is XML-escaped, and the principal is unchanged. The Windows CI
+test that registers the task beside the old switch form compared every field,
+the trigger's user included, so it required the any-user trigger. It now
+requires the trigger to name the calling user and everything else to match.
+It and the fixed definition were registered and deleted under throwaway names
+on Windows 11 from an elevated shell. Neither was run from a non-elevated one
+here; the reporter's test covers that case.
+
 ## [1.108.489] - 2026-11-24 - an index on an unplugged drive survives server start
 
 ### An index on an unplugged drive survives server start (L-347)

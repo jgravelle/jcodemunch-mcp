@@ -155,20 +155,22 @@ def _git_init(root: Path) -> None:
     subprocess.run(["git", "init", "-q", str(root)], check=True, capture_output=True)
 
 
-def test_subdir_walk_reads_gitignores_from_its_own_root(tmp_path):
-    # `index_folder(<repo>/sub)` walks `sub` only, so the git root's .gitignore
-    # does not reach it; a file that walk indexed must stay indexable.
+def test_subdir_walk_and_index_file_agree_on_a_root_ignored_file(tmp_path):
+    # Since #1563 `index_folder(<repo>/sub)` reads the git root's .gitignore
+    # chain, so a root-ignored file is left out of the walk, and index_file,
+    # which mirrors the walk, refuses it. Walk and index_file still agree.
     repo = tmp_path / "repo"
     repo.mkdir()
     _git_init(repo)
     _write(repo / ".gitignore", "gen/\n")
     target = _write(repo / "sub" / "gen" / "x.py")
+    _write(repo / "sub" / "kept.py")
     store = tmp_path / "store"
     (owner, name), walked = _index_and_files(repo / "sub", store)
-    assert "sub/gen/x.py" in walked, walked
+    assert "sub/gen/x.py" not in walked and "sub/kept.py" in walked, walked
     _write(target, "def g():\n    return 2\n")
     res = index_file(path=str(target), use_ai_summaries=False, storage_path=str(store))
-    assert res["success"] is True, res
+    assert res.get("skipped") == "gitignore", res
 
 
 def test_subdir_walk_reads_its_own_project_config(tmp_path):
