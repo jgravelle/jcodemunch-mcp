@@ -609,3 +609,515 @@ class TestFastPathHonorsAllDiscoveryFilters:
         assert "to_remove.py" not in files_after, (
             "delete event failed to remove the file from the index"
         )
+
+
+def _skip_service_probe(monkeypatch):
+    """get_watch_status probes the OS service manager (about 8 s on Windows).
+
+    These tests read only the per-repo rows, so the probe is stubbed.
+    """
+    import importlib
+
+    module = importlib.import_module("jcodemunch_mcp.tools.get_watch_status")
+    monkeypatch.setattr(module, "service_status", lambda: {"active": None, "status": "not_probed"})
+
+
+async def test_failed_watcher_changes_recover_without_another_edit(tmp_path, monkeypatch):
+    """A failed save must not consume the only events announcing those edits.
+
+    The raised-exception branch is driven by
+    test_persistent_failure_backs_off_then_resets_after_recovery.
+    """
+    from types import SimpleNamespace
+
+    from jcodemunch_mcp import reindex_state, watcher
+    from jcodemunch_mcp.storage import IndexStore
+    from jcodemunch_mcp.tools.get_watch_status import get_watch_status
+
+    Change = pytest.importorskip("watchfiles").Change
+    _skip_service_probe(monkeypatch)
+    root = tmp_path / "repo"
+    root.mkdir()
+    code = root / "code.py"
+    gone = root / "gone.py"
+    code.write_text("def before(): pass\n", encoding="utf-8")
+    gone.write_text("def removed(): pass\n", encoding="utf-8")
+    storage = str(tmp_path / "store")
+    real_index = watcher.index_folder
+    result = real_index(str(root), use_ai_summaries=False, context_providers=False, storage_path=storage)
+    assert result["success"], result
+    owner, name = result["repo"].split("/", 1)
+    store = IndexStore(base_path=storage)
+
+    def names():
+        index = store.load_index(owner, name)
+        assert index is not None
+        return {symbol["name"] for symbol in index.symbols}
+
+    failures_left = 2
+    idle = False
+    idle_work = []
+
+    def temporarily_locked(**kwargs):
+        nonlocal failures_left
+        if idle:
+            idle_work.append(kwargs["path"])
+        if failures_left:
+            failures_left -= 1
+            return {"success": False, "error": "index-write lock is busy"}
+        return real_index(**kwargs)
+
+    now = 0.0
+    monkeypatch.setattr(watcher, "time", SimpleNamespace(monotonic=lambda: now))
+    monkeypatch.setattr(reindex_state, "time", SimpleNamespace(monotonic=lambda: now))
+    monkeypatch.setattr(watcher, "index_folder", temporarily_locked)
+
+    async def events(*args, **kwargs):
+        nonlocal now, idle
+        code.write_text("def first_edit(): pass\n", encoding="utf-8")
+        yield {(Change.modified, str(code))}
+        assert names() == {"before", "removed"}
+        pending = get_watch_status(storage, check_freshness=False, check_completeness=False)
+        row = next(entry for entry in pending["repos"] if entry["source_root"] == str(root))
+        assert pending["any_retry_pending"] is True
+        assert row["last_reindex_error"] == "index-write lock is busy"
+        assert row["retry_in_ms"] > 0
+        now = 1.0
+        yield set()
+        assert names() == {"before", "removed"}
+        assert reindex_state.get_reindex_status(result["repo"])["stale_since_ms"] == 1000
+
+        # Reconciliation must use today's tree, not replay obsolete event types.
+        code.write_text("def latest(): pass\n", encoding="utf-8")
+        gone.unlink()
+        added = root / "added.py"
+        added.write_text("def added(): pass\n", encoding="utf-8")
+        now = 61.0
+        yield set()
+        assert names() == {"before", "removed"}, "the retry is still blocked"
+        now = 62.0
+        yield {(Change.added, str(added))}
+        assert names() == {"before", "removed", "added"}, "new files need not wait for full recovery"
+        now = 122.0
+        yield set()
+        assert names() == {"latest", "added"}, "failed edits were lost after the events were consumed"
+
+        code.write_text("def after_recovery(): pass\n", encoding="utf-8")
+        yield {(Change.modified, str(code))}
+        assert names() == {"after_recovery", "added"}
+
+        idle = True
+        now += 365 * 24 * 60 * 60
+        yield set()
+        assert idle_work == [], "an unattended, current project needs no retry"
+        status = reindex_state.get_reindex_status(result["repo"])
+        assert status["index_stale"] is False
+        assert status["stale_since_ms"] is None
+        assert "retry_in_ms" not in status
+        assert "last_reindex_error" not in status
+        assert "reindex_elapsed_ms" not in status
+        assert get_watch_status(storage, check_freshness=False, check_completeness=False)["any_retry_pending"] is False
+
+    monkeypatch.setattr(watcher, "_safe_awatch", events)
+    await watcher._watch_single(
+        str(root), 200, False, storage, None, False,
+        skip_initial_index=True, quiet=True, context_providers=False,
+    )
+
+
+@pytest.mark.parametrize("failure", ["result", "cache_reload"])
+async def test_retry_refreshes_hashes_when_the_failed_attempt_already_saved(tmp_path, monkeypatch, failure):
+    """A post-save failure must not leave old hashes that hide a later revert."""
+    from types import SimpleNamespace
+
+    from jcodemunch_mcp import reindex_state, watcher
+    from jcodemunch_mcp.storage import IndexStore
+
+    Change = pytest.importorskip("watchfiles").Change
+    root = tmp_path / "repo"
+    root.mkdir()
+    code = root / "code.py"
+    original = "def before(): pass\n"
+    code.write_text(original, encoding="utf-8")
+    storage = str(tmp_path / "store")
+    real_index = watcher.index_folder
+    result = real_index(str(root), use_ai_summaries=False, context_providers=False, storage_path=storage)
+    assert result["success"], result
+    owner, name = result["repo"].split("/", 1)
+    store = IndexStore(base_path=storage)
+    fail_after_save = True
+    fail_cache_reload = False
+    real_load = type(store).load_index
+
+    def load_index(self, *args, **kwargs):
+        nonlocal fail_cache_reload
+        if fail_cache_reload:
+            fail_cache_reload = False
+            raise RuntimeError("post-save cache reload failed")
+        return real_load(self, *args, **kwargs)
+
+    def post_save_failure(**kwargs):
+        nonlocal fail_after_save, fail_cache_reload
+        saved = real_index(**kwargs)
+        assert saved["success"], saved
+        if fail_after_save:
+            fail_after_save = False
+            if failure == "result":
+                return {"success": False, "error": "post-save step failed"}
+            saved.pop("file_hashes_delta", None)
+            fail_cache_reload = True
+        return saved
+
+    now = 0.0
+
+    async def events(*args, **kwargs):
+        nonlocal now
+        code.write_text("def changed(): pass\n", encoding="utf-8")
+        yield {(Change.modified, str(code))}
+        assert reindex_state.get_reindex_status(result["repo"])["index_stale"] is True
+        now = 61.0
+        yield set()
+        code.write_text(original, encoding="utf-8")
+        yield {(Change.modified, str(code))}
+
+    monkeypatch.setattr(watcher, "time", SimpleNamespace(monotonic=lambda: now))
+    monkeypatch.setattr(watcher, "index_folder", post_save_failure)
+    monkeypatch.setattr(type(store), "load_index", load_index)
+    monkeypatch.setattr(watcher, "_safe_awatch", events)
+    await watcher._watch_single(
+        str(root), 200, False, storage, None, False,
+        skip_initial_index=True, quiet=True, context_providers=False,
+    )
+    index = store.load_index(owner, name)
+    assert index is not None
+    assert {symbol["name"] for symbol in index.symbols} == {"before"}
+
+
+async def test_persistent_failure_backs_off_then_resets_after_recovery(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    from jcodemunch_mcp import reindex_state, watcher
+    from jcodemunch_mcp.storage import IndexStore
+
+    Change = pytest.importorskip("watchfiles").Change
+    root = tmp_path / "repo"
+    root.mkdir()
+    code = root / "code.py"
+    code.write_text("def before(): pass\n", encoding="utf-8")
+    storage = str(tmp_path / "store")
+    real_index = watcher.index_folder
+    result = real_index(str(root), use_ai_summaries=False, context_providers=False, storage_path=storage)
+    assert result["success"], result
+    now = 0.0
+    attempts = 0
+    blocked = True
+
+    def failing_index(**kwargs):
+        nonlocal attempts
+        attempts += 1
+        if blocked:
+            if attempts % 2:
+                return {"success": False, "error": "disk full"}
+            raise RuntimeError("disk full")
+        return real_index(**kwargs)
+
+    async def events(*args, **kwargs):
+        nonlocal now, blocked
+        code.write_text("def recovered(): pass\n", encoding="utf-8")
+        yield {(Change.modified, str(code))}
+        for delay in (5, 10, 20, 40, 80, 160, 300, 300):
+            status = reindex_state.get_reindex_status(result["repo"])
+            assert status["retry_in_ms"] == delay * 1000
+            previous_attempts = attempts
+            now += delay - 1
+            yield set()
+            assert attempts == previous_attempts, "idle wake-ups must respect backoff"
+            now += 1
+            yield set()
+            assert attempts == previous_attempts + 1
+        status = reindex_state.get_reindex_status(result["repo"])
+        assert status.get("retry_attempts") == attempts
+        blocked = False
+        now += 300
+        yield set()
+        status = reindex_state.get_reindex_status(result["repo"])
+        assert "retry_in_ms" not in status
+        assert "retry_attempts" not in status
+        assert status["index_stale"] is False
+        owner, name = result["repo"].split("/", 1)
+        index = IndexStore(base_path=storage).load_index(owner, name)
+        assert index is not None
+        assert {symbol["name"] for symbol in index.symbols} == {"recovered"}
+
+        blocked = True
+        code.write_text("def later(): pass\n", encoding="utf-8")
+        yield {(Change.modified, str(code))}
+        status = reindex_state.get_reindex_status(result["repo"])
+        assert status["retry_in_ms"] == 5000
+        assert status.get("retry_attempts") == 1
+
+    monkeypatch.setattr(watcher, "time", SimpleNamespace(monotonic=lambda: now))
+    monkeypatch.setattr(reindex_state, "time", SimpleNamespace(monotonic=lambda: now))
+    monkeypatch.setattr(watcher, "index_folder", failing_index)
+    monkeypatch.setattr(watcher, "_safe_awatch", events)
+    await watcher._watch_single(
+        str(root), 200, False, storage, None, False,
+        skip_initial_index=True, quiet=True, context_providers=False,
+    )
+
+
+async def test_stopped_watcher_does_not_advertise_a_retry(tmp_path, monkeypatch):
+    """Cancellation is the exit a loop-end clear would miss; a return or a
+    raised error leaves through the same ``finally``."""
+    import asyncio
+
+    from jcodemunch_mcp import reindex_state, watcher
+    from jcodemunch_mcp.tools.get_watch_status import get_watch_status
+
+    Change = pytest.importorskip("watchfiles").Change
+    _skip_service_probe(monkeypatch)
+    root = tmp_path / "repo"
+    root.mkdir()
+    code = root / "code.py"
+    code.write_text("def before(): pass\n", encoding="utf-8")
+    storage = str(tmp_path / "store")
+    result = watcher.index_folder(str(root), use_ai_summaries=False, context_providers=False, storage_path=storage)
+    assert result["success"], result
+    waiting = asyncio.Event()
+
+    async def events(*args, **kwargs):
+        yield {(Change.modified, str(code))}
+        waiting.set()
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr(watcher, "_safe_awatch", events)
+    monkeypatch.setattr(watcher, "index_folder", lambda **kwargs: {"success": False, "error": "disk full"})
+    task = asyncio.create_task(watcher._watch_single(
+        str(root), 200, False, storage, None, False,
+        skip_initial_index=True, quiet=True, context_providers=False,
+    ))
+    await asyncio.wait_for(waiting.wait(), timeout=10)
+    assert "retry_in_ms" in reindex_state.get_reindex_status(result["repo"])
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    status = reindex_state.get_reindex_status(result["repo"])
+    assert "retry_in_ms" not in status
+    assert "retry_attempts" not in status
+    assert status["last_reindex_error"] == "disk full"
+    assert status["index_stale"] is True
+    assert get_watch_status(storage, check_freshness=False, check_completeness=False)["any_retry_pending"] is False
+
+
+@pytest.mark.parametrize("other_success", [False, True])
+async def test_other_reindex_does_not_hide_the_watchers_retry(tmp_path, monkeypatch, other_success):
+    from types import SimpleNamespace
+
+    from jcodemunch_mcp import reindex_state, watcher
+    from jcodemunch_mcp.tools.get_watch_status import get_watch_status
+
+    Change = pytest.importorskip("watchfiles").Change
+    _skip_service_probe(monkeypatch)
+    root = tmp_path / "repo"
+    root.mkdir()
+    code = root / "code.py"
+    code.write_text("def before(): pass\n", encoding="utf-8")
+    storage = str(tmp_path / "store")
+    real_index = watcher.index_folder
+    result = real_index(str(root), use_ai_summaries=False, context_providers=False, storage_path=storage)
+    assert result["success"], result
+    now = 0.0
+    blocked = True
+    manager = watcher.WatcherManager(storage_path=storage, use_ai_summaries=False, context_providers=False)
+    other_status = []
+
+    def index(**kwargs):
+        if now == 1:
+            other_status.append(reindex_state.get_reindex_status(result["repo"]))
+        if blocked:
+            return {"success": False, "error": "writer busy"}
+        return real_index(**kwargs)
+
+    async def events(*args, **kwargs):
+        nonlocal now, blocked
+        code.write_text("def recovered(): pass\n", encoding="utf-8")
+        yield {(Change.modified, str(code))}
+        now = 1.0
+        blocked = not other_success
+        other = await manager._do_reindex(str(root))
+        assert other["result"]["success"] is other_success
+        assert other_status[0].get("retry_in_ms") == 4000, "another writer hid the pending retry"
+        pending = get_watch_status(storage, check_freshness=False, check_completeness=False)
+        row = next(entry for entry in pending["repos"] if entry["source_root"] == str(root))
+        assert pending["any_retry_pending"] is True
+        assert row["retry_in_ms"] == 4000
+        assert row.get("retry_attempts") == 1
+        assert row["last_reindex_error"] == "writer busy"
+        assert row["stale_since_ms"] == 1000
+        blocked = False
+        now = 5.0
+        yield set()
+        status = reindex_state.get_reindex_status(result["repo"])
+        assert "retry_in_ms" not in status
+        assert "retry_attempts" not in status
+        assert status["index_stale"] is False
+
+    monkeypatch.setattr(watcher, "time", SimpleNamespace(monotonic=lambda: now))
+    monkeypatch.setattr(reindex_state, "time", SimpleNamespace(monotonic=lambda: now))
+    monkeypatch.setattr(watcher, "index_folder", index)
+    monkeypatch.setattr(watcher, "_safe_awatch", events)
+    await watcher._watch_single(
+        str(root), 200, False, storage, None, False,
+        skip_initial_index=True, quiet=True, context_providers=False,
+    )
+
+
+@pytest.mark.parametrize("targeted_failure", [False, True])
+async def test_new_edits_stay_targeted_without_postponing_full_recovery(tmp_path, monkeypatch, targeted_failure):
+    from types import SimpleNamespace
+
+    from jcodemunch_mcp import reindex_state, watcher
+    from jcodemunch_mcp.storage import IndexStore
+
+    Change = pytest.importorskip("watchfiles").Change
+    root = tmp_path / "repo"
+    root.mkdir()
+    code = root / "code.py"
+    missed = root / "missed.py"
+    original = "def before(): pass\n"
+    code.write_text(original, encoding="utf-8")
+    missed.write_text("def missed_before(): pass\n", encoding="utf-8")
+    storage = str(tmp_path / "store")
+    real_index = watcher.index_folder
+    result = real_index(str(root), use_ai_summaries=False, context_providers=False, storage_path=storage)
+    assert result["success"], result
+    owner, name = result["repo"].split("/", 1)
+    store = IndexStore(base_path=storage)
+    real_load = type(store).load_index
+    now = 0.0
+    requests = []
+    allow_targeted = False
+    recovered = False
+    reject_hydration = False
+
+    def load_index(self, *args, **kwargs):
+        assert not reject_hydration, "a targeted edit must not hydrate the full index"
+        return real_load(self, *args, **kwargs)
+
+    def names():
+        index = real_load(store, owner, name)
+        assert index is not None
+        return {symbol["name"] for symbol in index.symbols}
+
+    def index(**kwargs):
+        requests.append(kwargs["changed_paths"])
+        if len(requests) == 1:
+            saved = real_index(**kwargs)
+            assert saved["success"], saved
+        if not recovered and (not allow_targeted or targeted_failure):
+            return {"success": False, "error": "writer busy"}
+        return real_index(**kwargs)
+
+    async def events(*args, **kwargs):
+        nonlocal now, allow_targeted, recovered, reject_hydration
+        code.write_text("def saved_before_failure(): pass\n", encoding="utf-8")
+        missed.write_text("def missed_after(): pass\n", encoding="utf-8")
+        yield {(Change.modified, str(code))}
+        for delay in (5, 10, 20, 40, 80, 160):
+            now += delay
+            yield set()
+        assert reindex_state.get_reindex_status(result["repo"])["retry_in_ms"] == 300000
+        full_walks = sum(paths is None for paths in requests)
+        allow_targeted = True
+        reject_hydration = True
+        for _ in range(2):
+            now += 1
+            code.write_text(original, encoding="utf-8")
+            # Root directory notifications must not turn a leaf edit into a walk.
+            yield {(Change.modified, str(code)), (Change.modified, str(root))}
+            assert requests[-1] is not None
+            assert sum(paths is None for paths in requests) == full_walks
+            expected = "saved_before_failure" if targeted_failure else "before"
+            assert names() == {expected, "missed_before"}
+            status = reindex_state.get_reindex_status(result["repo"])
+            assert status["retry_in_ms"] == round((615 - now) * 1000)
+            assert status["last_reindex_error"] == "writer busy"
+            assert status["index_stale"] is True
+        reject_hydration = False
+        recovered = True
+        now = 615.0
+        yield set()
+        assert names() == {"before", "missed_after"}
+        assert sum(paths is None for paths in requests) == full_walks + 1
+        assert "retry_in_ms" not in reindex_state.get_reindex_status(result["repo"])
+
+        reject_hydration = True
+        code.write_text("def normal_edit(): pass\n", encoding="utf-8")
+        yield {(Change.modified, str(code))}
+        assert names() == {"normal_edit", "missed_after"}
+        yield {(Change.modified, str(code))}  # unchanged-content fast return
+        assert sum(paths is None for paths in requests) == full_walks + 1
+        indexed_requests = len(requests)
+        now += 365 * 24 * 60 * 60
+        yield set()
+        yield set()
+        assert len(requests) == indexed_requests, "healthy idle time must not index anything"
+        reject_hydration = False
+
+    monkeypatch.setattr(watcher, "time", SimpleNamespace(monotonic=lambda: now))
+    monkeypatch.setattr(reindex_state, "time", SimpleNamespace(monotonic=lambda: now))
+    monkeypatch.setattr(watcher, "index_folder", index)
+    monkeypatch.setattr(type(store), "load_index", load_index)
+    monkeypatch.setattr(watcher, "_safe_awatch", events)
+    await watcher._watch_single(
+        str(root), 200, False, storage, None, False,
+        skip_initial_index=True, quiet=True, context_providers=False,
+    )
+
+
+async def test_failed_initial_index_recovers_files_with_no_events(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    from jcodemunch_mcp import reindex_state, watcher
+    from jcodemunch_mcp.storage import IndexStore
+
+    pytest.importorskip("watchfiles")
+    root = tmp_path / "repo"
+    root.mkdir()
+    code = root / "code.py"
+    code.write_text("def before(): pass\n", encoding="utf-8")
+    storage = str(tmp_path / "store")
+    real_index = watcher.index_folder
+    result = real_index(str(root), use_ai_summaries=False, context_providers=False, storage_path=storage)
+    assert result["success"], result
+    code.write_text("def changed_before_watch(): pass\n", encoding="utf-8")
+    added = root / "added.py"
+    added.write_text("def added_before_watch(): pass\n", encoding="utf-8")
+    failures_left = 3
+    now = 0.0
+
+    def index(**kwargs):
+        nonlocal failures_left
+        if failures_left:
+            failures_left -= 1
+            return {"success": False, "error": "writer busy"}
+        return real_index(**kwargs)
+
+    async def events(*args, **kwargs):
+        nonlocal now
+        for delay in (5, 10, 20):
+            status = reindex_state.get_reindex_status(result["repo"])
+            assert status.get("retry_in_ms") == delay * 1000
+            now += delay
+            yield set()
+        owner, name = result["repo"].split("/", 1)
+        index = IndexStore(base_path=storage).load_index(owner, name)
+        assert index is not None
+        assert {symbol["name"] for symbol in index.symbols} == {"changed_before_watch", "added_before_watch"}
+        assert reindex_state.get_reindex_status(result["repo"])["index_stale"] is False
+
+    monkeypatch.setattr(watcher, "time", SimpleNamespace(monotonic=lambda: now))
+    monkeypatch.setattr(reindex_state, "time", SimpleNamespace(monotonic=lambda: now))
+    monkeypatch.setattr(watcher, "index_folder", index)
+    monkeypatch.setattr(watcher, "_safe_awatch", events)
+    await watcher._watch_single(str(root), 200, False, storage, None, False, quiet=True, context_providers=False)

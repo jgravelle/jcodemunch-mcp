@@ -3,6 +3,27 @@
   "note": "A test file listed in docs/harness/ARCHAEOLOGY.md, or one test function in it (path = file::test_name), may be deleted only with an entry here: path, lesson, replacement (file::test_name that now carries the lesson), commit, date. tests/test_retirement_ledger.py enforces it. Empty on 2026-09-03: the archaeology found nothing to retire.",
   "retired": [
     {
+      "path": "tests/test_watcher_reconciles_a_head_only_move.py::test_a_failed_reconciliation_is_due_again_once_and_no_sooner_than_the_delay",
+      "lesson": "A failed HEAD reconciliation must wait before retrying, but a separate timer does not need its own design-pinning test once initial, event, and HEAD failures share bounded recovery. The replacement drives repeated real indexing failures and checks that stored symbols remain unchanged before each deadline and recover without another file event.",
+      "replacement": "tests/test_watcher_reconciles_a_head_only_move.py::test_head_changes_recover_after_repeated_failures_without_file_events",
+      "commit": "pending",
+      "date": "2026-11-25"
+    },
+    {
+      "path": "tests/test_watcher_reconciles_a_head_only_move.py::test_the_retry_delay_is_at_least_a_minute",
+      "lesson": "The fixed minute-long HEAD timer is replaced by the same capped exponential backoff as other failed watcher work. The replacement checks increasing delays, the cap, and reset after successful recovery, rather than pinning a retired constant.",
+      "replacement": "tests/test_watcher_memory_cache.py::test_persistent_failure_backs_off_then_resets_after_recovery",
+      "commit": "pending",
+      "date": "2026-11-25"
+    },
+    {
+      "path": "tests/test_watcher_reconciles_a_head_only_move.py::test_the_watcher_tries_a_failed_reconciliation_again_once_and_then_leaves_it",
+      "lesson": "The watcher must recover a HEAD move whose file events were lost without spinning after success. The old test injected one reconciliation outcome and counted calls; its replacement verifies stored HEAD and symbols after repeated failed saves, checks deadlines with a fake clock, and observes successful recovery without new file events.",
+      "replacement": "tests/test_watcher_reconciles_a_head_only_move.py::test_head_changes_recover_after_repeated_failures_without_file_events",
+      "commit": "pending",
+      "date": "2026-11-25"
+    },
+    {
       "path": "tests/test_inbound_triage_apply.py::test_malformed_result_file_escalates_and_applies_nothing",
       "lesson": "Escalating is a write. The test asserted called == [] on a malformed triage result, so the fixed escalation (inbound:unknown + needs-human, dequeue) was planned and discarded and the item re-triaged every 15 minutes (#670). The rule it meant to encode, that the MODEL'S classification never reaches gh, is kept; the escalation carries nothing the model said and is written to the issue the workflow named.",
       "replacement": "tests/test_inbound_triage_apply.py::test_malformed_result_escalates_ON_THE_ISSUE_THE_WORKFLOW_NAMED",

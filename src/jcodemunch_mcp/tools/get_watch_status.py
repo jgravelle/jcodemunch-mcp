@@ -185,6 +185,14 @@ def get_watch_status(
     reindex in THIS process" — a real question, just not the one the name
     `index_stale` was being read for.
 
+    Pending work in this process also reports its age (`stale_since_ms`),
+    scheduled retry countdown (`retry_in_ms`), failed watcher attempt count
+    (`retry_attempts`), last failure until full recovery (`last_reindex_error`),
+    and active attempt duration (`reindex_elapsed_ms`). A successful targeted
+    update or another writer's success does not clear older pending recovery.
+    `any_retry_pending` summarises scheduled retries here, not in other owners.
+    A quiet session alone schedules no work and implies no watcher failure.
+
     ⚠ `check_freshness=False` skips the comparison and reports `unknown`
     rather than inventing `fresh`. The index side of the comparison is free —
     `indexed_at` and `git_head` ride on the discovery entry — so the whole
@@ -221,6 +229,7 @@ def get_watch_status(
     any_completeness_unknown = False
     any_in_progress = False
     any_failing = False
+    any_retry_pending = False
     any_watched_by_another_process = False
     my_pid = os.getpid()
     # get_reindex_status reads in-memory per-repo state. A process that never
@@ -282,6 +291,8 @@ def get_watch_status(
             any_in_progress = True
         if status.get("reindex_failures") or status.get("reindex_fatal"):
             any_failing = True
+        if "retry_in_ms" in status:
+            any_retry_pending = True
         repos_out.append(entry)
 
     try:
@@ -304,6 +315,7 @@ def get_watch_status(
         "freshness_checked": check_freshness,
         "any_in_progress": any_in_progress,
         "any_failing": any_failing,
+        "any_retry_pending": any_retry_pending,
         "any_watched_by_another_process": any_watched_by_another_process,
         "repos": repos_out,
     }

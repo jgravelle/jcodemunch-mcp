@@ -149,6 +149,36 @@ class TestMarkReindexFailed:
 
 
 class TestGetReindexStatus:
+    def test_pending_work_age_and_last_error_survive_a_retry_but_not_success(self, monkeypatch):
+        from types import SimpleNamespace
+        from jcodemunch_mcp import reindex_state
+
+        now = 10.0
+        monkeypatch.setattr(reindex_state, "time", SimpleNamespace(monotonic=lambda: now))
+        mark_reindex_start("test/repo")
+        now = 12.0
+        mark_reindex_failed("test/repo", "writer busy")
+        status = get_reindex_status("test/repo")
+        assert status["last_reindex_error"] == "writer busy"
+        assert status["stale_since_ms"] == 2000
+
+        now = 20.0
+        mark_reindex_start("test/repo")
+        now = 70.0
+        status = get_reindex_status("test/repo")
+        assert status["reindex_in_progress"] is True
+        assert status["last_reindex_error"] == "writer busy"
+        assert status["stale_since_ms"] == 60000
+        assert status["reindex_elapsed_ms"] == 50000
+        assert "retry_in_ms" not in status
+
+        mark_reindex_done("test/repo")
+        now += 365 * 24 * 60 * 60
+        status = get_reindex_status("test/repo")
+        assert status == {
+            "index_stale": False, "reindex_in_progress": False, "stale_since_ms": None,
+        }
+
     def test_idle_state(self):
         status = get_reindex_status("test/repo")
         assert status["reindex_in_progress"] is False

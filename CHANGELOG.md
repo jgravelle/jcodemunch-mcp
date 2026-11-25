@@ -2,6 +2,59 @@
 
 ## [Unreleased]
 
+### A failed watcher update is retried without another file edit
+
+The watcher consumed each file-change batch before saving its index. When a
+save failed, including while waiting for another writer's lock, it recorded
+the failure and waited for new events. The edits that had already been
+announced could stay unindexed indefinitely.
+
+A failed update now leaves that folder pending and retries with capped
+exponential backoff on the watcher's idle wake-ups. Persistent failures wait
+longer between attempts instead of repeatedly walking the tree at a fixed
+short interval. Recovery reconciles the current folder contents,
+including later additions and deletions, rather than replaying obsolete
+events. If the failed attempt already saved its changes, recovery refreshes
+the watcher's stored hashes so a later revert is still indexed. Pending work
+is local to each watched folder; an unattended, current folder does not need
+a retry merely because it has been quiet.
+
+New file edits keep the targeted indexing path while full recovery is backing
+off. Their success does not discard older pending work, and their failure
+does not postpone its deadline. Directory topology changes remain for the
+scheduled full walk, so editing during a failure does not repeatedly scan the
+whole tree. Targeted recovery also bypasses potentially stale cached hashes
+without loading the full index, so a revert after a partially saved failure
+is still indexed.
+
+An initial index that returns a failure and a failed HEAD reconciliation now
+use the same recovery schedule. Failed HEAD reconciliation backs off with
+other failed watcher work, then recovers both symbols and HEAD without
+another file event.
+The separate fixed HEAD timer and its three tests are retired because all
+failures now share bounded recovery:
+`test_head_changes_recover_after_repeated_failures_without_file_events`
+asserts that repeated failures recover stored symbols and HEAD without file
+events, and `test_persistent_failure_backs_off_then_resets_after_recovery`
+asserts increasing delays, the cap, and reset after success.
+
+`get_watch_status` now reports pending retries, the time until the next
+attempt, the failed watcher attempt count, and the last indexing error from
+the first failure through recovery. That count includes targeted edits that
+fail during backoff; those failures do not change the full-retry deadline.
+Other indexing operations cannot erase the watcher's retry schedule. Stopping
+or cancelling the watcher clears that schedule while retaining the last
+failure for diagnosis. Another writer's success retains that pending work's
+age and cause until full recovery.
+The pending-work age spans attempts, while an active attempt reports its own
+elapsed time. These measurements come from the watcher running in the queried
+process; a lock held by another process is not evidence of its progress or
+failure. Successful recovery resets the backoff and pending/error fields.
+A current folder left unattended needs no recovery work; a folder with known
+failed updates keeps retrying at the capped interval until it recovers or
+the watcher stops. A full retry also updates HEAD-move tracking without
+hiding a commit made during the attempt.
+
 ## [1.108.490] - 2026-11-24 - a subfolder index reads the root .gitignore, and watch-install needs no elevated shell
 
 ### Indexing a subfolder applies the repository's own .gitignore (#1563)

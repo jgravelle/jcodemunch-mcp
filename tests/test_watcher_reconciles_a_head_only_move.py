@@ -247,6 +247,9 @@ def test_a_read_that_fails_clears_the_candidate():
     assert detector.observe(None) is False
     assert detector.observe(("b",)) is False
     assert detector.observe(("b",)) is True
+    detector.reconciled(None)
+    assert detector.observe(("b",)) is False
+    assert detector.observe(("b",)) is False
 
 
 def test_a_move_is_reported_once_it_has_settled():
@@ -286,28 +289,6 @@ def test_no_signature_is_never_a_move():
     assert detector.observe(None) is False  # the read failed for one wake-up
     assert detector.observe(None) is False
     assert detector.observe(("a",)) is False  # and nothing moved meanwhile
-
-
-# --------------------------------------------------------------------------- the retry
-
-
-def test_a_failed_reconciliation_is_due_again_once_and_no_sooner_than_the_delay(monkeypatch):
-    """The delay is the whole bound on what a persistent failure costs: an index per wake-up without it."""
-    monkeypatch.setattr(watcher, "_HEAD_RECONCILE_RETRY_SECONDS", 60.0)
-    retry = watcher._HeadRetry()
-    assert retry.due(1000.0) is False  # nothing failed
-    retry.schedule(1000.0)
-    assert [retry.due(t) for t in (1000.0, 1001.0, 1030.0, 1059.9)] == [False, False, False, False]
-    assert retry.due(1060.0) is True
-    assert [retry.due(t) for t in (1060.0, 1061.0, 5000.0)] == [False, False, False]  # once per failure
-    retry.schedule(5000.0)
-    assert retry.due(5059.0) is False
-    assert retry.due(5061.0) is True
-
-
-def test_the_retry_delay_is_at_least_a_minute():
-    """A reconciliation is a walk of the tree; a failing one is not repeated faster than this."""
-    assert watcher._HEAD_RECONCILE_RETRY_SECONDS >= 60.0
 
 
 # --------------------------------------------------------------------------- the reconciliation
@@ -504,6 +485,58 @@ async def test_the_watcher_follows_a_commit_that_changes_no_file(tmp_path):
         await _stop(task)
 
 
+async def test_recovery_covers_head_without_hiding_a_later_commit(tmp_path, monkeypatch):
+    """A commit made DURING the full retry is the hard case: the HEAD captured
+    before the attempt must not mark it as already reconciled."""
+    from types import SimpleNamespace
+
+    Change = pytest.importorskip("watchfiles").Change
+    root, storage, owner, name = _indexed(tmp_path)
+    code = root / "code.py"
+    real_index = watcher.index_folder
+    now = 0.0
+    blocked = True
+    later_head = ""
+
+    def index(**kwargs):
+        nonlocal later_head
+        if blocked:
+            return {"success": False, "error": "writer busy"}
+        result = real_index(**kwargs)
+        if now == 5:
+            _git(root, "commit", "-q", "--allow-empty", "-m", "during retry")
+            later_head = _git(root, "rev-parse", "HEAD")
+        return result
+
+    async def events(*args, **kwargs):
+        nonlocal now, blocked, later_head
+        yield set()
+        yield set()
+        code.write_text("def recovered(): pass\n", encoding="utf-8")
+        yield {(Change.modified, str(code))}
+        _git(root, "add", "code.py")
+        _git(root, "commit", "-q", "-m", "pending edit")
+        recovered_head = _git(root, "rev-parse", "HEAD")
+        blocked = False
+        now = 5.0
+        yield set()
+        assert _stored_head(storage, owner, name) == recovered_head
+        assert _symbol_names(storage, owner, name) == {"recovered"}
+        now = 6.0
+        yield set()
+        now = 7.0
+        yield set()
+        assert _stored_head(storage, owner, name) == later_head
+
+    monkeypatch.setattr(watcher, "time", SimpleNamespace(monotonic=lambda: now))
+    monkeypatch.setattr(watcher, "index_folder", index)
+    monkeypatch.setattr(watcher, "_safe_awatch", events)
+    await watcher._watch_single(
+        str(root), 200, False, storage, None, False,
+        skip_initial_index=True, quiet=True, context_providers=False,
+    )
+
+
 async def test_the_watcher_follows_a_commit_made_before_it_started(tmp_path):
     """HEAD moved between the caller's index and the watcher's first wake-up."""
     pytest.importorskip("watchfiles")
@@ -539,49 +572,55 @@ async def test_the_watcher_ends_at_head_after_a_commit_that_changes_a_file(tmp_p
         await _stop(task)
 
 
-async def test_the_watcher_tries_a_failed_reconciliation_again_once_and_then_leaves_it(tmp_path, monkeypatch):
-    """A move is reported once, so the loop retries a failure itself, after the delay, one time.
+async def test_head_changes_recover_after_repeated_failures_without_file_events(tmp_path, monkeypatch):
+    """A raised index error takes the same ``_HEAD_FAILED`` path; it is pinned by
+    test_an_index_that_fails_is_recorded_and_does_not_stop_the_watch[raises]."""
+    from types import SimpleNamespace
+    from jcodemunch_mcp import reindex_state
 
-    HEAD never moves here: the only reconciliation the detector asks for is
-    the one for the first signature it sees. That one is made to report a
-    failure, so a SECOND call can only be the retry. It runs for real, finds
-    the heads equal and schedules nothing, so there is no third: a retry that
-    came due on every wake-up, or was scheduled after every outcome, would
-    make one within the wait below.
-
-    An earlier draft failed the index instead and waited for the stored head
-    to reach a new commit. It passed against the watcher's own first index run
-    storing that head while the commit was made (CI, ubuntu 3.10): the
-    interleaving was not pinned.
-    """
     pytest.importorskip("watchfiles")
     root, storage, owner, name = _indexed(tmp_path)
-    monkeypatch.setattr(watcher, "_HEAD_RECONCILE_RETRY_SECONDS", 2.5)
-    real = watcher._reconcile_head_move
-    outcomes = []
-    called_at = []
+    real_index = watcher.index_folder
+    failures_left = 3
+    now = 0.0
 
-    async def first_one_fails(**kwargs):
-        called_at.append(time.monotonic())
-        if not outcomes:
-            outcomes.append(watcher._HEAD_FAILED)
-            return watcher._HEAD_FAILED
-        outcome = await real(**kwargs)
-        outcomes.append(outcome)
-        return outcome
+    def index(**kwargs):
+        nonlocal failures_left
+        if failures_left:
+            failures_left -= 1
+            return {"success": False, "error": "writer busy"}
+        return real_index(**kwargs)
 
-    monkeypatch.setattr(watcher, "_reconcile_head_move", first_one_fails)
-    task = asyncio.create_task(watcher._watch_single(
+    async def events(*args, **kwargs):
+        nonlocal now
+        yield set()
+        yield set()
+        (root / "code.py").write_text("def after_checkout(): pass\n", encoding="utf-8")
+        _git(root, "add", "code.py")
+        _git(root, "commit", "-q", "-m", "checkout with lost file events")
+        head = _git(root, "rev-parse", "HEAD")
+        yield set()
+        yield set()
+        for delay in (5, 10, 20):
+            status = reindex_state.get_reindex_status(f"{owner}/{name}")
+            assert status.get("retry_in_ms") == delay * 1000
+            assert _symbol_names(storage, owner, name) == {"first"}
+            now += delay - 1
+            yield set()
+            assert _symbol_names(storage, owner, name) == {"first"}
+            now += 1
+            yield set()
+        assert _symbol_names(storage, owner, name) == {"after_checkout"}
+        assert _stored_head(storage, owner, name) == head
+        now += 365 * 24 * 60 * 60
+        yield set()
+        assert "retry_in_ms" not in reindex_state.get_reindex_status(f"{owner}/{name}")
+
+    monkeypatch.setattr(watcher, "time", SimpleNamespace(monotonic=lambda: now))
+    monkeypatch.setattr(reindex_state, "time", SimpleNamespace(monotonic=lambda: now))
+    monkeypatch.setattr(watcher, "index_folder", index)
+    monkeypatch.setattr(watcher, "_safe_awatch", events)
+    await watcher._watch_single(
         str(root), 200, False, storage, None, False,
         skip_initial_index=True, quiet=True, context_providers=False,
-    ))
-    try:
-        await _until(lambda: len(outcomes) >= 2, task, "the retry of the failed reconciliation")
-        assert outcomes[:2] == [watcher._HEAD_FAILED, watcher._HEAD_UNCHANGED]
-        # No sooner than the delay. Idle wake-ups are a second apart, so a retry that
-        # ignored the delay would come about one second after the failure.
-        assert called_at[1] - called_at[0] >= 2.5
-        await asyncio.sleep(6.0)  # several idle wake-ups and more than two retry delays
-        assert outcomes == [watcher._HEAD_FAILED, watcher._HEAD_UNCHANGED]
-    finally:
-        await _stop(task)
+    )
