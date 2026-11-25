@@ -2,6 +2,26 @@
 
 ## [Unreleased]
 
+### A delete blocked only by a file import says so (L-348)
+
+`check_delete_safe` counted every file that imports the target's file as an
+external use of every symbol in that file. A function its module never
+exports, in a file that another file `require`s or imports, came back
+`external_uses_blocking` with "1 other file(s) in this repo import this". No
+file used it. The same happened to an unexported ES module function and to a
+Python function behind `from pkg import util`.
+
+The delete stays blocked, because a wildcard import, a member access by a
+computed name or a re-export can reach a symbol without writing its name, and
+no text search sees those. What changes is the claim. When no file other than
+the symbol's own names it, the verdict is now `file_import_only`: it names the
+importing files, says no other file names the symbol, and its `stop_rule` is
+not terminal, naming the reading of those importers that would settle it. A
+symbol another file does name, by member access or in a test, is still
+`external_uses_blocking`. The tool description lists the new verdict, which
+adds 4 tokens to the `standard` and `full` tool lists; `core` and `counter` are
+unchanged.
+
 ## [1.108.489] - 2026-11-24 - an index on an unplugged drive survives server start
 
 ### An index on an unplugged drive survives server start (L-347)

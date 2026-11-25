@@ -10,6 +10,9 @@ Verdict tiers (most-permissive first):
   - internal_only          — refs exist only within the symbol's own file
   - internal_uses_blocking — referenced by other symbols in this repo (refactor first)
   - external_uses_blocking — imported by other files in this repo
+  - file_import_only       — another file imports its FILE, but no other file
+                             names the symbol, so the block rests on the file
+                             import alone; still blocks, never terminal. L-348
   - scip_referenced        — compiler-verified references (SCIP) the import graph + text search missed
   - cross_repo_blocking    — used by other indexed repos (highest static severity)
   - runtime_observed       — Phase 7 traces show this code runs (red flag regardless of static refs)
@@ -267,6 +270,10 @@ def check_delete_safe(
     # ── Signal 3: identifier text refs (catches duck-typed callers) ────
     internal_ref_count = 0
     test_ref_count = 0
+    # (LEDGER L-348) Content references in any file but the target's own: when
+    # there are none, a file-level importer is the whole of an "external use".
+    refs_outside_target_file = 0
+    refs_searched = False
     try:
         from . import check_references  # noqa: PLC0415
         # ⚠⚠ (LEDGER L-89) EVERY file, never a page. The public tool caps its
@@ -289,6 +296,8 @@ def check_delete_safe(
                 ref_file = ref.get("file", "")
                 if not ref_file:
                     continue
+                if ref_file != target_file:
+                    refs_outside_target_file += 1
                 # ⚠⚠ `ref_file == target_file` used to be skipped here, and it
                 # was #406's defect one layer up: it discarded the FILE when the
                 # thing that must be excluded is the DEFINITION. Before
@@ -320,6 +329,7 @@ def check_delete_safe(
                             "line": check_references.first_match_line(ref),
                             "severity": _SEVERITY_INTERNAL_REF,
                         })
+        refs_searched = True
     except Exception as exc:  # noqa: BLE001
         logger.debug("check_delete_safe: check_references skipped: %s", exc, exc_info=True)
 
@@ -388,6 +398,16 @@ def check_delete_safe(
         verdict = "cross_repo_blocking"
     elif scip_external_count > 0:
         verdict = "scip_referenced"
+    elif total_external_signals > 0 and refs_outside_target_file == 0 and refs_searched:
+        # ⚠⚠ (LEDGER L-348) Another file imports the target's FILE, and no
+        # other file names the symbol. `external_uses_blocking` asserted a use
+        # nobody makes (an unexported helper beside an exported function). The
+        # delete stays blocked: a wildcard import, a computed member access or
+        # a re-export reaches a symbol without writing its name, and no text
+        # search sees them. So this verdict is BOUNDED, never terminal, and
+        # names the reading that settles it. ⚠ `refs_searched` is required: a
+        # reference search that raised found nothing, which proves nothing.
+        verdict = "file_import_only"
     elif total_external_signals > 0:
         verdict = "external_uses_blocking"
     elif total_internal_signals > 0:
@@ -578,6 +598,24 @@ def check_delete_safe(
             "severity": _SEVERITY_INTERNAL_REF,
         })
 
+    # ── A file import is the only block (LEDGER L-348) ─────────────────
+    import_gap = None
+    if verdict == "file_import_only":
+        importer_files = [b["file"] for b in blockers if b.get("kind") == "external_import"]
+        shown = ", ".join(importer_files[:3]) + (
+            f" and {len(importer_files) - 3} more" if len(importer_files) > 3 else ""
+        )
+        import_gap = {
+            "action": (
+                "read the importing files for a wildcard import, a member access "
+                "by a computed name, or a re-export"
+            ),
+            "why": (
+                f"{shown} import {target_file}, but no other file names "
+                f"{target_name!r}"
+            ),
+        }
+
     # ── Confidence ─────────────────────────────────────────────────────
     # Start at dead-code confidence (or 0.5 baseline) and decay per blocker.
     confidence = max(0.5, dead_code_conf)
@@ -609,6 +647,11 @@ def check_delete_safe(
         confidence = 0.10  # compiler-proven external use
     elif verdict == "entry_point":
         confidence = 0.20
+    elif verdict == "file_import_only":
+        # (LEDGER L-348) No use was found by name and none was ruled out past
+        # the file import: the ceiling for an absence nothing could establish,
+        # as `name_not_searchable` uses, never the 0.85 floor of a safe verdict.
+        confidence = min(confidence, UNPROVEN_CEILING)
     elif verdict == "external_uses_blocking":
         confidence = 0.25
     elif verdict == "internal_uses_blocking":
@@ -654,6 +697,13 @@ def check_delete_safe(
         "internal_only": "Refs exist only in the same file. Safe with local refactor.",
         "internal_uses_blocking": (
             f"{internal_ref_count} internal reference(s) found. Rename/refactor callers first."
+        ),
+        "file_import_only": (
+            f"{import_gap['why']}. The import alone keeps this blocked: "
+            f"{import_gap['action']} before deleting."
+            if import_gap
+            else "Another file imports this file, but no other file names this symbol. "
+            "Read the importing files before deleting."
         ),
         "external_uses_blocking": (
             f"{external_import_count} other file(s) in this repo import this. Update importers first."
@@ -712,6 +762,7 @@ def check_delete_safe(
             corpus_gap=corpus_gap,
             dynamic_gap=dynamic_gap,
             name_gap=unreachable_name,
+            import_gap=import_gap,
         ),
         "corpus_adequacy": corpus_adequacy.as_dict(),
         "signals": {
