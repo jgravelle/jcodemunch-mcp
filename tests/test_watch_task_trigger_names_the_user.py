@@ -28,7 +28,7 @@ B = chr(92)
 
 def _xml(user_id):
     with patch.object(si, "_exec_cmd", lambda: list(_EXEC)), patch.object(
-        si, "_windows_user_id", lambda: user_id, create=True
+        si, "_windows_user_id", lambda: user_id
     ):
         return ET.fromstring(si._windows_task_xml().encode("utf-16"))
 
@@ -64,3 +64,21 @@ def test_the_user_id_comes_from_the_environment_when_the_api_is_absent(monkeypat
     if hasattr(ctypes, "windll"):
         monkeypatch.setattr(ctypes.windll, "secur32", None, raising=False)
     assert si._windows_user_id() == f"WORKGROUP{B}jo"
+
+
+# DEFINED only on Windows, never skipped elsewhere (the budget rule in
+# test_windows_watch_task_settings.py). Every test above patches the user or
+# removes the API, so this is the one that runs GetUserNameExW itself.
+if hasattr(__import__("ctypes"), "windll"):
+
+    def test_the_api_names_the_logged_on_user_as_domain_backslash_user(monkeypatch):
+        monkeypatch.setenv("USERNAME", "not-the-api")
+        monkeypatch.setenv("USERDOMAIN", "NOT-THE-API")
+        import ctypes
+
+        buf = ctypes.create_unicode_buffer(257)
+        size = ctypes.c_ulong(257)
+        assert ctypes.windll.advapi32.GetUserNameW(buf, ctypes.byref(size))
+        user_id = si._windows_user_id()
+        assert user_id and B in user_id, user_id
+        assert user_id.split(B)[-1].lower() == buf.value.lower(), (user_id, buf.value)

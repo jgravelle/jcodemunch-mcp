@@ -456,7 +456,8 @@ def _watch_task_registered() -> Optional[bool]:
 # the task is registered from this definition. Everything the switch form set is
 # kept: a logon trigger, the limited run level, the running interpreter as the
 # action, one instance at a time. The principal names no UserId, so `schtasks`
-# registers it for the calling user, as the switch form did.
+# registers it for the calling user, as the switch form did. The trigger is the
+# one deliberate difference from the switch form (#1564, next).
 # ⚠⚠ #1564 (@rknighton): the LOGON TRIGGER must name the user. A trigger with
 # no UserId fires at ANY user's logon, and registering that from a shell that
 # is not elevated is refused with "Access is denied", so `watch-install` worked

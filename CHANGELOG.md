@@ -16,10 +16,13 @@ was, and that form still registers from an elevated shell.
 
 An elevated shell registers either form, so the refusal can't be reproduced
 from one. The tests pin the cause in the generated XML: the trigger carries the
-user, the user is XML-escaped, and the principal is unchanged. The fixed
-definition was registered and deleted under a throwaway name on Windows 11 from
-an elevated shell. It wasn't run from a non-elevated one here; the reporter's
-test covers that case.
+user, the user is XML-escaped, and the principal is unchanged. The Windows CI
+test that registers the task beside the old switch form compared every field,
+the trigger's user included, so it required the any-user trigger. It now
+requires the trigger to name the calling user and everything else to match.
+It and the fixed definition were registered and deleted under throwaway names
+on Windows 11 from an elevated shell. Neither was run from a non-elevated one
+here; the reporter's test covers that case.
 
 ## [1.108.488] - 2026-11-24 - a Bearer token with ~ + / = or ! is redacted whole
 
