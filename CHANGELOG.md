@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.491] - 2026-11-25 - a delete blocked only by a file import says so
+
 ### A delete blocked only by a file import says so (L-348)
 
 `check_delete_safe` counted every file that imports the target's file as an

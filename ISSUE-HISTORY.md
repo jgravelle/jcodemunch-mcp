@@ -3548,3 +3548,9 @@ The 1.108.486 entry, verbatim as it stood in `CLAUDE.md`:
 The 1.108.487 entry, verbatim as it stood in `CLAUDE.md`:
 
 - **Prior (1.108.487):** **`get_changed_symbols` says that its `cross_repo` argument does nothing** (L-57): passing it emits a `FutureWarning`, and the argument is still accepted. Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-25, release 1.108.491)
+
+The 1.108.488 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.488):** **a Bearer token with `~ + / =` or `!` is redacted whole** (#1558, @goranai): `redact.py`'s `bearer_token` takes RFC 6750's characters plus `!` after any backslash run. Full text: `CHANGELOG.md`.
