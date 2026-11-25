@@ -1069,10 +1069,14 @@ async def _watch_single(
                     # walk parses each one it keeps again (its mtime can miss
                     # the edit) and reads one past max_folder_files, with the
                     # walk's own filters and cap status.
+                    # _batch_files too: a full retry replaced this batch with
+                    # the root event, and an edit that arrived at the deadline
+                    # must still be named.
                     _named = {c.path for c in watcher_changes}
                     watcher_changes = watcher_changes + [
                         WatcherChange("modified", p, "__cache_miss__")
-                        for p in sorted(_retry_files - _named) if os.path.isfile(p)
+                        for p in sorted((_retry_files | _batch_files) - _named)
+                        if os.path.isfile(p)
                     ]
                 mark_reindex_start(repo_id)
                 result = await asyncio.to_thread(

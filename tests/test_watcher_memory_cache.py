@@ -909,12 +909,13 @@ async def test_stopped_watcher_does_not_advertise_a_retry(tmp_path, monkeypatch)
     assert get_watch_status(storage, check_freshness=False, check_completeness=False)["any_retry_pending"] is False
 
 
-@pytest.mark.parametrize("failed_first", [True, False])
-async def test_retry_rereads_failed_files_past_the_folder_cap(tmp_path, monkeypatch, failed_first):
-    """A walk has no changed_paths, and index_folder keeps a file past
+@pytest.mark.parametrize("shape", ["retry", "edit_at_retry_deadline", "folder_event"])
+async def test_retry_rereads_failed_files_past_the_folder_cap(tmp_path, monkeypatch, shape):
+    """A walk finds changes by mtime, and index_folder keeps a file past
     max_folder_files without reading it again unless a changed path names it.
-    An edit to such a file must reach the index after a full retry
-    (failed_first) and after a batch that a folder event made into a walk."""
+    An edit to such a file must reach the index after a full retry, after a
+    full retry whose wake-up also carries a new edit, and after a batch that a
+    folder event made into a walk."""
     from types import SimpleNamespace
 
     from jcodemunch_mcp import config as config_module
@@ -939,7 +940,7 @@ async def test_retry_rereads_failed_files_past_the_folder_cap(tmp_path, monkeypa
     def names():
         return {symbol["name"] for symbol in store.load_index(owner, name).symbols}
 
-    blocked = failed_first
+    blocked = shape != "folder_event"
 
     def index(**kwargs):
         if blocked:
@@ -948,20 +949,25 @@ async def test_retry_rereads_failed_files_past_the_folder_cap(tmp_path, monkeypa
 
     now = 0.0
 
+    def edit(paths):
+        for path in paths:
+            path.write_text(f"def new{files.index(path)}(): pass\n", encoding="utf-8")
+        return {(Change.modified, str(path)) for path in paths}
+
     async def events(*args, **kwargs):
         nonlocal now, blocked
-        for i, path in enumerate(files):
-            path.write_text(f"def new{i}(): pass\n", encoding="utf-8")
-        batch = {(Change.modified, str(path)) for path in files}
-        if failed_first:
-            yield batch
+        if shape == "folder_event":
+            # The root event (the rescan _safe_awatch yields) makes it a walk.
+            yield edit(files) | {(Change.modified, str(root))}
+        else:
+            failed = files if shape == "retry" else files[:1]
+            yield edit(failed)
             assert names() == {"old0", "old1", "old2"}
             blocked = False
             now = 5.0
-            yield set()
-        else:
-            # The root event (the rescan _safe_awatch yields) makes it a walk.
-            yield batch | {(Change.modified, str(root))}
+            # At the deadline the batch becomes the root event; a new edit in
+            # that batch must still be named to the walk.
+            yield edit(files[len(failed):]) if len(failed) < len(files) else set()
         assert names() == {"new0", "new1", "new2"}, "the walk kept a capped file's old copy"
         index = store.load_index(owner, name)
         # Every file is read now, so the stored cap status and coverage must
