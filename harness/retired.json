@@ -337,6 +337,13 @@
       "replacement": "tests/test_own_language_extension_first.py::test_a_ruby_import_takes_no_other_language_when_its_own_is_absent",
       "commit": "fix/l294-ruby-own-language-only",
       "date": "2026-11-22"
+    },
+    {
+      "path": "tests/test_index_file_walk_filter.py::test_subdir_walk_reads_gitignores_from_its_own_root",
+      "lesson": "It required a subdirectory walk to index a file the git root's .gitignore excludes, and index_file to accept it (#1563). The next root walk dropped that file with no message, so the test pinned the inconsistency the report found. The subdirectory walk, paths= and index_file now read the .gitignore chain from the git root.",
+      "replacement": "tests/test_index_file_walk_filter.py::test_subdir_walk_and_index_file_agree_on_a_root_ignored_file",
+      "commit": "fix/1563-subdir-gitignore",
+      "date": "2026-11-24"
     }
   ]
 }
