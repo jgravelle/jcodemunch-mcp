@@ -11,7 +11,7 @@
     },
     {
       "path": "tests/test_watcher_reconciles_a_head_only_move.py::test_the_retry_delay_is_at_least_a_minute",
-      "lesson": "The fixed minute-long HEAD timer is replaced by the same capped exponential backoff as other failed watcher work. The replacement checks increasing delays, the cap, and reset after successful recovery, rather than pinning a retired constant.",
+      "lesson": "The fixed minute-long HEAD timer is replaced by the same capped exponential backoff as other failed watcher work. The replacement checks increasing delays, the cap, and reset after successful recovery, rather than pinning a retired constant. The trade: the old floor kept a failing walk from repeating sooner than 60 s after the failure. The new schedule waits 5, 10, 20, 40, 80, 160 and then 300 s, so a walk that keeps failing runs 3 times in the first minute (at 5, 15 and 35 s) where the old floor ran none, and from the cap on it runs once per 300 s, less often than a 60 s floor permits, with no limit on tries.",
       "replacement": "tests/test_watcher_memory_cache.py::test_persistent_failure_backs_off_then_resets_after_recovery",
       "commit": "dce0df30",
       "date": "2026-11-25"
