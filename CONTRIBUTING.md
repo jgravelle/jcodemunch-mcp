@@ -204,6 +204,22 @@ Route-recall work is the fastest way to end this, and
 `benchmarks/route_recall/explain_misses.py` prints the current defect list with
 each miss labelled by the gate that caused it.
 
+## Checks on your PR: open it as a draft while you iterate
+
+A draft PR runs only the fast checks: the harness fast tier, format, types,
+the dependency audit and the secret scan. The full test matrix, the package
+install check and the bench tier wait until the PR is marked ready for review.
+They run on every push after that, and a new push cancels the run still in
+progress.
+
+So open the PR as a draft and push as often as you like while you work. Mark
+it ready once, when you want the full verdict. To get the fast tier's verdict
+before you push, run it locally:
+
+```bash
+uv run python -m harness fast
+```
+
 ## Quality gates that run on every release
 
 - **Schema budget** — `tests/test_schema_budget.py` fails when `tools/list` token count grows more than 5% above `benchmarks/schema_baseline.json`. If you intentionally grow the schema (new tool / longer description), regenerate the baseline in the same PR with justification:
