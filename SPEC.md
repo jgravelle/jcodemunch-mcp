@@ -1117,6 +1117,12 @@ stored symbols, hash and mtime. The response names it in `unread_files`
 such a file, and `refresh` records it as a batch error, so it does not stamp
 `parser_generation`.
 
+A file that the discovery filters cannot stat or read (skip reason
+`unreadable`) is on disk, so an incremental run does not delete its stored
+rows. If the call named the file (a watcher change, or a `paths=` entry), the
+response also lists it in `unread_files`. A stored file that the call did not
+name keeps its rows and is not listed, because no edit of it is pending.
+
 On a successful save after full discovery, any `unreadable` count marks coverage
 `complete: false`, so absence claims are refused. Failed empty scans preserve
 the previous index and its coverage. After restoring access, adjusting limits,

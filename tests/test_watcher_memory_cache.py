@@ -1235,11 +1235,14 @@ async def test_a_targeted_edit_during_a_retry_keeps_a_nested_gitignore(tmp_path,
     )
 
 
-def _fail_reads_of(monkeypatch, path):
+def _fail_reads_of(monkeypatch, path, discovery=False):
     """Make `index_folder`'s own reads of one file raise, as a sharing
-    violation does on Windows. Returns a switch that ends the failure."""
+    violation does on Windows. With ``discovery``, the binary sniff of the
+    discovery filters (`security.is_binary_file`) fails too, so discovery
+    rejects the file before it is read. Returns a switch that ends the failure."""
     import builtins
 
+    from jcodemunch_mcp import security
     from jcodemunch_mcp.tools import index_folder as module
 
     state = {"fail": True}
@@ -1251,7 +1254,90 @@ def _fail_reads_of(monkeypatch, path):
         return real_open(file, *args, **kwargs)
 
     monkeypatch.setattr(module, "open", fake_open, raising=False)
+    if discovery:
+        monkeypatch.setattr(security, "open", fake_open, raising=False)
     return state
+
+
+def _same_files(paths):
+    return sorted(os.path.normcase(str(Path(p).resolve())) for p in paths)
+
+
+@pytest.mark.parametrize("route", ["walk", "fast_path", "paths"])
+def test_a_file_discovery_cannot_read_keeps_its_symbols(tmp_path, monkeypatch, route):
+    """A file whose binary sniff fails is on disk: the discovery filters
+    return `unreadable`, not a verdict on the file. The walk and the listed
+    route once treated it as deleted and the fast path dropped the event,
+    each with `success`, so the watcher cleared its retry and the file stayed
+    out of the index (Codex review on #1567)."""
+    from jcodemunch_mcp.storage import IndexStore
+    from jcodemunch_mcp.tools.index_folder import index_folder
+
+    root = tmp_path / "repo"
+    root.mkdir()
+    code = root / "code.py"
+    code.write_text("def before(): pass\n", encoding="utf-8")
+    (root / "other.py").write_text("def other(): pass\n", encoding="utf-8")
+    storage = str(tmp_path / "store")
+    result = index_folder(str(root), use_ai_summaries=False, context_providers=False, storage_path=storage)
+    assert result["success"], result
+    owner, name = result["repo"].split("/", 1)
+    store = IndexStore(base_path=storage)
+    code.write_text("def after(): pass\n", encoding="utf-8")
+    reads = _fail_reads_of(monkeypatch, code, discovery=True)
+
+    def run():
+        if route == "paths":
+            return index_folder(
+                str(root), use_ai_summaries=False, context_providers=False,
+                storage_path=storage, incremental=True, paths=[str(code)],
+            )
+        return index_folder(
+            str(root), use_ai_summaries=False, context_providers=False, storage_path=storage,
+            incremental=True, discover=route == "walk",
+            changed_paths=[WatcherChange("modified", str(code), "__cache_miss__")],
+        )
+
+    failed = run()
+    assert failed["success"], failed
+    names = {symbol["name"] for symbol in store.load_index(owner, name).symbols}
+    assert names == {"before", "other"}, "an unreadable file was deleted"
+    assert _same_files(failed.get("unread_files") or []) == _same_files([code]), failed
+    reads["fail"] = False
+    recovered = run()
+    assert "unread_files" not in recovered, recovered
+    names = {symbol["name"] for symbol in store.load_index(owner, name).symbols}
+    assert names == {"after", "other"}
+
+
+def test_an_unreadable_file_nobody_named_keeps_its_rows_and_no_retry(tmp_path, monkeypatch):
+    """A walk that cannot read a stored file it was not asked about keeps the
+    rows and names nothing in `unread_files`: no edit of it is pending, so a
+    file locked for a long time does not hold the watcher in a retry."""
+    from jcodemunch_mcp.storage import IndexStore
+    from jcodemunch_mcp.tools.index_folder import index_folder
+
+    root = tmp_path / "repo"
+    root.mkdir()
+    locked = root / "locked.py"
+    locked.write_text("def locked(): pass\n", encoding="utf-8")
+    edited = root / "edited.py"
+    edited.write_text("def before(): pass\n", encoding="utf-8")
+    storage = str(tmp_path / "store")
+    result = index_folder(str(root), use_ai_summaries=False, context_providers=False, storage_path=storage)
+    assert result["success"], result
+    owner, name = result["repo"].split("/", 1)
+    edited.write_text("def after(): pass\n", encoding="utf-8")
+    _fail_reads_of(monkeypatch, locked, discovery=True)
+    walked = index_folder(
+        str(root), use_ai_summaries=False, context_providers=False, storage_path=storage,
+        incremental=True, discover=True,
+        changed_paths=[WatcherChange("modified", str(edited), "__cache_miss__")],
+    )
+    assert walked["success"], walked
+    assert "unread_files" not in walked, walked
+    names = {symbol["name"] for symbol in IndexStore(base_path=storage).load_index(owner, name).symbols}
+    assert names == {"locked", "after"}
 
 
 @pytest.mark.parametrize("route", ["walk", "fast_path"])
@@ -1298,9 +1384,12 @@ def test_an_unread_named_file_keeps_its_symbols(tmp_path, monkeypatch, route):
     assert names == {"after", "other"}
 
 
-async def test_a_retry_with_an_unread_file_stays_pending(tmp_path, monkeypatch):
+@pytest.mark.parametrize("where", ["read", "discovery"])
+async def test_a_retry_with_an_unread_file_stays_pending(tmp_path, monkeypatch, where):
     """A full retry that cannot read a named file keeps the retry, the stale
-    flag and the file. It once cleared them and lost the edit."""
+    flag and the file. It once cleared them and lost the edit. With
+    ``discovery``, the walk's filters reject the file before the read, and
+    the walk once deleted it (Codex review on #1567)."""
     from types import SimpleNamespace
 
     from jcodemunch_mcp import reindex_state, watcher
@@ -1311,6 +1400,8 @@ async def test_a_retry_with_an_unread_file_stays_pending(tmp_path, monkeypatch):
     root.mkdir()
     code = root / "code.py"
     code.write_text("def before(): pass\n", encoding="utf-8")
+    # A second readable file, so the walk does not stop on an empty corpus.
+    (root / "other.py").write_text("def other(): pass\n", encoding="utf-8")
     storage = str(tmp_path / "store")
     real_index = watcher.index_folder
     result = real_index(str(root), use_ai_summaries=False, context_providers=False, storage_path=storage)
@@ -1337,11 +1428,11 @@ async def test_a_retry_with_an_unread_file_stays_pending(tmp_path, monkeypatch):
         code.write_text("def after(): pass\n", encoding="utf-8")
         os.utime(code, ns=(stat.st_atime_ns, stat.st_mtime_ns))
         yield {(Change.modified, str(code))}
-        reads = _fail_reads_of(monkeypatch, code)
+        reads = _fail_reads_of(monkeypatch, code, discovery=where == "discovery")
         now = 5.0
         yield set()
         assert calls == 2
-        assert names() == {"before"}, "an unread file lost its symbols"
+        assert names() == {"before", "other"}, "an unread file lost its symbols"
         status = reindex_state.get_reindex_status(result["repo"])
         assert status["index_stale"] is True
         assert status["retry_in_ms"] == 10000
@@ -1349,7 +1440,7 @@ async def test_a_retry_with_an_unread_file_stays_pending(tmp_path, monkeypatch):
         reads["fail"] = False
         now = 15.0
         yield set()
-        assert names() == {"after"}
+        assert names() == {"after", "other"}
         assert "retry_in_ms" not in reindex_state.get_reindex_status(result["repo"])
 
     monkeypatch.setattr(watcher, "time", SimpleNamespace(monotonic=lambda: now))

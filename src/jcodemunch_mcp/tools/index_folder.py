@@ -1875,6 +1875,7 @@ def resolve_explicit_paths(
     profile_patterns: Optional[list[str]] = None,
     extra_ignore_patterns: Optional[list[str]] = None,
     gitignore_root: Optional[Path] = None,
+    unreadable_out: Optional[list] = None,
 ) -> tuple[list[Path], list[str], dict[str, int], list[str]]:
     """Materialise a caller-supplied list of paths into the (files, warnings,
     skip_counts, requested_rels) shape that the standard indexing pipeline
@@ -1917,6 +1918,9 @@ def resolve_explicit_paths(
     delete those from an index built under a higher cap, so they are recorded,
     never silently left out by stopping early; ``skip_counts["file_limit"]``
     counts them.
+
+    ``unreadable_out``, like ``discover_local_files``'s, receives each listed
+    file that could not be stat'ed or read. It is on disk, so it is not deleted.
     """
     # Same resolve-on-entry rule as discover_local_files: the explicit-paths
     # route is a second walk entry point, and a cap that applies to one and not
@@ -1993,6 +1997,7 @@ def resolve_explicit_paths(
                 max_size=max_size,
                 follow_symlinks=follow_symlinks,
                 cap_dropped=sub_dropped,
+                unreadable_out=unreadable_out,
             )
             warnings.extend(sub_warnings)
             for k, v in sub_skip.items():
@@ -2058,10 +2063,23 @@ def resolve_explicit_paths(
                 continue
         except OSError as e:
             warnings.append(f"Skipped stat-error path {raw!r}: {e}")
+            skip_counts["unreadable"] = skip_counts.get("unreadable", 0) + 1
+            if unreadable_out is not None:
+                unreadable_out.append(p)
             continue
 
-        # Binary detection — mirrors _should_index_file step 13.
-        if is_binary_file(p):
+        # Binary detection — mirrors _should_index_file step 13, which also
+        # tells a read error apart from binary content: a file locked by
+        # another process is not binary, and is not deleted.
+        try:
+            _binary = is_binary_file(p, raise_on_error=True)
+        except OSError as e:
+            warnings.append(f"Skipped unreadable file {_rel}: {e}")
+            skip_counts["unreadable"] = skip_counts.get("unreadable", 0) + 1
+            if unreadable_out is not None:
+                unreadable_out.append(p)
+            continue
+        if _binary:
             warnings.append(f"Skipped binary file: {_rel}")
             skip_counts["binary"] = skip_counts.get("binary", 0) + 1
             continue
@@ -2088,8 +2106,12 @@ def discover_local_files(
     oversize_out: Optional[list] = None,
     profile_ignore_patterns: Optional[list[str]] = None,
     gitignore_root: Optional[Path] = None,
+    unreadable_out: Optional[list] = None,
 ) -> tuple[list[Path], list[str], dict[str, int]]:
     """Discover source files in a local folder with security filtering.
+
+    ``unreadable_out``, when given, receives each file the filters could not
+    stat or read. Such a file is on disk, so a caller must not delete it.
 
     ``profile_ignore_patterns`` are a detected framework profile's defaults;
     they rank below every pattern the user wrote (#1398).
@@ -2249,6 +2271,8 @@ def discover_local_files(
                             oversize_out.append((file_path, file_path.stat().st_size, max_size))
                         except OSError:
                             logger.debug("oversize stat failed: %s", file_path, exc_info=True)
+                elif reason == "unreadable" and rel_path and unreadable_out is not None:
+                    unreadable_out.append(file_path)
                 if warning is not None:
                     warnings.append(warning)
                 logger.debug(
@@ -2887,6 +2911,10 @@ def index_folder(
                 new_files: list[str] = []
                 deleted_files: list[str] = []
                 rel_path_map_fast: dict[str, Path] = {}
+                # Named files this call could not read: the stored rows stay,
+                # and `unread_files` tells the watcher that the edit is not
+                # indexed yet.
+                _fast_unread: list[str] = []
 
                 for wc_item in changed_paths:
                     # WatcherChange or a legacy (change_type, path[, old_hash]) tuple.
@@ -2911,6 +2939,10 @@ def index_folder(
                                 "SKIP %s (watcher fast path): %s",
                                 _reason, _hl_rel_path or rel_path,
                             )
+                            # A stat or binary sniff that failed is not a
+                            # statement about the file (Codex review on #1567).
+                            if _reason == "unreadable" and _hl_rel_path:
+                                _fast_unread.append(str(abs_path))
                             continue
 
                     if change_type == "deleted":
@@ -2948,6 +2980,8 @@ def index_folder(
                     _stamp_incremental_outcome(
                         _fast_no_change, _requested_incremental, True
                     )
+                    if _fast_unread:
+                        _fast_no_change["unread_files"] = sorted(_fast_unread)
                     return _fast_no_change
 
                 # Read and hash only the changed/new files.
@@ -2967,7 +3001,6 @@ def index_folder(
                 subset_hashes: dict[str, str] = {}
                 fast_mtimes: dict[str, int] = {}
                 fast_warnings: list[str] = []
-                _fast_unread: list[str] = []
                 mtime_only_updates: dict[str, int] = {}
 
                 _fast_phase("classify")
@@ -3195,6 +3228,7 @@ def index_folder(
         requested_rels: Optional[list[str]] = None
         _oversize_found: list = []
         _cap_dropped_paths: list[Path] = []
+        _unreadable_paths: list[Path] = []
         if paths is not None:
             source_files, discover_warnings, skip_counts, requested_rels = resolve_explicit_paths(
                 walk_root,
@@ -3204,6 +3238,7 @@ def index_folder(
                 follow_symlinks=follow_symlinks,
                 honor_gitignore=paths_honor_gitignore,
                 cap_dropped=_cap_dropped_paths,
+                unreadable_out=_unreadable_paths,
                 profile_patterns=_profile_ignore or None,
                 extra_ignore_patterns=extra_ignore_patterns or None,
                 gitignore_root=Path(_git_root_for_walk) if _git_root_for_walk else None,
@@ -3219,8 +3254,32 @@ def index_folder(
                 oversize_out=_oversize_found,
                 profile_ignore_patterns=_profile_ignore or None,
                 gitignore_root=Path(_git_root_for_walk) if _git_root_for_walk else None,
+                unreadable_out=_unreadable_paths,
             )
         warnings.extend(discover_warnings)
+        # Files discovery could not stat or read (a sharing violation, a
+        # permission change). They are on disk, so the incremental path does
+        # not delete their stored rows. A file the caller named (a watcher
+        # change, or a `paths=` entry) is also reported in `unread_files`, so
+        # the watcher keeps its retry and `refresh` does not stamp (Codex
+        # review on #1567).
+        _unreadable_abs: dict[str, Path] = {}
+        for _p in _unreadable_paths:
+            _r = _rel_to_root(_p, folder_path)
+            if _r is not None:
+                _unreadable_abs[_r] = _p
+        _unreadable_rels: set[str] = set(_unreadable_abs)
+        if paths is not None:
+            _unreadable_named = set(_unreadable_rels)
+        else:
+            _unreadable_named = set()
+            for _ch in changed_paths or ():
+                _ctype, _cpath, _ = _watcher_change_parts(_ch)
+                if _ctype == "deleted":
+                    continue
+                _r = _rel_to_root(Path(_cpath), folder_path)
+                if _r in _unreadable_rels:
+                    _unreadable_named.add(_r)
         logger.info("Discovery skip counts: %s", skip_counts)
 
         # Truncation status for this walk (#366). Persisted on every save path so a
@@ -3799,6 +3858,10 @@ def index_folder(
                     warnings[warnings.index(_cap_rebuild_warning)] = _updated
                     _cap_rebuild_warning = _updated
 
+            # A file discovery could not read is on disk: its stored rows stay.
+            if _unreadable_rels:
+                deleted = [fp for fp in deleted if fp not in _unreadable_rels]
+
             # A walk with a watcher change set (discover=True, or a fast path
             # that fell through) knows which files changed. The mtime check can
             # miss a named edit (a replacement that keeps the mtime, or a save
@@ -3834,8 +3897,10 @@ def index_folder(
                 covered = {fp for fp in old_files if _covered_by_listed(fp, _listed_rels)}
                 # Files this call's cap cut are not deleted here either: the
                 # rescope recomputes `deleted`, so the cap exclusion above has
-                # to be applied again.
-                deleted = sorted(covered - set(file_mtimes) - _cap_dropped_rels)
+                # to be applied again, and so does the unreadable one.
+                deleted = sorted(
+                    covered - set(file_mtimes) - _cap_dropped_rels - _unreadable_rels
+                )
 
                 # v1.108.259 (#395): re-parse the listed files even when their
                 # content is unchanged. `detect_changes_with_mtimes` compares
@@ -3903,6 +3968,12 @@ def index_folder(
                     # #1397: a substituted mode or a deferred re-parse is said
                     # on a no-change run too.
                     _no_change_result["warnings"] = list(warnings)
+                if _unreadable_named:
+                    # Nothing changed that could be read: a named file that
+                    # could not be is still pending.
+                    _no_change_result["unread_files"] = sorted(
+                        str(_unreadable_abs[r]) for r in _unreadable_named
+                    )
                 # Nothing changed, but this walk may still see files the index
                 # lacks: new files past the cap. Record what it saw, so the
                 # stored cap status and coverage stay true to the index.
@@ -4156,9 +4227,12 @@ def index_folder(
             result.update(_summary_report_fields(_incr_summary_report))
             if _full_deletion:
                 result["full_deletion"] = True
-            if _unread_changed:
+            if _unread_changed or _unreadable_named:
                 # Absolute paths, the form the watcher keeps in its retry set.
-                result["unread_files"] = sorted(str(rel_path_map[r]) for r in _unread_changed)
+                result["unread_files"] = sorted(
+                    {str(rel_path_map[r]) for r in _unread_changed}
+                    | {str(_unreadable_abs[r]) for r in _unreadable_named}
+                )
             if _is_branch_delta:
                 result["branch"] = _current_branch
                 result["branch_delta"] = True

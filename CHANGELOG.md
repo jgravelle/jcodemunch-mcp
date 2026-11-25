@@ -71,7 +71,13 @@ set with no content, so the save deleted its symbols, the call reported
 success and the watcher cleared its retry. The targeted path kept the rows
 but reported `No changes detected`. The watcher now keeps the retry pending
 for an unread file, and `refresh` records it as a batch error, so it does
-not stamp `parser_generation` over old rows. Another writer's success retains that pending work's
+not stamp `parser_generation` over old rows. The same holds for a file that
+the discovery filters cannot stat or sniff (`unreadable`): the walk and the
+`paths=` route treated it as deleted, and the targeted path dropped its
+event. Each case reported success, so the file stayed out of the index after
+the lock ended. Its stored rows now stay. A file the call named is listed in
+`unread_files`, and a stored file nobody named keeps its rows with no retry.
+The `paths=` route also stops reading a failed binary sniff as binary. Another writer's success retains that pending work's
 age and cause until full recovery.
 The pending-work age spans attempts, while an active attempt reports its own
 elapsed time. These measurements come from the watcher running in the queried
