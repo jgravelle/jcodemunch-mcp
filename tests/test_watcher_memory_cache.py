@@ -1310,6 +1310,47 @@ def test_a_file_discovery_cannot_read_keeps_its_symbols(tmp_path, monkeypatch, r
     assert names == {"after", "other"}
 
 
+def test_a_no_change_walk_records_an_unreadable_file_in_coverage(tmp_path, monkeypatch):
+    """A walk whose only delta is a file it cannot read returns `No changes
+    detected`. That return wrote coverage only when the cap status moved, so
+    the index kept `complete: True` while it held old rows for the file, and
+    `search_text` reported its text as absent (Codex review on #1567). The
+    first walk that reads the file again clears the count."""
+    from jcodemunch_mcp.storage import IndexStore
+    from jcodemunch_mcp.tools.index_folder import index_folder
+
+    root = tmp_path / "repo"
+    root.mkdir()
+    code = root / "code.py"
+    code.write_text("def before(): pass\n", encoding="utf-8")
+    (root / "other.py").write_text("def other(): pass\n", encoding="utf-8")
+    storage = str(tmp_path / "store")
+    result = index_folder(str(root), use_ai_summaries=False, context_providers=False, storage_path=storage)
+    assert result["success"], result
+    owner, name = result["repo"].split("/", 1)
+    store = IndexStore(base_path=storage)
+    assert store.load_index(owner, name).coverage["complete"] is True
+    code.write_text("def after(): pass\n", encoding="utf-8")
+    reads = _fail_reads_of(monkeypatch, code, discovery=True)
+
+    def walk():
+        return index_folder(
+            str(root), use_ai_summaries=False, context_providers=False,
+            storage_path=storage, incremental=True,
+        )
+
+    locked = walk()
+    assert locked["message"] == "No changes detected", locked
+    coverage = store.load_index(owner, name).coverage
+    assert coverage["complete"] is False, coverage
+    assert coverage["withheld"] == {"unreadable": 1}, coverage
+    reads["fail"] = False
+    walk()
+    coverage = store.load_index(owner, name).coverage
+    assert coverage["complete"] is True, coverage
+    assert "withheld" not in coverage, coverage
+
+
 def test_an_unreadable_file_nobody_named_keeps_its_rows_and_no_retry(tmp_path, monkeypatch):
     """A walk that cannot read a stored file it was not asked about keeps the
     rows and names nothing in `unread_files`: no edit of it is pending, so a

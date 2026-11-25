@@ -1657,6 +1657,60 @@ def _rel_to_root(abs_path: Path, root: Path) -> Optional[str]:
     return None
 
 
+def _unreadable_files(
+    unreadable_paths, root: Path, changed_paths, listed: bool,
+) -> tuple[set[str], list[str]]:
+    """Files discovery could not stat or read, as ``(rels, named)``.
+
+    Such a file (a sharing violation, a permission change) is on disk, so the
+    incremental path does not delete its stored rows: ``rels`` are the
+    root-relative keys to keep. ``named`` are the absolute paths of the ones
+    the caller asked about (every file of a ``paths=`` call, else the
+    non-deleted watcher changes), for ``unread_files``: the watcher keeps its
+    retry for them and ``refresh`` does not stamp. A stored file nobody named
+    has no pending edit, so it keeps its rows and no retry (Codex review on
+    #1567).
+    """
+    by_rel: dict[str, Path] = {}
+    for p in unreadable_paths:
+        rel = _rel_to_root(p, root)
+        if rel is not None:
+            by_rel[rel] = p
+    if listed:
+        return set(by_rel), sorted(str(p) for p in by_rel.values())
+    named: set[str] = set()
+    for change in changed_paths or ():
+        ctype, cpath, _ = _watcher_change_parts(change)
+        rel = None if ctype == "deleted" else _rel_to_root(Path(cpath), root)
+        if rel in by_rel:
+            named.add(str(by_rel[rel]))
+    return set(by_rel), sorted(named)
+
+
+def _unreadable_event(reason: str, rel_path: str, abs_path: Path) -> list[str]:
+    """The watcher fast path's ``unread_files`` entry for a refused event.
+
+    A stat or binary sniff that failed is not a verdict on the file. An
+    ``unreadable`` with no ``rel_path`` failed to resolve (a symlink loop),
+    which no retry can repair, so it names nothing.
+    """
+    return [str(abs_path)] if reason == "unreadable" and rel_path else []
+
+
+def _unreadable_coverage_moved(skip_counts: dict, existing_index) -> bool:
+    """Does this walk's ``unreadable`` count differ from the stored coverage?
+
+    A no-change walk writes coverage only when this or the cap status moved.
+    Without it, a stored file that turned unreadable kept ``complete: True``,
+    and ``search_text`` reported text in that file as absent; the first walk
+    that reads it again must clear the count (Codex review on #1567).
+    """
+    coverage = getattr(existing_index, "coverage", None)
+    withheld = coverage.get("withheld") if isinstance(coverage, dict) else None
+    stored = withheld.get("unreadable", 0) if isinstance(withheld, dict) else 0
+    return int(skip_counts.get("unreadable", 0) or 0) != int(stored or 0)
+
+
 def _scan_package_json_forced_paths(folder_path: Path) -> set[str]:
     """Pre-scan ``package.json`` files under ``folder_path`` to collect the
     absolute paths of files referenced by ``main``/``module``/``exports``/
@@ -2941,8 +2995,7 @@ def index_folder(
                             )
                             # A stat or binary sniff that failed is not a
                             # statement about the file (Codex review on #1567).
-                            if _reason == "unreadable" and _hl_rel_path:
-                                _fast_unread.append(str(abs_path))
+                            _fast_unread.extend(_unreadable_event(_reason, _hl_rel_path, abs_path))
                             continue
 
                     if change_type == "deleted":
@@ -3257,29 +3310,11 @@ def index_folder(
                 unreadable_out=_unreadable_paths,
             )
         warnings.extend(discover_warnings)
-        # Files discovery could not stat or read (a sharing violation, a
-        # permission change). They are on disk, so the incremental path does
-        # not delete their stored rows. A file the caller named (a watcher
-        # change, or a `paths=` entry) is also reported in `unread_files`, so
-        # the watcher keeps its retry and `refresh` does not stamp (Codex
-        # review on #1567).
-        _unreadable_abs: dict[str, Path] = {}
-        for _p in _unreadable_paths:
-            _r = _rel_to_root(_p, folder_path)
-            if _r is not None:
-                _unreadable_abs[_r] = _p
-        _unreadable_rels: set[str] = set(_unreadable_abs)
-        if paths is not None:
-            _unreadable_named = set(_unreadable_rels)
-        else:
-            _unreadable_named = set()
-            for _ch in changed_paths or ():
-                _ctype, _cpath, _ = _watcher_change_parts(_ch)
-                if _ctype == "deleted":
-                    continue
-                _r = _rel_to_root(Path(_cpath), folder_path)
-                if _r in _unreadable_rels:
-                    _unreadable_named.add(_r)
+        # Files discovery could not stat or read: their stored rows stay, and
+        # the named ones go to `unread_files` (see `_unreadable_files`).
+        _unreadable_rels, _unreadable_named = _unreadable_files(
+            _unreadable_paths, folder_path, changed_paths, paths is not None
+        )
         logger.info("Discovery skip counts: %s", skip_counts)
 
         # Truncation status for this walk (#366). Persisted on every save path so a
@@ -3971,15 +4006,14 @@ def index_folder(
                 if _unreadable_named:
                     # Nothing changed that could be read: a named file that
                     # could not be is still pending.
-                    _no_change_result["unread_files"] = sorted(
-                        str(_unreadable_abs[r]) for r in _unreadable_named
-                    )
+                    _no_change_result["unread_files"] = _unreadable_named
                 # Nothing changed, but this walk may still see files the index
                 # lacks: new files past the cap. Record what it saw, so the
                 # stored cap status and coverage stay true to the index.
                 _stored_cap = getattr(existing_index, "file_cap_status", None) or {}
                 _cap_to_save = _cap_status_to_save(_cap_status, paths, existing_index)
-                if _cap_to_save != _stored_cap:
+                _coverage_moved = paths is None and _unreadable_coverage_moved(skip_counts, existing_index)
+                if _cap_to_save != _stored_cap or _coverage_moved:
                     store._sqlite.set_file_cap_status(owner, repo_name, _cap_to_save)
                     _nc_kept_files = (
                         (_cap_dropped_rels & set(getattr(existing_index, "source_files", None) or []))
@@ -4229,10 +4263,8 @@ def index_folder(
                 result["full_deletion"] = True
             if _unread_changed or _unreadable_named:
                 # Absolute paths, the form the watcher keeps in its retry set.
-                result["unread_files"] = sorted(
-                    {str(rel_path_map[r]) for r in _unread_changed}
-                    | {str(_unreadable_abs[r]) for r in _unreadable_named}
-                )
+                _read_failed = {str(rel_path_map[r]) for r in _unread_changed}
+                result["unread_files"] = sorted(_read_failed | set(_unreadable_named))
             if _is_branch_delta:
                 result["branch"] = _current_branch
                 result["branch_delta"] = True

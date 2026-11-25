@@ -77,7 +77,10 @@ the discovery filters cannot stat or sniff (`unreadable`): the walk and the
 event. Each case reported success, so the file stayed out of the index after
 the lock ended. Its stored rows now stay. A file the call named is listed in
 `unread_files`, and a stored file nobody named keeps its rows with no retry.
-The `paths=` route also stops reading a failed binary sniff as binary. Another writer's success retains that pending work's
+The `paths=` route also stops reading a failed binary sniff as binary. A walk
+whose only delta is such a file returns `No changes detected`, and that return
+now records the `unreadable` count in coverage. Before, it kept
+`complete: True`, so `search_text` reported the file's text as absent. Another writer's success retains that pending work's
 age and cause until full recovery.
 The pending-work age spans attempts, while an active attempt reports its own
 elapsed time. These measurements come from the watcher running in the queried

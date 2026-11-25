@@ -1122,6 +1122,9 @@ A file that the discovery filters cannot stat or read (skip reason
 rows. If the call named the file (a watcher change, or a `paths=` entry), the
 response also lists it in `unread_files`. A stored file that the call did not
 name keeps its rows and is not listed, because no edit of it is pending.
+A full walk that finds no other change writes coverage again when its
+`unreadable` count differs from the stored one, so coverage reads incomplete
+while the file stays unreadable, and complete again after a walk reads it.
 
 On a successful save after full discovery, any `unreadable` count marks coverage
 `complete: false`, so absence claims are refused. Failed empty scans preserve
