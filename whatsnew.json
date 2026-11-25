@@ -1,6 +1,30 @@
 {
-  "current": "1.108.487",
+  "current": "1.108.491",
   "entries": [
+    {
+      "version": "1.108.491",
+      "date": "2026-11-25",
+      "title": "A delete blocked only by a file import says so",
+      "summary": "check_delete_safe counted every file that imports a symbol's file as an external use of that symbol, so a function its module never exports came back external_uses_blocking with \"1 other file(s) in this repo import this\" when no file used it. When the reference search reads the importing files and the symbol's own file and finds the name in none of them, the verdict is now file_import_only: still a block, with the reading that would settle it named. A use in the symbol's own file, a search that failed, or a file the search could not read keeps external_uses_blocking."
+    },
+    {
+      "version": "1.108.490",
+      "date": "2026-11-24",
+      "title": "A subfolder index reads the root .gitignore, and watch-install needs no elevated shell",
+      "summary": "Indexing a subfolder read only the .gitignore files from that folder down, so it added files the repository root's .gitignore excludes, and the next full index removed them with no message. The subfolder walk, paths= from a subfolder and index_file now read the .gitignore chain from the git root down. On Windows, watch-install registered a logon task with no user, which Windows refuses from a shell that is not elevated; the task now names the calling user. Both reported by @rknighton (#1563, #1564)."
+    },
+    {
+      "version": "1.108.489",
+      "date": "2026-11-24",
+      "title": "An index on an unplugged drive survives server start",
+      "summary": "Every server start deleted the index of a folder that was not there at that moment, so a folder on an unplugged USB drive or an unmounted volume lost its index and needed a full re-index when the drive came back. The sweep now deletes only when the drive that holds the folder is present, keeps the index when it cannot tell, and no longer checks network folders on Windows at start."
+    },
+    {
+      "version": "1.108.488",
+      "date": "2026-11-24",
+      "title": "A Bearer token with ~ + / = or ! is redacted whole",
+      "summary": "The redactor cut a Bearer token at the first character outside letters, digits, _, - and ., so part of a token, or all of a Salesforce token, could reach a tool answer. It now takes every character RFC 6750 allows, plus ! with or without backslash escapes, and runtime trace redaction uses the same pattern. Reported by @goranai, who also sent a fix in #1559."
+    },
     {
       "version": "1.108.487",
       "date": "2026-11-24",

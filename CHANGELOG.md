@@ -2,6 +2,122 @@
 
 ## [Unreleased]
 
+## [1.108.491] - 2026-11-25 - a delete blocked only by a file import says so
+
+### A delete blocked only by a file import says so (L-348)
+
+`check_delete_safe` counted every file that imports the target's file as an
+external use of every symbol in that file. A function its module never
+exports, in a file that another file `require`s or imports, came back
+`external_uses_blocking` with "1 other file(s) in this repo import this". No
+file used it. The same happened to an unexported ES module function and to a
+Python function behind `from pkg import util`.
+
+The delete stays blocked, because a wildcard import, a member access by a
+computed name or a re-export can reach a symbol without writing its name, and
+no text search sees those. What changes is the claim. When the reference
+search reads the importing files and the symbol's own file and finds the name
+in no file it read, the verdict is now `file_import_only`: it names the
+importing files, says the search found the name nowhere it read, and its
+`stop_rule` is not terminal, naming the reading of those importers that would
+settle it, and re-indexing when the index cannot back an absence. Its
+confidence is the 0.25 `external_uses_blocking` gives, so no symbol moves
+toward safe.
+
+The new verdict needs evidence of absence, so these keep
+`external_uses_blocking`:
+- a symbol another file names, by member access or in a test;
+- a symbol its own file uses;
+- a reference search that failed;
+- an importer, or the symbol's own file, that the search could not read: missing or unreadable cached content,
+  or a same-named definition with no line span.
+
+The tool description lists the new verdict, which adds 4 tokens to the
+`standard` and `full` tool lists; `core` and `counter` are unchanged.
+`check_edit_safe` makes the same file-level claim for `signature_impact`; that
+is tracked separately (L-349).
+
+## [1.108.490] - 2026-11-24 - a subfolder index reads the root .gitignore, and watch-install needs no elevated shell
+
+### Indexing a subfolder applies the repository's own .gitignore (#1563)
+
+Reported by @rknighton. `index_folder(<repo>/sub)` read only the `.gitignore`
+files from `sub` down, so it added files that the repository root's
+`.gitignore` excludes. The index is keyed from the git root, and the next root
+index applied the root's `.gitignore` and removed those files with no message,
+taking their symbols with them. `paths=` from the subfolder had the same gap,
+and `index_file` mirrored the subfolder walk, so it accepted the same files.
+
+The subfolder walk, `paths=` from a subfolder and `index_file` now read the
+`.gitignore` chain from the git root down, the same chain the root index reads.
+A file a root `.gitignore` excludes is left out by every route. A file listed
+in `paths=` gets a warning when it is skipped as gitignored; a listed folder
+counts its skipped files and warns about none. Project config is still read from the
+folder that was indexed. A test that required the subfolder walk to index a
+root-ignored file is replaced (`harness/retired.json`).
+
+### `watch-install` registers its Windows task without an elevated shell (#1564)
+
+Reported by @rknighton. The task definition gave its logon trigger no user. A
+logon trigger with no user fires when anyone logs on, and Windows refuses to
+register that from a shell that is not elevated, so `watch-install` stopped
+with "Access is denied" for anyone who ran it normally. The reporter tested
+both places a user can go: in the trigger, the task registers without
+elevation; in the principal alone, it does not. The trigger now names the
+calling user (`DOMAIN\user`, read from the process token, with `USERDOMAIN` and
+`USERNAME` as the fallback). When no user can be read, the trigger stays as it
+was, and that form still registers from an elevated shell.
+
+An elevated shell registers either form, so the refusal can't be reproduced
+from one. The tests pin the cause in the generated XML: the trigger carries the
+user, the user is XML-escaped, and the principal is unchanged. The Windows CI
+test that registers the task beside the old switch form compared every field,
+the trigger's user included, so it required the any-user trigger. It now
+requires the trigger to name the calling user and everything else to match.
+It and the fixed definition were registered and deleted under throwaway names
+on Windows 11 from an elevated shell. Neither was run from a non-elevated one
+here; the reporter's test covers that case.
+
+## [1.108.489] - 2026-11-24 - an index on an unplugged drive survives server start
+
+### An index on an unplugged drive survives server start (L-347)
+
+Every server start deleted the index of any folder that was not a directory at
+that moment. A folder on a USB drive that is unplugged, a network share that is
+disconnected or a volume that is not mounted is not a directory then either, so
+its index was deleted the same way as a removed worktree's, and the user paid a
+full re-index when the drive came back. Reproduced on 1.108.487: an index whose
+folder is on an unmapped `Z:` drive was deleted by the sweep.
+
+The sweep now deletes an index only when the folder is missing and the drive
+that holds it is present: on Windows the drive letter, on macOS and Linux a
+mount check on `/Volumes/<v>`, `/mnt/<v>`, `/media/...` and
+`/run/media/<user>/<v>`. A folder removed from any other place on a present
+drive is still cleaned up. When the drive cannot be checked (a path written on
+another operating system, or a check that fails), the index is kept.
+
+A network folder on Windows (a UNC path in either slash spelling, or a drive
+letter Windows reports as a network drive) is no longer checked at server
+start at all, and its index is kept. The sweep runs before the server answers,
+and the first check of a share on an unreachable host took 41.46 s on a
+Windows 11 box (a repeat took 0.67 s). Keeping the index and checking it would
+have put that wait on every start; before this change it happened once and
+then the index was deleted. What Windows reports for a disconnected mapped
+drive was not measured. On macOS and Linux a network mount (SMB or NFS under
+`/Volumes` or `/mnt`) has no shape to recognise without touching it, so it is
+still checked at start, as before.
+
+What the fix cannot tell apart, in both directions: a volume mounted outside
+those folders on macOS or Linux, or into an NTFS folder on Windows, reads as
+part of the main drive, so its folder still reads as removed while it is
+unplugged. A plain folder (not a mount) under `/mnt`, `/media` or `/Volumes`
+reads as an unmounted volume, so its index is kept after the folder is removed,
+because an unmounted volume leaves the same empty folder behind. Kept indexes
+cost storage until they are deleted by hand. A Windows device path (`\\?\` or
+`\\.\`) reads as a network path and is always kept.
+
+## [1.108.488] - 2026-11-24 - a Bearer token with ~ + / = or ! is redacted whole
+
 ### A Bearer token with `~ + / =` or `!` is redacted whole (#1558)
 
 Reported by @goranai, who also sent a fix in #1559. The redactor's `bearer_token` pattern took only letters,

@@ -191,8 +191,8 @@ def _walk_root_for(index, source_root: Path, rel_path: str) -> Path:
     """The root the full walk that covers ``rel_path`` starts from.
 
     A git-root index built by `index_folder(<repo>/sub)` walks only ``sub``
-    (v1.96) and records it in ``source_roots``; that walk reads `.gitignore`
-    files and project config from ``sub`` down, never from the git root. The
+    (v1.96) and records it in ``source_roots``; that walk reads project config
+    from ``sub``, and since #1563 its `.gitignore` chain from the git root. The
     longest recorded prefix holding the file is its walk; a file under none of
     them (or an index that predates ``source_roots``) is judged as a full walk
     from ``source_root`` would judge it.
@@ -243,8 +243,12 @@ def _walk_refusal(
             cfg.forced_paths = (forced_paths_for or _scan_package_json_forced_paths)(walk_root)
     except OSError:
         pass
+    # ⚠ The .gitignore chain starts at ``source_root`` (the git root), not at
+    # ``walk_root``: a subdirectory walk reads the git root's .gitignore files
+    # too since #1563, so a file under a root-ignored folder is refused here as
+    # the walk refuses it. Project config still comes from ``walk_root``.
     ok, reason, _rel, _warning = _should_index_file(
-        file_path, cfg, _gitignore_specs_on_path(walk_root, file_path)
+        file_path, cfg, _gitignore_specs_on_path(source_root, file_path)
     )
     if ok:
         return None

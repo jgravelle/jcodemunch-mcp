@@ -3759,7 +3759,7 @@ def _build_tools_list(
                 "(cross-repo), check_references, find_dead_code confidence, runtime evidence "
                 "(Phase 7 traces when available), and entry-point heuristics into a single verdict + "
                 "one-line recommended_action. Verdict tiers: safe_to_delete / test_coverage_only / "
-                "internal_only / internal_uses_blocking / external_uses_blocking / cross_repo_blocking "
+                "internal_only / internal_uses_blocking / external_uses_blocking / file_import_only / cross_repo_blocking "
                 "/ runtime_observed / scip_referenced / entry_point / corpus_inadequate / "
                 "name_not_searchable / dynamic_import_boundary. Top-5 blockers ranked by severity. Read-only — "
                 "never mutates the codebase. "
