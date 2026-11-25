@@ -81,7 +81,8 @@ The `paths=` route also stops reading a failed binary sniff as binary. A walk
 whose only delta is such a file returns `No changes detected`, and that return
 now records the `unreadable` count in coverage. Before, it kept
 `complete: True`, so `search_text` reported the file's text as absent. A kept
-unreadable file also keeps its recorded parse failure, and for `paths=['sub']`
+unreadable file also keeps its recorded parse failure, a subfolder walk keeps
+the parse failures of the stored files outside it, and for `paths=['sub']`
 an unreadable file under `sub` passes the ancestor `.gitignore` filter before
 it is kept. Another writer's success retains that pending work's
 age and cause until full recovery.

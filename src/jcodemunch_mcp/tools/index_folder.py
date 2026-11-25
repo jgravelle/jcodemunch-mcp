@@ -1299,6 +1299,20 @@ def _file_outside_walk_prefix(file_path: str, walk_prefix: str) -> bool:
     return not file_path.startswith(walk_prefix + "/")
 
 
+def _stored_outside_walk(existing_index, walk_prefix: str) -> set[str]:
+    """Stored files outside a subfolder walk, which keeps them as they are.
+
+    A coverage write builds its ``present`` set from what this walk saw, so a
+    parse failure recorded for a sibling subfolder of a git-identity index
+    was dropped there, and a later walk recorded ``complete: True`` over a
+    file nobody had parsed again (Codex review on #1567).
+    """
+    if not walk_prefix:
+        return set()
+    stored = getattr(existing_index, "source_files", None) or []
+    return {fp for fp in stored if _file_outside_walk_prefix(fp, walk_prefix)}
+
+
 def _merge_subdir_into_existing(
     existing,  # CodeIndex
     walk_prefix: str,
@@ -3908,6 +3922,9 @@ def index_folder(
             # A file discovery could not read is on disk: its stored rows stay.
             if _unreadable_rels:
                 deleted = [fp for fp in deleted if fp not in _unreadable_rels]
+            # A subfolder walk keeps the stored files outside it: so do the
+            # parse failures recorded for them.
+            _outside_walk = _stored_outside_walk(existing_index, walk_prefix)
 
             # A walk with a watcher change set (discover=True, or a fast path
             # that fell through) knows which files changed. The mtime check can
@@ -4044,7 +4061,7 @@ def index_folder(
                         post_discovery_drops=post_discovery_drops,
                         parse_failed=_carried_parse_failures(
                             getattr(existing_index, "coverage", None), (), (),
-                            present=set(updated_mtimes) | _nc_kept_files | _unreadable_rels,
+                            present=set(updated_mtimes) | _nc_kept_files | _unreadable_rels | _outside_walk,
                         ),
                         withheld_files=_withheld_files_for(
                             getattr(existing_index, "coverage", None), _oversize_found,
@@ -4229,7 +4246,7 @@ def index_folder(
                     parse_failed=_carried_parse_failures(
                         getattr(existing_index, "coverage", None),
                         files_to_parse, _incr_parse_failed,
-                        present=set(updated_mtimes) | _cov_kept_files | _unreadable_rels,
+                        present=set(updated_mtimes) | _cov_kept_files | _unreadable_rels | _outside_walk,
                     ),
                     withheld_files=_withheld_files_for(
                         getattr(existing_index, "coverage", None), _oversize_found,
