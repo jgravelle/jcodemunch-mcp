@@ -2045,13 +2045,14 @@ def resolve_explicit_paths(
             # is lost; _place decides what this call keeps. (A max_files of 0
             # is refused by the resolver, hence the floor of 1.)
             sub_dropped: list[Path] = []
+            sub_unreadable: list[Path] = []
             sub_files, sub_warnings, sub_skip = discover_local_files(
                 p,
                 max_files=max(1, cap - len(files)),
                 max_size=max_size,
                 follow_symlinks=follow_symlinks,
                 cap_dropped=sub_dropped,
-                unreadable_out=unreadable_out,
+                unreadable_out=sub_unreadable,
             )
             warnings.extend(sub_warnings)
             for k, v in sub_skip.items():
@@ -2065,17 +2066,28 @@ def resolve_explicit_paths(
             # The profile's patterns are root-relative (spring-boot's
             # `src/test/`), so they are matched here against ``walk_root``,
             # not passed to the subtree walk rooted at ``p``.
+            def _excluded_above(fr: Path) -> Optional[str]:
+                if above and _is_gitignored_fast(str(fr), above):
+                    return "gitignore"
+                if profile_spec is not None and _profile_excludes(profile_spec, walk_root, fr):
+                    return "extra_ignore"
+                return None
+
             for f in list(sub_files) + sub_dropped:
                 fr = f.resolve()
-                if above and _is_gitignored_fast(str(fr), above):
-                    skip_counts["gitignore"] = skip_counts.get("gitignore", 0) + 1
-                    continue
-                if profile_spec is not None and _profile_excludes(profile_spec, walk_root, fr):
-                    skip_counts["extra_ignore"] = skip_counts.get("extra_ignore", 0) + 1
+                why = _excluded_above(fr)
+                if why is not None:
+                    skip_counts[why] = skip_counts.get(why, 0) + 1
                     continue
                 if fr not in seen:
                     seen.add(fr)
                     _place(f)
+            # An unreadable file passes the same ancestor filters before it is
+            # kept: one the root .gitignore now excludes is not retained or
+            # reported as pending (Codex review on #1567). The subtree walk
+            # already counted it as `unreadable`.
+            if unreadable_out is not None:
+                unreadable_out.extend(f for f in sub_unreadable if _excluded_above(f.resolve()) is None)
             continue
 
         if not p.is_file():
@@ -4032,7 +4044,7 @@ def index_folder(
                         post_discovery_drops=post_discovery_drops,
                         parse_failed=_carried_parse_failures(
                             getattr(existing_index, "coverage", None), (), (),
-                            present=set(updated_mtimes) | _nc_kept_files,
+                            present=set(updated_mtimes) | _nc_kept_files | _unreadable_rels,
                         ),
                         withheld_files=_withheld_files_for(
                             getattr(existing_index, "coverage", None), _oversize_found,
@@ -4217,7 +4229,7 @@ def index_folder(
                     parse_failed=_carried_parse_failures(
                         getattr(existing_index, "coverage", None),
                         files_to_parse, _incr_parse_failed,
-                        present=set(updated_mtimes) | _cov_kept_files,
+                        present=set(updated_mtimes) | _cov_kept_files | _unreadable_rels,
                     ),
                     withheld_files=_withheld_files_for(
                         getattr(existing_index, "coverage", None), _oversize_found,

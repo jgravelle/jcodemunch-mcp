@@ -1310,6 +1310,37 @@ def test_a_file_discovery_cannot_read_keeps_its_symbols(tmp_path, monkeypatch, r
     assert names == {"after", "other"}
 
 
+def test_a_listed_directory_drops_an_unreadable_file_an_ancestor_ignores(tmp_path, monkeypatch):
+    """For `paths=['sub']` the subtree walk reads only the .gitignore files
+    inside `sub`; the ones above it are applied after. An unreadable file
+    there once skipped that filter, so a file the root .gitignore now
+    excludes kept its rows and was reported as pending (Codex review on
+    #1567)."""
+    from jcodemunch_mcp.storage import IndexStore
+    from jcodemunch_mcp.tools.index_folder import index_folder
+
+    root = tmp_path / "repo"
+    sub = root / "sub"
+    sub.mkdir(parents=True)
+    private = sub / "private.py"
+    private.write_text("def private(): pass\n", encoding="utf-8")
+    (sub / "public.py").write_text("def public(): pass\n", encoding="utf-8")
+    storage = str(tmp_path / "store")
+    result = index_folder(str(root), use_ai_summaries=False, context_providers=False, storage_path=storage)
+    assert result["success"], result
+    owner, name = result["repo"].split("/", 1)
+    (root / ".gitignore").write_text("sub/private.py\n", encoding="utf-8")
+    _fail_reads_of(monkeypatch, private, discovery=True)
+    listed = index_folder(
+        str(root), use_ai_summaries=False, context_providers=False,
+        storage_path=storage, incremental=True, paths=[str(sub)],
+    )
+    assert listed["success"], listed
+    assert "unread_files" not in listed, listed
+    names = {symbol["name"] for symbol in IndexStore(base_path=storage).load_index(owner, name).symbols}
+    assert names == {"public"}, "a file the root .gitignore excludes kept its rows"
+
+
 def test_a_no_change_walk_records_an_unreadable_file_in_coverage(tmp_path, monkeypatch):
     """A walk whose only delta is a file it cannot read returns `No changes
     detected`. That return wrote coverage only when the cap status moved, so

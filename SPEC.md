@@ -1125,6 +1125,9 @@ name keeps its rows and is not listed, because no edit of it is pending.
 A full walk that finds no other change writes coverage again when its
 `unreadable` count differs from the stored one, so coverage reads incomplete
 while the file stays unreadable, and complete again after a walk reads it.
+A kept unreadable file also keeps its recorded parse failure. A file under a
+listed directory is kept only if the `.gitignore` files above that directory
+do not exclude it.
 
 On a successful save after full discovery, any `unreadable` count marks coverage
 `complete: false`, so absence claims are refused. Failed empty scans preserve

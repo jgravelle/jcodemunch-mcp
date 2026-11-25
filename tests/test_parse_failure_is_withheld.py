@@ -243,6 +243,47 @@ def test_the_failed_file_names_stay_out_of_the_answer():
     assert PARSE_FAILED_FILES_KEY not in out
 
 
+@pytest.mark.parametrize("walk", ["no_change", "save"])
+def test_an_unreadable_failed_file_keeps_its_failure(project, tmp_path, monkeypatch, walk):
+    """A walk that cannot read a file keeps the file's stored rows, so it must
+    keep the file's parse failure too. The coverage write once dropped it, and
+    when the file was readable again with the same mtime the next walk found
+    no change and recorded `complete: True` over a file it never parsed
+    (Codex review on #1567)."""
+    import builtins
+    import os
+
+    from jcodemunch_mcp import security
+    from jcodemunch_mcp.tools import index_folder as index_folder_module
+
+    _fail_one_file(monkeypatch, FAILURES["crash"])
+    _index(project, tmp_path)
+    monkeypatch.undo()
+    monkeypatch.setenv("CODE_INDEX_PATH", str(tmp_path / "storage"))
+    if walk == "save":
+        (project / "helper.py").write_text("def ordinary_helper():\n    return 4\n", encoding="utf-8")
+    locked_path = os.path.normcase(str(project / "slow_module.py"))
+    state = {"locked": True}
+    real_open = builtins.open
+
+    def fake_open(file, *args, **kwargs):
+        if state["locked"] and os.path.normcase(os.path.abspath(str(file))) == locked_path:
+            raise PermissionError(13, "The process cannot access the file", str(file))
+        return real_open(file, *args, **kwargs)
+
+    for module in (security, index_folder_module):
+        monkeypatch.setattr(module, "open", fake_open, raising=False)
+    locked = _incremental(project, tmp_path)
+    assert locked.get("success"), locked
+    assert "slow_module.py" in (_coverage(locked, tmp_path).get("parse_failed_files") or [])
+    state["locked"] = False
+    readable = _incremental(project, tmp_path)
+    assert readable.get("message") == "No changes detected", readable
+    cov = _coverage(readable, tmp_path)
+    assert cov.get("complete") is False, cov
+    assert (cov.get("withheld") or {}).get("parse_failed") == 1, cov
+
+
 def test_a_capped_full_walk_keeps_the_failure_of_a_file_it_kept(project, tmp_path, monkeypatch):
     """A full walk under a lower file cap keeps files it no longer parses, as
     last parsed. A kept file whose last parse failed is still missing its
