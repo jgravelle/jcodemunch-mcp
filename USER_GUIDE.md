@@ -1013,6 +1013,18 @@ Typical layout:
 
 The JSON index stores metadata, hashes, and symbol records. Raw files are stored separately for precise later retrieval. ([GitHub][3])
 
+## Dropping the index of a removed folder
+
+A server start deletes the index of a folder that no longer exists. A store that only the `index` CLI writes to is never opened by a server, so a removed worktree's index stays. To list and drop those:
+
+```bash
+jcodemunch-mcp storage prune                         # list them; deletes nothing
+jcodemunch-mcp storage prune --yes                   # delete the ones whose folder is gone
+jcodemunch-mcp storage prune --yes --include-unreachable  # also those on a drive or share that is not there now
+```
+
+A folder on an unplugged drive or an absent share is `unreachable`, not gone, and is kept unless `--include-unreachable` is passed. On Windows that is judged by the drive letter or UNC share. On macOS and Linux it is judged by the mount folders `/Volumes`, `/mnt`, `/media` and `/run/media`; a volume mounted anywhere else reads as gone when it is absent. Remote indexes and starter packs are never pruned. `--json` gives the same report as JSON. The exit code is 1 when a delete failed.
+
 ---
 
 # 13. Troubleshooting
