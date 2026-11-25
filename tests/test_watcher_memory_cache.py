@@ -393,6 +393,53 @@ class TestFastPathHonorsAllDiscoveryFilters:
             f"index files: {sorted(files_after)}"
         )
 
+    @pytest.mark.parametrize("change", ["added", "modified"])
+    def test_file_under_nested_gitignore_stays_unindexed(self, tmp_path, change):
+        """The fast path reads the .gitignore of each folder from the root down
+        to the changed file, as the walk does. It once read the root's only
+        (#306), so an event indexed a file that a nested .gitignore excludes
+        (Codex review on #1567)."""
+        from jcodemunch_mcp.storage import IndexStore
+        from jcodemunch_mcp.tools.index_folder import index_folder
+
+        sub = tmp_path / "sub"
+        deep = sub / "deep"
+        deep.mkdir(parents=True)
+        (sub / ".gitignore").write_text("private.py\n")
+        (deep / ".gitignore").write_text("secret.py\n")
+        kept = sub / "kept.py"
+        kept.write_text("def kept():\n    return 1\n")
+        private = sub / "private.py"
+        secret = deep / "secret.py"
+        storage = str(tmp_path / ".code-index")
+        if change == "modified":
+            private.write_text("def private():\n    return 1\n")
+            secret.write_text("def secret():\n    return 1\n")
+        result = index_folder(
+            path=str(tmp_path), use_ai_summaries=False, storage_path=storage, incremental=False,
+        )
+        assert result["success"]
+        for path in (private, secret):
+            path.write_text("def leaked():\n    return 2\n")
+        kept.write_text("def kept():\n    return 2\n")
+        old_hash = "__cache_miss__" if change == "modified" else ""
+        result2 = index_folder(
+            path=str(tmp_path),
+            use_ai_summaries=False,
+            storage_path=storage,
+            incremental=True,
+            changed_paths=[
+                WatcherChange(change, str(private.resolve()), old_hash),
+                WatcherChange(change, str(secret.resolve()), old_hash),
+                WatcherChange("modified", str(kept.resolve()), "__cache_miss__"),
+            ],
+        )
+        assert result2["success"], result2
+        owner, name = result["repo"].split("/", 1)
+        files = set(IndexStore(base_path=storage).load_index(owner, name).file_hashes or {})
+        assert "sub/kept.py" in files
+        assert "sub/private.py" not in files and "sub/deep/secret.py" not in files, sorted(files)
+
     def test_modified_oversize_file_skipped_by_fast_path(self, tmp_path):
         """Medium-risk per #306: a file that exceeds the size cap must be
         skipped on the fast path, not silently re-indexed."""
@@ -1075,6 +1122,63 @@ async def test_a_capped_walk_keeps_files_a_nested_gitignore_excludes(tmp_path, m
         assert "sub/private.py" not in (index.file_hashes or {}), "a nested .gitignore was undone"
         assert {symbol["name"] for symbol in index.symbols} == {"new0", "new1"}
 
+    monkeypatch.setattr(watcher, "_safe_awatch", events)
+    await watcher._watch_single(
+        str(root), 200, False, storage, None, False,
+        skip_initial_index=True, quiet=True, context_providers=False,
+    )
+
+
+async def test_a_targeted_edit_during_a_retry_keeps_a_nested_gitignore(tmp_path, monkeypatch):
+    """During a pending retry, a batch with the root event takes the targeted
+    path, because the walk waits for the retry deadline. A file that a nested
+    .gitignore excludes must stay out of the index (Codex review on #1567)."""
+    from types import SimpleNamespace
+
+    from jcodemunch_mcp import reindex_state, watcher
+    from jcodemunch_mcp.storage import IndexStore
+
+    Change = pytest.importorskip("watchfiles").Change
+    root = tmp_path / "repo"
+    sub = root / "sub"
+    sub.mkdir(parents=True)
+    (sub / ".gitignore").write_text("private.py\n", encoding="utf-8")
+    code = root / "code.py"
+    code.write_text("def before(): pass\n", encoding="utf-8")
+    private = sub / "private.py"
+    storage = str(tmp_path / "store")
+    real_index = watcher.index_folder
+    result = real_index(str(root), use_ai_summaries=False, context_providers=False, storage_path=storage)
+    assert result["success"], result
+    owner, name = result["repo"].split("/", 1)
+    store = IndexStore(base_path=storage)
+    calls = []
+
+    def index(**kwargs):
+        calls.append(kwargs.get("discover"))
+        if len(calls) == 1:
+            return {"success": False, "error": "writer busy"}
+        return real_index(**kwargs)
+
+    now = 0.0
+
+    async def events(*args, **kwargs):
+        nonlocal now
+        code.write_text("def failed(): pass\n", encoding="utf-8")
+        yield {(Change.modified, str(code))}
+        assert reindex_state.get_reindex_status(result["repo"])["retry_in_ms"] > 0
+        now = 1.0
+        code.write_text("def targeted(): pass\n", encoding="utf-8")
+        private.write_text("def secret(): pass\n", encoding="utf-8")
+        yield {(Change.modified, str(root)), (Change.added, str(private)), (Change.modified, str(code))}
+        assert calls[-1] is not True, "the batch must take the targeted path"
+        index_now = store.load_index(owner, name)
+        assert "sub/private.py" not in (index_now.file_hashes or {}), "a nested .gitignore was undone"
+        assert {symbol["name"] for symbol in index_now.symbols} == {"targeted"}
+
+    monkeypatch.setattr(watcher, "time", SimpleNamespace(monotonic=lambda: now))
+    monkeypatch.setattr(reindex_state, "time", SimpleNamespace(monotonic=lambda: now))
+    monkeypatch.setattr(watcher, "index_folder", index)
     monkeypatch.setattr(watcher, "_safe_awatch", events)
     await watcher._watch_single(
         str(root), 200, False, storage, None, False,

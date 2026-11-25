@@ -58,7 +58,12 @@ Python keyword that is not in the tool schema). The walk parses each named
 file that its own filters accept again, so a nested `.gitignore` still
 excludes a file. It promotes a named file past the cap in the same save,
 so the stored cap status and coverage describe what was read. The batch
-case existed before this change too. Another writer's success retains that pending work's
+case existed before this change too. The targeted path of `index_folder`
+(`changed_paths=`) now reads the `.gitignore` of each folder from the root
+down to the changed file, as the walk does. It read the root's `.gitignore`
+only (#306), so a file event indexed a file that a nested `.gitignore`
+excludes. During a pending retry, a batch with a folder event takes this path
+and not the walk, so this change made that case more frequent. Another writer's success retains that pending work's
 age and cause until full recovery.
 The pending-work age spans attempts, while an active attempt reports its own
 elapsed time. These measurements come from the watcher running in the queried

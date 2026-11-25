@@ -2690,8 +2690,6 @@ def index_folder(
             # re-index it. ``_should_index_file`` is the shared helper.
             #
             # Tradeoffs accepted on this path for ~50ms per-event latency:
-            #   - gitignore loads root-level only (not per-subdir). Nested
-            #     .gitignores miss; documented in #306 as a known limit.
             #   - package.json forced-path exemption from the size cap is
             #     skipped (would require an rglob). Initial full walk
             #     handles the exemption; subsequent fast-path edits to a
@@ -2716,22 +2714,37 @@ def index_folder(
                 except Exception:
                     _fast_extra_spec = None
 
-            # Load root-level .gitignore once (string-prefix spec form).
-            _fast_gitignore_specs: list[tuple[str, "pathspec.PathSpec"]] = []
-            try:
-                _root_gitignore = folder_path / ".gitignore"
-                if _root_gitignore.is_file():
-                    _gi_content = _root_gitignore.read_text(
-                        encoding="utf-8", errors="replace"
-                    )
-                    _gi_spec = pathspec.PathSpec.from_lines(
-                        "gitignore", _gi_content.splitlines()
-                    )
-                    _fast_gitignore_specs.append(
-                        (_dir_prefix(str(folder_path.resolve())), _gi_spec)
-                    )
-            except Exception:
-                pass
+            # ⚠ The .gitignore chain of each changed file, from the root down
+            # to its folder: the specs the walk holds when it reaches that file
+            # (`_gitignore_specs_on_path`, the rule `index_file` and the
+            # explicit-paths route read too). This path read the root's file
+            # only (#306), so an event indexed a file a nested .gitignore
+            # excludes, and a watcher batch that skips the walk during a
+            # retry did the same (Codex review on #1567). Cached per folder:
+            # one stat for each folder on the chain, once per call.
+            _fast_root_resolved = folder_path.resolve()
+            _fast_gitignore_chains: dict[str, list[tuple[str, "pathspec.PathSpec"]]] = {}
+
+            def _fast_gitignore_specs_for(abs_path: Path) -> list[tuple[str, "pathspec.PathSpec"]]:
+                try:
+                    _resolved = abs_path.resolve()
+                    _key = str(_resolved.parent)
+                    if _key not in _fast_gitignore_chains:
+                        _fast_gitignore_chains[_key] = _gitignore_specs_on_path(
+                            _fast_root_resolved, _resolved
+                        )
+                    return _fast_gitignore_chains[_key]
+                except (OSError, ValueError):
+                    # Outside the root (a symlink escape): `_should_index_file`
+                    # refuses the path itself, so the root's file is enough.
+                    logger.debug("gitignore chain for %s not read", abs_path, exc_info=True)
+                    _root_key = str(_fast_root_resolved)
+                    if _root_key not in _fast_gitignore_chains:
+                        _spec = _load_gitignore(_fast_root_resolved)
+                        _fast_gitignore_chains[_root_key] = (
+                            [(_dir_prefix(_root_key), _spec)] if _spec is not None else []
+                        )
+                    return _fast_gitignore_chains[_root_key]
 
             # ── forced_paths on the fast path (@dkiaulakis, 2026-07-27) ──
             # The full walk exempts package.json entry points from the size cap
@@ -2885,7 +2898,7 @@ def index_folder(
                     # filter checks that stat the path would fail anyway).
                     if change_type != "deleted":
                         _ok, _reason, _hl_rel_path, _warning = _should_index_file(
-                            abs_path, _fast_filter_cfg, _fast_gitignore_specs
+                            abs_path, _fast_filter_cfg, _fast_gitignore_specs_for(abs_path)
                         )
                         if not _ok:
                             logger.debug(
