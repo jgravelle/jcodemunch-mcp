@@ -137,6 +137,42 @@ def _index_key_prefix(folder_path: str, source_root: Optional[str]) -> str:
     return "" if prefix == "." else prefix
 
 
+def _place_under_root(changes, folder_path: str, real_root: str):
+    """(#1582) Spell each event path under ``folder_path``, or drop it.
+
+    The batch loop keys every path by ``relative_to(folder_path)``. A path
+    that is not under that spelling (watchfiles reports the resolved path
+    when the watched root is reached through a symlink, as after a folder is
+    moved and a link left at the old path) raised there, and the handler
+    failed the whole batch: the other edits in it were not indexed, the repo
+    was marked failed and a retry was scheduled, on every such batch. A path
+    whose real path lies under the root's real path names a file of this
+    tree and is re-spelled under ``folder_path``. Any other path names no
+    file of this tree and is dropped. Returns ``(placed, dropped)``.
+    """
+    root = Path(folder_path)
+    placed = []
+    dropped = []
+    for change_type, path in changes:
+        if path == folder_path:
+            placed.append((change_type, path))
+            continue
+        try:
+            Path(path).relative_to(root)
+        except ValueError:
+            pass
+        else:
+            placed.append((change_type, path))
+            continue
+        try:
+            rel = Path(os.path.realpath(path)).relative_to(real_root)
+        except (OSError, ValueError):
+            dropped.append(path)
+            continue
+        placed.append((change_type, folder_path if rel == Path(".") else str(root / rel)))
+    return placed, dropped
+
+
 def _force_polling_default() -> bool:
     """Whether watchfiles will poll when the caller passes ``force_polling=None``.
 
@@ -980,14 +1016,31 @@ async def _watch_single(
         )
 
     try:
+        _real_root = os.path.realpath(folder_path)
+    except OSError:
+        logger.debug("Could not resolve %s", folder_path, exc_info=True)
+        _real_root = folder_path
+    _reported_outside_root = False
+
+    try:
         if initial_failed:
             _schedule_reindex_retry()
         async for changes in _safe_awatch(folder_path, debounce_ms, yield_idle=True):
-            relevant = [
-                (change_type, path)
-                for change_type, path in changes
-                if change_type in (Change.added, Change.modified, Change.deleted)
-            ]
+            relevant, _outside_root = _place_under_root(
+                [
+                    (change_type, path)
+                    for change_type, path in changes
+                    if change_type in (Change.added, Change.modified, Change.deleted)
+                ],
+                folder_path,
+                _real_root,
+            )
+            if _outside_root and not _reported_outside_root:
+                _reported_outside_root = True
+                logger.warning(
+                    "Watcher for %s ignored %d event(s) outside the watched folder (first: %s)",
+                    folder_path, len(_outside_root), _outside_root[0],
+                )
 
             # The paths this batch names, for _retry_files: files, deletions
             # and directories, but not the root. The retry names each one the
