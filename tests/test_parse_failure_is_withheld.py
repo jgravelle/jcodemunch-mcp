@@ -243,6 +243,110 @@ def test_the_failed_file_names_stay_out_of_the_answer():
     assert PARSE_FAILED_FILES_KEY not in out
 
 
+@pytest.mark.parametrize("walk", ["no_change", "save"])
+def test_an_unreadable_failed_file_keeps_its_failure(project, tmp_path, monkeypatch, walk):
+    """A walk that cannot read a file keeps the file's stored rows, so it must
+    keep the file's parse failure too. The coverage write once dropped it, and
+    when the file was readable again with the same mtime the next walk found
+    no change and recorded `complete: True` over a file it never parsed
+    (Codex review on #1567)."""
+    import builtins
+    import os
+
+    from jcodemunch_mcp import security
+    from jcodemunch_mcp.tools import index_folder as index_folder_module
+
+    _fail_one_file(monkeypatch, FAILURES["crash"])
+    _index(project, tmp_path)
+    monkeypatch.undo()
+    monkeypatch.setenv("CODE_INDEX_PATH", str(tmp_path / "storage"))
+    if walk == "save":
+        (project / "helper.py").write_text("def ordinary_helper():\n    return 4\n", encoding="utf-8")
+    locked_path = os.path.normcase(str(project / "slow_module.py"))
+    state = {"locked": True}
+    real_open = builtins.open
+
+    def fake_open(file, *args, **kwargs):
+        if state["locked"] and os.path.normcase(os.path.abspath(str(file))) == locked_path:
+            raise PermissionError(13, "The process cannot access the file", str(file))
+        return real_open(file, *args, **kwargs)
+
+    for module in (security, index_folder_module):
+        monkeypatch.setattr(module, "open", fake_open, raising=False)
+    locked = _incremental(project, tmp_path)
+    assert locked.get("success"), locked
+    assert "slow_module.py" in (_coverage(locked, tmp_path).get("parse_failed_files") or [])
+    state["locked"] = False
+    # Readable again with the same mtime: the unreadable record makes the walk
+    # re-read it, so the failure clears on a real parse, never on a skip.
+    readable = _incremental(project, tmp_path)
+    assert readable.get("changed") == 1, readable
+    cov = _coverage(readable, tmp_path)
+    assert "parse_failed" not in (cov.get("withheld") or {}), cov
+
+
+def test_a_subfolder_walk_keeps_the_failure_of_a_sibling_folder(tmp_path, monkeypatch):
+    """One git-identity index built from `a/` and `b/`. A walk of `a/` keeps
+    the stored files of `b/` as they are, so it must keep their parse
+    failures too. The coverage write of an `a/` walk built its `present` set
+    from `a/` alone and dropped `b/failed.py`'s failure (Codex review on #1567)."""
+    import builtins
+    import os
+    import subprocess
+
+    from jcodemunch_mcp import security
+    from jcodemunch_mcp.tools import index_folder as index_folder_module
+
+    monkeypatch.setenv("CODE_INDEX_PATH", str(tmp_path / "storage"))
+    root = tmp_path / "repo"
+    (root / "a").mkdir(parents=True)
+    (root / "b").mkdir()
+    subprocess.run(["git", "init", "-q", str(root)], check=True)
+    (root / "a" / "ok.py").write_text("def in_a():\n    return 1\n", encoding="utf-8")
+    (root / "b" / "failed.py").write_text("def only_in_b():\n    return 2\n", encoding="utf-8")
+    (root / "b" / "fine.py").write_text("def also_in_b():\n    return 3\n", encoding="utf-8")
+    store = str(tmp_path / "store")
+
+    def walk(folder, **kwargs):
+        result = index_folder(
+            str(root / folder), use_ai_summaries=False, storage_path=store,
+            context_providers=False, **kwargs,
+        )
+        assert result.get("success"), result
+        return result
+
+    for module in (_indexing_pipeline, index_folder_module):
+        real = module.parse_file
+
+        def parse(content, rel_path, language, *args, _real=real, **kwargs):
+            if rel_path.endswith("failed.py"):
+                raise RuntimeError("grammar raised")
+            return _real(content, rel_path, language, *args, **kwargs)
+
+        monkeypatch.setattr(module, "parse_file", parse)
+    walk("b", incremental=False)
+    monkeypatch.undo()
+    monkeypatch.setenv("CODE_INDEX_PATH", str(tmp_path / "storage"))
+    first = walk("a", incremental=True)
+    assert "b/failed.py" in (_coverage(first, tmp_path).get("parse_failed_files") or [])
+    temp = root / "a" / "temp.py"
+    temp.write_text("def temp():\n    return 4\n", encoding="utf-8")
+    walk("a", incremental=True)
+    locked_path = os.path.normcase(str(temp))
+    real_open = builtins.open
+
+    def fake_open(file, *args, **kwargs):
+        if os.path.normcase(os.path.abspath(str(file))) == locked_path:
+            raise PermissionError(13, "The process cannot access the file", str(file))
+        return real_open(file, *args, **kwargs)
+
+    for module in (security, index_folder_module):
+        monkeypatch.setattr(module, "open", fake_open, raising=False)
+    locked = walk("a", incremental=True)
+    assert locked.get("message") == "No changes detected", locked
+    assert "b/failed.py" in (_coverage(locked, tmp_path).get("parse_failed_files") or [])
+
+
 def test_a_capped_full_walk_keeps_the_failure_of_a_file_it_kept(project, tmp_path, monkeypatch):
     """A full walk under a lower file cap keeps files it no longer parses, as
     last parsed. A kept file whose last parse failed is still missing its

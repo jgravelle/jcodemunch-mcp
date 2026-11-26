@@ -16,7 +16,7 @@ from __future__ import annotations
 import threading
 import time
 from typing import Optional, NamedTuple
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 # ── NamedTuple for watcher changes ────────────────────────────────────────────
@@ -41,6 +41,14 @@ class _RepoState:
     reindexing: bool = False
     reindex_finished: bool = False
     reindex_error: Optional[str] = None
+    # Retained during retries so starting another attempt doesn't hide its cause.
+    last_reindex_error: Optional[str] = None
+    # Retry schedules of watch tasks, keyed by the owning watched folder:
+    # owner -> (retry_at or None while the attempt runs, failed attempts).
+    # More than one watch task can share one repo key (git identity: two
+    # watched subfolders of one repository), so each task writes and clears
+    # only its own entry. Other writers' attempts never touch this.
+    retries: dict = field(default_factory=dict)
     last_reindex_start: float = 0.0
     last_reindex_done: float = 0.0
     last_result: Optional[dict] = None
@@ -136,7 +144,11 @@ def mark_reindex_done(repo: str, result: Optional[dict] = None) -> None:
         state.reindex_finished = True
         state.reindex_error = None
         state.last_reindex_done = time.monotonic()
-        state.stale_since = None          # index is now fresh
+        if not state.retries:
+            # Another writer's success does not reconcile a watch task's older
+            # failed work. Keep its age and cause until every recovery finishes.
+            state.last_reindex_error = None
+            state.stale_since = None
         state.consecutive_failures = 0   # reset failure counter on success
         state.fatal = False              # a successful reindex clears fatal state
         if result is not None:
@@ -148,8 +160,11 @@ def mark_reindex_failed(repo: str, error: str, *, fatal: bool = False) -> None:
     """Mark a repo's reindex as failed.
 
     stale_since is intentionally NOT cleared — the index IS still stale.
-    consecutive_failures is incremented; error details are only surfaced
-    in get_reindex_status() after the 2nd+ consecutive failure.
+    consecutive_failures is incremented; the existing reindex_error escalation
+    still starts at the 2nd+ failure. last_reindex_error reports the first
+    failure too, and remains visible during the next attempt until success.
+    The owning watcher publishes its retry schedule via set_reindex_retry;
+    other writers leave that schedule alone.
 
     Set ``fatal=True`` for a non-transient failure (e.g. a missing watcher
     dependency). A fatal failure is surfaced immediately — without waiting for a
@@ -161,12 +176,38 @@ def mark_reindex_failed(repo: str, error: str, *, fatal: bool = False) -> None:
         state.reindexing = False
         state.reindex_finished = True
         state.reindex_error = error          # stored internally always
+        state.last_reindex_error = error
+        if state.retries and state.stale_since is None:
+            state.stale_since = time.monotonic()
         state.consecutive_failures += 1
         if fatal:
             state.fatal = True
         state.last_reindex_done = time.monotonic()
         # stale_since stays set — index remains stale after a failed reindex
         _repo_events[repo].set()
+
+
+def set_reindex_retry(
+    repo: str,
+    retry_at: Optional[float],
+    attempts: int = 0,
+    *,
+    owner: str,
+) -> None:
+    """Publish one watch task's retry schedule, or clear it.
+
+    ``owner`` names the watch task (its watched folder). An entry with no
+    deadline and no attempts is removed, so a task that recovers or stops
+    clears its own schedule and leaves other tasks on the same repo key alone.
+    Generic reindex lifecycle calls cannot clear these schedules: another
+    writer completing or failing does not cancel a watch task's pending work.
+    """
+    with _states_lock:
+        state = _get_state(repo)
+        if retry_at is None and not attempts:
+            state.retries.pop(owner, None)
+        else:
+            state.retries[owner] = (retry_at, attempts)
 
 
 # ── Query functions ──────────────────────────────────────────────────────────
@@ -180,6 +221,14 @@ def get_reindex_status(repo: str) -> dict:
         stale_since_ms: Milliseconds since index first became stale, or None.
         reindex_error: Error string (only on 2nd+ consecutive failure).
         reindex_failures: Failure count (only on 2nd+ consecutive failure).
+        last_reindex_error: Last failure, retained through retries until success.
+        retry_in_ms: Time until the next scheduled retry of any watch task on
+            this repo (only while one is pending).
+        retry_attempts: Failed watcher attempts in the current recoveries,
+            summed over the watch tasks on this repo, including targeted
+            edits during backoff. Those targeted failures do not advance
+            backoff; use retry_in_ms for the next full retry.
+        reindex_elapsed_ms: Duration of the current attempt (only while active).
     """
     with _states_lock:
         state = _get_state(repo)
@@ -194,6 +243,16 @@ def get_reindex_status(repo: str) -> dict:
             "reindex_in_progress": state.reindexing,
             "stale_since_ms": stale_since_ms,
         }
+        if state.reindexing:
+            status["reindex_elapsed_ms"] = round((now - state.last_reindex_start) * 1000)
+        if state.last_reindex_error is not None:
+            status["last_reindex_error"] = state.last_reindex_error
+        deadlines = [at for at, _ in state.retries.values() if at is not None]
+        if deadlines:
+            status["retry_in_ms"] = max(0, round((min(deadlines) - now) * 1000))
+        attempts = sum(n for _, n in state.retries.values())
+        if attempts:
+            status["retry_attempts"] = attempts
         # Expose error details on the 2nd+ consecutive failure (transient
         # tolerance), or immediately when the failure is fatal — a fatal failure
         # won't self-heal, so hiding the first one would let watch-status report
