@@ -91,8 +91,11 @@ stat says it is gone, so a directory that denies traversal does not read as a
 deletion, and an added directory that cannot be listed stays pending. A stored
 file under an unlisted directory leaves the index when a stat proves it gone,
 and the initial index and a HEAD reconcile schedule a retry when they report
-`unread_files`. A changed directory names the unreadable files under it, and
-a full rebuild records and names each file it could not read. The
+`unread_files`. A changed directory names the unreadable files under it (the
+root event of a rescan or a full retry names all of them), and a full
+rebuild records and names each file it could not read. A call whose
+discovery cannot list the index root fails and keeps the index, so
+`paths=["."]` no longer deletes every stored file. The
 walk that hashes every file stores the hash of the bytes it parsed, and a
 subfolder walk that rewrites coverage counts the size exclusions it keeps
 from outside its folder. The watcher keeps its retry and
@@ -112,6 +115,8 @@ A current folder left unattended needs no recovery work; a folder with known
 failed updates keeps retrying at the capped interval until it recovers or
 the watcher stops. A full retry also updates HEAD-move tracking without
 hiding a commit made during the attempt.
+
+## [1.108.492] - 2026-11-25 - the index cache sees another process's write and stops reloading for nothing
 
 ### A write that lands while another process loads the index is no longer hidden from it (L-342)
 

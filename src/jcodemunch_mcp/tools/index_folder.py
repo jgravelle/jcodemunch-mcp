@@ -1913,13 +1913,24 @@ def _unreadable_files(
                 named.add(str(retry[rel]))
             elif rel and dirs and (rel + "/").startswith(dirs):
                 named.add(str(cpath))
-            if rel:
+            if rel is not None:
                 # A changed directory (a moved-in tree sends 1 event) names
-                # what under it could not be read.
-                below = rel + "/"
+                # what under it could not be read. The root event (a rescan,
+                # or a full retry) names all of it.
+                below = "" if rel in ("", ".") else rel + "/"
                 named.update(str(p) for r, p in retry.items() if r.startswith(below))
                 named.update(str(d) for k, d in dir_paths.items() if k.startswith(below))
     return set(by_rel), dirs, sorted(named)
+
+
+def _root_unlisted(unreadable_dirs, root: Path) -> bool:
+    """Could discovery not list the index root itself?
+
+    The record cannot scope the root (`_unreadable_files` drops it), so a
+    call that went on would read every stored file as gone: a `paths=["."]`
+    call deleted them all (Codex review on #1567). The caller refuses.
+    """
+    return any(_rel_to_root(d, root) in ("", ".") for d in unreadable_dirs or ())
 
 
 def _listed_dir_scopes(requested_rels, walk_prefix: str, root: Path, failed_dirs) -> tuple[str, ...]:
@@ -3632,6 +3643,9 @@ def index_folder(
         _unreadable_rels, _unreadable_dir_keys, _unreadable_named = _unreadable_files(
             _unreadable_paths, _unreadable_dir_paths, folder_path, changed_paths, paths is not None
         )
+        if _root_unlisted(_unreadable_dir_paths, folder_path):
+            # Nothing under the root was seen: refuse, so the index is kept.
+            return {"success": False, "error": f"Could not list {folder_path}", "warnings": warnings}
         _unreadable_now = _unreadable_rels | set(_unreadable_dir_keys)
         # The listed directories this call read in full: a `paths=` route
         # replaces the record inside them (`_listed_dir_scopes`).

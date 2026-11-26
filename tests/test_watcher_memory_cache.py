@@ -1479,6 +1479,50 @@ def test_a_changed_directory_names_its_unreadable_children(tmp_path, monkeypatch
     assert _same_files(walked.get("unread_files") or []) == _same_files([locked]), walked
 
 
+def test_a_root_event_names_every_unreadable_file(tmp_path, monkeypatch):
+    """A rescan or a full retry names the root, whose path is `.`. The match
+    used `./` as the prefix and named nothing, so the watcher cleared its
+    retry over a locked file (Codex review on #1567)."""
+    from jcodemunch_mcp.tools.index_folder import index_folder
+
+    root = tmp_path / "repo"
+    (root / "sub").mkdir(parents=True)
+    (root / "a.py").write_text("def a(): pass\n", encoding="utf-8")
+    locked = root / "sub" / "code.py"
+    locked.write_text("def code(): pass\n", encoding="utf-8")
+    storage = str(tmp_path / "store")
+    index_folder(str(root), use_ai_summaries=False, context_providers=False, storage_path=storage)
+    _fail_reads_of(monkeypatch, locked, discovery=True)
+    walked = index_folder(
+        str(root), use_ai_summaries=False, context_providers=False, storage_path=storage,
+        incremental=True, discover=True, changed_paths=[WatcherChange("modified", str(root), "__cache_miss__")],
+    )
+    assert walked["success"], walked
+    assert _same_files(walked.get("unread_files") or []) == _same_files([locked]), walked
+
+
+def test_a_listed_root_that_cannot_be_listed_keeps_the_index(tmp_path, monkeypatch):
+    """`paths=["."]` over a root that answers a stat but cannot be listed
+    dropped the root from the record and deleted every stored file (Codex
+    review on #1567)."""
+    from jcodemunch_mcp.storage import IndexStore
+    from jcodemunch_mcp.tools.index_folder import index_folder
+
+    root = tmp_path / "repo"
+    root.mkdir()
+    (root / "a.py").write_text("def a(): pass\n", encoding="utf-8")
+    storage = str(tmp_path / "store")
+    result = index_folder(str(root), use_ai_summaries=False, context_providers=False, storage_path=storage)
+    owner, name = result["repo"].split("/", 1)
+    _deny_listing(monkeypatch, root)
+    listed = index_folder(
+        str(root), use_ai_summaries=False, context_providers=False,
+        storage_path=storage, incremental=True, paths=["."],
+    )
+    assert listed["success"] is False, listed
+    assert {symbol["name"] for symbol in IndexStore(base_path=storage).load_index(owner, name).symbols} == {"a"}
+
+
 def test_a_full_rebuild_names_the_files_it_could_not_read(tmp_path, monkeypatch):
     """A full rebuild that could not read a file dropped it with no record
     and no `unread_files`, so the watcher cleared its retry and the file
@@ -1985,7 +2029,9 @@ async def test_a_retry_with_an_unread_file_stays_pending(tmp_path, monkeypatch, 
         status = reindex_state.get_reindex_status(result["repo"])
         assert status["index_stale"] is True
         assert status["retry_in_ms"] == 10000
-        assert "could not read 1 changed file" in status["last_reindex_error"]
+        # A full retry names the root, so an unlisted folder is named beside
+        # its file: the count is not the property, the recorded failure is.
+        assert "could not read " in status["last_reindex_error"]
         reads["fail"] = reads["deny"] = False
         now = 15.0
         yield set()
