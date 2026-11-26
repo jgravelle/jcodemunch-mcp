@@ -1416,10 +1416,13 @@ def test_a_kept_file_is_read_again_when_its_mtime_did_not_move(tmp_path, monkeyp
     assert names == {"after", "other"}, "a kept file was never read again"
 
 
-def test_a_subfolder_walk_keeps_a_sibling_unreadable_entry(tmp_path, monkeypatch):
+@pytest.mark.parametrize("a_edited", [False, True])
+def test_a_subfolder_walk_keeps_a_sibling_unreadable_entry(tmp_path, monkeypatch, a_edited):
     """A walk of `a/` once compared its own unreadable count with the coverage
     of the whole index and recorded `complete: True` over an unreadable file
-    in `b/` (Codex review on #1567)."""
+    in `b/` (Codex review on #1567). With ``a_edited`` the walk of `a/` saves
+    a change, so the save path's record is checked as well as the no-change
+    path's."""
     import subprocess
 
     from jcodemunch_mcp.storage import IndexStore
@@ -1449,7 +1452,10 @@ def test_a_subfolder_walk_keeps_a_sibling_unreadable_entry(tmp_path, monkeypatch
     locked.write_text("def in_b_changed(): pass\n", encoding="utf-8")
     _fail_reads_of(monkeypatch, locked, discovery=True)
     walk("b")
-    walk("a")
+    if a_edited:
+        (root / "a" / "ok.py").write_text("def in_a_changed(): pass\n", encoding="utf-8")
+    walked = walk("a")
+    assert (walked.get("message") == "No changes detected") is not a_edited, walked
     coverage = IndexStore(base_path=storage).load_index(owner, name).coverage
     assert coverage["complete"] is False, coverage
     assert "b/locked.py" in coverage.get("unreadable_files", []), coverage
@@ -1479,10 +1485,13 @@ def test_a_changed_directory_names_its_unreadable_children(tmp_path, monkeypatch
     assert _same_files(walked.get("unread_files") or []) == _same_files([locked]), walked
 
 
-def test_a_root_event_names_every_unreadable_file(tmp_path, monkeypatch):
-    """A rescan or a full retry names the root, whose path is `.`. The match
-    used `./` as the prefix and named nothing, so the watcher cleared its
-    retry over a locked file (Codex review on #1567)."""
+def test_a_root_event_names_only_the_files_named_beside_it(tmp_path, monkeypatch):
+    """A rescan or a full retry names the root, whose path is `.`. A root
+    event that named every recorded unreadable file put a file that stays
+    locked, with no edit of it pending, into a permanent full-walk retry from
+    the first rescan of every watch session. The root names nothing by
+    itself; a file a failed batch named, sent beside it as the watcher's full
+    retry does, is still named."""
     from jcodemunch_mcp.tools.index_folder import index_folder
 
     root = tmp_path / "repo"
@@ -1493,12 +1502,67 @@ def test_a_root_event_names_every_unreadable_file(tmp_path, monkeypatch):
     storage = str(tmp_path / "store")
     index_folder(str(root), use_ai_summaries=False, context_providers=False, storage_path=storage)
     _fail_reads_of(monkeypatch, locked, discovery=True)
-    walked = index_folder(
-        str(root), use_ai_summaries=False, context_providers=False, storage_path=storage,
-        incremental=True, discover=True, changed_paths=[WatcherChange("modified", str(root), "__cache_miss__")],
+
+    def walk(*extra):
+        result = index_folder(
+            str(root), use_ai_summaries=False, context_providers=False, storage_path=storage,
+            incremental=True, discover=True,
+            changed_paths=[WatcherChange("modified", str(root), "__cache_miss__"), *extra],
+        )
+        assert result["success"], result
+        return result
+
+    assert "unread_files" not in walk()
+    named = walk(WatcherChange("modified", str(locked), "__cache_miss__"))
+    assert _same_files(named.get("unread_files") or []) == _same_files([locked]), named
+
+
+async def test_a_rescan_over_a_locked_file_schedules_no_retry(tmp_path, monkeypatch):
+    """Every watch session starts with a root rescan. With a recorded file
+    that stays locked and no edit of it pending, that rescan once named the
+    file, and the watcher retried a full walk at the capped interval for as
+    long as it ran. The coverage record already withholds the file, so the
+    retry bought nothing. One index call, no retry."""
+    from types import SimpleNamespace
+
+    from jcodemunch_mcp import reindex_state, watcher
+
+    Change = pytest.importorskip("watchfiles").Change
+    root = tmp_path / "repo"
+    root.mkdir()
+    locked = root / "locked.py"
+    locked.write_text("def locked(): pass\n", encoding="utf-8")
+    (root / "other.py").write_text("def other(): pass\n", encoding="utf-8")
+    storage = str(tmp_path / "store")
+    real_index = watcher.index_folder
+    result = real_index(str(root), use_ai_summaries=False, context_providers=False, storage_path=storage)
+    assert result["success"], result
+    _fail_reads_of(monkeypatch, locked, discovery=True)
+    calls = []
+
+    def index(**kwargs):
+        outcome = real_index(**kwargs)
+        calls.append(outcome.get("unread_files"))
+        return outcome
+
+    now = 0.0
+
+    async def events(*args, **kwargs):
+        nonlocal now
+        yield {(Change.modified, str(root))}
+        for now in (400.0, 800.0, 1200.0, 1600.0):
+            yield set()
+        assert "retry_in_ms" not in reindex_state.get_reindex_status(result["repo"])
+
+    monkeypatch.setattr(watcher, "time", SimpleNamespace(monotonic=lambda: now))
+    monkeypatch.setattr(reindex_state, "time", SimpleNamespace(monotonic=lambda: now))
+    monkeypatch.setattr(watcher, "index_folder", index)
+    monkeypatch.setattr(watcher, "_safe_awatch", events)
+    await watcher._watch_single(
+        str(root), 200, False, storage, None, False,
+        skip_initial_index=True, quiet=True, context_providers=False,
     )
-    assert walked["success"], walked
-    assert _same_files(walked.get("unread_files") or []) == _same_files([locked]), walked
+    assert calls == [None], calls
 
 
 def test_a_listed_root_that_cannot_be_listed_keeps_the_index(tmp_path, monkeypatch):
@@ -1677,6 +1741,38 @@ def _deny_listing(monkeypatch, directory, traversal=False):
         monkeypatch.setattr(os, "stat", fake_stat)
         monkeypatch.setattr(os.path, "isfile", fake_isfile)
     return state
+
+
+@pytest.mark.parametrize("named", [False, True])
+def test_a_deleted_file_leaves_a_directory_that_cannot_be_listed(tmp_path, monkeypatch, named):
+    """A directory that denies listing still answers a stat. A stored file
+    deleted inside it once kept its rows as unread, because the walk read
+    every stored file under an unlisted directory as unverified. The stat
+    proves it gone (`_confirmed_gone`), so its rows leave; the readable
+    sibling in the same directory keeps its rows."""
+    from jcodemunch_mcp.storage import IndexStore
+    from jcodemunch_mcp.tools.index_folder import index_folder
+
+    root = tmp_path / "repo"
+    sub = root / "sub"
+    sub.mkdir(parents=True)
+    (root / "a.py").write_text("def a(): pass\n", encoding="utf-8")
+    gone = sub / "gone.py"
+    gone.write_text("def gone(): pass\n", encoding="utf-8")
+    (sub / "kept.py").write_text("def kept(): pass\n", encoding="utf-8")
+    storage = str(tmp_path / "store")
+    result = index_folder(str(root), use_ai_summaries=False, context_providers=False, storage_path=storage)
+    owner, name = result["repo"].split("/", 1)
+    gone.unlink()
+    _deny_listing(monkeypatch, sub)
+    changes = [WatcherChange("deleted", str(gone), "")] if named else None
+    walked = index_folder(
+        str(root), use_ai_summaries=False, context_providers=False, storage_path=storage,
+        incremental=True, discover=True, changed_paths=changes,
+    )
+    assert walked["success"], walked
+    names = {symbol["name"] for symbol in IndexStore(base_path=storage).load_index(owner, name).symbols}
+    assert names == {"a", "kept"}, names
 
 
 def test_a_targeted_update_keeps_an_unnamed_unreadable_count(tmp_path):
@@ -2379,3 +2475,60 @@ async def test_failed_initial_index_recovers_files_with_no_events(tmp_path, monk
     monkeypatch.setattr(watcher, "index_folder", index)
     monkeypatch.setattr(watcher, "_safe_awatch", events)
     await watcher._watch_single(str(root), 200, False, storage, None, False, quiet=True, context_providers=False)
+
+
+async def test_the_tool_response_bounds_unread_files_and_the_watcher_keeps_all(tmp_path, monkeypatch):
+    """A `paths=` call names every unreadable file in scope in `unread_files`.
+    The MCP response caps the list and says so (`unread_files_total`,
+    `unread_files_truncated`), as a list field on 1.x must before it ships.
+    A direct call, which the watcher and `refresh` make, keeps every name:
+    their retry needs each one."""
+    import builtins
+    import json
+    from unittest.mock import patch
+
+    from jcodemunch_mcp import security
+    from jcodemunch_mcp.server import call_tool
+    from jcodemunch_mcp.tools import index_folder as module
+    from jcodemunch_mcp.tools.index_folder import UNREAD_FILES_CAP, index_folder
+
+    root = tmp_path / "repo"
+    sub = root / "sub"
+    sub.mkdir(parents=True)
+    (root / "a.py").write_text("def a(): pass\n", encoding="utf-8")
+    locked = []
+    for i in range(UNREAD_FILES_CAP + 5):
+        f = sub / f"m{i}.py"
+        f.write_text(f"def m{i}(): pass\n", encoding="utf-8")
+        locked.append(f)
+    storage = str(tmp_path / "store")
+    index_folder(str(root), use_ai_summaries=False, context_providers=False, storage_path=storage)
+    denied = {os.path.normcase(str(f)) for f in locked}
+    real_open = builtins.open
+
+    def fake_open(file, *args, **kwargs):
+        if os.path.normcase(os.path.abspath(str(file))) in denied:
+            raise PermissionError(13, "The process cannot access the file", str(file))
+        return real_open(file, *args, **kwargs)
+
+    monkeypatch.setattr(module, "open", fake_open, raising=False)
+    monkeypatch.setattr(security, "open", fake_open, raising=False)
+    direct = index_folder(
+        str(root), use_ai_summaries=False, context_providers=False, storage_path=storage,
+        incremental=True, paths=["sub"],
+    )
+    assert direct["success"], direct
+    assert _same_files(direct["unread_files"]) == _same_files(locked), direct
+    assert "unread_files_total" not in direct, direct
+
+    with patch("jcodemunch_mcp.tools.index_folder.index_folder", return_value=dict(direct)):
+        served = json.loads((await call_tool("index_folder", {"path": str(root), "paths": ["sub"]}))[0].text)
+    assert len(served["unread_files"]) == UNREAD_FILES_CAP, served
+    assert served["unread_files_total"] == len(locked), served
+    assert served["unread_files_truncated"] is True, served
+
+    one = {"success": True, "unread_files": [str(locked[0])]}
+    with patch("jcodemunch_mcp.tools.index_folder.index_folder", return_value=one):
+        served = json.loads((await call_tool("index_folder", {"path": str(root)}))[0].text)
+    assert served["unread_files"] == [str(locked[0])], served
+    assert served["unread_files_total"] == 1 and served["unread_files_truncated"] is False, served

@@ -91,8 +91,10 @@ stat says it is gone, so a directory that denies traversal does not read as a
 deletion, and an added directory that cannot be listed stays pending. A stored
 file under an unlisted directory leaves the index when a stat proves it gone,
 and the initial index and a HEAD reconcile schedule a retry when they report
-`unread_files`. A changed directory names the unreadable files under it (the
-root event of a rescan or a full retry names all of them), and a full
+`unread_files`. A changed directory names the unreadable files under it. The root
+event of a rescan or a full retry names only the files of failed batches
+sent beside it, so a file that stays locked with no edit pending keeps its
+record and does not hold the watcher in a retry. A full
 rebuild records and names each file it could not read. A call whose
 discovery cannot list the index root fails and keeps the index, so
 `paths=["."]` no longer deletes every stored file. The
@@ -115,6 +117,15 @@ A current folder left unattended needs no recovery work; a folder with known
 failed updates keeps retrying at the capped interval until it recovers or
 the watcher stops. A full retry also updates HEAD-move tracking without
 hiding a commit made during the attempt.
+
+The `index_folder` tool response lists at most 20 `unread_files` and adds
+`unread_files_total` and `unread_files_truncated` whenever it names one, so
+a shortened list is never read as complete. The watcher and `refresh` call
+`index_folder` directly and still receive every name.
+
+Reported and fixed by @MariusAdrian88 (#1567), including the tests that
+came with each change; the last four review items were finished on the
+branch by the maintainers.
 
 ## [1.108.492] - 2026-11-25 - the index cache sees another process's write and stops reloading for nothing
 

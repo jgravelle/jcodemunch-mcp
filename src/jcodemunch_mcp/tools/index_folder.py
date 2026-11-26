@@ -1913,11 +1913,14 @@ def _unreadable_files(
                 named.add(str(retry[rel]))
             elif rel and dirs and (rel + "/").startswith(dirs):
                 named.add(str(cpath))
-            if rel is not None:
+            if rel not in (None, "", "."):
                 # A changed directory (a moved-in tree sends 1 event) names
                 # what under it could not be read. The root event (a rescan,
-                # or a full retry) names all of it.
-                below = "" if rel in ("", ".") else rel + "/"
+                # or a full retry) names nothing by itself: the watcher names
+                # the files of its failed batches (`_retry_files`) beside it,
+                # so a file that stays locked with no edit pending keeps its
+                # record but does not hold the watcher in a retry.
+                below = rel + "/"
                 named.update(str(p) for r, p in retry.items() if r.startswith(below))
                 named.update(str(d) for k, d in dir_paths.items() if k.startswith(below))
     return set(by_rel), dirs, sorted(named)
@@ -1988,6 +1991,27 @@ def _unreadable_event(reason: str, rel_path: str, abs_path: Path) -> list[str]:
     which no retry can repair, so it names nothing.
     """
     return [str(abs_path)] if reason == "unreadable" and rel_path else []
+
+
+#: Most ``unread_files`` entries an MCP ``index_folder`` response carries.
+#: A root walk or a ``paths=`` call can name every unreadable file in scope.
+UNREAD_FILES_CAP = 20
+
+
+def bound_unread_files(result: dict, cap: int = UNREAD_FILES_CAP) -> dict:
+    """Cap ``unread_files`` for the MCP response, in place, and return ``result``.
+
+    Applied at the tool boundary only: the watcher and ``refresh`` call
+    `index_folder` directly and need every name to keep their retry. A
+    response that names any file also carries ``unread_files_total`` and
+    ``unread_files_truncated``, so a shortened list is never read as whole.
+    """
+    unread = result.get("unread_files") if isinstance(result, dict) else None
+    if unread:
+        result["unread_files_total"] = len(unread)
+        result["unread_files_truncated"] = len(unread) > cap
+        result["unread_files"] = list(unread[:cap])
+    return result
 
 
 def _scan_package_json_forced_paths(folder_path: Path) -> set[str]:
