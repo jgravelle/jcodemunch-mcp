@@ -291,16 +291,25 @@ def _with_withheld_names(coverage: dict, key: str, reason: str, names, unnamed: 
     """
     cov = dict(coverage or {})
     names = sorted(set(names or ()))
-    count = len(names) + max(0, int(unnamed or 0))
+    if names:
+        cov[key] = names
+    else:
+        cov.pop(key, None)
+    return _with_withheld_count(cov, reason, len(names) + max(0, int(unnamed or 0)))
+
+
+def _with_withheld_count(coverage: dict, reason: str, count: int) -> dict:
+    """``coverage`` with ``count`` files withheld for ``reason``.
+
+    Sets the skip count, then recomputes ``withheld`` and ``complete`` as
+    `_with_withheld_names` describes.
+    """
+    cov = dict(coverage or {})
     skips = dict(cov.get("skip_counts") or {})
     if count:
         skips[reason] = count
     else:
         skips.pop(reason, None)
-    if names:
-        cov[key] = names
-    else:
-        cov.pop(key, None)
     cov["skip_counts"] = skips
     withheld = {
         k: int(v) for k, v in skips.items()
@@ -378,6 +387,32 @@ def _unreadable_dirs(entries) -> tuple[str, ...]:
 def _is_unread(fp: str, files, dirs: tuple[str, ...]) -> bool:
     """Is ``fp`` a recorded unreadable file, or under a recorded directory?"""
     return fp in files or fp.startswith(dirs)
+
+
+def _confirmed_gone(path: Path) -> bool:
+    """Does a stat of ``path`` prove that it does not exist?
+
+    Only an absence answer counts. A stat that fails for another reason (a
+    directory that denies traversal) proves nothing, so the path may exist.
+    """
+    try:
+        os.stat(path)
+    except (FileNotFoundError, NotADirectoryError):
+        return True
+    except (OSError, ValueError):
+        return False
+    return False
+
+
+def _kept_as_unread(fp: str, root: Path, files, dirs: tuple[str, ...]) -> bool:
+    """Does stored ``fp`` keep its rows as unread on this walk?
+
+    Yes when this walk could not read it or its directory, unless a stat
+    proves the file is gone: a directory that only denies listing still
+    answers a stat, and a deleted file in it must leave the index (Codex
+    review on #1567).
+    """
+    return _is_unread(fp, files, dirs) and not _confirmed_gone(root / fp)
 
 
 def _carried_unreadable(
@@ -625,6 +660,13 @@ def _record_coverage(
             from ..retrieval.verdict import withheld_files_record
 
             report.update(withheld_files_record(withheld_files))
+            # The record keeps the size exclusions outside a subfolder walk,
+            # so the count covers them too: a walk of `a/` counted only its
+            # own and made coverage complete over a withheld file in `b/`
+            # (Codex review on #1567).
+            _too_large = int((report.get("skip_counts") or {}).get("too_large", 0) or 0)
+            if len(withheld_files) > _too_large:
+                report = _with_withheld_count(report, "too_large", len(withheld_files))
         store._sqlite.set_coverage(owner, repo_name, report)
     except Exception:
         logger.debug(
@@ -1840,8 +1882,9 @@ def _unreadable_files(
     (`UNREADABLE_FILES_KEY`). ``named`` are the absolute paths of the files
     the caller asked about, for ``unread_files``: the watcher keeps its retry
     for them and ``refresh`` does not stamp. A ``paths=`` call names every
-    unreadable file and directory; otherwise each non-deleted watcher change
-    that is unreadable, or under an unreadable directory, is named. A file
+    unreadable file and directory; otherwise each watcher change that is
+    unreadable, or under an unreadable directory, is named, except a deletion
+    that a stat proves (`_confirmed_gone`). A file
     that cannot resolve (a symlink loop) is recorded but not named, because
     no retry repairs it.
     """
@@ -1863,11 +1906,19 @@ def _unreadable_files(
         named = set()
         for change in changed_paths or ():
             ctype, cpath, _ = _watcher_change_parts(change)
-            rel = None if ctype == "deleted" else _rel_to_root(Path(cpath), root)
+            # A deletion is pending only while no stat can prove it.
+            gone = ctype == "deleted" and _confirmed_gone(Path(cpath))
+            rel = None if gone else _rel_to_root(Path(cpath), root)
             if rel in retry:
                 named.add(str(retry[rel]))
             elif rel and dirs and (rel + "/").startswith(dirs):
                 named.add(str(cpath))
+            if rel:
+                # A changed directory (a moved-in tree sends 1 event) names
+                # what under it could not be read.
+                below = rel + "/"
+                named.update(str(p) for r, p in retry.items() if r.startswith(below))
+                named.update(str(d) for k, d in dir_paths.items() if k.startswith(below))
     return set(by_rel), dirs, sorted(named)
 
 
@@ -4135,6 +4186,9 @@ def index_folder(
             )
             if _verify_all:
                 updated_mtimes = {fp: file_mtimes[fp] for fp in updated_mtimes}
+                # The parse reads each changed file again: its stored hash
+                # must be the hash of the bytes parsed, not of the first read.
+                computed_hashes = {}
             if _subdir_incremental:
                 deleted = [
                     fp for fp in deleted
@@ -4174,7 +4228,7 @@ def index_folder(
 
             # A file discovery could not read is on disk: its stored rows stay.
             if _unreadable_now:
-                deleted = [fp for fp in deleted if not _is_unread(fp, _unreadable_rels, _unreadable_dir_keys)]
+                deleted = [fp for fp in deleted if not _kept_as_unread(fp, folder_path, _unreadable_rels, _unreadable_dir_keys)]
             # A subfolder walk keeps the stored files outside it: so do the
             # parse failures recorded for them.
             _outside_walk = _stored_outside_walk(existing_index, walk_prefix)
@@ -4184,7 +4238,7 @@ def index_folder(
             # parse failures stay with their rows.
             _kept_unread = {
                 fp for fp in _stored_files
-                if _is_unread(fp, _unreadable_rels, _unreadable_dir_keys)
+                if _kept_as_unread(fp, folder_path, _unreadable_rels, _unreadable_dir_keys)
             } if _unreadable_now else set()
 
             # A walk with a watcher change set (discover=True, or a fast path
@@ -4225,7 +4279,7 @@ def index_folder(
                 # to be applied again, and so does the unreadable one.
                 deleted = sorted(
                     fp for fp in covered - set(file_mtimes) - _cap_dropped_rels
-                    if not _is_unread(fp, _unreadable_rels, _unreadable_dir_keys)
+                    if not _kept_as_unread(fp, folder_path, _unreadable_rels, _unreadable_dir_keys)
                 )
 
                 # v1.108.259 (#395): re-parse the listed files even when their
@@ -4617,11 +4671,16 @@ def index_folder(
 
         _filter_rows: list = []
         _full_parse_failed: list[str] = []
+        # Files this rebuild could not read: it stores no row for them, so
+        # each goes in the unreadable record and in `unread_files`, and the
+        # watcher keeps its retry (Codex review on #1567).
+        _full_unread: set[str] = set()
         for _file_idx, rel_path in enumerate(source_file_list):
             if progress_cb:
                 progress_cb(_file_idx, _total_files, rel_path)
             content = _read_file(rel_path)
             if content is None:
+                _full_unread.add(rel_path)
                 continue
 
             # Encode once — reused for both hashing and tree-sitter parsing
@@ -5059,13 +5118,13 @@ def index_folder(
                         _merge_with_existing if _merge_with_existing is not None else existing_index,
                         "coverage", None,
                     ),
-                    walk_prefix, _unreadable_now, _cap_keep - _cap_stale,
+                    walk_prefix, _unreadable_now | _full_unread, _cap_keep - _cap_stale,
                 ),
             )
         else:
             _store_parse_failures(
                 store, owner, repo_name, source_file_list, _full_parse_failed,
-                unread=_unreadable_now, verified=source_file_list,
+                unread=_unreadable_now | _full_unread, verified=source_file_list,
                 scopes=_listed_scopes, kept_inside=_cap_dropped_rels,
             )
 
@@ -5091,6 +5150,9 @@ def index_folder(
             "no_symbols_files": no_symbols_files[:50],  # Show up to 50 for inspection
         }
         result.update(_summary_report_fields(_folder_summary_report))
+        if _full_unread or _unreadable_named:
+            # Absolute paths, the form the watcher keeps in its retry set.
+            result["unread_files"] = sorted({str(rel_path_map[r]) for r in _full_unread} | set(_unreadable_named))
         if _is_branch_delta:
             result["branch"] = _current_branch
             result["branch_delta"] = True

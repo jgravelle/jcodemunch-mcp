@@ -1455,6 +1455,117 @@ def test_a_subfolder_walk_keeps_a_sibling_unreadable_entry(tmp_path, monkeypatch
     assert "b/locked.py" in coverage.get("unreadable_files", []), coverage
 
 
+def test_a_changed_directory_names_its_unreadable_children(tmp_path, monkeypatch):
+    """A tree moved in sends 1 directory event. A locked file under it was
+    not named in `unread_files`, so the watcher cleared its retry and the
+    file stayed out of the index (Codex review on #1567)."""
+    from jcodemunch_mcp.tools.index_folder import index_folder
+
+    root = tmp_path / "repo"
+    root.mkdir()
+    (root / "a.py").write_text("def a(): pass\n", encoding="utf-8")
+    storage = str(tmp_path / "store")
+    index_folder(str(root), use_ai_summaries=False, context_providers=False, storage_path=storage)
+    moved = root / "moved"
+    moved.mkdir()
+    locked = moved / "x.py"
+    locked.write_text("def x(): pass\n", encoding="utf-8")
+    _fail_reads_of(monkeypatch, locked, discovery=True)
+    walked = index_folder(
+        str(root), use_ai_summaries=False, context_providers=False, storage_path=storage,
+        incremental=True, discover=True, changed_paths=[WatcherChange("added", str(moved), "")],
+    )
+    assert walked["success"], walked
+    assert _same_files(walked.get("unread_files") or []) == _same_files([locked]), walked
+
+
+def test_a_full_rebuild_names_the_files_it_could_not_read(tmp_path, monkeypatch):
+    """A full rebuild that could not read a file dropped it with no record
+    and no `unread_files`, so the watcher cleared its retry and the file
+    stayed out of the index (Codex review on #1567)."""
+    from jcodemunch_mcp.storage import IndexStore
+    from jcodemunch_mcp.tools.index_folder import index_folder
+
+    root = tmp_path / "repo"
+    root.mkdir()
+    code = root / "code.py"
+    code.write_text("def code(): pass\n", encoding="utf-8")
+    (root / "other.py").write_text("def other(): pass\n", encoding="utf-8")
+    storage = str(tmp_path / "store")
+    result = index_folder(str(root), use_ai_summaries=False, context_providers=False, storage_path=storage)
+    owner, name = result["repo"].split("/", 1)
+    _fail_reads_of(monkeypatch, code)
+    rebuilt = index_folder(str(root), use_ai_summaries=False, context_providers=False, storage_path=storage, incremental=False)
+    assert rebuilt["success"], rebuilt
+    assert _same_files(rebuilt.get("unread_files") or []) == _same_files([code]), rebuilt
+    coverage = IndexStore(base_path=storage)._sqlite.get_coverage(owner, name)
+    assert coverage.get("unreadable_files") == ["code.py"], coverage
+
+
+async def test_a_head_reconcile_with_unread_files_is_not_complete(tmp_path, monkeypatch):
+    """The HEAD reconcile took `success` with `unread_files` as complete and
+    returned `_HEAD_RECONCILED`, so no retry was scheduled (Codex review on
+    #1567)."""
+    from jcodemunch_mcp import reindex_state, watcher
+
+    locked = str(tmp_path / "locked.py")
+    monkeypatch.setattr(watcher, "_get_git_head", lambda path: "new")
+    monkeypatch.setattr(watcher, "_stored_git_head", lambda store, owner, name: "old")
+    monkeypatch.setattr(watcher, "index_folder", lambda **kwargs: {"success": True, "unread_files": [locked]})
+    pending: set = set()
+    outcome = await watcher._reconcile_head_move(
+        folder_path=str(tmp_path), repo_id="local/head-reconcile", store=None,
+        use_ai_summaries=False, storage_path=None, extra_ignore_patterns=None,
+        follow_symlinks=False, on_reindex=None, quiet=True, log_file_handle=None,
+        build_hash_cache=lambda: None, unread_out=pending,
+    )
+    assert outcome == watcher._HEAD_FAILED
+    assert pending == {locked}
+    assert reindex_state.get_reindex_status("local/head-reconcile")["index_stale"] is True
+
+
+def test_a_subfolder_walk_keeps_a_sibling_size_exclusion(tmp_path, monkeypatch):
+    """A no-change walk of `a/` that the unreadable record makes rewrite
+    coverage counted only the size exclusions of `a/`, so it dropped the
+    `too_large` file of `b/` and coverage read complete (Codex review on
+    #1567)."""
+    import subprocess
+
+    from jcodemunch_mcp import config as config_module
+    from jcodemunch_mcp.storage import IndexStore
+    from jcodemunch_mcp.tools.index_folder import index_folder
+
+    monkeypatch.setitem(config_module._GLOBAL_CONFIG, "max_file_size", 200)
+    root = tmp_path / "repo"
+    (root / "a").mkdir(parents=True)
+    (root / "b").mkdir()
+    subprocess.run(["git", "init", "-q", str(root)], check=True)
+    locked = root / "a" / "locked.py"
+    locked.write_text("def in_a(): pass\n", encoding="utf-8")
+    (root / "a" / "ok.py").write_text("def also_a(): pass\n", encoding="utf-8")
+    (root / "b" / "big.py").write_text("x = 1\n" * 100, encoding="utf-8")
+    (root / "b" / "fine.py").write_text("def in_b(): pass\n", encoding="utf-8")
+    storage = str(tmp_path / "store")
+
+    def walk(folder):
+        result = index_folder(
+            str(root / folder), use_ai_summaries=False, context_providers=False,
+            storage_path=storage, incremental=True,
+        )
+        assert result["success"], result
+        return result
+
+    walk("b")
+    owner, name = walk("a")["repo"].split("/", 1)
+    reads = _fail_reads_of(monkeypatch, locked, discovery=True)
+    walk("a")
+    reads["fail"] = False
+    walk("a")
+    coverage = IndexStore(base_path=storage)._sqlite.get_coverage(owner, name)
+    assert coverage["complete"] is False, coverage
+    assert coverage["withheld"] == {"too_large": 1}, coverage
+
+
 def test_an_unreadable_file_nobody_named_keeps_its_rows_and_no_retry(tmp_path, monkeypatch):
     """A walk that cannot read a stored file it was not asked about keeps the
     rows and names nothing in `unread_files`: no edit of it is pending, so a
@@ -1585,6 +1696,52 @@ def test_a_root_walk_hashes_every_file_before_it_clears_an_unnamed_count(tmp_pat
     index = store.load_index(owner, name)
     assert {symbol["name"] for symbol in index.symbols} == {"after", "other"}
     assert index.coverage["complete"] is True, index.coverage
+
+
+def test_the_verifying_walk_stores_the_hash_of_the_parsed_bytes(tmp_path, monkeypatch):
+    """The walk that hashes every file reads a changed file again to parse
+    it. An edit between the 2 reads stored the first read's hash with the
+    second read's symbols, so a revert to the first content read as no
+    change and kept the wrong symbols (Codex review on #1567)."""
+    import builtins
+
+    from jcodemunch_mcp.storage import IndexStore
+    from jcodemunch_mcp.tools import index_folder as module
+
+    root = tmp_path / "repo"
+    root.mkdir()
+    code = root / "code.py"
+    code.write_text("def v0(): pass\n", encoding="utf-8")
+    (root / "other.py").write_text("def other(): pass\n", encoding="utf-8")
+    storage = str(tmp_path / "store")
+    result = module.index_folder(str(root), use_ai_summaries=False, context_providers=False, storage_path=storage)
+    owner, name = result["repo"].split("/", 1)
+    store = IndexStore(base_path=storage)
+    legacy = dict(store._sqlite.get_coverage(owner, name))
+    legacy.update(complete=False, skip_counts={"unreadable": 1}, withheld={"unreadable": 1})
+    store._sqlite.set_coverage(owner, name, legacy)
+    code.write_text("def v1(): pass\n", encoding="utf-8")
+    real_open, opens = builtins.open, []
+
+    def fake_open(file, mode="r", *args, **kwargs):
+        if "r" in mode and os.path.normcase(os.path.abspath(str(file))) == os.path.normcase(str(code)):
+            opens.append(file)
+            if len(opens) == 2:
+                with real_open(code, "w", encoding="utf-8") as f:
+                    f.write("def v2(): pass\n")
+        return real_open(file, mode, *args, **kwargs)
+
+    def walk():
+        module.index_folder(str(root), use_ai_summaries=False, context_providers=False, storage_path=storage, incremental=True)
+        return {symbol["name"] for symbol in store.load_index(owner, name).symbols}
+
+    with monkeypatch.context() as patched:
+        patched.setattr(module, "open", fake_open, raising=False)
+        assert walk() == {"v2", "other"}
+    code.write_text("def v1(): pass\n", encoding="utf-8")
+    later = code.stat().st_mtime_ns + 2_000_000_000
+    os.utime(code, ns=(later, later))
+    assert walk() == {"v1", "other"}, "a revert to the first read kept the second read's symbols"
 
 
 def test_a_listed_directory_read_again_leaves_the_record(tmp_path, monkeypatch):
@@ -1753,14 +1910,16 @@ def test_an_unread_named_file_keeps_its_symbols(tmp_path, monkeypatch, route):
     assert names == {"after", "other"}
 
 
-@pytest.mark.parametrize("where", ["read", "discovery", "directory"])
+@pytest.mark.parametrize("where", ["read", "discovery", "directory", "deleted", "added_directory"])
 async def test_a_retry_with_an_unread_file_stays_pending(tmp_path, monkeypatch, where):
     """A full retry that cannot read a named file keeps the retry, the stale
     flag and the file. It once cleared them and lost the edit. With
     ``discovery``, the walk's filters reject the file before the read, and
     the walk once deleted it. With ``directory``, its folder denies listing
-    and stat, and the watcher once dropped the name as a deleted file
-    (Codex review on #1567)."""
+    and stat, and the watcher once dropped the name as a deleted file. With
+    ``deleted``, the failed batch deleted the file in that folder, and with
+    ``added_directory`` it added a folder that cannot be listed: the watcher
+    once kept neither pending (Codex review on #1567)."""
     from types import SimpleNamespace
 
     from jcodemunch_mcp import reindex_state, watcher
@@ -1793,14 +1952,30 @@ async def test_a_retry_with_an_unread_file_stays_pending(tmp_path, monkeypatch, 
     def names():
         return {symbol["name"] for symbol in store.load_index(owner, name).symbols}
 
+    added = root / "added"
+    expected = {
+        "deleted": {"other"},
+        "added_directory": {"before", "other", "new"},
+    }.get(where, {"after", "other"})
+
     async def events(*args, **kwargs):
         nonlocal now
-        stat = code.stat()
-        code.write_text("def after(): pass\n", encoding="utf-8")
-        os.utime(code, ns=(stat.st_atime_ns, stat.st_mtime_ns))
-        yield {(Change.modified, str(code))}
-        if where == "directory":
+        if where == "deleted":
+            code.unlink()
+            yield {(Change.deleted, str(code))}
+        elif where == "added_directory":
+            added.mkdir()
+            (added / "new.py").write_text("def new(): pass\n", encoding="utf-8")
+            yield {(Change.added, str(added))}
+        else:
+            stat = code.stat()
+            code.write_text("def after(): pass\n", encoding="utf-8")
+            os.utime(code, ns=(stat.st_atime_ns, stat.st_mtime_ns))
+            yield {(Change.modified, str(code))}
+        if where in ("directory", "deleted"):
             reads = _deny_listing(monkeypatch, code.parent, traversal=True)
+        elif where == "added_directory":
+            reads = _deny_listing(monkeypatch, added)
         else:
             reads = _fail_reads_of(monkeypatch, code, discovery=where == "discovery")
         now = 5.0
@@ -1814,7 +1989,7 @@ async def test_a_retry_with_an_unread_file_stays_pending(tmp_path, monkeypatch, 
         reads["fail"] = reads["deny"] = False
         now = 15.0
         yield set()
-        assert names() == {"after", "other"}
+        assert names() == expected
         assert "retry_in_ms" not in reindex_state.get_reindex_status(result["repo"])
 
     monkeypatch.setattr(watcher, "time", SimpleNamespace(monotonic=lambda: now))
@@ -1824,6 +1999,52 @@ async def test_a_retry_with_an_unread_file_stays_pending(tmp_path, monkeypatch, 
     await watcher._watch_single(
         str(root), 200, False, storage, None, False,
         skip_initial_index=True, quiet=True, context_providers=False,
+    )
+
+
+async def test_an_initial_index_with_unread_files_schedules_a_retry(tmp_path, monkeypatch):
+    """The initial index re-reads a recorded unreadable file. If it is still
+    locked, the index returns `success` with `unread_files`, and the watcher
+    once marked the index current and scheduled no retry, so the old symbols
+    stayed after the lock ended (Codex review on #1567)."""
+    from types import SimpleNamespace
+
+    from jcodemunch_mcp import reindex_state, watcher
+    from jcodemunch_mcp.storage import IndexStore
+
+    root = tmp_path / "repo"
+    root.mkdir()
+    code = root / "code.py"
+    code.write_text("def before(): pass\n", encoding="utf-8")
+    (root / "other.py").write_text("def other(): pass\n", encoding="utf-8")
+    storage = str(tmp_path / "store")
+    result = watcher.index_folder(str(root), use_ai_summaries=False, context_providers=False, storage_path=storage)
+    owner, name = result["repo"].split("/", 1)
+    store = IndexStore(base_path=storage)
+    coverage = dict(store._sqlite.get_coverage(owner, name))
+    coverage.update(complete=False, unreadable_files=["code.py"], skip_counts={"unreadable": 1}, withheld={"unreadable": 1})
+    store._sqlite.set_coverage(owner, name, coverage)
+    stat = code.stat()
+    code.write_text("def after(): pass\n", encoding="utf-8")
+    os.utime(code, ns=(stat.st_atime_ns, stat.st_mtime_ns))
+    reads = _fail_reads_of(monkeypatch, code)
+    now = 0.0
+
+    async def events(*args, **kwargs):
+        nonlocal now
+        status = reindex_state.get_reindex_status(result["repo"])
+        assert status["index_stale"] is True and "retry_in_ms" in status, status
+        reads["fail"] = False
+        now = 5.0
+        yield set()
+        assert {symbol["name"] for symbol in store.load_index(owner, name).symbols} == {"after", "other"}
+
+    monkeypatch.setattr(watcher, "time", SimpleNamespace(monotonic=lambda: now))
+    monkeypatch.setattr(reindex_state, "time", SimpleNamespace(monotonic=lambda: now))
+    monkeypatch.setattr(watcher, "_safe_awatch", events)
+    await watcher._watch_single(
+        str(root), 200, False, storage, None, False,
+        skip_initial_index=False, quiet=True, context_providers=False,
     )
 
 

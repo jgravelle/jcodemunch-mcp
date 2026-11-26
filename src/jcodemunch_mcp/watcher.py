@@ -474,12 +474,17 @@ async def _initial_index(
     log_file_handle: Optional[IO],
     build_hash_cache: Callable[[], None],
     context_providers: bool = True,
+    unread_out: Optional[set] = None,
 ) -> bool:
     """Run a watch task's initial incremental index and record its outcome.
 
     Extracted from ``_watch_single`` in v1.108.189 so the skip path (#384)
     is a branch around one call rather than a second copy of this body.
     Caller is responsible for ``mark_reindex_start``.
+
+    A success that names ``unread_files`` (a recorded unreadable file still
+    locked) is not complete: those files join ``unread_out`` and the result
+    is False, so the caller schedules the retry (Codex review on #1567).
     """
     try:
         result = await asyncio.to_thread(
@@ -497,10 +502,12 @@ async def _initial_index(
             _watcher_output(f"  Indexed {folder_path}: {msg} ({result.get('duration_seconds', '?')}s)", quiet=quiet, log_file_handle=log_file_handle)
             # Build hash cache from the index we just created/updated
             build_hash_cache()
-            mark_reindex_done(repo_id, result)
             # Count initial index as activity (only if it actually did work)
             if on_reindex is not None and result.get("message") != "No changes detected":
                 on_reindex()
+            if _left_unread(result, unread_out, repo_id, f"initial index of {folder_path}", quiet, log_file_handle):
+                return False
+            mark_reindex_done(repo_id, result)
             return True
         else:
             _watcher_output(f"  WARNING: initial index failed for {folder_path}: {result.get('error')}", quiet=quiet, log_file_handle=log_file_handle)
@@ -595,22 +602,53 @@ def _is_plain_ref_name(ref: str) -> bool:
     return all(part not in ("", ".", "..") for part in ref.split("/"))
 
 
-def _may_be_a_file(path: str) -> bool:
-    """Can ``path`` still be a file the walk must name?
+def _may_be_pending(path: str) -> bool:
+    """Must the retry walk still name ``path``?
 
-    True for a regular file, and for a path whose stat fails for a reason
-    other than absence (a directory that denies traversal): that is not a
-    deletion, and the walk records it as unreadable and names it in
-    `unread_files` (Codex review on #1567). `os.path.isfile` reads both as
-    False, so a failed edit under such a directory lost its name and its
-    retry.
+    True for a file or a directory, and for a path whose stat fails for a
+    reason other than absence (a directory that denies traversal): that is
+    not a deletion, and the walk records it as unreadable and names it in
+    `unread_files`. False only when the stat proves the path is gone; the
+    walk then removes its rows (Codex review on #1567). `os.path.isfile`
+    read a denied stat and a directory as False, so a failed edit under such
+    a directory, and an unreadable added directory, lost the retry.
     """
     try:
-        return stat.S_ISREG(os.stat(path).st_mode)
+        mode = os.stat(path).st_mode
     except (FileNotFoundError, NotADirectoryError, ValueError):
         return False
     except OSError:
         return True
+    return stat.S_ISREG(mode) or stat.S_ISDIR(mode)
+
+
+def _unread_error(unread) -> str:
+    """The error recorded while named files stay unread."""
+    return f"could not read {len(unread)} changed file(s): {', '.join(unread[:3])}"
+
+
+def _left_unread(
+    result: dict, unread_out: Optional[set], repo_id: str, what: str,
+    quiet: bool, log_file_handle: Optional[IO],
+) -> bool:
+    """Did a successful index run leave named files unread?
+
+    Then the run is not complete: the files join ``unread_out`` (the retry
+    set), the failure is recorded, and the caller schedules the retry. A
+    startup index or a HEAD reconcile that read a recorded unreadable file
+    still locked once marked the index current (Codex review on #1567).
+    """
+    unread = result.get("unread_files") or []
+    if not unread:
+        return False
+    if unread_out is not None:
+        unread_out.update(unread)
+    _watcher_output(
+        f"  WARNING: {what} kept old symbols: {_unread_error(unread)}",
+        quiet=quiet, log_file_handle=log_file_handle,
+    )
+    mark_reindex_failed(repo_id, _unread_error(unread))
+    return True
 
 
 def _git_head_signature(folder_path: str) -> Optional[tuple]:
@@ -717,8 +755,12 @@ async def _reconcile_head_move(
     log_file_handle: Optional[IO],
     build_hash_cache: Callable[[], None],
     context_providers: bool = True,
+    unread_out: Optional[set] = None,
 ) -> str:
     """Bring the index to where HEAD is now. Returns one of the ``_HEAD_*`` outcomes.
+
+    A success that names ``unread_files`` is ``_HEAD_FAILED``: the files join
+    ``unread_out`` and the caller schedules the retry (`_left_unread`).
 
     A commit, a ``git switch`` or a ``git pull`` that changes no indexed file
     writes under ``.git/`` only, and no file event follows. The index kept the
@@ -766,9 +808,11 @@ async def _reconcile_head_move(
             )
             # The run read the whole tree, and it may have re-indexed files.
             build_hash_cache()
-            mark_reindex_done(repo_id, result)
             if on_reindex is not None and result.get("message") != "No changes detected":
                 on_reindex()
+            if _left_unread(result, unread_out, repo_id, f"reconciling {folder_path}", quiet, log_file_handle):
+                return _HEAD_FAILED
+            mark_reindex_done(repo_id, result)
             return _HEAD_RECONCILED
         _watcher_output(
             f"  WARNING: reconciling {folder_path} after a HEAD move failed: {result.get('error')}",
@@ -865,6 +909,12 @@ async def _watch_single(
     # one user-visible call is pure waste, and it was silent waste: this pass
     # logs below WARNING and carries no progress reporter.
     initial_failed = False
+    # Files named by failed batches. The full retry is a walk, and a walk
+    # finds changes by mtime and keeps a file past the max_folder_files cap
+    # without reading it again. So the retry names these files to the walk
+    # (discover=True), which parses each one again. The initial index adds
+    # the files it could not read.
+    _retry_files: set[str] = set()
     if skip_initial_index:
         _watcher_output(
             f"  Skipping initial index for {folder_path} (caller indexed it)",
@@ -899,6 +949,7 @@ async def _watch_single(
             quiet=quiet,
             log_file_handle=log_file_handle,
             build_hash_cache=_build_hash_cache,
+            unread_out=_retry_files,
         )
 
     try:
@@ -917,11 +968,6 @@ async def _watch_single(
     _reindex_retry_at: Optional[float] = None
     _reindex_retry_attempts = 0
     _reindex_retry_delay = _REINDEX_RETRY_SECONDS
-    # Files named by failed batches. The full retry is a walk, and a walk
-    # finds changes by mtime and keeps a file past the max_folder_files cap
-    # without reading it again. So the retry names these files to the walk
-    # (discover=True), which parses each one again.
-    _retry_files: set[str] = set()
 
     def _schedule_reindex_retry(*, keep_deadline: bool = False) -> None:
         nonlocal _reindex_retry_at, _reindex_retry_attempts, _reindex_retry_delay
@@ -943,12 +989,12 @@ async def _watch_single(
                 if change_type in (Change.added, Change.modified, Change.deleted)
             ]
 
-            # Leaf files this batch names, for _retry_files. Directories and the
-            # root are left to the walk; a deleted file needs no reading.
-            _batch_files = {
-                p for ct, p in relevant
-                if ct != Change.deleted and p != folder_path and not os.path.isdir(p)
-            }
+            # The paths this batch names, for _retry_files: files, deletions
+            # and directories, but not the root. The retry names each one the
+            # stat does not prove gone (`_may_be_pending`). A directory the
+            # walk can list names nothing; one it cannot list, and a deletion
+            # under it, stays in `unread_files`, so the retry stays pending.
+            _batch_files = {p for ct, p in relevant if p != folder_path}
             full_retry = False
             targeted_during_retry = False
             if _reindex_retry_at is not None:
@@ -980,6 +1026,7 @@ async def _watch_single(
                         quiet=quiet,
                         log_file_handle=log_file_handle,
                         build_hash_cache=_build_hash_cache,
+                        unread_out=_retry_files,
                     )
                     if _outcome == _HEAD_FAILED:
                         _schedule_reindex_retry()
@@ -1094,7 +1141,7 @@ async def _watch_single(
                     watcher_changes = watcher_changes + [
                         WatcherChange("modified", p, "__cache_miss__")
                         for p in sorted((_retry_files | _batch_files) - _named)
-                        if _may_be_a_file(p)
+                        if _may_be_pending(p)
                     ]
                 mark_reindex_start(repo_id)
                 result = await asyncio.to_thread(
@@ -1189,12 +1236,11 @@ async def _watch_single(
                         _head_moves.reconciled(_retry_head_signature)
                     if _unread:
                         _schedule_reindex_retry(keep_deadline=targeted_during_retry)
-                        _unread_error = f"could not read {len(_unread)} changed file(s): {', '.join(_unread[:3])}"
                         _watcher_output(
-                            f"  WARNING: re-index of {folder_path} kept old symbols: {_unread_error}",
+                            f"  WARNING: re-index of {folder_path} kept old symbols: {_unread_error(_unread)}",
                             quiet=quiet, log_file_handle=log_file_handle,
                         )
-                        mark_reindex_failed(repo_id, _unread_error)
+                        mark_reindex_failed(repo_id, _unread_error(_unread))
                         continue
                     if not targeted_during_retry:
                         _reindex_retry_at = None

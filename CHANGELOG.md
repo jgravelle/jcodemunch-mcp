@@ -85,9 +85,17 @@ and directory discovery or the read could not open, and every route keeps it:
 - a `paths=` call replaces the record inside each listed directory it read
   in full, and `index_file` clears it on a `File unchanged` read too.
 A file the call named is also listed in `unread_files`, and so is a named file
-under a directory the walk could not list. The watcher names a failed file to
-the retry walk unless its stat says it is gone, so a directory that denies
-traversal does not read as a deletion. The watcher keeps its retry and
+under a directory the walk could not list. The watcher names every path of a
+failed batch to the retry walk (files, deletions and directories) unless its
+stat says it is gone, so a directory that denies traversal does not read as a
+deletion, and an added directory that cannot be listed stays pending. A stored
+file under an unlisted directory leaves the index when a stat proves it gone,
+and the initial index and a HEAD reconcile schedule a retry when they report
+`unread_files`. A changed directory names the unreadable files under it, and
+a full rebuild records and names each file it could not read. The
+walk that hashes every file stores the hash of the bytes it parsed, and a
+subfolder walk that rewrites coverage counts the size exclusions it keeps
+from outside its folder. The watcher keeps its retry and
 `refresh` records a batch error. A walk that keeps rows it could not read
 reports its skip counts and warnings even when nothing else changed, and a
 `paths=` directory that cannot be listed keeps its rows. A kept file keeps its recorded parse
