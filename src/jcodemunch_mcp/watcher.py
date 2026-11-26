@@ -145,7 +145,7 @@ def _place_under_root(changes, folder_path: str, real_root: str):
     when the watched root is reached through a symlink, as after a folder is
     moved and a link left at the old path) raised there, and the handler
     failed the whole batch: the other edits in it were not indexed, the repo
-    was marked failed and a retry was scheduled, on every such batch. A path
+    was marked failed and set to retry, on every such batch. A path
     whose real path lies under the root's real path names a file of this
     tree and is re-spelled under ``folder_path``. Any other path names no
     file of this tree and is dropped. Returns ``(placed, dropped)``.
