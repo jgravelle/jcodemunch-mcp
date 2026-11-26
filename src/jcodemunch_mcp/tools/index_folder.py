@@ -4132,10 +4132,21 @@ def index_folder(
         _hash_file_cache: dict[str, str] = {}  # rel_path -> content
 
         def _hash_file(rel_path: str) -> str:
-            """Read and hash a single file on demand; cache content for parse step."""
+            """Read and hash a single file on demand; cache content for parse step.
+
+            A file that cannot be read hashes to "", as `_hash_uncached` does:
+            it reads as changed, the parse step's read fails too, and the file
+            goes to the unreadable record and `unread_files` with its rows
+            kept. The error once escaped change detection and failed the whole
+            walk, so one locked file left every other edit unindexed (L-350).
+            """
             abs_path = rel_path_map[rel_path]
-            with open(abs_path, "r", encoding="utf-8", errors="replace", newline="") as f:
-                content = f.read()
+            try:
+                with open(abs_path, "r", encoding="utf-8", errors="replace", newline="") as f:
+                    content = f.read()
+            except OSError:
+                logger.debug("Change detection could not read %s", abs_path, exc_info=True)
+                return ""
             _hash_file_cache[rel_path] = content
             return _file_hash(content)
 

@@ -2584,3 +2584,35 @@ def test_a_repaired_new_file_leaves_coverage_complete(tmp_path, monkeypatch):
     coverage = store._sqlite.get_coverage(owner, name)
     assert coverage["complete"] is True, coverage
     assert {symbol["name"] for symbol in store.load_index(owner, name).symbols} == {"a", "b"}
+
+
+def test_a_file_change_detection_cannot_read_leaves_the_rest_of_the_walk(tmp_path, monkeypatch):
+    """Change detection reads an edited file to hash it. A file that read
+    refused (a sharing violation) raised out of change detection and failed
+    the whole walk, so every other edit in it stayed unindexed while the lock
+    held (L-350). The file is recorded as unread with its rows kept, and the
+    rest of the walk is saved."""
+    from jcodemunch_mcp.storage import IndexStore
+    from jcodemunch_mcp.tools.index_folder import index_folder
+
+    root = tmp_path / "repo"
+    root.mkdir()
+    locked = root / "locked.py"
+    locked.write_text("def locked_before(): pass\n", encoding="utf-8")
+    other = root / "other.py"
+    other.write_text("def other_before(): pass\n", encoding="utf-8")
+    storage = str(tmp_path / "store")
+    result = index_folder(str(root), use_ai_summaries=False, context_providers=False, storage_path=storage)
+    owner, name = result["repo"].split("/", 1)
+    locked.write_text("def locked_after(): pass\n", encoding="utf-8")
+    other.write_text("def other_after(): pass\n", encoding="utf-8")
+    _fail_reads_of(monkeypatch, locked)
+    walked = index_folder(
+        str(root), use_ai_summaries=False, context_providers=False, storage_path=storage, incremental=True,
+    )
+    assert walked["success"], walked
+    assert _same_files(walked.get("unread_files") or []) == _same_files([locked]), walked
+    store = IndexStore(base_path=storage)
+    assert {symbol["name"] for symbol in store.load_index(owner, name).symbols} == {"locked_before", "other_after"}
+    coverage = store._sqlite.get_coverage(owner, name)
+    assert coverage["complete"] is False and "locked.py" in coverage.get("unreadable_files", []), coverage

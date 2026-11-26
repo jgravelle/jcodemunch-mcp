@@ -2,6 +2,22 @@
 
 ## [Unreleased]
 
+### One locked file no longer fails the whole re-index (L-350)
+
+An incremental `index_folder` reads each edited file to hash it before it
+parses anything. When that read failed, as a sharing violation does on
+Windows while an editor or antivirus holds a file, the error escaped change
+detection and the whole call returned `Indexing failed`. Every other edit in
+the same walk stayed unindexed for as long as the lock held, and the
+watcher retried the full walk each time with the same result.
+
+A file that change detection cannot read now reads as changed. The parse
+step's own read fails too, so the file keeps its stored rows, joins the
+unreadable record (coverage reads incomplete and absence claims are
+refused) and is named in `unread_files`, so the watcher keeps retrying it.
+The rest of the walk is saved. The walk that hashes every file already
+treated a failed read this way.
+
 ## [1.108.493] - 2026-11-25 - a failed watcher update is retried without another file edit
 
 ### A failed watcher update is retried without another file edit
