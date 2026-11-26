@@ -94,7 +94,10 @@ and the initial index and a HEAD reconcile schedule a retry when they report
 `unread_files`. A changed directory names the unreadable files under it. The root
 event of a rescan or a full retry names only the files of failed batches
 sent beside it, so a file that stays locked with no edit pending keeps its
-record and does not hold the watcher in a retry. A full
+record and does not hold the watcher in a retry. The cost: a file
+edited while the watcher was stopped and locked during its first rescan
+keeps its old symbols until the next walk, with coverage still marking it
+unreadable, so absence claims about it stay refused. A full
 rebuild records and names each file it could not read. A call whose
 discovery cannot list the index root fails and keeps the index, so
 `paths=["."]` no longer deletes every stored file. The
