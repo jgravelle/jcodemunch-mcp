@@ -348,6 +348,12 @@ def flush_pending() -> int:
     stored = 0
     for index, digest, (idf, avgdl, inverted, centrality) in work:
         try:
+            from .sqlite_store import loaded_index_can_take_a_write_back
+
+            # The store refuses a write-back to a .db that moved since load;
+            # ask first, before the digest and the encode (L-346).
+            if not loaded_index_can_take_a_write_back(index):
+                continue
             if corpus_digest(index) != digest:
                 continue  # the index changed in memory since the search
             blob = encode(digest, len(index.symbols), idf, avgdl, inverted, centrality)

@@ -727,6 +727,47 @@ def store_token_counts_for_loaded_index(index, rows) -> bool:
     )
 
 
+def _write_back_target(index):
+    """``(db_path, owner, name, loaded_mtime_ns)`` if a write-back to the .db this
+    index came from could still be stored, else None.
+
+    THE rule for whether a write-back may be stored (L-346): a base index (not
+    a branch view) that knows its .db, its stamp at load, and its repository,
+    with the .db still at that stamp. The store applies it again under the lock
+    and inside the write transaction; a flush applies it first, so it does not
+    compute what the store would then refuse.
+    """
+    from .generation import describe
+
+    gen = describe(index)
+    if not gen.db_path or gen.loaded_mtime_ns is None or getattr(index, "branch", ""):
+        return None
+    owner, name = getattr(index, "owner", ""), getattr(index, "name", "")
+    if not owner or not name:
+        return None
+    # `describe` already read the .db's current stamp; None means it could not
+    # (logged there), which is never "unchanged".
+    if gen.db_mtime_ns is None or gen.db_mtime_ns != gen.loaded_mtime_ns:
+        return None
+    return Path(gen.db_path), owner, name, gen.loaded_mtime_ns
+
+
+def loaded_index_can_take_a_write_back(index) -> bool:
+    """Whether a write-back for this index would pass the store's checks now.
+
+    Costs what `generation.describe` costs (the stat of the .db and its
+    -wal). A flush calls it before computing a digest, encoding a
+    blob or counting tokens, because the store refuses a write-back to a .db
+    that moved since the index was loaded, and that work was then thrown away
+    (L-346). The store still checks again under its lock. Never raises.
+    """
+    try:
+        return _write_back_target(index) is not None
+    except Exception:
+        logger.debug("write-back pre-check failed", exc_info=True)
+        return False
+
+
 def _write_back_to_loaded_index(index, write, what: str) -> bool:
     """Run ``write(conn)`` in a transaction on the .db the index came from.
 
@@ -739,20 +780,16 @@ def _write_back_to_loaded_index(index, write, what: str) -> bool:
     stored. Never raises.
     """
     from . import process_locks
-    from .generation import describe
 
     try:
-        gen = describe(index)
-        if not gen.db_path or gen.loaded_mtime_ns is None or getattr(index, "branch", ""):
+        target = _write_back_target(index)
+        if target is None:
             return False
-        db_path = Path(gen.db_path)
-        owner, name = getattr(index, "owner", ""), getattr(index, "name", "")
-        if not owner or not name:
-            return False
+        db_path, owner, name, loaded_mtime_ns = target
         with process_locks.held("indexwrite", f"{owner}/{name}", str(db_path.parent)) as got:
             if not got:
                 return False
-            if _db_mtime_ns(db_path) != gen.loaded_mtime_ns:
+            if _db_mtime_ns(db_path) != loaded_mtime_ns:
                 return False
             conn = sqlite3.connect(
                 db_path.resolve().as_uri() + "?mode=rw", uri=True,
@@ -762,7 +799,7 @@ def _write_back_to_loaded_index(index, write, what: str) -> bool:
                 conn.execute("BEGIN IMMEDIATE")
                 # The meta writers in `_UNLOCKED_META_KEYS` skip `indexwrite`; one could have
                 # committed since the check above.
-                if _db_mtime_ns(db_path) != gen.loaded_mtime_ns:
+                if _db_mtime_ns(db_path) != loaded_mtime_ns:
                     conn.execute("ROLLBACK")
                     return False
                 write(conn)
@@ -783,7 +820,7 @@ def _write_back_to_loaded_index(index, write, what: str) -> bool:
             finally:
                 conn.close()
             _restamp_after_bm25_write(
-                index, db_path, gen.loaded_mtime_ns,
+                index, db_path, loaded_mtime_ns,
                 own_mtime_ns=own_mtime_ns if alone else None,
             )
         return True
@@ -856,6 +893,31 @@ def _unlocked_meta_matches(index, meta: dict) -> bool:
         if compare is None or not compare(meta.get(key), getattr(index, key, None)):
             return False
     return True
+
+
+def _meta_the_index_holds(index, meta: Optional[dict]) -> Optional[dict]:
+    """``meta`` if ``index`` carries every `_UNLOCKED_META_KEYS` row in it, else None.
+
+    A save's pre-warm records the meta it read so a later comparison
+    (`_revalidate_cached`, the L-343 re-key) can tell what changed since. A
+    save does not take every lock-free row from that read (the incremental
+    patch keeps the old index's `parser_generation`, `source_root` and
+    `git_root`), so a lock-free write by another process before the save's
+    transaction can sit in ``meta`` and not in the index. Recording ``meta``
+    then would make the comparison pass over a write the index never saw.
+    None makes both comparisons refuse, so the next call reloads.
+
+    The two roots are compared as written here, not by `_UNLOCKED_META_COMPARE`'s
+    present-or-absent rule (which allows a load's pack-path remap): a root
+    another process moved is a value the index does not hold. A remapped pack
+    index therefore caches no meta and reloads, as before L-343.
+    """
+    if meta is None or not _unlocked_meta_matches(index, meta):
+        return None
+    for key in ("source_root", "git_root"):
+        if (meta.get(key) or "") != (getattr(index, key, "") or ""):
+            return None
+    return meta
 
 
 def _after_write_back_commit(db_path: Path) -> None:
@@ -2197,6 +2259,9 @@ class SQLiteIndexStore:
 
             token_counts.prune(conn)
 
+            # The meta this save wrote, read in its own transaction, so the
+            # pre-warmed entry records the content generation it holds (L-343).
+            saved_meta = self._read_meta(conn)
             conn.commit()
         finally:
             conn.close()
@@ -2223,7 +2288,7 @@ class SQLiteIndexStore:
             os.utime(db_path)
         except OSError:
             pass  # best-effort cross-process hint
-        _cache_put(owner, safe_name, _db_mtime_ns(db_path), index)
+        _cache_put(owner, safe_name, _db_mtime_ns(db_path), index, meta=_meta_the_index_holds(index, saved_meta))
         return index
 
     def load_index(self, owner: str, name: str, branch: str = "") -> Optional["CodeIndex"]:
@@ -2360,16 +2425,20 @@ class SQLiteIndexStore:
                         )
                     index = self.compose_branch_index(index, branch, delta)
 
-            # Populate cache (re-stat to capture any WAL checkpoint mtime change)
-            try:
-                post_mtime_ns = _db_mtime_ns(db_path)
-            except OSError:
-                post_mtime_ns = 0
+            # Key the entry at the stamp sampled BEFORE the read, never a
+            # re-stat after it (L-342). A commit by another process while the
+            # read transaction was open moves the stamp, and a re-stat cached
+            # this older snapshot under the newer stamp, so the write stayed
+            # hidden until the next one. Keyed at `mtime_ns`, a move during the
+            # read makes the next call miss. One that changed nothing (a
+            # checkpoint) is re-keyed by `_revalidate_cached` from a meta read
+            # for a base index with a content generation; a branch view, or an
+            # index without one, reloads once.
             _cache_put(
-                owner, safe_name, post_mtime_ns, index, branch,
+                owner, safe_name, mtime_ns, index, branch,
                 meta=None if branch else meta,
             )
-            return _stamp_load_provenance(index, db_path, post_mtime_ns)
+            return _stamp_load_provenance(index, db_path, mtime_ns)
 
     # ── Selective read path (#398 Arc 2) ─────────────────────────────
 
@@ -3215,7 +3284,9 @@ class SQLiteIndexStore:
             os.utime(db_path)
         except OSError:
             pass  # best-effort cross-process hint
-        _cache_put(owner, safe_name, _db_mtime_ns(db_path), index)
+        # `meta` was read in this save's transaction after its last write, so
+        # the entry records the content generation it holds (L-343).
+        _cache_put(owner, safe_name, _db_mtime_ns(db_path), index, meta=_meta_the_index_holds(index, dict(meta)))
         return index
 
     def detect_changes_with_mtimes(
@@ -3410,23 +3481,74 @@ class SQLiteIndexStore:
         if not db_path.exists():
             return
         try:
+            value = json.dumps(coverage or {})
             conn = self._connect(db_path)
             try:
                 conn.execute(
                     "INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)",
-                    ("coverage", json.dumps(coverage or {})),
+                    ("coverage", value),
                 )
                 conn.commit()
+                _after_write_back_commit(db_path)
             finally:
                 conn.close()
-            # Keep any cached in-process CodeIndex consistent without waiting
-            # for the mtime-keyed cache to miss.
             with _cache_lock:
                 for key, entry in _index_cache.items():
-                    if key[0] == owner and key[1] == name:
+                    if key[0] == owner and key[1] == safe_name:
                         entry.code_index.coverage = coverage or {}
+            self._rekey_after_unlocked_meta_write(owner, name, safe_name, db_path, "coverage", value)
         except Exception:
             logger.debug("Failed to set coverage for %s/%s", owner, name, exc_info=True)
+
+    def _rekey_after_unlocked_meta_write(
+        self, owner: str, name: str, safe_name: str, db_path: Path, meta_key: str, meta_value: str
+    ) -> None:
+        """Move the warm base index to the .db's stamp after a lock-free meta write (L-343).
+
+        `set_coverage`, `set_file_cap_status` and `stamp_parser_generation`
+        skip `indexwrite` (L-230) and each moves the .db stamp, so without this the warm entry stayed at the
+        old stamp and the next `incremental_save` rebuilt the index from every
+        row. The rule is `_revalidate_cached`'s, with this write's own row
+        allowed: under `indexwrite` (no symbol writer can commit meanwhile), the
+        meta table, read after a stamp sampled first, equals the meta the entry
+        was cached with in every row but `meta_key`, and `meta_key` holds the
+        value this write stored (the cached index was patched to it). Every
+        symbol or file writer bumps `content_generation` and every lock-free
+        meta writer changes its own row, and a save records its meta only when
+        the index holds every lock-free row in it (`_meta_the_index_holds`), so
+        another write since the entry was cached to anything the index holds is
+        seen, whatever the clock says. A write to a table the index does not
+        hold (embeddings, runtime traces) is not compared and needs not be. An
+        entry cached with no meta compares as empty and is not moved. Anything else leaves the entry where it was, which only costs a
+        reload; the moved entry carries the meta it was checked against.
+        """
+        from . import process_locks
+        from .generation import connect_readonly
+
+        with process_locks.held("indexwrite", f"{owner}/{name}", str(self.base_path)) as got:
+            if not got:
+                return
+            # Sampled BEFORE the read (L-342): a commit after this point leaves
+            # the entry under an older stamp, so the next call misses.
+            stamp = _db_mtime_ns(db_path)
+            ro = connect_readonly(db_path)
+            try:
+                meta = {k: v for k, v in ro.execute("SELECT key, value FROM meta").fetchall()}
+            finally:
+                ro.close()
+            if meta.get(meta_key) != meta_value:
+                return
+            key = (owner, safe_name, "")
+            with _cache_lock:
+                entry = _index_cache.get(key)
+                if entry is None:
+                    return
+                others_now = {k: v for k, v in meta.items() if k != meta_key}
+                others_cached = {k: v for k, v in (entry.meta or {}).items() if k != meta_key}
+                if others_now != others_cached:
+                    return
+                _index_cache[key] = entry._replace(mtime_ns=stamp, meta=meta)
+            _stamp_load_provenance(entry.code_index, db_path, stamp)
 
     def set_file_cap_status(self, owner: str, name: str, status: dict) -> None:
         """Persist the file-cap status alone, for a run that saved nothing else.
@@ -3441,19 +3563,22 @@ class SQLiteIndexStore:
         if not db_path.exists():
             return
         try:
+            value = json.dumps(status or {})
             conn = self._connect(db_path)
             try:
                 conn.execute(
                     "INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)",
-                    ("file_cap_status", json.dumps(status or {})),
+                    ("file_cap_status", value),
                 )
                 conn.commit()
+                _after_write_back_commit(db_path)
             finally:
                 conn.close()
             with _cache_lock:
                 for key, entry in _index_cache.items():
-                    if key[0] == owner and key[1] == name:
+                    if key[0] == owner and key[1] == safe_name:
                         entry.code_index.file_cap_status = status or {}
+            self._rekey_after_unlocked_meta_write(owner, name, safe_name, db_path, "file_cap_status", value)
         except Exception:
             logger.debug("Failed to set file_cap_status for %s/%s", owner, name, exc_info=True)
 
@@ -3493,12 +3618,16 @@ class SQLiteIndexStore:
                     ("parser_generation", str(int(generation))),
                 )
                 conn.commit()
+                _after_write_back_commit(db_path)
             finally:
                 conn.close()
             with _cache_lock:
                 for key, entry in _index_cache.items():
-                    if key[0] == owner and key[1] == name:
+                    if key[0] == owner and key[1] == safe_name:
                         entry.code_index.parser_generation = int(generation)
+            self._rekey_after_unlocked_meta_write(
+                owner, name, safe_name, db_path, "parser_generation", str(int(generation))
+            )
             return True
         except Exception:
             logger.debug(

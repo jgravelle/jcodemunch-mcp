@@ -204,6 +204,14 @@ def test_a_row_with_no_stored_hash_still_gets_its_summary(indexed, monkeypatch):
         conn.commit()
     finally:
         conn.close()
+    # The NULL hash stands for a legacy row met by a fresh process. This raw
+    # write skips the content-generation bump every real symbol writer makes,
+    # so a warm in-process index is kept across it by design
+    # (test_content_generation.test_a_symbol_write_that_breaks_the_contract_is_not_seen);
+    # drop it, as a fresh process would start without one (L-343).
+    from jcodemunch_mcp.storage import sqlite_store
+
+    sqlite_store._cache_clear()
     monkeypatch.setattr(summarize_mod, "summarize_symbols", _fake_summarizer)
     out = summarize_mod.summarize_repo(repo, force=True, storage_path=storage)
     assert "not_written" not in out, out

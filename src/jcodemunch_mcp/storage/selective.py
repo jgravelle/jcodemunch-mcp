@@ -71,6 +71,11 @@ EXACT_FIELDS: tuple[str, ...] = (
     # before the gate", not "unknown". Copying it exactly preserves that;
     # promoting to answer it never changed the value, only the cost.
     "parser_generation", "racket_config_digest",
+    # (L-344) `racket_reparse_reason` reads this one too, on every
+    # `index_folder` run; it arrived after the two above and was left out, so a
+    # repository holding `.rkt` files promoted the whole index every run. A test
+    # fails on any meta-row field missing here.
+    "racket_reader_generation",
 )
 
 #: Names that MUST promote, listed for documentation and asserted by tests.
