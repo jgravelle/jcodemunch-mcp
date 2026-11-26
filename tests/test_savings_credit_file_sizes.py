@@ -79,6 +79,14 @@ def test_an_index_stored_without_sizes_credits_without_a_reindex(fresh):
     conn.execute("UPDATE files SET size_bytes = NULL")
     conn.commit()
     conn.close()
+    # A raw write skips the content-generation bump every real symbol or file
+    # writer makes, so a warm in-process index is kept across it by design
+    # (test_content_generation.test_a_symbol_write_that_breaks_the_contract_is_not_seen).
+    # The row stands for an older index met by a fresh process: drop the warm
+    # copy, as that process would start without one (L-343).
+    from jcodemunch_mcp.storage import sqlite_store as _sqlite_store
+
+    _sqlite_store._cache_clear()
     from jcodemunch_mcp.storage import result_cache_invalidate
     from jcodemunch_mcp.tools import search_symbols as ss
 

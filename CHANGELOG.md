@@ -2,6 +2,93 @@
 
 ## [Unreleased]
 
+## [1.108.492] - 2026-11-25 - the index cache sees another process's write and stops reloading for nothing
+
+### A write that lands while another process loads the index is no longer hidden from it (L-342)
+
+`load_index` sampled the database's stamp, read the symbols and files, then
+read the stamp again and cached what it had read under that second stamp. When
+another process committed a write while the read was in progress, the second
+stamp already included that write, so the older snapshot was cached as if it
+were current. Every later call in that process matched the stamp and served the
+older index until some other write moved it. The window is one load, and an
+incremental save followed by its deferred summary write, or a watcher saving
+two files in a row, is enough to hit it.
+
+The cache entry is now keyed at the stamp taken before the read. A write during
+the read makes the next call reload. A stamp move that changed nothing, such as
+a checkpoint, is matched from one read of the meta table with no reload when the
+index records a content generation, as every index built by a current version
+does; a test pins that. A branch view, or an index without one, reloads once.
+
+### An incremental re-index patches the index in memory again (L-343)
+
+After every save that walks the tree, `index_folder` records the coverage of
+that walk, and a run that saved nothing else records its file-cap status; a
+bounded refresh records the parser version once it has re-read every file.
+Each of those writes changed the database's stamp, and the index cached in the same
+process stayed filed under the old one. So the next incremental save in that
+process did not find it and rebuilt the whole index from every stored row,
+which the in-memory patch path exists to avoid. In the test that pins this,
+three incremental runs made 9 full rebuilds; they now make none.
+
+All three writes now move the cached index to the database's new stamp, by the rule
+the index cache already uses to keep an index across a write that changed
+nothing it holds. Under the index-write lock, every row of the settings table
+must be the same as when the index was cached, except the one this write
+changed, which must still hold this write's value. Every writer of symbols or
+files moves a generation counter in that table, and every setting written
+without the lock is a row of it, so another write since the index was cached
+to anything the index holds is seen, even one within the same tick of the
+clock. Otherwise the index stays where it was and the next call reloads, as
+before. To make that comparison possible, a save now caches the settings it
+wrote alongside the index, but only when the index holds every setting written
+without the lock; before, it cached none. An incremental save keeps the
+previous index's parser version and roots, so a change another process made to
+one of them just before the save would otherwise have been filed as seen. The
+three writes also now update the cached index for a repository whose name is
+changed by the store's file-name rules, which they missed before.
+
+Five tests changed with it. Four edited a symbol or file row through a raw
+database connection, which skips the generation counter every writer in this
+version moves, and then expected the warm index in the same process to notice.
+It is designed not to notice such a write. Each now drops the warm index after
+its raw edit, the state a fresh process would start in. The fifth checked that
+a watcher event reads the stored index without loading all of it, and it
+relied on the cached index going stale after the first save. It now starts
+without a cached index, as a watcher process does.
+
+### Re-indexing a repository with Racket files no longer loads the whole index first (L-344)
+
+Every `index_folder` run checks whether a repository holding `.rkt` files needs
+a full re-parse, and that check reads the version of the Racket reader the
+index was built with. The run answers its other startup checks from a light
+view of the stored index that reads no symbol rows. That view did not carry
+the reader version, so reading it loaded the whole index, on every run of a
+repository with Racket files. The two neighbouring stamps the same check reads
+were already carried, for this reason.
+
+The view now carries it. A test reads the function that builds an index from
+the stored rows and fails on any field it builds the index with that the view
+neither carries nor declares as needing the whole index (today only the
+symbols themselves). The reader version was the only one missing.
+
+### A search no longer pays for statistics the store will refuse to keep (L-346)
+
+After a search, the server stores the ranking statistics it computed and the
+token counts of the files it credited, so the next search can reuse them. The
+store keeps them only if the index has not been written since this process
+loaded it. The statistics were hashed and encoded, and the files read and
+counted, before that was checked. Under a watcher the index is often written
+between a search and its write-back, so the work was done and then thrown
+away. On a copy of this repository (33,009 symbols), five refused write-backs
+of the statistics took 232 to 794 ms each; they now take 0.11 to 0.16 ms.
+
+Both write-backs now ask first, with the same rule the store applies again
+under its lock. The store now also refuses a moved index before it takes the
+lock, and refuses when it cannot read the index's timestamp, where before a
+later read could succeed and the write-back went ahead.
+
 ## [1.108.491] - 2026-11-25 - a delete blocked only by a file import says so
 
 ### A delete blocked only by a file import says so (L-348)

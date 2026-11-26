@@ -147,6 +147,12 @@ def flush_pending() -> int:
             db_path = getattr(index, "_db_path", None)
             if not db_path:
                 continue
+            from .sqlite_store import loaded_index_can_take_a_write_back
+
+            # The store refuses a write-back to a .db that moved since load;
+            # ask first, before reading and counting the copies (L-346).
+            if not loaded_index_can_take_a_write_back(index):
+                continue
             content_dir = Path(db_path).with_suffix("")
             base = _resolved(content_dir)
             hashes, texts, size, failed = [], [], 0, []

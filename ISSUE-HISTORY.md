@@ -3554,3 +3554,9 @@ The 1.108.487 entry, verbatim as it stood in `CLAUDE.md`:
 The 1.108.488 entry, verbatim as it stood in `CLAUDE.md`:
 
 - **Prior (1.108.488):** **a Bearer token with `~ + / =` or `!` is redacted whole** (#1558, @goranai): `redact.py`'s `bearer_token` takes RFC 6750's characters plus `!` after any backslash run. Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-25, release 1.108.492)
+
+The 1.108.489 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.489):** **an index on an unplugged drive survives server start** (L-347): `cleanup_orphan_indexes` deletes only when `storage/volume_presence.volume_present` is True and skips network paths. Full text: `CHANGELOG.md`.
