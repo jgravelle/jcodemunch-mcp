@@ -4608,6 +4608,13 @@ def index_folder(
                 _cov_skips, _cov_accepted = _coverage_counts_with_kept(
                     skip_counts, len(source_files), _cov_kept,
                 )
+                # A new file whose read failed is stored nowhere and is in the
+                # unreadable record, a withheld reason. Withheld files never
+                # reach `files_accepted`; counted there too, it also read as
+                # `unaccounted`, which no later repair cleared: `index_file`
+                # stored the file and left the record, and the no-change
+                # walks after it rewrote no coverage (Codex review on #1567).
+                _cov_accepted -= len(_unread_changed - set(updated_mtimes))
                 _record_coverage(
                     store, owner, repo_name,
                     _cov_skips,

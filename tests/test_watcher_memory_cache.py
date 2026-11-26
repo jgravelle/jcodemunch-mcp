@@ -2532,3 +2532,55 @@ async def test_the_tool_response_bounds_unread_files_and_the_watcher_keeps_all(t
         served = json.loads((await call_tool("index_folder", {"path": str(root)}))[0].text)
     assert served["unread_files"] == [str(locked[0])], served
     assert served["unread_files_total"] == 1 and served["unread_files_truncated"] is False, served
+
+
+def test_a_repaired_new_file_leaves_coverage_complete(tmp_path, monkeypatch):
+    """A new file whose read failed after discovery accepted it was counted
+    twice: as accepted and not indexed (`unaccounted`), and as unreadable. A
+    later `index_file` stored it and cleared the record, but the
+    `unaccounted` count stayed, and the no-change walks after it rewrote no
+    coverage, so absence claims stayed refused for good (Codex review on
+    #1567). The file now counts once, as withheld."""
+    import builtins
+
+    from jcodemunch_mcp.storage import IndexStore
+    from jcodemunch_mcp.tools import index_folder as module
+    from jcodemunch_mcp.tools.index_file import index_file
+    from jcodemunch_mcp.tools.index_folder import index_folder
+
+    root = tmp_path / "repo"
+    root.mkdir()
+    (root / "a.py").write_text("def a(): pass\n", encoding="utf-8")
+    storage = str(tmp_path / "store")
+    result = index_folder(str(root), use_ai_summaries=False, context_providers=False, storage_path=storage)
+    owner, name = result["repo"].split("/", 1)
+    new = root / "b.py"
+    new.write_text("", encoding="utf-8")
+    real_open = builtins.open
+    reads = {"n": 0}
+    target = os.path.normcase(str(new))
+
+    def fake_open(file, *args, **kwargs):
+        # The hash read succeeds; the read for the parse is refused, as a
+        # sharing violation does between the two.
+        if os.path.normcase(os.path.abspath(str(file))) == target:
+            reads["n"] += 1
+            if reads["n"] >= 2:
+                raise PermissionError(13, "The process cannot access the file", str(file))
+        return real_open(file, *args, **kwargs)
+
+    monkeypatch.setattr(module, "open", fake_open, raising=False)
+    walked = index_folder(
+        str(root), use_ai_summaries=False, context_providers=False, storage_path=storage, incremental=True,
+    )
+    assert _same_files(walked.get("unread_files") or []) == _same_files([new]), walked
+    monkeypatch.setattr(module, "open", real_open, raising=False)
+    store = IndexStore(base_path=storage)
+    failed = store._sqlite.get_coverage(owner, name)
+    assert failed["complete"] is False and "unaccounted" not in failed, failed
+    new.write_text("def b(): pass\n", encoding="utf-8")
+    assert index_file(str(new), use_ai_summaries=False, storage_path=storage, context_providers=False)["success"]
+    index_folder(str(root), use_ai_summaries=False, context_providers=False, storage_path=storage, incremental=True)
+    coverage = store._sqlite.get_coverage(owner, name)
+    assert coverage["complete"] is True, coverage
+    assert {symbol["name"] for symbol in store.load_index(owner, name).symbols} == {"a", "b"}

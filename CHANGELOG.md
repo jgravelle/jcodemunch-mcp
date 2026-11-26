@@ -98,7 +98,7 @@ record and does not hold the watcher in a retry. The cost: a file
 edited while the watcher was stopped and locked during its first rescan
 keeps its old symbols until the next walk, with coverage still marking it
 unreadable, so absence claims about it stay refused. A full
-rebuild records and names each file it could not read. A call whose
+rebuild records and names each file it could not read. A new file whose read failed counts once, as unreadable, so coverage reads complete again once `index_file` repairs it. A call whose
 discovery cannot list the index root fails and keeps the index, so
 `paths=["."]` no longer deletes every stored file. The
 walk that hashes every file stores the hash of the bytes it parsed, and a
