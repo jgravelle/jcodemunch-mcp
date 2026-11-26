@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.494] - 2026-11-26 - one locked file no longer fails the whole re-index
+
 ### One locked file no longer fails the whole re-index (L-350)
 
 An incremental `index_folder` reads each edited file to hash it before it
