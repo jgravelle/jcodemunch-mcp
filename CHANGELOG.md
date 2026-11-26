@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+### A key-anchored secret after a closing subscript or JSON-escaped quotes is redacted
+
+The `aws_secret_key`, `azure_storage_key`, `azure_client_secret` and
+`generic_api_key` patterns allowed only spaces, `:`, `=` and quotes between the
+key name and the value. `os.environ["AWS_SECRET_ACCESS_KEY"] = "..."` has a `]`
+there, and the same line stored JSON-escaped in a notebook has a backslash, so
+the value was returned by `search_text` and the other redacted tools. Both
+characters are now allowed in that gap. `generic_api_key` keeps its mixed-case,
+digit and entropy gate, so identifiers and short values are still left alone.
+
 ## [1.108.492] - 2026-11-25 - the index cache sees another process's write and stops reloading for nothing
 
 ### A write that lands while another process loads the index is no longer hidden from it (L-342)
