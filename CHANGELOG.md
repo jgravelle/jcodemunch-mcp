@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.493] - 2026-11-25 - a failed watcher update is retried without another file edit
+
 ### A failed watcher update is retried without another file edit
 
 The watcher consumed each file-change batch before saving its index. When a
