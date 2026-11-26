@@ -1,6 +1,12 @@
 {
-  "current": "1.108.491",
+  "current": "1.108.492",
   "entries": [
+    {
+      "version": "1.108.492",
+      "date": "2026-11-25",
+      "title": "The index cache sees another process's write and stops reloading for nothing",
+      "summary": "A write that another process committed while this one loaded the index was cached as if it were already included, so the older index was served until some other write moved the stamp; the cache is now keyed at the stamp taken before the read. An incremental re-index patches the index in memory again instead of rebuilding it from every stored row after its own coverage write. A repository with Racket files no longer loads the whole index on every run to read the reader version. A search no longer hashes statistics and counts files for a write-back the store would refuse: it asks first."
+    },
     {
       "version": "1.108.491",
       "date": "2026-11-25",
