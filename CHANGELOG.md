@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.492] - 2026-11-25 - the index cache sees another process's write and stops reloading for nothing
+
 ### A write that lands while another process loads the index is no longer hidden from it (L-342)
 
 `load_index` sampled the database's stamp, read the symbols and files, then
