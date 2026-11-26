@@ -1035,12 +1035,18 @@ async def _watch_single(
                 folder_path,
                 _real_root,
             )
-            if _outside_root and not _reported_outside_root:
-                _reported_outside_root = True
-                logger.warning(
-                    "Watcher for %s ignored %d event(s) outside the watched folder (first: %s)",
-                    folder_path, len(_outside_root), _outside_root[0],
-                )
+            if _outside_root:
+                if not _reported_outside_root:
+                    _reported_outside_root = True
+                    logger.warning(
+                        "Watcher for %s ignored %d event(s) outside the watched folder (first: %s)",
+                        folder_path, len(_outside_root), _outside_root[0],
+                    )
+                else:
+                    logger.debug(
+                        "Watcher for %s ignored %d event(s) outside the watched folder (first: %s)",
+                        folder_path, len(_outside_root), _outside_root[0],
+                    )
 
             # The paths this batch names, for _retry_files: files, deletions
             # and directories, but not the root. The retry names each one the

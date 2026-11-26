@@ -2667,7 +2667,16 @@ async def test_an_event_the_watcher_cannot_place_under_its_root_does_not_fail_th
         try:
             os.symlink(real, root, target_is_directory=True)
         except (OSError, NotImplementedError):
-            pytest.skip("this platform cannot create a directory symlink")
+            # Windows without the symlink privilege: a directory junction
+            # resolves the same way through os.path.realpath and needs none.
+            import subprocess
+
+            made = os.name == "nt" and subprocess.run(
+                ["cmd", "/c", "mklink", "/J", str(root), str(real)],
+                capture_output=True,
+            ).returncode == 0
+            if not made:
+                pytest.skip("this platform cannot create a directory link")
         event_dir = real
     else:
         root = real
