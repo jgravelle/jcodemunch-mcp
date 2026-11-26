@@ -80,7 +80,10 @@ and directory discovery or the read could not open, and every route keeps it:
 - a file the file cap keeps unread under a recorded directory stays in the
   record as a file until a read verifies it;
 - an `unreadable` count with no names (an index written before the record)
-  stays until a walk of the whole root, so a targeted update cannot clear it.
+  stays until an uncapped walk of the whole root, which hashes every file
+  once before it clears the count, so a targeted update cannot clear it;
+- a `paths=` call replaces the record inside each listed directory it read
+  in full, and `index_file` clears it on a `File unchanged` read too.
 A file the call named is also listed in `unread_files`, and so is a named file
 under a directory the walk could not list. The watcher names a failed file to
 the retry walk unless its stat says it is gone, so a directory that denies

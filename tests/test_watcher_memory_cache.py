@@ -1558,6 +1558,93 @@ def test_a_targeted_update_keeps_an_unnamed_unreadable_count(tmp_path):
     assert coverage["withheld"] == {"unreadable": 1}, coverage
 
 
+def test_a_root_walk_hashes_every_file_before_it_clears_an_unnamed_count(tmp_path):
+    """An unreadable count with no names may cover a kept row whose
+    replacement kept its mtime. The root walk cleared the count without
+    reading that file, so coverage read complete over the old symbols
+    (Codex review on #1567)."""
+    from jcodemunch_mcp.storage import IndexStore
+    from jcodemunch_mcp.tools.index_folder import index_folder
+
+    root = tmp_path / "repo"
+    root.mkdir()
+    code = root / "code.py"
+    code.write_text("def before(): pass\n", encoding="utf-8")
+    (root / "other.py").write_text("def other(): pass\n", encoding="utf-8")
+    storage = str(tmp_path / "store")
+    result = index_folder(str(root), use_ai_summaries=False, context_providers=False, storage_path=storage)
+    owner, name = result["repo"].split("/", 1)
+    store = IndexStore(base_path=storage)
+    legacy = dict(store._sqlite.get_coverage(owner, name))
+    legacy.update(complete=False, skip_counts={"unreadable": 1}, withheld={"unreadable": 1})
+    store._sqlite.set_coverage(owner, name, legacy)
+    stat = code.stat()
+    code.write_text("def after(): pass\n", encoding="utf-8")
+    os.utime(code, ns=(stat.st_atime_ns, stat.st_mtime_ns))
+    index_folder(str(root), use_ai_summaries=False, context_providers=False, storage_path=storage, incremental=True)
+    index = store.load_index(owner, name)
+    assert {symbol["name"] for symbol in index.symbols} == {"after", "other"}
+    assert index.coverage["complete"] is True, index.coverage
+
+
+def test_a_listed_directory_read_again_leaves_the_record(tmp_path, monkeypatch):
+    """`paths=['sub']` records `sub/` when it cannot list it. A later call
+    that lists `sub` again removed only the files it read, so `sub/` stayed
+    and coverage read incomplete until a full walk (Codex review on #1567)."""
+    from jcodemunch_mcp.storage import IndexStore
+    from jcodemunch_mcp.tools.index_folder import index_folder
+
+    root = tmp_path / "repo"
+    sub = root / "sub"
+    sub.mkdir(parents=True)
+    (root / "a.py").write_text("def a(): pass\n", encoding="utf-8")
+    (sub / "x.py").write_text("def x(): pass\n", encoding="utf-8")
+    storage = str(tmp_path / "store")
+    result = index_folder(str(root), use_ai_summaries=False, context_providers=False, storage_path=storage)
+    owner, name = result["repo"].split("/", 1)
+
+    def listed():
+        return index_folder(
+            str(root), use_ai_summaries=False, context_providers=False,
+            storage_path=storage, incremental=True, paths=[str(sub)],
+        )
+
+    denied = _deny_listing(monkeypatch, sub)
+    listed()
+    coverage = IndexStore(base_path=storage)._sqlite.get_coverage(owner, name)
+    assert coverage.get("unreadable_files") == ["sub/"], coverage
+    denied["deny"] = False
+    listed()
+    coverage = IndexStore(base_path=storage)._sqlite.get_coverage(owner, name)
+    assert "unreadable_files" not in coverage and coverage["complete"] is True, coverage
+
+
+def test_an_unchanged_file_index_file_reads_leaves_the_record(tmp_path):
+    """`index_file` reads and hashes a file whose bytes did not change and
+    returns `File unchanged` before the write that amends the record, so a
+    file that is readable again stayed in it (Codex review on #1567)."""
+    from jcodemunch_mcp.storage import IndexStore
+    from jcodemunch_mcp.tools.index_file import index_file
+    from jcodemunch_mcp.tools.index_folder import index_folder
+
+    root = tmp_path / "repo"
+    root.mkdir()
+    code = root / "code.py"
+    code.write_text("def same(): pass\n", encoding="utf-8")
+    (root / "other.py").write_text("def other(): pass\n", encoding="utf-8")
+    storage = str(tmp_path / "store")
+    result = index_folder(str(root), use_ai_summaries=False, context_providers=False, storage_path=storage)
+    owner, name = result["repo"].split("/", 1)
+    store = IndexStore(base_path=storage)
+    coverage = dict(store._sqlite.get_coverage(owner, name))
+    coverage.update(complete=False, unreadable_files=["code.py"], skip_counts={"unreadable": 1}, withheld={"unreadable": 1})
+    store._sqlite.set_coverage(owner, name, coverage)
+    repaired = index_file(str(code), use_ai_summaries=False, storage_path=storage, context_providers=False)
+    assert repaired["message"] == "File unchanged", repaired
+    coverage = store._sqlite.get_coverage(owner, name)
+    assert "unreadable_files" not in coverage and coverage["complete"] is True, coverage
+
+
 def test_a_capped_walk_keeps_the_record_of_a_kept_file_under_an_unread_directory(tmp_path, monkeypatch):
     """A walk that could not list `sub/` records `sub/`. A later capped walk
     kept `sub/x.py` unread, but matched only file entries, so it dropped

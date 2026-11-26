@@ -345,8 +345,10 @@ UNREADABLE_FILES_KEY = "unreadable_files"
 
 #: Coverage key holding the unreadable files the record cannot name: an index
 #: written before the record has an ``unreadable`` count and no names. The
-#: targeted routes cannot tell where those files are, so they keep the count;
-#: only a walk of the whole root replaces it (Codex review on #1567).
+#: targeted routes cannot tell where those files are, so they keep the count.
+#: Only an uncapped walk of the whole root replaces it, after it hashes every
+#: file (`_moved_mtimes`), because the rows it covers are not known (Codex
+#: review on #1567).
 UNREADABLE_UNNAMED_KEY = "unreadable_unnamed"
 
 
@@ -388,14 +390,15 @@ def _carried_unreadable(
     not read (``unread_now``), except the stored files the file cap kept
     unread (``kept_inside``): each one the prior record names, itself or by a
     directory above it, stays as a file entry until a read verifies it. The
-    unnamed count stays unless the walk covered the root.
+    unnamed count stays unless the walk covered the root and the cap kept no
+    file unread, because then the walk hashed every file (`_moved_mtimes`).
     """
     prior = _stored_unreadable(prior_coverage)
     outside = {e for e in prior if _file_outside_walk_prefix(e.rstrip("/"), walk_prefix)}
     inside = prior - outside
     inside_dirs = _unreadable_dirs(inside)
     kept = {fp for fp in (kept_inside or ()) if _is_unread(fp, inside, inside_dirs)}
-    unnamed = 0 if walk_prefix == "" else _unnamed_unreadable(prior_coverage)
+    unnamed = 0 if walk_prefix == "" and not kept_inside else _unnamed_unreadable(prior_coverage)
     return sorted(outside | kept | set(unread_now or ())), unnamed
 
 
@@ -444,7 +447,7 @@ def _carried_parse_failures(prior_coverage, parsed, failed, present=None) -> lis
 
 def _store_parse_failures(
     store, owner: str, repo_name: str, parsed, failed, deleted=(),
-    unread=(), verified=(),
+    unread=(), verified=(), scopes=(), kept_inside=(),
 ) -> None:
     """Amend the stored coverage after a targeted save (best-effort).
 
@@ -455,8 +458,12 @@ def _store_parse_failures(
 
     The unreadable record (`UNREADABLE_FILES_KEY`) is amended in the same
     write: ``unread`` joins it, and a file this run read (``verified``) or
-    deleted leaves it. Directory entries stay until a walk lists them, and
-    the unnamed count (`UNREADABLE_UNNAMED_KEY`) until a walk of the root.
+    deleted leaves it. ``scopes`` are the listed directories this run read in
+    full (`_listed_dir_scopes`): the entries inside them are replaced as a
+    walk replaces those of its folder, except the stored files the file cap
+    kept unread (``kept_inside``). Other directory entries stay until a walk
+    lists them, and the unnamed count (`UNREADABLE_UNNAMED_KEY`) until a walk
+    of the root.
     """
     try:
         current = store._sqlite.get_coverage(owner, repo_name) or {}
@@ -468,7 +475,11 @@ def _store_parse_failures(
         prior_unread = _stored_unreadable(current)
         unnamed = _unnamed_unreadable(current)
         gone = set(verified or ()) | set(deleted or ())
-        unread_names = sorted((prior_unread - gone) | set(unread or ()))
+        scopes = tuple(scopes or ())
+        inside = {e for e in prior_unread if e.startswith(scopes)} if scopes else set()
+        inside_dirs = _unreadable_dirs(inside)
+        kept = {fp for fp in (kept_inside or ()) if _is_unread(fp, inside, inside_dirs)}
+        unread_names = sorted((prior_unread - inside - gone) | kept | set(unread or ()))
         if (
             names == sorted(current.get(PARSE_FAILED_FILES_KEY) or ())
             and unread_names == sorted(prior_unread)
@@ -1858,6 +1869,53 @@ def _unreadable_files(
             elif rel and dirs and (rel + "/").startswith(dirs):
                 named.add(str(cpath))
     return set(by_rel), dirs, sorted(named)
+
+
+def _listed_dir_scopes(requested_rels, walk_prefix: str, root: Path, failed_dirs) -> tuple[str, ...]:
+    """The directories a ``paths=`` call listed and read, as record scopes.
+
+    Each is a ``dir/`` key ("" for the root): the call enumerated it, so the
+    unreadable entries inside it are replaced by what the call could not read
+    (`_store_parse_failures`). A listed directory that could not be listed
+    itself, or that sits under one, is not a scope: nothing inside it was
+    verified.
+    """
+    failed = tuple(failed_dirs or ())
+    scopes = []
+    for rel in _listed_in_index_terms(requested_rels, walk_prefix):
+        key = f"{rel.rstrip('/')}/" if rel else ""
+        if (root / rel).is_dir() and not (key and failed and key.startswith(failed)):
+            scopes.append(key)
+    return tuple(scopes)
+
+
+def _moved_mtimes(file_mtimes: dict) -> dict:
+    """``file_mtimes`` with every mtime marked as moved.
+
+    Change detection then hashes every file, so a row kept unread under an
+    unreadable count with no names (`UNREADABLE_UNNAMED_KEY`) is compared
+    with the disk even when a replacement kept its mtime. The real mtimes are
+    stored afterwards.
+    """
+    return {fp: -1 for fp in file_mtimes}
+
+
+def _hash_uncached(rel_path_map: dict):
+    """A hash function for change detection that keeps no content.
+
+    Used when every file is hashed (`_moved_mtimes`): caching the content of
+    every file of a large repository would hold the whole tree in memory. A
+    changed file is read again for its parse. A file that cannot be read
+    hashes to "", so it reads as changed and its read failure is recorded.
+    """
+    def _hash(rel_path: str) -> str:
+        try:
+            with open(rel_path_map[rel_path], "r", encoding="utf-8", errors="replace", newline="") as f:
+                return _file_hash(f.read())
+        except OSError:
+            return ""
+
+    return _hash
 
 
 def _unreadable_event(reason: str, rel_path: str, abs_path: Path) -> list[str]:
@@ -3524,6 +3582,9 @@ def index_folder(
             _unreadable_paths, _unreadable_dir_paths, folder_path, changed_paths, paths is not None
         )
         _unreadable_now = _unreadable_rels | set(_unreadable_dir_keys)
+        # The listed directories this call read in full: a `paths=` route
+        # replaces the record inside them (`_listed_dir_scopes`).
+        _listed_scopes = _listed_dir_scopes(requested_rels, walk_prefix, folder_path, _unreadable_dir_keys) if paths is not None else ()
         logger.info("Discovery skip counts: %s", skip_counts)
 
         # Truncation status for this walk (#366). Persisted on every save path so a
@@ -4060,11 +4121,20 @@ def index_folder(
                     "kept every other indexed file. To re-parse the whole repository, "
                     "call index_folder without paths="
                 )
+            # A walk of the root clears an unreadable count with no names, so
+            # it first hashes every file: the rows that count covers may hold
+            # a replacement that kept its mtime (Codex review on #1567).
+            # A capped walk keeps files unread, so it keeps the count instead.
+            _verify_all = paths is None and walk_prefix == "" and not _cap_dropped_rels and _unnamed_unreadable(getattr(existing_index, "coverage", None)) > 0
             changed, new, deleted, computed_hashes, updated_mtimes = (
                 store.detect_changes_with_mtimes(
-                    owner, repo_name, file_mtimes, _hash_file
+                    owner, repo_name,
+                    _moved_mtimes(file_mtimes) if _verify_all else file_mtimes,
+                    _hash_uncached(rel_path_map) if _verify_all else _hash_file,
                 )
             )
+            if _verify_all:
+                updated_mtimes = {fp: file_mtimes[fp] for fp in updated_mtimes}
             if _subdir_incremental:
                 deleted = [
                     fp for fp in deleted
@@ -4252,7 +4322,7 @@ def index_folder(
                 _coverage_moved = paths is None and _nc_unreadable != _stored_record(_prior_cov)
                 if paths is not None:
                     # A listed route writes no coverage: it amends the record.
-                    _store_parse_failures(store, owner, repo_name, (), (), unread=_unreadable_now)
+                    _store_parse_failures(store, owner, repo_name, (), (), unread=_unreadable_now, scopes=_listed_scopes, kept_inside=_cap_dropped_rels)
                 if _cap_to_save != _stored_cap or _coverage_moved:
                     store._sqlite.set_file_cap_status(owner, repo_name, _cap_to_save)
                     _nc_kept_files = (
@@ -4478,6 +4548,7 @@ def index_folder(
                 _store_parse_failures(
                     store, owner, repo_name, files_to_parse, _incr_parse_failed, deleted,
                     unread=_unreadable_now | _unread_changed, verified=files_to_parse,
+                    scopes=_listed_scopes, kept_inside=_cap_dropped_rels,
                 )
 
             # An empty discovery over an existing index removed every indexed
@@ -4995,6 +5066,7 @@ def index_folder(
             _store_parse_failures(
                 store, owner, repo_name, source_file_list, _full_parse_failed,
                 unread=_unreadable_now, verified=source_file_list,
+                scopes=_listed_scopes, kept_inside=_cap_dropped_rels,
             )
 
         # Identify languages that were indexed (symbols found) but have no import extractor
