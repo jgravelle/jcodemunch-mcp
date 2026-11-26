@@ -82,7 +82,9 @@ and directory discovery or the read could not open, and every route keeps it:
 - an `unreadable` count with no names (an index written before the record)
   stays until a walk of the whole root, so a targeted update cannot clear it.
 A file the call named is also listed in `unread_files`, and so is a named file
-under a directory the walk could not list: the watcher keeps its retry and
+under a directory the walk could not list. The watcher names a failed file to
+the retry walk unless its stat says it is gone, so a directory that denies
+traversal does not read as a deletion. The watcher keeps its retry and
 `refresh` records a batch error. A walk that keeps rows it could not read
 reports its skip counts and warnings even when nothing else changed, and a
 `paths=` directory that cannot be listed keeps its rows. A kept file keeps its recorded parse

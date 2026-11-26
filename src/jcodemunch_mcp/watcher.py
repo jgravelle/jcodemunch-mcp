@@ -595,6 +595,24 @@ def _is_plain_ref_name(ref: str) -> bool:
     return all(part not in ("", ".", "..") for part in ref.split("/"))
 
 
+def _may_be_a_file(path: str) -> bool:
+    """Can ``path`` still be a file the walk must name?
+
+    True for a regular file, and for a path whose stat fails for a reason
+    other than absence (a directory that denies traversal): that is not a
+    deletion, and the walk records it as unreadable and names it in
+    `unread_files` (Codex review on #1567). `os.path.isfile` reads both as
+    False, so a failed edit under such a directory lost its name and its
+    retry.
+    """
+    try:
+        return stat.S_ISREG(os.stat(path).st_mode)
+    except (FileNotFoundError, NotADirectoryError, ValueError):
+        return False
+    except OSError:
+        return True
+
+
 def _git_head_signature(folder_path: str) -> Optional[tuple]:
     """A cheap value that changes whenever HEAD may have moved, or None.
 
@@ -1076,7 +1094,7 @@ async def _watch_single(
                     watcher_changes = watcher_changes + [
                         WatcherChange("modified", p, "__cache_miss__")
                         for p in sorted((_retry_files | _batch_files) - _named)
-                        if os.path.isfile(p)
+                        if _may_be_a_file(p)
                     ]
                 mark_reindex_start(repo_id)
                 result = await asyncio.to_thread(

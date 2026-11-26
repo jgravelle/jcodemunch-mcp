@@ -1485,16 +1485,43 @@ def test_an_unreadable_file_nobody_named_keeps_its_rows_and_no_retry(tmp_path, m
     assert names == {"locked", "after"}
 
 
-def _deny_listing(monkeypatch, directory):
-    """Make `os.walk` fail to list one directory, as a permission error does."""
-    real_scandir = os.scandir
+def _deny_listing(monkeypatch, directory, traversal=False):
+    """Make `os.walk` fail to list one directory, as a permission error does.
+    With ``traversal``, a stat of a path under it fails too, as `chmod 0` does
+    on POSIX. Returns a switch that ends the denial."""
+    state = {"deny": True}
+    real_scandir, real_stat = os.scandir, os.stat
+    top = os.path.normcase(str(directory))
+
+    def denied(path):
+        return state["deny"] and os.path.normcase(os.path.abspath(os.fspath(path))) == top
 
     def fake_scandir(path="."):
-        if os.path.normcase(os.path.abspath(os.fspath(path))) == os.path.normcase(str(directory)):
+        if denied(path):
             raise PermissionError(13, "Access is denied", os.fspath(path))
         return real_scandir(path)
 
+    def fake_stat(path, *args, **kwargs):
+        if state["deny"] and isinstance(path, (str, os.PathLike)) and denied(os.path.dirname(os.path.abspath(os.fspath(path)))):
+            raise PermissionError(13, "Access is denied", os.fspath(path))
+        return real_stat(path, *args, **kwargs)
+
+    real_isfile = os.path.isfile
+
+    def fake_isfile(path):
+        # POSIX `isfile` reads a failed stat as False. Windows has a C fast
+        # path that a patched `os.stat` does not reach, so it is patched too.
+        try:
+            fake_stat(path)
+        except PermissionError:
+            return False
+        return real_isfile(path)
+
     monkeypatch.setattr(os, "scandir", fake_scandir)
+    if traversal:
+        monkeypatch.setattr(os, "stat", fake_stat)
+        monkeypatch.setattr(os.path, "isfile", fake_isfile)
+    return state
 
 
 def test_a_targeted_update_keeps_an_unnamed_unreadable_count(tmp_path):
@@ -1639,12 +1666,14 @@ def test_an_unread_named_file_keeps_its_symbols(tmp_path, monkeypatch, route):
     assert names == {"after", "other"}
 
 
-@pytest.mark.parametrize("where", ["read", "discovery"])
+@pytest.mark.parametrize("where", ["read", "discovery", "directory"])
 async def test_a_retry_with_an_unread_file_stays_pending(tmp_path, monkeypatch, where):
     """A full retry that cannot read a named file keeps the retry, the stale
     flag and the file. It once cleared them and lost the edit. With
     ``discovery``, the walk's filters reject the file before the read, and
-    the walk once deleted it (Codex review on #1567)."""
+    the walk once deleted it. With ``directory``, its folder denies listing
+    and stat, and the watcher once dropped the name as a deleted file
+    (Codex review on #1567)."""
     from types import SimpleNamespace
 
     from jcodemunch_mcp import reindex_state, watcher
@@ -1652,8 +1681,8 @@ async def test_a_retry_with_an_unread_file_stays_pending(tmp_path, monkeypatch, 
 
     Change = pytest.importorskip("watchfiles").Change
     root = tmp_path / "repo"
-    root.mkdir()
-    code = root / "code.py"
+    (root / "sub").mkdir(parents=True)
+    code = root / "sub" / "code.py"
     code.write_text("def before(): pass\n", encoding="utf-8")
     # A second readable file, so the walk does not stop on an empty corpus.
     (root / "other.py").write_text("def other(): pass\n", encoding="utf-8")
@@ -1683,7 +1712,10 @@ async def test_a_retry_with_an_unread_file_stays_pending(tmp_path, monkeypatch, 
         code.write_text("def after(): pass\n", encoding="utf-8")
         os.utime(code, ns=(stat.st_atime_ns, stat.st_mtime_ns))
         yield {(Change.modified, str(code))}
-        reads = _fail_reads_of(monkeypatch, code, discovery=where == "discovery")
+        if where == "directory":
+            reads = _deny_listing(monkeypatch, code.parent, traversal=True)
+        else:
+            reads = _fail_reads_of(monkeypatch, code, discovery=where == "discovery")
         now = 5.0
         yield set()
         assert calls == 2
@@ -1692,7 +1724,7 @@ async def test_a_retry_with_an_unread_file_stays_pending(tmp_path, monkeypatch, 
         assert status["index_stale"] is True
         assert status["retry_in_ms"] == 10000
         assert "could not read 1 changed file" in status["last_reindex_error"]
-        reads["fail"] = False
+        reads["fail"] = reads["deny"] = False
         now = 15.0
         yield set()
         assert names() == {"after", "other"}
