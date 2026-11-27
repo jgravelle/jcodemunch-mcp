@@ -2,6 +2,28 @@
 
 ## [Unreleased]
 
+### `check_references` lists at most 50 importing files per name, and says when it cut
+
+`import_references` listed every file that imports the name, with no bound.
+On this repository's own index, `Path` alone came to 706 files and 144,435
+bytes. Five names in one batch came to 384,950 bytes, 279 KB of it import
+rows.
+
+The MCP tool now lists at most `max_import_results` importing files per name
+(default 50; 0 lists all). Two keys arrive with the cap and are always
+present: `import_references_total`, the number of importing files, and
+`import_references_truncated`. `import_count` stays the whole count and
+`is_referenced` is decided from it, so a cut never turns a used name into an
+unused one. This changes the reply for a caller who read the list as complete
+past 50 files.
+
+The Python function still lists every importer by default. The delete and
+edit preflights read that list to decide whether a change is safe, and a test
+fails if any caller in `src/` but the dispatcher passes a cap. The compact
+encoding carries both keys (`cr2`; `cr1` stays readable). The published
+schema grows 61 tokens on the `standard` and `full` surfaces
+(`benchmarks/schema_baseline.json`); `core` and `counter` are unchanged.
+
 ## [1.108.496] - 2026-11-27 - a change under an ignored path no longer runs a watcher pass
 
 ### A change under an ignored path no longer runs a watcher pass (#1581)
