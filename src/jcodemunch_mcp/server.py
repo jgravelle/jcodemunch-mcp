@@ -2782,7 +2782,7 @@ def _build_tools_list(
         ),
         Tool(
             name="check_references",
-            description="Where is a function, class or other identifier used: import sites plus every file whose content mentions it, in one call (find_references + search_text). Answers 'where is X used / referenced' and returns is_referenced (bool) for quick dead-code detection. Accepts multiple identifiers in one call via identifiers param. Content matches are capped at max_content_results (default 20), and a match inside a comment or string still counts as referenced.",
+            description="Where is a function, class or other identifier used: import sites plus every file whose content mentions it, in one call (find_references + search_text). Answers 'where is X used / referenced' and returns is_referenced (bool) for quick dead-code detection. Accepts multiple identifiers in one call via identifiers param. Content matches are capped at max_content_results (default 20) and importing files at max_import_results (default 50, 0 = all), disclosed by import_references_total and import_references_truncated; a match inside a comment or string still counts as referenced.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -2799,6 +2799,10 @@ def _build_tools_list(
                     "max_content_results": {
                         "type": "integer", "default": 20,
                         "description": "Max files to return per identifier for content search.",
+                    },
+                    "max_import_results": {
+                        "type": "integer", "default": 50,
+                        "description": "Max importing files to list per identifier; 0 lists all. import_count stays the total.",
                     },
                 },
                 "required": ["repo"],
@@ -6969,6 +6973,7 @@ async def _call_tool_impl(name: str, arguments: dict) -> list[TextContent] | Cal
                     search_content=arguments.get("search_content", True),
                     max_content_results=arguments.get("max_content_results", 20),
                     storage_path=storage_path,
+                    max_import_results=arguments.get("max_import_results", 50),
                 )
             )
         elif name == "search_columns":

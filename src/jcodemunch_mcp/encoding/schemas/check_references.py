@@ -23,7 +23,9 @@ from __future__ import annotations
 from .. import schema_driven as sd
 
 TOOLS = ("check_references",)
-ENCODING_ID = "cr1"
+ENCODING_ID = "cr2"
+# cr1 carried no import cut (BM-2 plan 3, cap 4).
+LEGACY_ENCODING_IDS = ("cr1",)
 
 _Q_KEY = "__q__"
 _I_KEY = "__i__"
@@ -38,9 +40,10 @@ _NAMES_SEP = "|"
 _TABLES = [
     sd.TableSpec(
         key=_Q_KEY, tag="q",
-        cols=["identifier", "is_referenced", "import_count", "content_count",
-              "content_truncated", "has_content"],
-        types={"is_referenced": "bool", "import_count": "int", "content_count": "int",
+        cols=["identifier", "is_referenced", "import_count", "import_total",
+              "import_truncated", "content_count", "content_truncated", "has_content"],
+        types={"is_referenced": "bool", "import_count": "int", "import_total": "int",
+               "import_truncated": "bool", "content_count": "int",
                "content_truncated": "bool", "has_content": "bool"},
     ),
     sd.TableSpec(
@@ -67,6 +70,7 @@ _SCALAR_TYPES = {
     "_meta.total_tokens_saved": "int",
 }
 _PER_IDENT = ("identifier", "is_referenced", "import_count", "import_references",
+              "import_references_total", "import_references_truncated",
               "content_count", "content_references", "content_truncated")
 
 
@@ -86,6 +90,8 @@ def _flatten(response: dict) -> dict:
             "identifier": entry.get("identifier"),
             "is_referenced": entry.get("is_referenced"),
             "import_count": entry.get("import_count"),
+            "import_total": entry.get("import_references_total"),
+            "import_truncated": entry.get("import_references_truncated"),
             "content_count": entry.get("content_count"),
             "content_truncated": entry.get("content_truncated"),
             "has_content": "content_references" in entry,
@@ -170,6 +176,8 @@ def _unflatten(decoded: dict) -> dict:
             "is_referenced": q.get("is_referenced"),
             "import_count": q.get("import_count"),
             "import_references": _groups(i_rows, qi, _import_match),
+            "import_references_total": q.get("import_total"),
+            "import_references_truncated": q.get("import_truncated"),
             "content_count": q.get("content_count"),
         }
         if q.get("has_content"):
