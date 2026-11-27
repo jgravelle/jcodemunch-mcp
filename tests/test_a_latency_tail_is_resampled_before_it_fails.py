@@ -173,3 +173,61 @@ def test_the_floor_check_reads_the_threshold_file():
     assert passes(KEY, 1.0) is True
     assert passes(KEY, 10_000.0) is False
     assert passes("latency.not_a_floor_warm_p95_ms", 10_000.0) is True
+
+
+def test_the_resample_is_deferred_and_bounded_by_its_constants():
+    """A zero pause re-samples at once, the F-19 rule this replaced; the
+    defaults of `_warm_series` must be the module's constants (review)."""
+    import inspect
+
+    m = _measure()
+    assert m.RESAMPLES == 2 and m.RESAMPLE_PAUSE_S > 0
+    sig = inspect.signature(m._warm_series)
+    assert sig.parameters["resamples"].default == m.RESAMPLES
+    assert sig.parameters["pause"].default == m.RESAMPLE_PAUSE_S
+
+
+def test_run_sizes_each_warm_series_by_warm_n():
+    """`run` takes `warm_n` and the warm sampler loops over it, not over `n`
+    (a parameter that is present and does nothing)."""
+    tree = ast.parse(MEASURE.read_text(encoding="utf-8"))
+    run = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == "run")
+    assert [a.arg for a in run.args.args][:2] == ["n", "warm_n"]
+    sample = next(n for n in ast.walk(run) if isinstance(n, ast.FunctionDef) and n.name == "sample")
+    loops = [n for n in ast.walk(sample) if isinstance(n, ast.For)]
+    assert loops and all(
+        isinstance(f.iter, ast.Call) and getattr(f.iter.func, "id", None) == "range"
+        and isinstance(f.iter.args[0], ast.Name) and f.iter.args[0].id == "warm_n"
+        for f in loops
+    ), ast.dump(sample)
+
+
+DETECTION = REPO / "benchmarks" / "self_latency" / "detection_power.txt"
+
+
+def test_the_detection_table_is_what_its_script_prints():
+    import subprocess
+    import sys
+
+    out = subprocess.run(
+        [sys.executable, str(REPO / "benchmarks" / "self_latency" / "detection_power.py")],
+        capture_output=True, text=True, check=True,
+    ).stdout
+    assert out == DETECTION.read_text(encoding="utf-8")
+
+
+def test_every_probability_in_the_metric_history_is_in_the_detection_table():
+    """The 2026-11-27 history entries quote only numbers the committed table prints."""
+    import json
+    import re
+
+    table = DETECTION.read_text(encoding="utf-8")
+    rows = json.loads((REPO / "harness" / "thresholds.json").read_text(encoding="utf-8"))["thresholds"]
+    seen = 0
+    for t in rows:
+        if t["id"].startswith("latency.") and t["id"].endswith("_warm_p95_ms"):
+            entry = next(h for h in t["history"] if h["date"] == "2026-11-27")
+            for num in re.findall(r"\b0\.\d{4}\b", entry["reason"]):
+                assert num in table, (t["id"], num)
+                seen += 1
+    assert seen >= 4 * 6

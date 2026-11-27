@@ -654,9 +654,9 @@
         },
         {
           "floor": 23,
-          "commit": "29ca4ed8",
+          "commit": "2754c527",
           "date": "2026-11-27",
-          "reason": "floor unchanged; the METRIC changed: a warm series is 40 calls (was 20), and a failing series is re-sampled after every tool's first series, up to twice after a pause, with the lowest p95 gated (was: once, at once, the second gated). PR 1580, a LEDGER-only diff, failed two of these Floors on the old rule. Detection, for a defect slowing a share of calls past the Floor (evidence/detection-power.txt): 10% of calls fails with p 0.4694 (old rule 0.3700), 5% with p 0.0338 (old 0.0698), so a noise-sized tail fails less often and a regression from about 8% of calls up fails more often."
+          "reason": "floor unchanged; the METRIC changed (2754c527, PR 1580): a warm series is 40 calls (was 20), and a failing series is re-sampled after every tool's first series, up to twice after a 2 s pause, with the lowest p95 gated (was: once, at once, the second gated). PR 1580, a LEDGER-only diff, failed two of these Floors on the old rule. What it buys: two preempted calls and no other slow call no longer fail a series (they did at 20 calls). What it costs, in the share-of-slow-calls model of benchmarks/self_latency/detection_power.txt (independent series; it models neither a fixed count of preemptions nor the pause): a regression slowing a small share of calls is caught less often, 5% of calls with p 0.0338 (old rule 0.0698) and 2% with p 0.0001 (old 0.0036); from a share of 0.0755 up it is caught at least as often, 10% with p 0.4694 (old 0.3700)."
         }
       ],
       "enforced_by": [
@@ -692,9 +692,9 @@
         },
         {
           "floor": 271,
-          "commit": "29ca4ed8",
+          "commit": "2754c527",
           "date": "2026-11-27",
-          "reason": "floor unchanged; the METRIC changed: a warm series is 40 calls (was 20), and a failing series is re-sampled after every tool's first series, up to twice after a pause, with the lowest p95 gated (was: once, at once, the second gated). PR 1580, a LEDGER-only diff, failed two of these Floors on the old rule. Detection, for a defect slowing a share of calls past the Floor (evidence/detection-power.txt): 10% of calls fails with p 0.4694 (old rule 0.3700), 5% with p 0.0338 (old 0.0698), so a noise-sized tail fails less often and a regression from about 8% of calls up fails more often."
+          "reason": "floor unchanged; the METRIC changed (2754c527, PR 1580): a warm series is 40 calls (was 20), and a failing series is re-sampled after every tool's first series, up to twice after a 2 s pause, with the lowest p95 gated (was: once, at once, the second gated). PR 1580, a LEDGER-only diff, failed two of these Floors on the old rule. What it buys: two preempted calls and no other slow call no longer fail a series (they did at 20 calls). What it costs, in the share-of-slow-calls model of benchmarks/self_latency/detection_power.txt (independent series; it models neither a fixed count of preemptions nor the pause): a regression slowing a small share of calls is caught less often, 5% of calls with p 0.0338 (old rule 0.0698) and 2% with p 0.0001 (old 0.0036); from a share of 0.0755 up it is caught at least as often, 10% with p 0.4694 (old 0.3700)."
         }
       ],
       "enforced_by": [
@@ -730,9 +730,9 @@
         },
         {
           "floor": 27,
-          "commit": "29ca4ed8",
+          "commit": "2754c527",
           "date": "2026-11-27",
-          "reason": "floor unchanged; the METRIC changed: a warm series is 40 calls (was 20), and a failing series is re-sampled after every tool's first series, up to twice after a pause, with the lowest p95 gated (was: once, at once, the second gated). PR 1580, a LEDGER-only diff, failed two of these Floors on the old rule. Detection, for a defect slowing a share of calls past the Floor (evidence/detection-power.txt): 10% of calls fails with p 0.4694 (old rule 0.3700), 5% with p 0.0338 (old 0.0698), so a noise-sized tail fails less often and a regression from about 8% of calls up fails more often."
+          "reason": "floor unchanged; the METRIC changed (2754c527, PR 1580): a warm series is 40 calls (was 20), and a failing series is re-sampled after every tool's first series, up to twice after a 2 s pause, with the lowest p95 gated (was: once, at once, the second gated). PR 1580, a LEDGER-only diff, failed two of these Floors on the old rule. What it buys: two preempted calls and no other slow call no longer fail a series (they did at 20 calls). What it costs, in the share-of-slow-calls model of benchmarks/self_latency/detection_power.txt (independent series; it models neither a fixed count of preemptions nor the pause): a regression slowing a small share of calls is caught less often, 5% of calls with p 0.0338 (old rule 0.0698) and 2% with p 0.0001 (old 0.0036); from a share of 0.0755 up it is caught at least as often, 10% with p 0.4694 (old 0.3700)."
         }
       ],
       "enforced_by": [
@@ -768,9 +768,9 @@
         },
         {
           "floor": 28,
-          "commit": "29ca4ed8",
+          "commit": "2754c527",
           "date": "2026-11-27",
-          "reason": "floor unchanged; the METRIC changed: a warm series is 40 calls (was 20), and a failing series is re-sampled after every tool's first series, up to twice after a pause, with the lowest p95 gated (was: once, at once, the second gated). PR 1580, a LEDGER-only diff, failed two of these Floors on the old rule. Detection, for a defect slowing a share of calls past the Floor (evidence/detection-power.txt): 10% of calls fails with p 0.4694 (old rule 0.3700), 5% with p 0.0338 (old 0.0698), so a noise-sized tail fails less often and a regression from about 8% of calls up fails more often."
+          "reason": "floor unchanged; the METRIC changed (2754c527, PR 1580): a warm series is 40 calls (was 20), and a failing series is re-sampled after every tool's first series, up to twice after a 2 s pause, with the lowest p95 gated (was: once, at once, the second gated). PR 1580, a LEDGER-only diff, failed two of these Floors on the old rule. What it buys: two preempted calls and no other slow call no longer fail a series (they did at 20 calls). What it costs, in the share-of-slow-calls model of benchmarks/self_latency/detection_power.txt (independent series; it models neither a fixed count of preemptions nor the pause): a regression slowing a small share of calls is caught less often, 5% of calls with p 0.0338 (old rule 0.0698) and 2% with p 0.0001 (old 0.0036); from a share of 0.0755 up it is caught at least as often, 10% with p 0.4694 (old 0.3700)."
         }
       ],
       "enforced_by": [
