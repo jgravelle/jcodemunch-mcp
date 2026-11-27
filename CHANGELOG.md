@@ -15,7 +15,8 @@ watchfiles naming the resolved path, so every batch failed this way.
 An event path whose real path lies under the watched folder's real path is
 now spelled under the watched folder and indexed. Any other path names no
 file of that tree and is dropped, with one warning per watch task. The rest
-of the batch is indexed either way.
+of the batch is indexed either way. @OpenLucasKaka diagnosed the same cause
+and proposed the same fix independently in #1584.
 
 ### One locked file no longer fails the whole re-index (L-350)
 
