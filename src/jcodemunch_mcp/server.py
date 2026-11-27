@@ -3975,7 +3975,7 @@ def _build_tools_list(
                     },
                     "max_results": {
                         "type": "integer",
-                        "description": "Cap on returned dead symbols (default 100, 0 = unlimited). _meta.truncated + _meta.total_matches flag when capped.",
+                        "description": "Cap on returned dead symbols (default 100, 0 = unlimited). dead_symbols_total and dead_symbols_truncated say when it cut.",
                         "default": 100,
                         "minimum": 0,
                     },
@@ -6025,12 +6025,17 @@ def _handle_menu(arguments: dict) -> list[TextContent]:
     except (TypeError, ValueError):
         limit = 25
     limit = max(1, min(limit, 200))
-    rows = _counter.search_catalog(_catalog_rows(), query, limit)
+    catalog = _catalog_rows()
+    # Ranked in full, then cut: `count` is the page and `matched_total` how
+    # many actions the query matched, so a cut page does not read as all.
+    matched = _counter.search_catalog(catalog, query, max(1, len(catalog)))
+    rows = matched[:limit]
     clean = [{k: v for k, v in r.items() if k != "_description"} for r in rows]
     payload = {
         "tool": "menu",
         "query": query or None,
         "count": len(clean),
+        "matched_total": len(matched),
         "total_actions": len(_catalog_names()),
         "actions": clean,
         "hint": "Dispatch with order(action, args). Get a task->action pick with route(task).",

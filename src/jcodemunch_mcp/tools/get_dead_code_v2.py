@@ -1142,9 +1142,9 @@ def get_dead_code_v2(
                         reachable and skipped.
         max_results:    Cap on returned symbols (default 100). Pre-1.80.7
                         the response was unbounded; on large libraries this
-                        could exceed 8k tokens per call. ``_meta.truncated``
-                        + ``_meta.total_matches`` flag when capped. Use 0
-                        for unlimited.
+                        could exceed 8k tokens per call. ``dead_symbols_total``
+                        and ``dead_symbols_truncated`` (and their ``_meta``
+                        twins) flag when capped. Use 0 for unlimited.
         file_pattern:   Optional glob (e.g. ``"src/**"``, ``"*.py"``) — only
                         analyse symbols whose file matches. Smaller scope
                         means smaller, faster, more actionable results.
@@ -1518,6 +1518,10 @@ def get_dead_code_v2(
     result: dict = {
         "repo": f"{owner}/{name}",
         "dead_symbols": dead_symbols,
+        # The cut's disclosure in the BODY: `_meta` is stripped on a default
+        # install (`meta_fields: []`), where a list of 100 read as complete.
+        "dead_symbols_total": total_matches,
+        "dead_symbols_truncated": truncated,
         "total_analysed": sum(
             1 for s in index.symbols
             if s.get("kind") in ("function", "method")
@@ -1770,6 +1774,8 @@ def _call_graph_only_dead_code(
     result = {
         "repo": f"{owner}/{name}",
         "dead_symbols": dead_symbols,
+        "dead_symbols_total": total_matches,
+        "dead_symbols_truncated": truncated,
         "total_analysed": total_analysed,
         "_meta": {
             "mode": "call_graph_only",
