@@ -25,8 +25,9 @@ stand in for keeps the cap and the old warning: another blocker (a stale
 index, a runtime enumeration), a listing cut short, a file that cannot be read
 or is not UTF-8 text, a file with no known language, a data or config file
 (JSON, YAML, TOML, XML), whose entry points and path aliases are read before
-the withheld files are, and Go, whose edges come from package membership and
-`go.mod` at load. `check_delete_safe` keeps its
+the withheld files are, and a file in a language whose edges the index adds
+at load (Go module paths, Kotlin and Java top-level declarations, Racket
+collection paths, PHP PSR-4), which a read from disk does not replay. `check_delete_safe` keeps its
 own adequacy check and still refuses a delete over withheld files.
 
 ## [1.108.495] - 2026-11-27 - a watch event outside the watched folder no longer fails the whole batch

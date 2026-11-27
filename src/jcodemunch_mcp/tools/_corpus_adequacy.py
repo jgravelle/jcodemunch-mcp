@@ -60,6 +60,14 @@ NUL = bytes([0])
 #: the cap (L-352 review round 3).
 DATA_LANGUAGES = frozenset({"json", "yaml", "toml", "xml"})
 
+#: Languages whose import edges ``CodeIndex.__post_init__`` adds or resolves
+#: at load, beyond ``resolve_specifier``: Go module paths (L-264), Kotlin and
+#: Java top-level declarations (#1376), Racket collection paths, and the PHP
+#: PSR-4 map. A withheld file in one of them would miss those edges, so it
+#: keeps the cap (L-352 review round 4). A ratchet reads ``index_store.py``
+#: and fails when a load-time gate names a language missing here.
+LOAD_AUGMENTED_LANGUAGES = frozenset({"go", "kotlin", "java", "racket", "php"})
+
 
 class CorpusAdequacy:
     """Whether an absence claim over this index is publishable, and why not."""
@@ -187,8 +195,9 @@ def read_withheld_files(index) -> Optional[dict]:
     - a file that is not UTF-8 text (a NUL byte or a failed decode), since
       text decoded with replacements would name nothing;
     - a file with no known language, whose imports nothing can extract;
-    - a Go file: Go edges come from package membership and the ``go.mod``
-      module map at load (L-264), which ``resolve_specifier`` does not apply;
+    - a file in :data:`LOAD_AUGMENTED_LANGUAGES` (Go, Kotlin, Java, Racket,
+      PHP): the index adds those edges at load, which ``resolve_specifier``
+      does not apply to a text read from disk;
     - a data or config file (:data:`DATA_LANGUAGES`): manifests feed entry
       points and alias maps that are built before this read and never see it.
     """
@@ -212,7 +221,7 @@ def read_withheld_files(index) -> Optional[dict]:
     out: dict = {}
     for rel in sorted(listed):
         language = get_language_for_path(rel)
-        if not language or language == "go" or language in DATA_LANGUAGES:
+        if not language or language in LOAD_AUGMENTED_LANGUAGES or language in DATA_LANGUAGES:
             return None
         path = os.path.realpath(os.path.join(base, rel))
         if os.path.commonpath([base, path]) != base:

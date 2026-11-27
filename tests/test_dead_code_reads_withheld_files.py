@@ -241,3 +241,34 @@ def test_a_released_run_reads_adequate(repo):
     repo_id, store, _ = repo
     ca = _dead(repo_id, store)["corpus_adequacy"]
     assert ca["adequate"] is True and "blockers" not in ca
+
+
+KT_PAD = "".join(f"fun big{i}(): Int = {i}\n" for i in range(4000))
+
+
+def test_a_withheld_kotlin_importer_keeps_the_cap(tmp_path):
+    """Review round 4, finding 1: a Kotlin import of a top-level declaration
+    gains its edge at load (#1376), which a disk read does not replay."""
+    repo_id, store = _tree(tmp_path, {
+        "app/Main.kt": "package app\n\nimport a.b.buildSnapshot\n\nfun main() { buildSnapshot() }\n" + KT_PAD,
+        "a/b/SnapshotMapper.kt": "package a.b\n\nfun buildSnapshot(): Int = 1\n",
+    })
+    r = _dead(repo_id, store, min_confidence=0)
+    for entry in r["dead_files"]:
+        assert entry["confidence"] <= UNPROVEN_CEILING, entry
+    assert "signal_warning" in r
+
+
+def test_every_load_time_edge_language_keeps_the_cap():
+    """A language gate in CodeIndex's load names a language the read refuses.
+    Reads the source, so a new augmenter must join the set or this fails."""
+    import re
+    from pathlib import Path
+
+    from jcodemunch_mcp.storage import index_store
+    from jcodemunch_mcp.tools._corpus_adequacy import LOAD_AUGMENTED_LANGUAGES
+
+    text = Path(index_store.__file__).read_text(encoding="utf-8")
+    gated = set(re.findall(r'"([a-z]+)" in (?:self\.languages|langs|\(self\.languages)', text))
+    assert gated, "the scan found no language gate; the pattern no longer matches index_store"
+    assert gated <= LOAD_AUGMENTED_LANGUAGES, sorted(gated - LOAD_AUGMENTED_LANGUAGES)

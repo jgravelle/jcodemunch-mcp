@@ -295,7 +295,8 @@ def find_dead_code(
     # it: imports through the indexer's extractor and the graph's resolver,
     # render edges, runtime package enumeration and dynamic-import sites. Each
     # withheld file is a live root, since nothing here shows it dead. Whatever
-    # the read cannot stand in for (another blocker, a cut listing, Go, a
+    # the read cannot stand in for (another blocker, a cut listing, a
+    # language the index augments at load such as Go or Kotlin, a
     # data or config file, an undecodable file) keeps the cap. Entry points
     # above read no withheld file: a withheld manifest is refused for that.
     withheld = (
