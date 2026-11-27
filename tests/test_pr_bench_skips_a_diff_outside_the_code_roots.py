@@ -1,7 +1,7 @@
 """The PR-gate bench jobs skip-pass a diff that touches no stamp code root.
 
 PR 1580 changed only docs/workflows/LEDGER.md and failed the PR bench tier on
-two latency readings, then waited on a rerun. J's ruling (DECISIONS
+two latency readings, then waited on a rerun. The maintainer's ruling (
 2026-11-27, row 1623): the PR-gate bench skip-passes when a diff touches no
 stamp code root, and the post-merge bench on main is unchanged.
 

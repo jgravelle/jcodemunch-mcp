@@ -1,4 +1,4 @@
-"""Does this PR's diff need the PR-gate bench? (J, DECISIONS 2026-11-27, row 1623)
+"""Does this PR's diff need the PR-gate bench? (maintainer ruling, 2026-11-27)
 
 The PR-gate bench jobs skip-pass a diff that touches no stamp code root: a
 LEDGER-only change (PR 1580) cannot move a latency or token Floor, and failing
@@ -28,7 +28,7 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
 RULE = (
-    "J 2026-11-27: the PR bench skip-passes a diff that touches no stamp code root; "
+    "Maintainer ruling 2026-11-27: the PR bench skip-passes a diff that touches no stamp code root; "
     "the bench on main still runs after the merge"
 )
 
