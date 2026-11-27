@@ -27,7 +27,11 @@ fails if any caller in `src/` but the dispatcher passes a cap. The compact
 encoding carries both keys (`cr2`, which adds its columns after `cr1`'s, so a
 `cr1` payload still decodes to the answer it was). The published
 schema grows 61 tokens on the `standard` and `full` surfaces
-(`benchmarks/schema_baseline.json`); `core` and `counter` are unchanged.
+(`benchmarks/schema_baseline.json`); `core` and `counter` are unchanged. The
+new description words move one `menu` query, which now ranks
+`check_references` second: `menu` recall @3 goes from 72.9 to 74.6 and @5
+from 79.7 to 81.4, and `route` recall is unchanged
+(`benchmarks/route_recall/results.json`).
 
 ## [1.108.496] - 2026-11-27 - a change under an ignored path no longer runs a watcher pass
 
