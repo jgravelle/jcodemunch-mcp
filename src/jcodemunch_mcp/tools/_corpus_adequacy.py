@@ -159,6 +159,69 @@ def _repo_freshness(index) -> str:
         return "unknown"
 
 
+def read_withheld_texts(index) -> Optional[dict]:
+    """``{path: text}`` of every file the index withheld, or None (L-352).
+
+    A file withheld for size is missing from the INDEX, not from the tree, so
+    the imports it makes can still be read from disk. None whenever that read
+    cannot cover the whole withheld set: a withheld reason other than size, a
+    listing that was truncated or does not account for the total, no local
+    source root, or a file that cannot be read. None keeps the cap; this only
+    ever lifts it on a complete read.
+    """
+    from ..retrieval.verdict import WITHHELD_FILES_KEY
+
+    cov = getattr(index, "coverage", None) or {}
+    withheld = cov.get("withheld") or {}
+    if not withheld or set(withheld) != {"too_large"}:
+        return None
+    listed = cov.get(WITHHELD_FILES_KEY)
+    if not isinstance(listed, dict) or not listed or cov.get("withheld_files_truncated"):
+        return None
+    if cov.get("withheld_files_total") != len(listed) or withheld["too_large"] != len(listed):
+        return None
+    root = getattr(index, "source_root", None)
+    if not root or not os.path.isdir(root):
+        return None
+    base = os.path.realpath(root)
+    texts: dict = {}
+    for rel in sorted(listed):
+        path = os.path.realpath(os.path.join(base, rel))
+        if os.path.commonpath([base, path]) != base:
+            return None
+        try:
+            with open(path, "rb") as fh:
+                texts[rel] = fh.read().decode("utf-8", errors="replace")
+        except OSError:
+            logger.debug("withheld file %s could not be read", rel, exc_info=True)
+            return None
+    return texts
+
+
+def module_names(path: str) -> list[str]:
+    """The names an import of *path* can be written with: its stem, and its
+    folder's name for an index or init file. A withheld file that names none of
+    them cannot import the file by any of the specifiers the graph resolves."""
+    parts = path.replace("\\", "/").split("/")
+    stem = parts[-1].split(".", 1)[0]
+    names = [stem] if stem else []
+    if stem in ("index", "__init__", "mod", "main") and len(parts) > 1:
+        names.append(parts[-2])
+    return names
+
+
+def withheld_files_naming(texts: dict, names: list[str]) -> list[str]:
+    """The withheld files whose text contains any of *names* as a word."""
+    import re
+
+    from ..word_rule import word_pattern
+
+    if not names:
+        return sorted(texts)
+    rx = re.compile("|".join(word_pattern(n) for n in names))
+    return [rel for rel, text in sorted(texts.items()) if rx.search(text)]
+
+
 def assess_corpus(index, *, extra_blockers=()) -> CorpusAdequacy:
     """Assess whether this index can back a proof of unreachability.
 

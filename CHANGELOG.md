@@ -2,6 +2,26 @@
 
 ## [Unreleased]
 
+### A dead-code answer over withheld files reads them instead of refusing (L-352)
+
+When the index withheld a file for size, `find_dead_code` capped every
+finding at 0.6, below its 0.8 default threshold, and the only advice it gave
+was to re-index with a higher `max_file_size`. A session cannot do that: no
+tool takes the setting. In BM-2's dead-code task on vscode, where 29 files were
+withheld, 16 of 18 calls came back as this refusal, and the sessions then gave
+up or fell back to long grep-and-read loops.
+
+A withheld file is missing from the index, not from the tree. When withheld
+files are the only reason for the cap, the record lists every one of them and
+each can be read, `find_dead_code` now reads them. A candidate whose module
+name appears in none of them is reported at its graph confidence. A candidate
+a withheld file names stays capped, with `named_by_withheld` naming the file.
+The reply lists the withheld files and says which one to read to settle a
+candidate. Anything the read cannot settle keeps the cap and the old warning:
+another blocker (a stale index, a runtime enumeration), a listing cut short,
+or a withheld file that cannot be read. `check_delete_safe` is unchanged and
+still refuses a delete over withheld files.
+
 ## [1.108.495] - 2026-11-27 - a watch event outside the watched folder no longer fails the whole batch
 
 ### A watch event outside the watched folder no longer fails the whole batch (#1582)
