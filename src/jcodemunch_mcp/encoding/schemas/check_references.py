@@ -21,9 +21,14 @@ schema does not carry ships as JSON instead of arriving with something missing.
 from __future__ import annotations
 
 from .. import schema_driven as sd
+from ..format import parse_header
 
 TOOLS = ("check_references",)
-ENCODING_ID = "cr1"
+ENCODING_ID = "cr2"
+# cr1 carried no import cut. cr2 appends `import_total` and
+# `import_truncated` AFTER cr1's columns, so a cr1 row reads by position
+# unchanged, and decode leaves both keys out of a cr1 answer.
+LEGACY_ENCODING_IDS = ("cr1",)
 
 _Q_KEY = "__q__"
 _I_KEY = "__i__"
@@ -39,8 +44,9 @@ _TABLES = [
     sd.TableSpec(
         key=_Q_KEY, tag="q",
         cols=["identifier", "is_referenced", "import_count", "content_count",
-              "content_truncated", "has_content"],
-        types={"is_referenced": "bool", "import_count": "int", "content_count": "int",
+              "content_truncated", "has_content", "import_total", "import_truncated"],
+        types={"is_referenced": "bool", "import_count": "int", "import_total": "int",
+               "import_truncated": "bool", "content_count": "int",
                "content_truncated": "bool", "has_content": "bool"},
     ),
     sd.TableSpec(
@@ -67,6 +73,7 @@ _SCALAR_TYPES = {
     "_meta.total_tokens_saved": "int",
 }
 _PER_IDENT = ("identifier", "is_referenced", "import_count", "import_references",
+              "import_references_total", "import_references_truncated",
               "content_count", "content_references", "content_truncated")
 
 
@@ -86,6 +93,8 @@ def _flatten(response: dict) -> dict:
             "identifier": entry.get("identifier"),
             "is_referenced": entry.get("is_referenced"),
             "import_count": entry.get("import_count"),
+            "import_total": entry.get("import_references_total"),
+            "import_truncated": entry.get("import_references_truncated"),
             "content_count": entry.get("content_count"),
             "content_truncated": entry.get("content_truncated"),
             "has_content": "content_references" in entry,
@@ -155,7 +164,7 @@ def _content_match(row: dict, file: str) -> dict:
     return match
 
 
-def _unflatten(decoded: dict) -> dict:
+def _unflatten(decoded: dict, enc_id: str = ENCODING_ID) -> dict:
     q_rows = decoded.pop(_Q_KEY, None) or []
     i_rows = decoded.pop(_I_KEY, None) or []
     c_rows = decoded.pop(_C_KEY, None) or []
@@ -170,8 +179,12 @@ def _unflatten(decoded: dict) -> dict:
             "is_referenced": q.get("is_referenced"),
             "import_count": q.get("import_count"),
             "import_references": _groups(i_rows, qi, _import_match),
+            "import_references_total": q.get("import_total"),
+            "import_references_truncated": q.get("import_truncated"),
             "content_count": q.get("content_count"),
         }
+        if enc_id == "cr1":
+            del entry["import_references_total"], entry["import_references_truncated"]
         if q.get("has_content"):
             entry["content_references"] = _groups(c_rows, qi, _content_match)
             entry["content_truncated"] = q.get("content_truncated")
@@ -198,4 +211,5 @@ def decode(payload: str) -> dict:
         payload, _TABLES, _SCALARS, meta_keys=_META, meta_json_blobs=_META_JSON,
         json_blobs=(_META_EXTRA,), scalar_types=_SCALAR_TYPES,
     )
-    return _unflatten(decoded)
+    enc_id = parse_header(payload.partition("\n")[0]).get("enc", ENCODING_ID)
+    return _unflatten(decoded, enc_id)
