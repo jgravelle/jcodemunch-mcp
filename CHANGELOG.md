@@ -10,9 +10,14 @@ install strips `_meta` (`meta_fields` is empty), so a capped list of 100
 read as every dead symbol there was. The reply now carries
 `dead_symbols_total` and `dead_symbols_truncated` beside the list, in both
 the three-signal and the call-graph-only modes; the `_meta` keys stay for
-existing readers. `menu` lists at most `limit` actions and said only how
-many it returned (`count`); it now also says how many the query matched
-(`matched_total`). No list changes length.
+existing readers. A reply that refuses because no candidate can reach
+`min_confidence` (`signal_warning`) carries neither key: its empty list is not
+a count. `menu` lists at most `limit` actions and said only how many it
+returned (`count`); it now also says how many actions the page was cut from
+(`matched_total`), which is the whole catalog when there is no query or the
+query is only function words. No list changes length. The `max_results`
+description changes wording and the published token counts do not move
+(`benchmarks/schema_baseline.json` regenerates unchanged).
 
 ## [1.108.496] - 2026-11-27 - a change under an ignored path no longer runs a watcher pass
 

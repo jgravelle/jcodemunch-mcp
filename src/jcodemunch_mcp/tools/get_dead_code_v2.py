@@ -1607,6 +1607,12 @@ def get_dead_code_v2(
                 "remaining lever is lowering min_confidence."
             )
         )
+        if ceiling < min_confidence:
+            # Nothing could be returned, so the empty list is a refusal, not
+            # a count: a body total of 0 would read as "no dead code" on a
+            # default install, the UNKNOWN-as-zero shape of #559.
+            result.pop("dead_symbols_total", None)
+            result.pop("dead_symbols_truncated", None)
     if entry_point_count == 0:
         result["framework_warning"] = (
             "No standard entry points detected (e.g. main.py, app.py, __main__.py). "

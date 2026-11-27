@@ -107,3 +107,23 @@ def test_menu_with_no_query_matches_the_whole_catalog():
     assert out["count"] == 3
     whole = _menu({"limit": 200})
     assert out["matched_total"] == whole["matched_total"] == whole["count"]
+
+
+def test_a_refusal_carries_no_total(tmp_path):
+    """When no candidate can reach min_confidence the empty list is a refusal
+    (`signal_warning`), so no total of 0 is published beside it."""
+    src = tmp_path / "proj"
+    src.mkdir()
+    (src / "a.py").write_text(
+        "".join(f"def f{i}():\n    return {i}\n\n\n" for i in range(30)), encoding="utf-8"
+    )
+    # an import edge, so the three-signal path runs; nothing calls anything
+    (src / "b.py").write_text("import a\n\n\ndef g():\n    return 0\n", encoding="utf-8")
+    r = index_folder(str(src), use_ai_summaries=False, storage_path=str(tmp_path / "store"))
+    assert r.get("success"), r
+    out = get_dead_code_v2(r["repo"], storage_path=str(tmp_path / "store"))
+    assert "signal_diagnostics" in out["_meta"], out["_meta"]
+    ceiling = out["_meta"]["signal_diagnostics"]["max_achievable_confidence"]
+    assert "signal_warning" in out and ceiling < 0.5, (ceiling, out.get("signal_warning"))
+    assert out["dead_symbols"] == []
+    assert "dead_symbols_total" not in out and "dead_symbols_truncated" not in out

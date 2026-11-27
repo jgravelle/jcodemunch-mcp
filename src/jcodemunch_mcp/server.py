@@ -6026,8 +6026,9 @@ def _handle_menu(arguments: dict) -> list[TextContent]:
         limit = 25
     limit = max(1, min(limit, 200))
     catalog = _catalog_rows()
-    # Ranked in full, then cut: `count` is the page and `matched_total` how
-    # many actions the query matched, so a cut page does not read as all.
+    # Ranked in full, then cut: `count` is the page and `matched_total` the
+    # list it was cut from (the whole catalog with no query, or a query of
+    # function words only), so a cut page does not read as all.
     matched = _counter.search_catalog(catalog, query, max(1, len(catalog)))
     rows = matched[:limit]
     clean = [{k: v for k, v in r.items() if k != "_description"} for r in rows]
