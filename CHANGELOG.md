@@ -2,22 +2,6 @@
 
 ## [Unreleased]
 
-### A watch event outside the watched folder no longer fails the whole batch (#1582)
-
-Reported by @Braxhim. The watcher keys every event by its path relative to
-the watched folder. An event whose path is not under that spelling raised,
-and the error handler failed the whole batch: the other edits in it were not
-indexed, the repository was marked failed and a retry was scheduled. When a
-watched folder is reached through a symlink, as after a folder is moved to
-another volume and a link is left at the old path, the report shows
-watchfiles naming the resolved path, so every batch failed this way.
-
-An event path whose real path lies under the watched folder's real path is
-now spelled under the watched folder and indexed. Any other path names no
-file of that tree and is dropped, with one warning per watch task. The rest
-of the batch is indexed either way. @OpenLucasKaka diagnosed the same cause
-and proposed the same fix independently in #1584.
-
 ### A change under an ignored path no longer runs a watcher pass (#1581)
 
 Reported by @Braxhim, with the numbers: a repository whose gitignored
@@ -45,6 +29,34 @@ to a `.gitignore` always passes. A framework profile's defaults are not
 used, since which folder the walk detects them at depends on its identity
 mode. A batch left empty is handled as an idle wake-up, so a due retry
 still runs while ignored events keep arriving.
+
+## [1.108.495] - 2026-11-27 - a watch event outside the watched folder no longer fails the whole batch
+
+### A watch event outside the watched folder no longer fails the whole batch (#1582)
+
+Reported by @Braxhim. The watcher keys every event by its path relative to
+the watched folder. An event whose path is not under that spelling raised,
+and the error handler failed the whole batch: the other edits in it were not
+indexed, the repository was marked failed and a retry was scheduled. When a
+watched folder is reached through a symlink, as after a folder is moved to
+another volume and a link is left at the old path, the report shows
+watchfiles naming the resolved path, so every batch failed this way.
+
+An event path whose real path lies under the watched folder's real path is
+now spelled under the watched folder and indexed. Any other path names no
+file of that tree and is dropped, with one warning per watch task. The rest
+of the batch is indexed either way. @OpenLucasKaka diagnosed the same cause
+and proposed the same fix independently in #1584.
+
+### A key-anchored secret after a closing subscript or JSON-escaped quotes is redacted (#1575)
+
+Reported and fixed by @goranai in #1576. The `aws_secret_key`, `azure_storage_key`, `azure_client_secret` and
+`generic_api_key` patterns allowed only spaces, `:`, `=` and quotes between the
+key name and the value. `os.environ["AWS_SECRET_ACCESS_KEY"] = "..."` has a `]`
+there, and the same line stored JSON-escaped in a notebook has a backslash, so
+the value was returned by `search_text` and the other redacted tools. Both
+characters are now allowed in that gap. `generic_api_key` keeps its mixed-case,
+digit and entropy gate, so identifiers and short values are still left alone.
 
 ## [1.108.494] - 2026-11-26 - one locked file no longer fails the whole re-index
 

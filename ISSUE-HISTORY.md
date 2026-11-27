@@ -3572,3 +3572,9 @@ The 1.108.490 entry, verbatim as it stood in `CLAUDE.md`:
 The 1.108.491 entry, verbatim as it stood in `CLAUDE.md`:
 
 - **Prior (1.108.491):** **a delete blocked only by a file import says so** (L-348): `check_delete_safe` returns the bounded `file_import_only` (cause `import_gap`) when the reference search read every importer and the own file and found no use. Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-27, release 1.108.495)
+
+The 1.108.492 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.492):** **the index cache sees another process's write and stops reloading for nothing** (L-342..L-346): `load_index` keys its cache at the pre-read stamp; coverage and file-cap writes keep the warm index; the light view carries the Racket stamp; search write-backs check the store's rule first. Full text: `CHANGELOG.md`.

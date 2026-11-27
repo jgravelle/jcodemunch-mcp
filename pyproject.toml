@@ -1,6 +1,6 @@
 [project]
 name = "jcodemunch-mcp"
-version = "1.108.494"
+version = "1.108.495"
 description = "MCP server that gives AI coding agents the exact function or class they asked for, not the whole file. Runs on your machine, 70+ languages. Free for non-commercial use; commercial use needs a one-time license."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -141,6 +141,9 @@ exclude = [
     # Git-only: pins tests/fixtures/racket/*.rkt to LF for the frozen byte-position
     # oracle. A checkout concern, not a distribution one.
     ".gitattributes",
+    # The PR secret scan's per-finding allowlist (two test-value fingerprints
+    # from #1576). Read by the scan in CI, never by an installed package.
+    ".gitleaksignore",
     "index.php",
     "vscode-extension/node_modules/",
     "vscode-extension/out/",

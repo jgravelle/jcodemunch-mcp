@@ -170,3 +170,44 @@ class TestBearerTokenQuotedForms:
             out, count = _redact_string(line)
             assert count == 0, line
             assert out == line
+
+
+class TestKeyAnchoredSubscriptAndEscapedForms:
+    """A key-anchored value after a closing subscript or JSON-escaped quotes."""
+
+    AWS = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
+    API = "aB3dE5gH7jK9mN1pQ3" + "sT5vW7yZ1bC3dE5fG"  # gitleaks:allow (a test value, not a credential)
+    CLIENT = "aaaaaaaaaa~._-ZZZZZZZZZZZZZZZZZZZZZZZZZ"
+
+    def test_subscript_assignments_redacted(self):
+        for line, secret, label in (
+            (f'os.environ["AWS_SECRET_ACCESS_KEY"] = "{self.AWS}"', self.AWS, "aws_secret_key"),
+            (f"os.environ['AWS_SECRET_ACCESS_KEY'] = '{self.AWS}'", self.AWS, "aws_secret_key"),
+            (f'config["api_key"] = "{self.API}"', self.API, "generic_api_key"),
+            (f"settings['client_secret'] = '{self.CLIENT}'", self.CLIENT, "azure_client_secret"),
+        ):
+            out, count = _redact_string(line)
+            assert count == 1, line
+            assert secret not in out, line
+            assert f"[REDACTED:{label}]" in out, line
+
+    def test_json_escaped_forms_redacted(self):
+        bs = chr(92)
+        for line, secret in (
+            ('os.environ[' + bs + '"AWS_SECRET_ACCESS_KEY' + bs + '"] = ' + bs + '"' + self.AWS + bs + '"', self.AWS),
+            ('{' + bs + '"api_key' + bs + '": ' + bs + '"' + self.API + bs + '"}', self.API),
+            ('{' + bs + '"client_secret' + bs + '": ' + bs + '"' + self.CLIENT + bs + '"}', self.CLIENT),
+        ):
+            out, count = _redact_string(line)
+            assert count == 1, line
+            assert secret not in out, line
+
+    def test_short_or_identifier_values_preserved(self):
+        for line in (
+            'os.environ["AWS_SECRET_ACCESS_KEY"] = "short"',
+            'config["api_key"] = "DEFAULT_CONFIG_IDENTIFIER_CONSTANT_VALUE"',
+            'settings["client_secret"] = "tooshort"',
+        ):
+            out, count = _redact_string(line)
+            assert count == 0, line
+            assert out == line
