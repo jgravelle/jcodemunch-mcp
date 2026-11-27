@@ -38,9 +38,11 @@ from __future__ import annotations
 
 import logging
 import os
+from pathlib import Path
 from typing import Optional
 
 from ..retrieval.verdict import index_coverage_meta
+from ..security import resolve_within
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +52,23 @@ logger = logging.getLogger(__name__)
 #: ``signal_warning`` naming the cause, because a bare empty list is the
 #: ``dead_code_pct: 0.0`` shape (#559) read from the other end.
 UNPROVEN_CEILING = 0.6
+
+#: A NUL byte marks a file that is not UTF-8 text (UTF-16 and binaries).
+NUL = bytes([0])
+
+#: Languages of data and config files. A manifest is read by load-time
+#: producers (package.json entry points, tsconfig path aliases, composer PSR-4
+#: maps) that no view of the withheld files can replay, so one withheld keeps
+#: the cap (L-352 review round 3).
+DATA_LANGUAGES = frozenset({"json", "yaml", "toml", "xml"})
+
+#: Languages whose import edges ``CodeIndex.__post_init__`` adds or resolves
+#: at load, beyond ``resolve_specifier``: Go module paths (L-264), Kotlin and
+#: Java top-level declarations (#1376), Racket collection paths, and the PHP
+#: PSR-4 map. A withheld file in one of them would miss those edges, so it
+#: keeps the cap (L-352 review round 4). A ratchet reads ``index_store.py``
+#: and fails when a load-time gate names a language missing here.
+LOAD_AUGMENTED_LANGUAGES = frozenset({"go", "kotlin", "java", "racket", "php"})
 
 
 class CorpusAdequacy:
@@ -157,6 +176,126 @@ def _repo_freshness(index) -> str:
     except Exception:
         logger.debug("freshness probe failed for %s", root, exc_info=True)
         return "unknown"
+
+
+def read_withheld_files(index) -> Optional[dict]:
+    """``{path: {"text", "imports"}}`` for every file the index withheld, or None (L-352).
+
+    A file withheld for size is missing from the INDEX, not from the tree, so
+    the imports it makes can still be read from disk, by the same
+    ``extract_imports`` the indexer runs. The caller resolves them with the
+    same ``resolve_specifier`` the graph uses, so a withheld importer counts
+    exactly as an indexed one would. The text rides along so the other edge
+    families (dynamic-import sites, runtime package enumeration, render
+    edges) can read it through :func:`withheld_view`.
+
+    None whenever that read cannot stand in for indexing the whole withheld
+    set, and None keeps the cap:
+    - a withheld reason other than size, or a listing that was truncated or
+      does not account for the total;
+    - no local source root, or a file that cannot be read;
+    - a file that is not UTF-8 text (a NUL byte or a failed decode), since
+      text decoded with replacements would name nothing;
+    - a file with no known language, whose imports nothing can extract;
+    - a file in :data:`LOAD_AUGMENTED_LANGUAGES` (Go, Kotlin, Java, Racket,
+      PHP): the index adds those edges at load, which ``resolve_specifier``
+      does not apply to a text read from disk;
+    - a data or config file (:data:`DATA_LANGUAGES`): manifests feed entry
+      points and alias maps that are built before this read and never see it.
+    """
+    from ..parser.imports import extract_imports
+    from ..parser.languages import get_language_for_path
+    from ..retrieval.verdict import WITHHELD_FILES_KEY
+
+    cov = getattr(index, "coverage", None) or {}
+    withheld = cov.get("withheld") or {}
+    if not withheld or set(withheld) != {"too_large"}:
+        return None
+    listed = cov.get(WITHHELD_FILES_KEY)
+    if not isinstance(listed, dict) or not listed or cov.get("withheld_files_truncated"):
+        return None
+    if cov.get("withheld_files_total") != len(listed) or withheld["too_large"] != len(listed):
+        return None
+    root = getattr(index, "source_root", None)
+    if not root or not os.path.isdir(root):
+        return None
+    base = Path(root)
+    base_resolved = str(base.resolve())
+    out: dict = {}
+    for rel in sorted(listed):
+        language = get_language_for_path(rel)
+        if not language or language in LOAD_AUGMENTED_LANGUAGES or language in DATA_LANGUAGES:
+            return None
+        path = resolve_within(base, rel, base_resolved=base_resolved)
+        if path is None:
+            return None
+        try:
+            with open(path, "rb") as fh:
+                raw = fh.read()
+        except OSError:
+            logger.debug("withheld file %s could not be read", rel, exc_info=True)
+            return None
+        if NUL in raw:
+            return None
+        try:
+            text = raw.decode("utf-8")
+        except UnicodeDecodeError:
+            return None
+        try:
+            out[rel] = {"text": text, "imports": extract_imports(text, rel, language, repo=root) or []}
+        except Exception:
+            logger.debug("imports of withheld file %s not extracted", rel, exc_info=True)
+            return None
+    return out
+
+
+class _IndexWithWithheld:
+    """The index, with the withheld files added to ``source_files`` and their
+    imports to ``imports``. Every other attribute is the index's own."""
+
+    def __init__(self, index, withheld: dict):
+        self._index = index
+        self.source_files = sorted(set(index.source_files) | set(withheld))
+        self.imports = {**(index.imports or {}), **{k: v["imports"] for k, v in withheld.items()}}
+        # One whole-file function per withheld file, so a producer that reads
+        # symbol bodies (render edges) reads the withheld text too.
+        self.symbols = list(index.symbols) + [
+            {
+                "id": f"{rel}::<withheld>#function", "name": "<withheld>", "kind": "function",
+                "file": rel, "line": 1, "end_line": rec["text"].count("\n") + 1,
+            }
+            for rel, rec in sorted(withheld.items())
+        ]
+
+    def __getattr__(self, attr):
+        return getattr(self._index, attr)
+
+
+class _StoreWithWithheld:
+    """The store, serving a withheld file's text from the disk read."""
+
+    def __init__(self, store, withheld: dict):
+        self._store = store
+        self._texts = {k: v["text"] for k, v in withheld.items()}
+
+    def get_file_content(self, owner, name, path, *args, **kwargs):
+        if path in self._texts:
+            return self._texts[path]
+        return self._store.get_file_content(owner, name, path, *args, **kwargs)
+
+    def __getattr__(self, attr):
+        return getattr(self._store, attr)
+
+
+def withheld_view(index, store, withheld: dict):
+    """An index and a store that also hold the withheld files (L-352).
+
+    The edge producers a dead-code answer reads (render edges, runtime package
+    enumeration, dynamic-import sites) walk ``index.source_files`` and read
+    text through the store. Handing them this view runs the same producers
+    over the withheld files, so no family has a second copy of its rules.
+    """
+    return _IndexWithWithheld(index, withheld), _StoreWithWithheld(store, withheld)
 
 
 def assess_corpus(index, *, extra_blockers=()) -> CorpusAdequacy:
