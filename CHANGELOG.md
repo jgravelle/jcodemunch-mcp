@@ -18,6 +18,8 @@ file of that tree and is dropped, with one warning per watch task. The rest
 of the batch is indexed either way. @OpenLucasKaka diagnosed the same cause
 and proposed the same fix independently in #1584.
 
+## [1.108.494] - 2026-11-26 - one locked file no longer fails the whole re-index
+
 ### One locked file no longer fails the whole re-index (L-350)
 
 An incremental `index_folder` reads each edited file to hash it before it

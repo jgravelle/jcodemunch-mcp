@@ -1,6 +1,12 @@
 {
-  "current": "1.108.493",
+  "current": "1.108.494",
   "entries": [
+    {
+      "version": "1.108.494",
+      "date": "2026-11-26",
+      "title": "One locked file no longer fails the whole re-index",
+      "summary": "An incremental re-index read each edited file to hash it, and when that read failed, as a sharing violation does on Windows while an editor or antivirus holds a file, the whole call failed and every other edit in the walk stayed unindexed while the lock held. A file change detection cannot read now reads as changed: it keeps its stored rows, is named in unread_files and keeps coverage incomplete, and the rest of the walk is saved (L-350)."
+    },
     {
       "version": "1.108.493",
       "date": "2026-11-25",
