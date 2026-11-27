@@ -6,9 +6,11 @@
 
 `import_references` listed every file that imports the name, with no bound.
 On this repository's own index (1,669 files, commit 29ca4ed8), a
-`check_references` reply for `Path` listed 706 importing files and came to
-182,215 bytes as JSON. With the cap it lists 50 and comes to 47,938 bytes. A
-batch of five names went from 370,228 bytes to 124,043.
+`check_references` reply for `Path` listed 706 importing files and was served
+as 99,795 bytes in the default compact encoding (169,392 as JSON). With the
+cap it lists 50 and comes to 29,745 bytes compact (44,957 as JSON). A batch
+of five names went from 197,718 bytes compact to 75,094 (347,359 to 117,072
+as JSON).
 
 The MCP tool now lists at most `max_import_results` importing files per name
 (default 50; 0 lists all). Two keys arrive with the cap and are always
