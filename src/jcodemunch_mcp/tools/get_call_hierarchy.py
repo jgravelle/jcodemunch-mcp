@@ -16,6 +16,7 @@ from ._call_graph import (
     build_symbols_by_file,
     c_text_reach,
     is_c_family_file,
+    cap_rows,
     label_row_depths,
 )
 from ._scip_consume import open_scip_reader, scip_meta_and_stale, scip_meta_block
@@ -380,35 +381,13 @@ def get_call_hierarchy(
     return response
 
 
-def _position(row: dict) -> tuple:
-    line = row.get("line")
-    return (row.get("file") or "", line if isinstance(line, int) else 0, row.get("id") or "")
-
-
 def _cap_rows(response: dict, max_results: int) -> None:
-    """Order each list by depth, file, line and id, then cut it to *max_results*.
-
-    Runs last, after every step that adds rows (compile-time evidence) or reads
-    them (call lines, the caller-gate disclosure), so every count was taken on
-    the whole list. Ties within a depth are broken by position, not by the
-    walk: the walk follows the store's row order, which a re-index can change,
-    and a cut over it would keep different rows. The depth is the one rule,
-    ``label_row_depths``: its sort is stable, so sorting by position first and
-    by resolved depth second gives both. A row's ``via`` row resolves one
-    depth nearer and so is kept whenever the row is; a row whose depth does
-    not resolve sorts last.
-    """
+    """Cut `callers` and `callees` with the shared rule (`cap_rows`), last,
+    after every step that adds rows (compile-time evidence) or reads them
+    (call lines, the caller-gate disclosure), and say per list whether it cut."""
     for key, flag in (("callers", "callers_truncated"), ("callees", "callees_truncated")):
         rows = response.get(key)
-        if not isinstance(rows, list):
-            response[flag] = False
-            continue
-        rows.sort(key=_position)
-        label_row_depths(rows)
-        cut = 0 < max_results < len(rows)
-        if cut:
-            del rows[max_results:]
-        response[flag] = cut
+        response[flag] = cap_rows(rows, max_results) if isinstance(rows, list) else False
 
 
 def _attach_c_text_only(response: dict, index, sym: dict, reverse_adj, symbols_by_file) -> None:

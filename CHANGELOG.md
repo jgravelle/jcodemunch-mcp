@@ -2,6 +2,29 @@
 
 ## [Unreleased]
 
+### `get_blast_radius` lists at most 100 callers, and says when it cut
+
+With `call_depth` above 0, `get_blast_radius` lists the symbols that call
+the target, and that list had no bound (LEDGER L-353). On this repository's
+own index (1,669 files, commit 29ca4ed8), `resolve_repo` at `call_depth` 2
+had 3,053 callers and was served as 1,008,326 bytes, under 40 KB short of the
+1,048,576-byte response limit; both encodings send it as JSON, because the
+list rides as one JSON value. With the cap it lists 100 and comes to 34,245
+bytes.
+
+The MCP tool now lists at most `max_results` callers (default 100; 0 lists
+all). `caller_count`, `direct_caller_count` and `callers_by_depth` stay the
+whole list's, and `callers_truncated` arrives with the cap whenever `callers`
+is present. The cut is the one `get_call_hierarchy` uses, moved into the
+shared call-graph module, so the two tools keep the same rows for the same
+symbol and cap: nearest depth first, then file, line and id. It runs after
+the result cache, so the cache holds the whole list and a cut answer never
+serves a later call that asked for more. The Python function still lists
+every caller by default. The compact encoding carries the key (`br6`; a `br5`
+payload still decodes). The published schema grows 46 tokens on the
+`standard` and `full` surfaces (`benchmarks/schema_baseline.json`); `core`
+and `counter` are unchanged.
+
 ### `get_call_hierarchy` lists at most 100 callers and 100 callees, and says when it cut
 
 `callers` and `callees` listed every row at every depth, with no bound. On

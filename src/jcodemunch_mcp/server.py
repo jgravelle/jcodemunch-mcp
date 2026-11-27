@@ -3478,6 +3478,10 @@ def _build_tools_list(
                         "description": "When > 0, also find symbols that *call* this symbol (call-level analysis). Returns a callers list alongside the import-level confirmed/potential. Max 3. Default 0 (disabled).",
                         "default": 0,
                     },
+                    "max_results": {
+                        "type": "integer", "default": 100,
+                        "description": "Max rows in the call_depth callers list, nearest first; 0 lists all. caller_count stays the total; callers_truncated says when rows were cut.",
+                    },
                     "fqn": {
                         "type": "string",
                         "description": "PHP fully-qualified class name (e.g. 'App\\Models\\User'). Resolves to symbol via PSR-4. Alternative to symbol."
@@ -7243,6 +7247,7 @@ async def _call_tool_impl(name: str, arguments: dict) -> list[TextContent] | Cal
                     include_source=arguments.get("include_source", False),
                     source_budget=arguments.get("source_budget", 8000),
                     include_decisions=arguments.get("include_decisions", False),
+                    max_results=arguments.get("max_results", 100),
                 )
             )
         elif name == "get_call_hierarchy":
