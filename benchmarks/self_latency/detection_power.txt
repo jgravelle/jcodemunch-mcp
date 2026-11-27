@@ -1,0 +1,13 @@
+n=20: a series fails when >= 2 of 20 calls are slow; n=40: when >= 3 of 40
+slow share  old (20x2)  new (40x3)
+     0.020      0.0036      0.0001
+     0.050      0.0698      0.0338
+     0.070      0.1707      0.1553
+     0.075      0.2013      0.2008
+     0.080      0.2334      0.2507
+     0.100      0.3700      0.4694
+     0.150      0.6797      0.8612
+     0.200      0.8664      0.9764
+     0.300      0.9848      0.9997
+crossover: the new rule fails a tool at least as often as the old from a slow share of 0.0755
+two preempted calls, no other slow call: old series fails=True, new series fails=False
