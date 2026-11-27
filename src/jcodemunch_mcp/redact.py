@@ -32,6 +32,11 @@ logger = logging.getLogger(__name__)
 # false-positive on ordinary code tokens.
 # ---------------------------------------------------------------------------
 
+# The key-anchored patterns below (aws_secret_key, azure_*, generic_api_key)
+# read a value after the key name, a separator of spaces, `:`, `=`, quotes,
+# `]` (the key closes a subscript: os.environ["AWS_SECRET_ACCESS_KEY"] = "...")
+# and a backslash (the same line stored JSON-escaped, in a notebook).
+
 _PATTERNS: list[tuple[str, re.Pattern]] = [
     # AWS access key IDs: always start with AKIA and are 20 chars
     ("aws_access_key", re.compile(
@@ -40,7 +45,7 @@ _PATTERNS: list[tuple[str, re.Pattern]] = [
     # AWS secret keys: 40-char base64 after a key-like context
     ("aws_secret_key", re.compile(
         r"(?i)(?:aws_secret|secret_access_key|aws_secret_access_key)"
-        r"[\s:=\"']+(?P<secret>[A-Za-z0-9/+=]{40})"
+        r"[\s:=\"'\]\\]+(?P<secret>[A-Za-z0-9/+=]{40})"
     )),
     # GCP service account emails
     ("gcp_service_account", re.compile(
@@ -49,12 +54,12 @@ _PATTERNS: list[tuple[str, re.Pattern]] = [
     # Azure storage account keys (base64, 88 chars with == padding)
     ("azure_storage_key", re.compile(
         r"(?i)(?:account_?key|storage_?key|azure_?key)"
-        r"[\s:=\"']+(?P<secret>[A-Za-z0-9/+=]{86,90}==)"
+        r"[\s:=\"'\]\\]+(?P<secret>[A-Za-z0-9/+=]{86,90}==)"
     )),
     # Azure client secret / tenant patterns
     ("azure_client_secret", re.compile(
         r"(?i)(?:client_?secret|azure_?secret)"
-        r"[\s:=\"']+(?P<secret>[A-Za-z0-9~._\-]{34,})"
+        r"[\s:=\"'\]\\]+(?P<secret>[A-Za-z0-9~._\-]{34,})"
     )),
     # JWT tokens (three dot-separated base64url segments)
     ("jwt", re.compile(
@@ -107,7 +112,7 @@ _PATTERNS: list[tuple[str, re.Pattern]] = [
     # Requires 32+ chars of high-entropy content to reduce false positives
     ("generic_api_key", re.compile(
         r"(?i)(?:api_?key|apikey|secret_?key|auth_?token|access_?token)"
-        r"[\s:=\"']+(?P<secret>[A-Za-z0-9_\-]{32,})"
+        r"[\s:=\"'\]\\]+(?P<secret>[A-Za-z0-9_\-]{32,})"
     )),
     # Private IPv4 ranges (10.x, 172.16-31.x, 192.168.x) with port
     ("private_ipv4", re.compile(

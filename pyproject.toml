@@ -141,6 +141,9 @@ exclude = [
     # Git-only: pins tests/fixtures/racket/*.rkt to LF for the frozen byte-position
     # oracle. A checkout concern, not a distribution one.
     ".gitattributes",
+    # The PR secret scan's per-finding allowlist (two test-value fingerprints
+    # from #1576). Read by the scan in CI, never by an installed package.
+    ".gitleaksignore",
     "index.php",
     "vscode-extension/node_modules/",
     "vscode-extension/out/",
