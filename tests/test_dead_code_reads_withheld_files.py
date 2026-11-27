@@ -2,16 +2,17 @@
 
 ``find_dead_code`` capped every finding at the unproven ceiling whenever the
 index withheld a file for size, and its only advice was to re-index with a
-higher ``max_file_size``, a setting a session cannot reach. On BM-2's L16 task
-(vscode, 29 files withheld) 16 of 18 calls came back as that refusal, and the
-sessions either gave up or fell back to grep-and-read loops.
+higher ``max_file_size``, a setting a session cannot reach.
 
-A withheld file is withheld from the INDEX, not from the tree. When the
-withheld files are the only reason for the cap, the record lists all of them
-and each one can be read, a candidate whose module name appears in none of
-them cannot be imported by them. It is reported at its graph confidence. A
-candidate a withheld file names keeps the cap and the reply names that file.
-Anything the read cannot establish keeps the cap.
+A withheld file is withheld from the INDEX, not from the tree. When withheld
+files are the only reason for the cap, their imports are read from disk with
+the indexer's own extractor and resolved with the graph's own resolver, and
+each withheld file is a live root. A withheld importer then counts exactly as
+an indexed one would. Whatever that read cannot stand in for keeps the cap.
+
+Review of the first version (a name match) found live files published dead
+through a cascade, a Go package, a path alias and a UTF-16 file; those
+shapes are pinned below.
 """
 
 from __future__ import annotations
@@ -20,29 +21,41 @@ import pytest
 
 from jcodemunch_mcp.tools._corpus_adequacy import UNPROVEN_CEILING
 
+PAD = "".join(f"def big_{i}():\n    return {i}\n" for i in range(4000))
+GO_PAD = "".join(f"func big{i}() int {{ return {i} }}\n" for i in range(4000))
+JS_PAD = "".join(f"export function big{i}() {{ return {i}; }}\n" for i in range(4000))
+
+
+def _index(src, store):
+    from jcodemunch_mcp.tools.index_folder import index_folder
+
+    r = index_folder(str(src), use_ai_summaries=False, storage_path=str(store), max_size=20000)
+    assert r.get("success"), r
+    return r["repo"]
+
 
 @pytest.fixture
 def repo(tmp_path):
-    from jcodemunch_mcp.tools.index_folder import index_folder
-
     src = tmp_path / "proj"
     src.mkdir()
-    (src / "main.py").write_text("import named_by_big\n\nif __name__ == '__main__':\n    pass\n", encoding="utf-8")
-    (src / "named_by_big.py").write_text("def helper():\n    return 1\n", encoding="utf-8")
+    (src / "main.py").write_text("import named_by_main\n\nif __name__ == '__main__':\n    pass\n", encoding="utf-8")
+    (src / "named_by_main.py").write_text("def helper():\n    return 1\n", encoding="utf-8")
     (src / "orphan_mod.py").write_text("def lonely():\n    return 2\n", encoding="utf-8")
-    (src / "only_big_uses.py").write_text("def used():\n    return 3\n", encoding="utf-8")
-    big = "import only_big_uses\n" + "".join(f"def big_{i}():\n    return {i}\n" for i in range(4000))
-    (src / "big.py").write_text(big, encoding="utf-8")
+    (src / "only_big_uses.py").write_text("import reached_through\n\ndef used():\n    return 3\n", encoding="utf-8")
+    (src / "reached_through.py").write_text("def deep():\n    return 4\n", encoding="utf-8")
+    (src / "big.py").write_text("import only_big_uses\n" + PAD, encoding="utf-8")
     store = tmp_path / "store"
-    r = index_folder(str(src), use_ai_summaries=False, storage_path=str(store), max_size=20000)
-    assert r.get("success"), r
-    return r["repo"], str(store), src
+    return _index(src, store), str(store), src
 
 
 def _dead(repo_id, store, **kw):
     from jcodemunch_mcp.tools.find_dead_code import find_dead_code
 
     return find_dead_code(repo_id, granularity="file", storage_path=store, **kw)
+
+
+def _files(r):
+    return {d["file"]: d for d in r["dead_files"]}
 
 
 def test_the_fixture_withheld_the_large_file(repo):
@@ -55,41 +68,71 @@ def test_the_fixture_withheld_the_large_file(repo):
     assert "big.py" in (cov.get("withheld_files") or {})
 
 
-def test_a_candidate_no_withheld_file_names_is_reported_at_its_graph_confidence(repo):
+def test_a_file_nothing_imports_is_reported_at_its_graph_confidence(repo):
     repo_id, store, _ = repo
     r = _dead(repo_id, store)
-    files = {d["file"]: d for d in r["dead_files"]}
-    assert "orphan_mod.py" in files, r
-    assert files["orphan_mod.py"]["confidence"] == 1.0
-    assert r["corpus_adequacy"]["withheld_files_read"] == 1
-
-
-def test_a_candidate_a_withheld_file_names_keeps_the_cap_and_names_the_file(repo):
-    repo_id, store, _ = repo
-    r = _dead(repo_id, store, min_confidence=0)
-    files = {d["file"]: d for d in r["dead_files"]}
-    entry = files["only_big_uses.py"]
-    assert entry["confidence"] == UNPROVEN_CEILING
-    assert entry["named_by_withheld"] == ["big.py"]
-    assert "withheld_files" in entry["confidence_capped_by"]
-    # At the default threshold it is not published as dead.
-    assert "only_big_uses.py" not in {d["file"] for d in _dead(repo_id, store)["dead_files"]}
-
-
-def test_the_reply_lists_the_withheld_files_so_the_model_can_read_one(repo):
-    repo_id, store, _ = repo
-    r = _dead(repo_id, store)
+    assert _files(r)["orphan_mod.py"]["confidence"] == 1.0
+    assert "signal_warning" not in r
+    ca = r["corpus_adequacy"]
+    assert ca["withheld_files_read"] == 1 and ca["blockers_resolved"] == ["withheld_files"]
     assert r["withheld_files"] == ["big.py"]
-    assert "signal_warning" not in r or "re-index" not in r.get("next_step", "")
-    assert "big.py" in r["next_step"]
+
+
+def test_a_file_a_withheld_file_imports_is_live(repo):
+    repo_id, store, _ = repo
+    assert "only_big_uses.py" not in _files(_dead(repo_id, store, min_confidence=0))
+
+
+def test_a_cascade_through_a_withheld_importer_stays_live(repo):
+    """Review finding 4: big.py imports only_big_uses, which imports
+    reached_through. The second hop must not read as all_importers_dead."""
+    repo_id, store, _ = repo
+    assert "reached_through.py" not in _files(_dead(repo_id, store, min_confidence=0))
+
+
+def test_a_relative_js_import_from_a_withheld_file_is_resolved(tmp_path):
+    src = tmp_path / "js"
+    (src / "src" / "common").mkdir(parents=True)
+    (src / "src" / "common" / "helpers.js").write_text("export function h() { return 1; }\n", encoding="utf-8")
+    (src / "src" / "lonely.js").write_text("export function l() { return 2; }\n", encoding="utf-8")
+    (src / "src" / "app.js").write_text("import { h } from './common/helpers';\n" + JS_PAD, encoding="utf-8")
+    store = tmp_path / "store"
+    repo_id = _index(src, store)
+    files = _files(_dead(repo_id, str(store), min_confidence=0))
+    assert "src/common/helpers.js" not in files
+    assert files["src/lonely.js"]["confidence"] == 1.0
+
+
+def test_a_withheld_go_file_keeps_the_cap(tmp_path):
+    """Review findings 1-2: Go edges come from package membership and go.mod
+    at load, which the resolver does not apply to a text read from disk."""
+    src = tmp_path / "go"
+    src.mkdir()
+    (src / "go.mod").write_text("module example.com/app\n\ngo 1.21\n", encoding="utf-8")
+    (src / "server.go").write_text("package main\n\nfunc runServer() {}\n", encoding="utf-8")
+    (src / "main.go").write_text("package main\n\nfunc main() { runServer() }\n" + GO_PAD, encoding="utf-8")
+    store = tmp_path / "store"
+    repo_id = _index(src, store)
+    r = _dead(repo_id, str(store), min_confidence=0)
+    for entry in r["dead_files"]:
+        assert entry["confidence"] <= UNPROVEN_CEILING, entry
+    assert "signal_warning" in r
+
+
+def test_an_undecodable_withheld_file_keeps_the_cap(repo):
+    """Review finding 5: text decoded with replacements names nothing."""
+    repo_id, store, src = repo
+    (src / "big.py").write_bytes(("import only_big_uses\n" + PAD).encode("utf-16"))
+    r = _dead(repo_id, store, min_confidence=0)
+    assert _files(r)["orphan_mod.py"]["confidence"] == UNPROVEN_CEILING
+    assert "signal_warning" in r
 
 
 def test_an_unreadable_withheld_file_keeps_the_cap(repo):
     repo_id, store, src = repo
     (src / "big.py").unlink()
     r = _dead(repo_id, store, min_confidence=0)
-    files = {d["file"]: d for d in r["dead_files"]}
-    assert files["orphan_mod.py"]["confidence"] == UNPROVEN_CEILING
+    assert _files(r)["orphan_mod.py"]["confidence"] == UNPROVEN_CEILING
     assert "withheld_files_read" not in r["corpus_adequacy"]
     assert "signal_warning" in r
 
@@ -99,7 +142,7 @@ def test_a_truncated_withheld_listing_keeps_the_cap(repo, monkeypatch):
     from jcodemunch_mcp.tools import find_dead_code as fdc
 
     repo_id, store, _ = repo
-    real = ca.read_withheld_texts
+    real = ca.read_withheld_imports
 
     def truncated(index):
         cov = dict(index.coverage)
@@ -113,10 +156,9 @@ def test_a_truncated_withheld_listing_keeps_the_cap(repo, monkeypatch):
         return real(_I())
 
     # Patched where it is used: find_dead_code imports the name at module level.
-    monkeypatch.setattr(fdc, "read_withheld_texts", truncated)
+    monkeypatch.setattr(fdc, "read_withheld_imports", truncated)
     r = _dead(repo_id, store, min_confidence=0)
-    files = {d["file"]: d for d in r["dead_files"]}
-    assert files["orphan_mod.py"]["confidence"] == UNPROVEN_CEILING
+    assert _files(r)["orphan_mod.py"]["confidence"] == UNPROVEN_CEILING
 
 
 def test_another_blocker_beside_withheld_files_keeps_the_cap(repo, monkeypatch):
@@ -129,5 +171,4 @@ def test_another_blocker_beside_withheld_files_keeps_the_cap(repo, monkeypatch):
         lambda index, **kw: assess_corpus(index, extra_blockers=["runtime_discovery_unresolved"]),
     )
     r = _dead(repo_id, store, min_confidence=0)
-    files = {d["file"]: d for d in r["dead_files"]}
-    assert files["orphan_mod.py"]["confidence"] == UNPROVEN_CEILING
+    assert _files(r)["orphan_mod.py"]["confidence"] == UNPROVEN_CEILING

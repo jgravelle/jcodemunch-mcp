@@ -7,7 +7,7 @@ import logging
 import posixpath
 import re
 import time
-from typing import Optional
+from typing import Optional, cast
 
 from ..storage import IndexStore
 from ..parser.imports import resolve_specifier
@@ -25,9 +25,7 @@ from ._runtime_discovery import discover_dynamic_packages
 from ._corpus_adequacy import (
     UNPROVEN_CEILING,
     assess_corpus,
-    module_names,
-    read_withheld_texts,
-    withheld_files_naming,
+    read_withheld_imports,
 )
 from ._dynamic_boundary import FILES_CAP as DYNAMIC_FILES_CAP, DynamicBoundary
 from ._test_paths import is_test_file as _is_test_file  # noqa: F401  (the one rule, LEDGER L-101)
@@ -384,13 +382,30 @@ def find_dead_code(
     )
     ceiling = adequacy.ceiling
     # (LEDGER L-352) A file withheld for size is missing from the index, not
-    # from the tree. When it is the ONLY reason for the cap and every withheld
-    # file can be read, a candidate none of them names cannot be imported by
-    # them, so it keeps its graph confidence. Anything the read cannot settle
-    # (another blocker, a truncated listing, an unreadable file) keeps the cap.
-    withheld_texts = (
-        read_withheld_texts(index) if adequacy.blockers == ["withheld_files"] else None
+    # from the tree. When it is the ONLY reason for the cap, its imports are
+    # read from disk by the indexer's own extractor and resolved by the graph's
+    # own resolver, so a withheld importer counts exactly as an indexed one.
+    # Each withheld file is a live root: nothing here shows it dead, and a
+    # cascade through it must not either. Whatever the read cannot stand in for
+    # (another blocker, a cut listing, Go, an undecodable file) keeps the cap.
+    withheld_imports = (
+        read_withheld_imports(index) if adequacy.blockers == ["withheld_files"] else None
     )
+    withheld_edges = 0
+    if withheld_imports is not None:
+        for _src, _imps in withheld_imports.items():
+            live_roots.add(_src)
+            for _imp in _imps:
+                _target = resolve_specifier(
+                    _imp["specifier"], _src, cast(set, source_files), index.alias_map,
+                    getattr(index, "psr4_map", None),
+                )
+                if _target and _target != _src:
+                    _importers = rev.setdefault(_target, [])
+                    if _src not in _importers:
+                        _importers.append(_src)
+                        withheld_edges += 1
+        ceiling = 1.0
     # (LEDGER L-70) #876 records a Python dynamic import it cannot resolve
     # as a site with a scope. A file a package- or prefix-scoped site can
     # load is not provably unreachable, whatever the static graph says, so
@@ -450,11 +465,7 @@ def find_dead_code(
             unseen = next(
                 filter(None, (unseen_consumer(i, dotnet=dotnet) for i in importers)), None
             )
-        named_by: list[str] = []
         corpus_ceiling = ceiling
-        if withheld_texts is not None:
-            named_by = withheld_files_naming(withheld_texts, module_names(f))
-            corpus_ceiling = UNPROVEN_CEILING if named_by else 1.0
         file_ceiling = (
             min(corpus_ceiling, UNPROVEN_CEILING) if (reaching or go_unknown or unseen) else corpus_ceiling
         )
@@ -488,8 +499,6 @@ def find_dead_code(
                 + (["go_module_unknown"] if go_unknown else [])
                 + ([unseen] if unseen else [])
             )
-        if named_by:
-            entry["named_by_withheld"] = named_by[:DYNAMIC_FILES_CAP]
         if reaching:
             entry["dynamic_import_sites"] = reaching[:DYNAMIC_FILES_CAP]
             if len(reaching) > DYNAMIC_FILES_CAP:
@@ -636,26 +645,24 @@ def find_dead_code(
     # admission that nothing was established, rendered as a clean bill of
     # health. `signal_warning` is the spelling `get_dead_code_v2` already uses
     # for exactly this, so a consumer gates on one field across both tools.
-    if withheld_texts is not None:
-        # (L-352) The read settled the withheld files, so the reply hands the
-        # session a step it can take instead of a re-index it cannot run.
-        result["corpus_adequacy"]["withheld_files_read"] = len(withheld_texts)
-        _listed = sorted(withheld_texts)
+    if withheld_imports is not None:
+        # (L-352) The read stood in for indexing the withheld files, so the
+        # absence claim is backed and the reply says how, instead of asking
+        # for a re-index the session cannot run.
+        _ca = result["corpus_adequacy"]
+        _ca["confidence_ceiling"] = 1.0
+        _ca["blockers_resolved"] = ["withheld_files"]
+        _ca["withheld_files_read"] = len(withheld_imports)
+        _ca["withheld_import_edges"] = withheld_edges
+        _listed = sorted(withheld_imports)
         result["withheld_files"] = _listed[:WITHHELD_FILES_LISTED]
         if len(_listed) > WITHHELD_FILES_LISTED:
             result["withheld_files_total"] = len(_listed)
-        _held = sum(1 for d in dead_files if d.get("named_by_withheld"))
-        result["next_step"] = (
-            f"The {len(_listed)} file(s) the index withheld for size were read from disk "
-            f"({', '.join(_listed[:3])}{', ...' if len(_listed) > 3 else ''}). A candidate "
-            "none of them names is reported at its graph confidence. "
-            + (
-                f"{_held} candidate(s) a withheld file names stay capped, each with "
-                "`named_by_withheld`; Read that file to settle one."
-                if _held else "No candidate is named by a withheld file."
-            )
+        analysis_notes.append(
+            f"The {len(_listed)} file(s) the index withheld for size were read from disk: "
+            f"their imports ({withheld_edges} resolved edge(s)) count as importers, and "
+            "each is treated as a live root."
         )
-        analysis_notes.append(result["next_step"])
     else:
         _adequacy_warning = adequacy.warning()
         if _adequacy_warning:

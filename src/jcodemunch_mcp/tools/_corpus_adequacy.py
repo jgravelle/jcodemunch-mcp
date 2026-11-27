@@ -51,6 +51,9 @@ logger = logging.getLogger(__name__)
 #: ``dead_code_pct: 0.0`` shape (#559) read from the other end.
 UNPROVEN_CEILING = 0.6
 
+#: A NUL byte marks a file that is not UTF-8 text (UTF-16 and binaries).
+NUL = bytes([0])
+
 
 class CorpusAdequacy:
     """Whether an absence claim over this index is publishable, and why not."""
@@ -159,16 +162,28 @@ def _repo_freshness(index) -> str:
         return "unknown"
 
 
-def read_withheld_texts(index) -> Optional[dict]:
-    """``{path: text}`` of every file the index withheld, or None (L-352).
+def read_withheld_imports(index) -> Optional[dict]:
+    """``{path: imports}`` for every file the index withheld, or None (L-352).
 
     A file withheld for size is missing from the INDEX, not from the tree, so
-    the imports it makes can still be read from disk. None whenever that read
-    cannot cover the whole withheld set: a withheld reason other than size, a
-    listing that was truncated or does not account for the total, no local
-    source root, or a file that cannot be read. None keeps the cap; this only
-    ever lifts it on a complete read.
+    the imports it makes can still be read from disk, by the same
+    ``extract_imports`` the indexer runs. The caller resolves them with the
+    same ``resolve_specifier`` the graph uses, so a withheld importer counts
+    exactly as an indexed one would.
+
+    None whenever that read cannot stand in for indexing the whole withheld
+    set, and None keeps the cap:
+    - a withheld reason other than size, or a listing that was truncated or
+      does not account for the total;
+    - no local source root, or a file that cannot be read;
+    - a file that is not UTF-8 text (a NUL byte or a failed decode), since
+      text decoded with replacements would name nothing;
+    - a file with no known language, whose imports nothing can extract;
+    - a Go file: Go edges come from package membership and the ``go.mod``
+      module map at load (L-264), which ``resolve_specifier`` does not apply.
     """
+    from ..parser.imports import extract_imports
+    from ..parser.languages import get_language_for_path
     from ..retrieval.verdict import WITHHELD_FILES_KEY
 
     cov = getattr(index, "coverage", None) or {}
@@ -184,42 +199,32 @@ def read_withheld_texts(index) -> Optional[dict]:
     if not root or not os.path.isdir(root):
         return None
     base = os.path.realpath(root)
-    texts: dict = {}
+    out: dict = {}
     for rel in sorted(listed):
+        language = get_language_for_path(rel)
+        if not language or language == "go":
+            return None
         path = os.path.realpath(os.path.join(base, rel))
         if os.path.commonpath([base, path]) != base:
             return None
         try:
             with open(path, "rb") as fh:
-                texts[rel] = fh.read().decode("utf-8", errors="replace")
+                raw = fh.read()
         except OSError:
             logger.debug("withheld file %s could not be read", rel, exc_info=True)
             return None
-    return texts
-
-
-def module_names(path: str) -> list[str]:
-    """The names an import of *path* can be written with: its stem, and its
-    folder's name for an index or init file. A withheld file that names none of
-    them cannot import the file by any of the specifiers the graph resolves."""
-    parts = path.replace("\\", "/").split("/")
-    stem = parts[-1].split(".", 1)[0]
-    names = [stem] if stem else []
-    if stem in ("index", "__init__", "mod", "main") and len(parts) > 1:
-        names.append(parts[-2])
-    return names
-
-
-def withheld_files_naming(texts: dict, names: list[str]) -> list[str]:
-    """The withheld files whose text contains any of *names* as a word."""
-    import re
-
-    from ..word_rule import word_pattern
-
-    if not names:
-        return sorted(texts)
-    rx = re.compile("|".join(word_pattern(n) for n in names))
-    return [rel for rel, text in sorted(texts.items()) if rx.search(text)]
+        if NUL in raw:
+            return None
+        try:
+            text = raw.decode("utf-8")
+        except UnicodeDecodeError:
+            return None
+        try:
+            out[rel] = extract_imports(text, rel, language, repo=root) or []
+        except Exception:
+            logger.debug("imports of withheld file %s not extracted", rel, exc_info=True)
+            return None
+    return out
 
 
 def assess_corpus(index, *, extra_blockers=()) -> CorpusAdequacy:
