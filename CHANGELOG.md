@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.497] - 2026-11-27 - a dead-code answer over withheld files reads them instead of refusing
+
 ### A dead-code answer over withheld files reads them instead of refusing (L-352)
 
 When the index withheld a file for size, `find_dead_code` capped every
