@@ -23,6 +23,7 @@ from .tools.index_folder import (
     _directory_prune_reason,
     _load_dir_gitignore,
     _walk_filter_config,
+    ignored_event_predicate,
     index_folder,
 )
 from .tools.invalidate_cache import invalidate_cache
@@ -1047,6 +1048,28 @@ async def _watch_single(
                         "Watcher for %s ignored %d event(s) outside the watched folder (first: %s)",
                         folder_path, len(_outside_root), _outside_root[0],
                     )
+            # (#1581) Drop added and modified events every walk skips, read
+            # fresh per batch. Unbuildable means no filtering, as before. A
+            # batch left empty takes the idle branch below, so a due retry
+            # and the HEAD check still run under a stream of ignored events.
+            if any(ct != Change.deleted and p != folder_path for ct, p in relevant):
+                try:
+                    _is_ignored = ignored_event_predicate(folder_path, extra_ignore_patterns)
+                except Exception:
+                    logger.debug("Ignore rules for %s not built; events are not filtered", folder_path, exc_info=True)
+                    _is_ignored = None
+                if _is_ignored is not None:
+                    _kept = [
+                        (change_type, path)
+                        for change_type, path in relevant
+                        if change_type == Change.deleted or path == folder_path or not _is_ignored(path)
+                    ]
+                    if len(_kept) < len(relevant):
+                        logger.debug(
+                            "Watcher for %s ignored %d event(s) under ignored paths",
+                            folder_path, len(relevant) - len(_kept),
+                        )
+                    relevant = _kept
 
             # The paths this batch names, for _retry_files: files, deletions
             # and directories, but not the root. The retry names each one the

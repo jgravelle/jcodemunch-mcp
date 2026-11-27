@@ -2,6 +2,34 @@
 
 ## [Unreleased]
 
+### A change under an ignored path no longer runs a watcher pass (#1581)
+
+Reported by @Braxhim, with the numbers: a repository whose gitignored
+`build/` an agent writes all day logged about 2,000 passes in 13 hours that
+ended in "no indexable changes", and one whose gitignored `data/` is
+rewritten every few seconds logged about 10,000, with the service at 250 to
+350 % CPU. The watcher counted every added, modified or deleted event as
+relevant before it looked at any ignore rule, so each batch ran a pass, and
+an event for a new folder made that pass a walk of the whole tree. The
+pass then skipped the ignored files.
+
+Added and modified events are now checked before a pass starts, against
+the rules every walk of that folder applies: the `.gitignore` files from the
+watched folder down, and the `extra_ignore_patterns` of the call and the
+config, which count only when no git root sits above the watched folder.
+The rules are read again for each batch, so an edit to a `.gitignore` or to
+the project's patterns holds from the next one. A batch of only ignored
+events runs no pass, and a mixed batch re-indexes only the kept edits; an
+ignored folder no longer turns it into a walk.
+
+Where a rule might not hold, the event passes, because a dropped edit would
+stay unindexed while an extra pass only costs time. Deletions always pass,
+so a file indexed before its rule existed still leaves the index. An edit
+to a `.gitignore` always passes. A framework profile's defaults are not
+used, since which folder the walk detects them at depends on its identity
+mode. A batch left empty is handled as an idle wake-up, so a due retry
+still runs while ignored events keep arriving.
+
 ## [1.108.495] - 2026-11-27 - a watch event outside the watched folder no longer fails the whole batch
 
 ### A watch event outside the watched folder no longer fails the whole batch (#1582)
