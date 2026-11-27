@@ -980,14 +980,6 @@ async def _watch_single(
             repo_id, _reindex_retry_at, _reindex_retry_attempts, owner=folder_path,
         )
 
-    # (#1581) The walk's ignore rules, applied to events before a pass
-    # starts. Unbuildable means no filtering: every event passes, as before.
-    try:
-        _is_ignored = ignored_event_predicate(folder_path, extra_ignore_patterns)
-    except Exception:
-        logger.debug("Ignore rules for %s not built; events are not filtered", folder_path, exc_info=True)
-        _is_ignored = None
-
     try:
         if initial_failed:
             _schedule_reindex_retry()
@@ -997,22 +989,28 @@ async def _watch_single(
                 for change_type, path in changes
                 if change_type in (Change.added, Change.modified, Change.deleted)
             ]
-            if relevant and _is_ignored is not None:
-                _chain_cache: dict = {}
-                _kept = [
-                    (change_type, path)
-                    for change_type, path in relevant
-                    if path == folder_path or not _is_ignored(path, _chain_cache)
-                ]
-                if not _kept:
-                    # Every event was under an ignored path: no pass, and not
-                    # an idle wake-up either (its HEAD check has its own tick).
-                    logger.debug(
-                        "Watcher for %s ignored %d event(s) under ignored paths",
-                        folder_path, len(relevant),
-                    )
-                    continue
-                relevant = _kept
+            # (#1581) Drop added and modified events every walk skips, read
+            # fresh per batch. Unbuildable means no filtering, as before. A
+            # batch left empty takes the idle branch below, so a due retry
+            # and the HEAD check still run under a stream of ignored events.
+            if any(ct != Change.deleted and p != folder_path for ct, p in relevant):
+                try:
+                    _is_ignored = ignored_event_predicate(folder_path, extra_ignore_patterns)
+                except Exception:
+                    logger.debug("Ignore rules for %s not built; events are not filtered", folder_path, exc_info=True)
+                    _is_ignored = None
+                if _is_ignored is not None:
+                    _kept = [
+                        (change_type, path)
+                        for change_type, path in relevant
+                        if change_type == Change.deleted or path == folder_path or not _is_ignored(path)
+                    ]
+                    if len(_kept) < len(relevant):
+                        logger.debug(
+                            "Watcher for %s ignored %d event(s) under ignored paths",
+                            folder_path, len(relevant) - len(_kept),
+                        )
+                    relevant = _kept
 
             # The paths this batch names, for _retry_files: files, deletions
             # and directories, but not the root. The retry names each one the

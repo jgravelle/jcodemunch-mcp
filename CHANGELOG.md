@@ -13,14 +13,22 @@ relevant before it looked at any ignore rule, so each batch ran a pass, and
 an event for a new folder made that pass a walk of the whole tree. The
 pass then skipped the ignored files.
 
-Events are now checked against the rules the walk applies before a pass is
-scheduled: the `.gitignore` chain from the git root down to the path, the
-`extra_ignore_patterns` of the call and the project config, and the
-framework profile's defaults. A batch of only ignored events runs nothing.
-A mixed batch re-indexes only the kept edits, and an ignored folder no
-longer turns it into a walk. An edit to a `.gitignore` always passes, since
-it changes what is ignored. Where the rules cannot be read, every event
-passes as before.
+Added and modified events are now checked before a pass starts, against
+the rules every walk of that folder applies: the `.gitignore` files from the
+watched folder down, and the `extra_ignore_patterns` of the call and the
+config, which count only when no git root sits above the watched folder.
+The rules are read again for each batch, so an edit to a `.gitignore` or to
+the project's patterns holds from the next one. A batch of only ignored
+events runs no pass, and a mixed batch re-indexes only the kept edits; an
+ignored folder no longer turns it into a walk.
+
+Where a rule might not hold, the event passes, because a dropped edit would
+stay unindexed while an extra pass only costs time. Deletions always pass,
+so a file indexed before its rule existed still leaves the index. An edit
+to a `.gitignore` always passes. A framework profile's defaults are not
+used, since which folder the walk detects them at depends on its identity
+mode. A batch left empty is handled as an idle wake-up, so a due retry
+still runs while ignored events keep arriving.
 
 ## [1.108.494] - 2026-11-26 - one locked file no longer fails the whole re-index
 

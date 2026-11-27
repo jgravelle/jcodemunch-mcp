@@ -2148,45 +2148,49 @@ def _explicit_path_is_gitignored(walk_root: Path, file_path: Path, cache: Option
 
 
 def ignored_event_predicate(folder_path: str, extra_ignore_patterns: Optional[list] = None):
-    """(#1581) A predicate for watch events this folder's walk would skip.
+    """(#1581) A predicate for watch events this folder's walk is sure to skip.
 
-    Returns ``is_ignored(path, chain_cache) -> bool`` for a path spelled
-    under ``folder_path``. True means the walk excludes it: a .gitignore on
-    the chain from the git root down to it (the walk's rule, #1563), or an
-    ignore pattern from the call, the project config or the framework
-    profile (the targeted path's rule). The watcher drops such events before
-    it starts a pass; before this every one ran a pass that then skipped
-    them. ``chain_cache`` maps a folder to its chain and belongs to one
-    batch, so an edit to a .gitignore is read by the next batch.
+    Returns ``is_ignored(path) -> bool`` for an added or modified path
+    spelled under ``folder_path``. The watcher drops such events before it
+    starts a pass; before this every one ran a pass that then skipped them.
+    Build one per batch: it reads the rules as they are now, so an edit to a
+    .gitignore or to the project's ignore patterns holds from the next batch.
 
-    False whenever it cannot tell: the root itself, a `.gitignore` file
-    (it decides what is ignored), a path outside ``folder_path``. A wrong
-    False costs one pass; a wrong True would leave an edit unindexed.
+    True only where every way this folder can be walked skips the path. A
+    wrong True leaves an edit unindexed and a wrong False costs one pass, so
+    each rule is the narrower of what the walk might apply:
+
+    - The .gitignore chain starts at the watched folder. A walk in git
+      identity starts it at the git root above (#1563), which can only add
+      rules, so the files from here down are applied by every walk.
+    - The ignore patterns come from `_walk_filter_config`, the walk's own
+      assembly (env, global, project, per-call), without a framework profile,
+      whose detection root depends on the identity the walk resolves. They
+      are matched relative to the watched folder, so they are applied only
+      when no git root sits above it, where every walk is rooted here.
+    - Never true for the root, a `.gitignore` file (it decides what is
+      ignored) or a path outside ``folder_path``. Deletions are not asked:
+      a file indexed before its rule existed must still leave the index.
     """
     root_spelling = Path(folder_path)
     root = root_spelling.resolve()
-    gi_root = root
+    extra_spec = None
     try:
         from ..storage.git_root import _find_git_root
 
         git_root = _find_git_root(root)
-        if git_root is not None and root.is_relative_to(git_root.resolve()):
-            gi_root = git_root.resolve()
+        rooted_here = git_root is None or git_root.resolve() == root
     except (OSError, ValueError):
         logger.debug("git root above %s not read", root, exc_info=True)
-    extra_spec = None
-    effective = get_extra_ignore_patterns(
-        extra_ignore_patterns,
-        repo=str(root),
-        profile_patterns=profile_ignore_patterns_for(root) or None,
-    )
-    if effective:
-        try:
-            extra_spec = pathspec.PathSpec.from_lines("gitignore", effective)
-        except Exception:
-            logger.debug("ignore patterns for %s not compiled", root, exc_info=True)
+        rooted_here = False
+    if rooted_here:
+        # The project file as it is now, as `index_folder` reads it per call
+        # (hash-guarded, so an unchanged file costs one read).
+        _config.load_project_config(str(root))
+        extra_spec = _walk_filter_config(root, extra_ignore_patterns=extra_ignore_patterns).extra_spec
+    chain_cache: dict = {}
 
-    def is_ignored(path: str, chain_cache: dict) -> bool:
+    def is_ignored(path: str) -> bool:
         try:
             rel = Path(path).relative_to(root_spelling)
         except ValueError:
@@ -2200,7 +2204,7 @@ def ignored_event_predicate(folder_path: str, extra_ignore_patterns: Optional[li
         specs = chain_cache.get(resolved.parent)
         if specs is None:
             try:
-                specs = _gitignore_specs_on_path(gi_root, resolved)
+                specs = _gitignore_specs_on_path(root, resolved)
             except (OSError, ValueError):
                 logger.debug("gitignore chain for %s not read", resolved, exc_info=True)
                 specs = []
