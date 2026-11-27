@@ -211,27 +211,54 @@ def test_the_read_only_and_uninstall_paths_do_not_crash_on_a_broken_file(tmp_pat
     assert path.read_bytes() == before and settings.read_bytes() == settings_before
 
 
-def test_no_reader_in_cli_turns_a_parse_error_into_an_empty_config():
-    """The ratchet: an `except` that catches a JSON parse error in `cli/` may
-    skip or refuse, but never hand back an empty config to write over."""
+def _empty_dict(node) -> bool:
+    import ast
+
+    if isinstance(node, ast.Dict):
+        return not node.keys
+    return (isinstance(node, ast.Call) and getattr(node.func, "id", "") == "dict"
+            and not node.args and not node.keywords)
+
+
+# The only functions allowed to fall back to an empty view: each is a status
+# report that writes nothing (asserted below). A reader that hands {} to a
+# writer is the defect itself, so "this function writes nothing" is not an
+# exemption: main's `_read_json` wrote nothing and was the bug.
+READ_ONLY_VIEWS = {"guidance_leftovers", "install_status"}
+
+
+def test_no_function_in_cli_turns_a_failed_read_into_an_empty_config():
+    """The ratchet: an `except` anywhere under `cli/`, whatever it catches,
+    may skip or refuse, but never hand back an empty config."""
     import ast
 
     root = Path(__file__).resolve().parents[1] / "src" / "jcodemunch_mcp" / "cli"
     found = []
-    for path in sorted(root.glob("*.py")):
+    for path in sorted(root.rglob("*.py")):
         tree = ast.parse(path.read_text(encoding="utf-8"))
-        for node in ast.walk(tree):
-            if not isinstance(node, ast.ExceptHandler) or node.type is None:
+        for fn in ast.walk(tree):
+            if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 continue
-            names = {n.attr if isinstance(n, ast.Attribute) else getattr(n, "id", "")
-                     for n in ast.walk(node.type)}
-            if not names & {"JSONDecodeError", "ValueError"}:
+            if fn.name in READ_ONLY_VIEWS:
                 continue
-            for sub in ast.walk(node):
-                value = getattr(sub, "value", None) if isinstance(sub, (ast.Return, ast.Assign)) else None
-                if isinstance(value, ast.Dict) and not value.keys:
-                    found.append(f"{path.name}:{sub.lineno}")
+            for handler in ast.walk(fn):
+                if not isinstance(handler, ast.ExceptHandler):
+                    continue
+                for sub in ast.walk(handler):
+                    if isinstance(sub, (ast.Return, ast.Assign)) and _empty_dict(sub.value):
+                        found.append(f"{path.relative_to(root)}:{sub.lineno} in {fn.name}")
     assert found == [], found
+
+
+def test_the_read_only_fallbacks_stay_read_only():
+    """The two functions that fall back to an empty view must keep writing
+    nothing; the ratchet above exempts them only for that."""
+    import inspect
+
+    for name in READ_ONLY_VIEWS:
+        src = inspect.getsource(getattr(init_mod, name))
+        for verb in ("_write_json", "write_text", "write_bytes", "copy2", ".replace(", ".rename("):
+            assert verb not in src, (name, verb)
 
 
 def test_install_status_names_an_unreadable_client_config(tmp_path, monkeypatch, capsys):
@@ -240,7 +267,57 @@ def test_install_status_names_an_unreadable_client_config(tmp_path, monkeypatch,
     monkeypatch.setattr(init_mod, "_detect_clients", lambda: [MCPClient("Cursor", path, "json_patch")])
     report = init_mod.install_status()
     entry = next(c for c in report["clients"] if c["name"] == "Cursor")
-    assert entry["configured"] is False and "line 1" in entry["unreadable"]
+    # unknown, never "not configured"
+    assert entry["configured"] is None and "line 1" in entry["unreadable"]
     init_mod.print_status(report)
     out = capsys.readouterr().out
     assert "[?] Cursor" in out and "line 1" in out, out
+
+
+def test_install_status_does_not_read_an_unreadable_settings_json_as_no_hooks(monkeypatch, capsys):
+    settings = init_mod._settings_json_path()
+    settings.parent.mkdir(parents=True, exist_ok=True)
+    settings.write_text('{"hooks": {"PostToolUse": []},}\n', encoding="utf-8")
+    monkeypatch.setattr(init_mod, "_detect_clients", lambda: [])
+    report = init_mod.install_status()
+    cs = report["hooks"]["claude_settings"]
+    assert cs["events_with_jcm_rules"] is None and "line 1" in cs["unreadable"]
+    init_mod.print_status(report)
+    out = capsys.readouterr().out
+    assert "[?] Claude settings.json" in out and "no jcodemunch rules" not in out, out
+
+
+@pytest.mark.parametrize("text", ["", "  \n"], ids=["empty", "blank"])
+@pytest.mark.parametrize("backup", [True, False], ids=["backup", "no-backup"])
+def test_an_empty_vscode_config_is_written_with_no_comment_warning(tmp_path, text, backup):
+    path = tmp_path / "mcp.json"
+    path.write_text(text, encoding="utf-8")
+    msg = configure_client(MCPClient("VS Code", path, "json_vscode"), backup=backup)
+    assert "jcodemunch" in json.loads(path.read_text(encoding="utf-8"))["servers"]
+    assert "comment" not in msg, msg
+
+
+@pytest.mark.parametrize("method,key", [("json_patch", "mcpServers"), ("json_vscode", "servers")])
+def test_a_byte_order_mark_is_read_not_refused(tmp_path, method, key):
+    path = tmp_path / "mcp.json"
+    path.write_bytes(b"\xef\xbb\xbf" + json.dumps({key: {"other": OTHER}}).encode("utf-8"))
+    configure_client(MCPClient("Cursor" if method == "json_patch" else "VS Code", path, method), backup=False)
+    data = json.loads(path.read_text(encoding="utf-8"))
+    assert data[key]["other"] == OTHER and "jcodemunch" in data[key]
+
+
+@pytest.mark.parametrize(
+    "text",
+    ['{"hooks": {"PostToolUse": {"x": 1}}}\n', '{"hooks": {"WorktreeCreate": ["cmd"]}}\n'],
+    ids=["event is an object", "rule is a string"],
+)
+@pytest.mark.parametrize("installer", ["install_hooks", "install_enforcement_hooks"])
+def test_a_hook_event_of_the_wrong_shape_is_refused_not_crashed_on(text, installer):
+    path = init_mod._settings_json_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text, encoding="utf-8")
+    before = path.read_bytes()
+    with pytest.raises(ConfigUnreadable) as err:
+        getattr(init_mod, installer)(backup=True)
+    assert "hooks." in str(err.value)
+    _assert_untouched(path, before)

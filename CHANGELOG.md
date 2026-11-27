@@ -15,18 +15,24 @@ Cursor, Windsurf, Continue, Gemini CLI, Cline), and so were VS Code,
 opencode and `~/.claude/settings.json` through the hook installers.
 
 A config file that exists is now read as a JSON object or not at all. A
-parse error, an unreadable file, a top level that is not an object, or a
-server table (or `hooks`) that is not an object refuses the file. The file
-is left byte-for-byte untouched, with or without a backup, and the message
-names it, with the line and column for a parse error. `init` carries on
-with the other targets and exits 1, naming each file it did not change.
-`uninstall` and `install-status` leave such a file alone and say so.
+parse error, an unreadable file, a top level that is not an object, a server
+table that is not an object, or a `hooks` table whose events are not lists
+of rules refuses the file. The file is left byte-for-byte untouched, with or
+without a backup, and the message names it, with the line and column for a
+parse error. `init` carries on with the other targets and exits 1, naming
+each MCP config and `settings.json` it did not change (the Cursor and Copilot
+hook files already skipped a file they could not parse, and still do).
+`uninstall` leaves such a file alone and says so. `install-status` marks it
+`[?]` with the reason, and its JSON reports `configured` and
+`events_with_jcm_rules` as null for it, never as "not configured".
 
 VS Code reads `mcp.json` as JSONC, so comments and trailing commas there
 are parsed, not refused. A rewrite cannot keep the comments, so it keeps
-the original as `.bak` and says so, and under `--no-backup` it refuses. A
-missing or empty file is still created as before. A test fails if any
-`except` in `cli/` that catches a JSON parse error returns an empty dict.
+the original as `.bak` and says so, and under `--no-backup` it refuses.
+Every other client is read as strict JSON. A file that starts with a UTF-8
+byte order mark is read, not refused. A missing or empty file is still
+created as before. A test fails if any `except` under `cli/` hands back an
+empty dict outside the two read-only status views.
 
 ### A dead-code answer over withheld files reads them instead of refusing (L-352)
 

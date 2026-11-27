@@ -329,7 +329,7 @@ def _read_json(path: Path, *, jsonc: bool = False) -> dict[str, Any]:
     if not path.exists():
         return {}
     try:
-        text = path.read_text(encoding="utf-8")
+        text = path.read_text(encoding="utf-8-sig")
     except (OSError, UnicodeDecodeError) as exc:
         raise ConfigUnreadable(path, f"could not be read ({exc})") from exc
     if not text.strip():
@@ -352,12 +352,32 @@ def _read_json(path: Path, *, jsonc: bool = False) -> dict[str, Any]:
 
 
 def _has_jsonc_only_syntax(path: Path) -> bool:
-    """True when ``path`` parses only as JSONC: a rewrite drops its comments."""
+    """True when ``path`` parses only as JSONC: a rewrite drops its comments.
+
+    A missing or blank file has nothing to lose and answers False.
+    """
     try:
-        json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return path.exists()
+        text = path.read_text(encoding="utf-8-sig")
+    except OSError:
+        return False
+    if not text.strip():
+        return False
+    try:
+        json.loads(text)
+    except ValueError:
+        return True
     return False
+
+
+def _hooks_table(data: dict[str, Any], path: Path) -> Optional[dict[str, Any]]:
+    """``data["hooks"]`` checked down to each event's rule list; refuses otherwise."""
+    hooks = _object_or_none(data, "hooks", path)
+    for event, rules in (hooks or {}).items():
+        if not isinstance(rules, list) or not all(isinstance(r, dict) for r in rules):
+            raise ConfigUnreadable(
+                path, f'has hooks."{event}" as {_json_type(rules)}, not a list of rule objects'
+            )
+    return hooks
 
 
 def _object_or_none(data: dict[str, Any], key: str, path: Path) -> Optional[dict[str, Any]]:
@@ -1076,7 +1096,7 @@ def install_hooks(*, dry_run: bool = False, backup: bool = True) -> str:
     """
     path = _settings_json_path()
     data = _read_json(path)
-    _object_or_none(data, "hooks", path)
+    _hooks_table(data, path)
     added, updated = _merge_hooks(data, _worktree_hooks(), "jcodemunch-mcp hook-event")
 
     if not added and not updated:
@@ -1345,7 +1365,7 @@ def install_enforcement_hooks(
     """
     path = _settings_json_path()
     data = _read_json(path)
-    _object_or_none(data, "hooks", path)
+    _hooks_table(data, path)
     defs = _silent_hooks()
     present = _installed_jcm_subcommands(data)
     for event, rules in _guidance_hooks().items():
@@ -2346,7 +2366,7 @@ def guidance_leftovers() -> dict[str, list[str]]:
     path = _settings_json_path()
     try:
         data = _read_json(path)
-        _object_or_none(data, "hooks", path)
+        _hooks_table(data, path)
     except ConfigUnreadable:
         data = {}  # read only: an unreadable file holds nothing we can name
     targets = _guidance_subcommands()
@@ -2391,7 +2411,7 @@ def remove_guidance_lines(*, dry_run: bool = False, backup: bool = True) -> list
     if path.exists():
         try:
             data = _read_json(path)
-            _object_or_none(data, "hooks", path)
+            _hooks_table(data, path)
         except ConfigUnreadable as exc:
             lines.append(f"  Hooks:  {exc}")
     if data is not None:
@@ -2433,7 +2453,7 @@ def uninstall_hooks(*, dry_run: bool = False, backup: bool = True) -> str:
         return f"  no settings at {path}"
     try:
         data = _read_json(path)
-        _object_or_none(data, "hooks", path)
+        _hooks_table(data, path)
     except ConfigUnreadable as exc:
         return f"  {exc}"
     snapshot = json.dumps(data, sort_keys=True)
@@ -2806,6 +2826,7 @@ def install_status() -> dict[str, Any]:
                     _object_or_none(data, "mcpServers", client.config_path) or {}
                 )
             except ConfigUnreadable as exc:
+                entry["configured"] = None  # unknown, never "not configured"
                 entry["unreadable"] = exc.reason
         elif client.method == "cli":
             claude = _claude_cli_exe()
@@ -2843,11 +2864,13 @@ def install_status() -> dict[str, Any]:
 
     # Hooks in ~/.claude/settings.json
     settings_path = _settings_json_path()
+    settings_unreadable = None
     try:
         settings_data = _read_json(settings_path)
-        _object_or_none(settings_data, "hooks", settings_path)
-    except ConfigUnreadable:
-        settings_data = {}  # read only: nothing in it can be counted
+        _hooks_table(settings_data, settings_path)
+    except ConfigUnreadable as exc:
+        settings_data = {}
+        settings_unreadable = exc.reason
     jcm_events: list[str] = []
     for event_name, rules in (settings_data.get("hooks") or {}).items():
         if not isinstance(rules, list):
@@ -2859,8 +2882,11 @@ def install_status() -> dict[str, Any]:
                 break
     report["hooks"]["claude_settings"] = {
         "path": str(settings_path),
-        "events_with_jcm_rules": jcm_events,
+        # None when the file could not be read: unknown, never "no hooks".
+        "events_with_jcm_rules": None if settings_unreadable else jcm_events,
     }
+    if settings_unreadable:
+        report["hooks"]["claude_settings"]["unreadable"] = settings_unreadable
 
     # What a light install would not have (offer, never apply).
     _left = guidance_leftovers()
@@ -2966,8 +2992,11 @@ def print_status(report: Optional[dict[str, Any]] = None, *, as_json: bool = Fal
     print("\nHooks:")
     cs = report["hooks"]["claude_settings"]
     events = cs.get("events_with_jcm_rules") or []
-    flag = "[x]" if events else "[ ]"
-    detail = ", ".join(events) if events else "no jcodemunch rules"
+    if cs.get("unreadable"):
+        flag, detail = "[?]", f"{cs['unreadable']}; init will not change it until it is fixed"
+    else:
+        flag = "[x]" if events else "[ ]"
+        detail = ", ".join(events) if events else "no jcodemunch rules"
     print(f"  {flag} Claude settings.json  ({detail})")
     cp = report["hooks"]["copilot"]
     flag = "[x]" if cp["present"] else "[ ]"
