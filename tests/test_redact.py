@@ -176,7 +176,7 @@ class TestKeyAnchoredSubscriptAndEscapedForms:
     """A key-anchored value after a closing subscript or JSON-escaped quotes."""
 
     AWS = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
-    API = "aB3dE5gH7jK9mN1pQ3" + "sT5vW7yZ1bC3dE5fG"  # built from halves so gitleaks does not flag it
+    API = "aB3dE5gH7jK9mN1pQ3" + "sT5vW7yZ1bC3dE5fG"  # gitleaks:allow (a test value, not a credential)
     CLIENT = "aaaaaaaaaa~._-ZZZZZZZZZZZZZZZZZZZZZZZZZ"
 
     def test_subscript_assignments_redacted(self):
