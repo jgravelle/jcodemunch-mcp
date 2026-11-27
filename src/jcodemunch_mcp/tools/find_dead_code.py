@@ -295,8 +295,9 @@ def find_dead_code(
     # it: imports through the indexer's extractor and the graph's resolver,
     # render edges, runtime package enumeration and dynamic-import sites. Each
     # withheld file is a live root, since nothing here shows it dead. Whatever
-    # the read cannot stand in for (another blocker, a cut listing, Go, an
-    # undecodable file) keeps the cap.
+    # the read cannot stand in for (another blocker, a cut listing, Go, a
+    # data or config file, an undecodable file) keeps the cap. Entry points
+    # above read no withheld file: a withheld manifest is refused for that.
     withheld = (
         read_withheld_files(index) if assess_corpus(index).blockers == ["withheld_files"] else None
     )
@@ -661,6 +662,8 @@ def find_dead_code(
         # for a re-index the session cannot run.
         _ca = result["corpus_adequacy"]
         _ca["confidence_ceiling"] = 1.0
+        _ca["adequate"] = True
+        _ca.pop("blockers", None)
         _ca["blockers_resolved"] = ["withheld_files"]
         _ca["withheld_files_read"] = len(withheld)
         _ca["withheld_import_edges"] = withheld_edges

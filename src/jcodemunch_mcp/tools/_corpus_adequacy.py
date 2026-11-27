@@ -54,6 +54,12 @@ UNPROVEN_CEILING = 0.6
 #: A NUL byte marks a file that is not UTF-8 text (UTF-16 and binaries).
 NUL = bytes([0])
 
+#: Languages of data and config files. A manifest is read by load-time
+#: producers (package.json entry points, tsconfig path aliases, composer PSR-4
+#: maps) that no view of the withheld files can replay, so one withheld keeps
+#: the cap (L-352 review round 3).
+DATA_LANGUAGES = frozenset({"json", "yaml", "toml", "xml"})
+
 
 class CorpusAdequacy:
     """Whether an absence claim over this index is publishable, and why not."""
@@ -182,7 +188,9 @@ def read_withheld_files(index) -> Optional[dict]:
       text decoded with replacements would name nothing;
     - a file with no known language, whose imports nothing can extract;
     - a Go file: Go edges come from package membership and the ``go.mod``
-      module map at load (L-264), which ``resolve_specifier`` does not apply.
+      module map at load (L-264), which ``resolve_specifier`` does not apply;
+    - a data or config file (:data:`DATA_LANGUAGES`): manifests feed entry
+      points and alias maps that are built before this read and never see it.
     """
     from ..parser.imports import extract_imports
     from ..parser.languages import get_language_for_path
@@ -204,7 +212,7 @@ def read_withheld_files(index) -> Optional[dict]:
     out: dict = {}
     for rel in sorted(listed):
         language = get_language_for_path(rel)
-        if not language or language == "go":
+        if not language or language == "go" or language in DATA_LANGUAGES:
             return None
         path = os.path.realpath(os.path.join(base, rel))
         if os.path.commonpath([base, path]) != base:

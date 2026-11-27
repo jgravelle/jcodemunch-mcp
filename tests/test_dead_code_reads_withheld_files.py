@@ -220,3 +220,24 @@ def test_a_template_a_withheld_file_renders_is_live(tmp_path):
     })
     files = _files(_dead(repo_id, store, min_confidence=0))
     assert "templates/home.html" not in files or files["templates/home.html"]["confidence"] <= UNPROVEN_CEILING
+
+
+def test_a_withheld_manifest_keeps_the_cap(tmp_path):
+    """Review round 3, finding 1: entry points come from package.json before
+    any withheld file is read, so a withheld manifest cannot be stood in for."""
+    pad = ",".join(f'"k{i}": "{i}"' for i in range(3000))
+    repo_id, store = _tree(tmp_path, {
+        "package.json": '{"name": "p", "main": "lib/core.js", "config": {' + pad + "}}\n",
+        "lib/core.js": "export function c() { return 1; }\n",
+    })
+    r = _dead(repo_id, store, min_confidence=0)
+    for entry in r["dead_files"]:
+        assert entry["confidence"] <= UNPROVEN_CEILING, entry
+    assert "signal_warning" in r
+
+
+def test_a_released_run_reads_adequate(repo):
+    """Review round 3, note 3: a release does not leave adequate False beside a 1.0 ceiling."""
+    repo_id, store, _ = repo
+    ca = _dead(repo_id, store)["corpus_adequacy"]
+    assert ca["adequate"] is True and "blockers" not in ca

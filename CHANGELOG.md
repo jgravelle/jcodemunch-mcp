@@ -23,8 +23,10 @@ answer is then published at full confidence, with `corpus_adequacy` naming
 the withheld files it read and the edges they added. Anything that read cannot
 stand in for keeps the cap and the old warning: another blocker (a stale
 index, a runtime enumeration), a listing cut short, a file that cannot be read
-or is not UTF-8 text, a file with no known language, and Go, whose edges come
-from package membership and `go.mod` at load. `check_delete_safe` keeps its
+or is not UTF-8 text, a file with no known language, a data or config file
+(JSON, YAML, TOML, XML), whose entry points and path aliases are read before
+the withheld files are, and Go, whose edges come from package membership and
+`go.mod` at load. `check_delete_safe` keeps its
 own adequacy check and still refuses a delete over withheld files.
 
 ## [1.108.495] - 2026-11-27 - a watch event outside the watched folder no longer fails the whole batch
