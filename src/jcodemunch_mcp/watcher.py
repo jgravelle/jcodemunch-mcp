@@ -829,6 +829,32 @@ async def _reconcile_head_move(
     return _HEAD_FAILED
 
 
+def _spell_under_root(path: str, folder_path: str) -> Optional[str]:
+    """Spell a watch event path the way the watched root spells it, or None (#1582).
+
+    watchfiles can report a path through the root's RESOLVED spelling: an
+    indexed folder moved to another volume with a symlink left at the old path
+    produces events under the new location. Every consumer below compares
+    against ``folder_path`` (``relative_to``, ``p == folder_path``), so such a
+    path is rewritten onto the root's own spelling. A path under neither
+    spelling cannot be placed in this repo, and the caller drops it rather than
+    failing the whole batch on it.
+
+    The root is resolved only on a miss, and again on every miss: the link can
+    be re-pointed while the task runs, and a lexical hit costs no syscall.
+    """
+    try:
+        Path(path).relative_to(folder_path)
+        return path
+    except ValueError:
+        pass
+    try:
+        rel = Path(path).relative_to(os.path.realpath(folder_path))
+    except ValueError:
+        return None
+    return folder_path if rel == Path(".") else str(Path(folder_path) / rel)
+
+
 async def _watch_single(
     folder_path: str,
     debounce_ms: int,
@@ -965,6 +991,7 @@ async def _watch_single(
     )
 
     _head_moves = _HeadMoveDetector()
+    _warned_unplaced = False
     _reindex_retry_at: Optional[float] = None
     _reindex_retry_attempts = 0
     _reindex_retry_delay = _REINDEX_RETRY_SECONDS
@@ -983,11 +1010,26 @@ async def _watch_single(
         if initial_failed:
             _schedule_reindex_retry()
         async for changes in _safe_awatch(folder_path, debounce_ms, yield_idle=True):
-            relevant = [
-                (change_type, path)
-                for change_type, path in changes
-                if change_type in (Change.added, Change.modified, Change.deleted)
-            ]
+            relevant = []
+            for change_type, path in changes:
+                if change_type not in (Change.added, Change.modified, Change.deleted):
+                    continue
+                placed = _spell_under_root(path, folder_path)
+                if placed is None:
+                    # (#1582) One path the watcher cannot place must not fail
+                    # the batch: the ValueError from `relative_to` below threw
+                    # away every other edit in it, recorded a failure and put
+                    # the same path in the retry set. Said once per task.
+                    if not _warned_unplaced:
+                        _warned_unplaced = True
+                        _watcher_output(
+                            f"  WARNING: ignoring change events outside {folder_path} "
+                            f"(first: {path}); further ones are skipped silently.",
+                            quiet=quiet, log_file_handle=log_file_handle,
+                        )
+                    logger.debug("Skipping watch event outside %s: %s", folder_path, path)
+                    continue
+                relevant.append((change_type, placed))
 
             # The paths this batch names, for _retry_files: files, deletions
             # and directories, but not the root. The retry names each one the
