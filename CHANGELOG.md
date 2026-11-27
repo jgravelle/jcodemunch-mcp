@@ -2,6 +2,36 @@
 
 ## [Unreleased]
 
+## [1.108.497] - 2026-11-27 - a dead-code answer over withheld files reads them instead of refusing
+
+### A dead-code answer over withheld files reads them instead of refusing (L-352)
+
+When the index withheld a file for size, `find_dead_code` capped every
+finding at 0.6, below its 0.8 default threshold, and the only advice it gave
+was to re-index with a higher `max_file_size`. A session cannot do that: no
+tool takes the setting. On a large repository most dead-code calls ended in
+this refusal, and the session then gave up or fell back to long grep-and-read
+loops.
+
+A withheld file is missing from the index, not from the tree. When withheld
+files are the only reason for the cap, `find_dead_code` now reads their
+imports from disk with the indexer's own `extract_imports` and resolves them
+with the graph's own `resolve_specifier`, so a withheld importer counts
+exactly as an indexed one would, and each withheld file is a live root. The
+other edge families run over the withheld text too, through a view of the
+index and store that holds it: dynamic-import sites, a package `__init__`
+that enumerates its own modules, and templates a withheld file renders. The
+answer is then published at full confidence, with `corpus_adequacy` naming
+the withheld files it read and the edges they added. Anything that read cannot
+stand in for keeps the cap and the old warning: another blocker (a stale
+index, a runtime enumeration), a listing cut short, a file that cannot be read
+or is not UTF-8 text, a file with no known language, a data or config file
+(JSON, YAML, TOML, XML), whose entry points and path aliases are read before
+the withheld files are, and a file in a language whose edges the index adds
+at load (Go module paths, Kotlin and Java top-level declarations, Racket
+collection paths, PHP PSR-4), which a read from disk does not replay. `check_delete_safe` keeps its
+own adequacy check and still refuses a delete over withheld files.
+
 ## [1.108.496] - 2026-11-27 - a change under an ignored path no longer runs a watcher pass
 
 ### A change under an ignored path no longer runs a watcher pass (#1581)
