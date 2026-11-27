@@ -38,9 +38,11 @@ from __future__ import annotations
 
 import logging
 import os
+from pathlib import Path
 from typing import Optional
 
 from ..retrieval.verdict import index_coverage_meta
+from ..security import resolve_within
 
 logger = logging.getLogger(__name__)
 
@@ -217,14 +219,15 @@ def read_withheld_files(index) -> Optional[dict]:
     root = getattr(index, "source_root", None)
     if not root or not os.path.isdir(root):
         return None
-    base = os.path.realpath(root)
+    base = Path(root)
+    base_resolved = str(base.resolve())
     out: dict = {}
     for rel in sorted(listed):
         language = get_language_for_path(rel)
         if not language or language in LOAD_AUGMENTED_LANGUAGES or language in DATA_LANGUAGES:
             return None
-        path = os.path.realpath(os.path.join(base, rel))
-        if os.path.commonpath([base, path]) != base:
+        path = resolve_within(base, rel, base_resolved=base_resolved)
+        if path is None:
             return None
         try:
             with open(path, "rb") as fh:
