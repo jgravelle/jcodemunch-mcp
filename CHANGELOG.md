@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.496] - 2026-11-27 - a change under an ignored path no longer runs a watcher pass
+
 ### A change under an ignored path no longer runs a watcher pass (#1581)
 
 Reported by @Braxhim, with the numbers: a repository whose gitignored
