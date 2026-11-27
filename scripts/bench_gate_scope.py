@@ -106,4 +106,7 @@ def main(argv=None) -> int:
 
 
 if __name__ == "__main__":
+    # Windows: a redirected stdout is cp1252 (L-145, L-281).
+    sys.stdout.reconfigure(encoding="utf-8")
+    sys.stderr.reconfigure(encoding="utf-8")
     sys.exit(main())

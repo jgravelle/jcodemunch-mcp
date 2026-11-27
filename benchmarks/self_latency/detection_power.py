@@ -18,6 +18,7 @@ for, and neither is in these numbers.
 """
 from __future__ import annotations
 
+import sys
 from math import comb
 
 SHARES = (0.02, 0.05, 0.07, 0.075, 0.08, 0.10, 0.15, 0.20, 0.30)
@@ -59,4 +60,7 @@ def main() -> None:
 
 
 if __name__ == "__main__":
+    # Windows: a redirected stdout is cp1252 (L-145, L-281).
+    sys.stdout.reconfigure(encoding="utf-8")
+    sys.stderr.reconfigure(encoding="utf-8")
     main()
