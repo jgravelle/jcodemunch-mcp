@@ -2,6 +2,32 @@
 
 ## [Unreleased]
 
+### `init` no longer rewrites a client config it could not read (L-355)
+
+`init` and `install <client>` read each client's MCP config before adding
+the jcodemunch entry, and a file that existed but did not parse read as
+empty. One trailing comma in `~/.cursor/mcp.json` was enough: the command
+printed "added jcodemunch" with no warning, and the file came back holding
+our entry alone. The user's other MCP servers were gone. The `.bak` copy was
+the only one left, and under `--no-backup` there was none. Every client
+written through the shared `mcpServers` writer was exposed (Claude Desktop,
+Cursor, Windsurf, Continue, Gemini CLI, Cline), and so were VS Code,
+opencode and `~/.claude/settings.json` through the hook installers.
+
+A config file that exists is now read as a JSON object or not at all. A
+parse error, an unreadable file, a top level that is not an object, or a
+server table (or `hooks`) that is not an object refuses the file. The file
+is left byte-for-byte untouched, with or without a backup, and the message
+names it, with the line and column for a parse error. `init` carries on
+with the other targets and exits 1, naming each file it did not change.
+`uninstall` and `install-status` leave such a file alone and say so.
+
+VS Code reads `mcp.json` as JSONC, so comments and trailing commas there
+are parsed, not refused. A rewrite cannot keep the comments, so it keeps
+the original as `.bak` and says so, and under `--no-backup` it refuses. A
+missing or empty file is still created as before. A test fails if any
+`except` in `cli/` that catches a JSON parse error returns an empty dict.
+
 ### A dead-code answer over withheld files reads them instead of refusing (L-352)
 
 When the index withheld a file for size, `find_dead_code` capped every

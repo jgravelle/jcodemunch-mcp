@@ -38,9 +38,15 @@ def test_read_json_missing(tmp_path):
 
 
 def test_read_json_invalid(tmp_path):
+    # An unparseable file is refused, never read as {} (2026-11-27): every
+    # caller writes the result back, so {} here deleted the user's config.
+    # tests/test_init_refuses_an_unparseable_config.py holds the cases.
+    from jcodemunch_mcp.cli.init import ConfigUnreadable
+
     f = tmp_path / "bad.json"
     f.write_text("not json", encoding="utf-8")
-    assert _read_json(f) == {}
+    with pytest.raises(ConfigUnreadable):
+        _read_json(f)
 
 
 def test_read_write_json_roundtrip(tmp_path):
