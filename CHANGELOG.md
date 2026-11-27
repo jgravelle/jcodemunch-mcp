@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.495] - 2026-11-27 - a watch event outside the watched folder no longer fails the whole batch
+
 ### A watch event outside the watched folder no longer fails the whole batch (#1582)
 
 Reported by @Braxhim. The watcher keys every event by its path relative to
@@ -18,9 +20,9 @@ file of that tree and is dropped, with one warning per watch task. The rest
 of the batch is indexed either way. @OpenLucasKaka diagnosed the same cause
 and proposed the same fix independently in #1584.
 
-### A key-anchored secret after a closing subscript or JSON-escaped quotes is redacted
+### A key-anchored secret after a closing subscript or JSON-escaped quotes is redacted (#1575)
 
-The `aws_secret_key`, `azure_storage_key`, `azure_client_secret` and
+Reported and fixed by @goranai in #1576. The `aws_secret_key`, `azure_storage_key`, `azure_client_secret` and
 `generic_api_key` patterns allowed only spaces, `:`, `=` and quotes between the
 key name and the value. `os.environ["AWS_SECRET_ACCESS_KEY"] = "..."` has a `]`
 there, and the same line stored JSON-escaped in a notebook has a backslash, so

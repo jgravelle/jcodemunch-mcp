@@ -1,6 +1,12 @@
 {
-  "current": "1.108.494",
+  "current": "1.108.495",
   "entries": [
+    {
+      "version": "1.108.495",
+      "date": "2026-11-27",
+      "title": "A watch event outside the watched folder no longer fails the whole batch",
+      "summary": "The watcher keyed every event by its path relative to the watched folder, and an event path not under that spelling raised and failed the whole batch: the other edits in it stayed unindexed and a retry was scheduled. A folder reached through a symlink made every batch fail this way. An event whose real path lies under the folder's real path is now indexed under the folder; any other path is dropped with a warning, and the rest of the batch is indexed (#1582). A key-anchored secret after a closing subscript or JSON-escaped quotes is now redacted (#1576)."
+    },
     {
       "version": "1.108.494",
       "date": "2026-11-26",
