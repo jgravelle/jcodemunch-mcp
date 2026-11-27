@@ -2,6 +2,26 @@
 
 ## [Unreleased]
 
+### A change under an ignored path no longer runs a watcher pass (#1581)
+
+Reported by @Braxhim, with the numbers: a repository whose gitignored
+`build/` an agent writes all day logged about 2,000 passes in 13 hours that
+ended in "no indexable changes", and one whose gitignored `data/` is
+rewritten every few seconds logged about 10,000, with the service at 250 to
+350 % CPU. The watcher counted every added, modified or deleted event as
+relevant before it looked at any ignore rule, so each batch ran a pass, and
+an event for a new folder made that pass a walk of the whole tree. The
+pass then skipped the ignored files.
+
+Events are now checked against the rules the walk applies before a pass is
+scheduled: the `.gitignore` chain from the git root down to the path, the
+`extra_ignore_patterns` of the call and the project config, and the
+framework profile's defaults. A batch of only ignored events runs nothing.
+A mixed batch re-indexes only the kept edits, and an ignored folder no
+longer turns it into a walk. An edit to a `.gitignore` always passes, since
+it changes what is ignored. Where the rules cannot be read, every event
+passes as before.
+
 ## [1.108.494] - 2026-11-26 - one locked file no longer fails the whole re-index
 
 ### One locked file no longer fails the whole re-index (L-350)

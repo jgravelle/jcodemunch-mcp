@@ -2147,6 +2147,69 @@ def _explicit_path_is_gitignored(walk_root: Path, file_path: Path, cache: Option
     return bool(specs) and _is_gitignored_fast(str(file_path), specs)
 
 
+def ignored_event_predicate(folder_path: str, extra_ignore_patterns: Optional[list] = None):
+    """(#1581) A predicate for watch events this folder's walk would skip.
+
+    Returns ``is_ignored(path, chain_cache) -> bool`` for a path spelled
+    under ``folder_path``. True means the walk excludes it: a .gitignore on
+    the chain from the git root down to it (the walk's rule, #1563), or an
+    ignore pattern from the call, the project config or the framework
+    profile (the targeted path's rule). The watcher drops such events before
+    a pass is scheduled; before this every one ran a pass that then skipped
+    them. ``chain_cache`` maps a folder to its chain and belongs to one
+    batch, so an edit to a .gitignore is read by the next batch.
+
+    False whenever it cannot tell: the root itself, a `.gitignore` file
+    (it decides what is ignored), a path outside ``folder_path``. A wrong
+    False costs one pass; a wrong True would leave an edit unindexed.
+    """
+    root_spelling = Path(folder_path)
+    root = root_spelling.resolve()
+    gi_root = root
+    try:
+        from ..storage.git_root import _find_git_root
+
+        git_root = _find_git_root(root)
+        if git_root is not None and root.is_relative_to(git_root.resolve()):
+            gi_root = git_root.resolve()
+    except (OSError, ValueError):
+        logger.debug("git root above %s not read", root, exc_info=True)
+    extra_spec = None
+    effective = get_extra_ignore_patterns(
+        extra_ignore_patterns,
+        repo=str(root),
+        profile_patterns=profile_ignore_patterns_for(root) or None,
+    )
+    if effective:
+        try:
+            extra_spec = pathspec.PathSpec.from_lines("gitignore", effective)
+        except Exception:
+            logger.debug("ignore patterns for %s not compiled", root, exc_info=True)
+
+    def is_ignored(path: str, chain_cache: dict) -> bool:
+        try:
+            rel = Path(path).relative_to(root_spelling)
+        except ValueError:
+            return False
+        if rel == Path(".") or rel.name == ".gitignore":
+            return False
+        is_dir = os.path.isdir(path)
+        if extra_spec is not None and extra_spec.match_file(rel.as_posix() + ("/" if is_dir else "")):
+            return True
+        resolved = root / rel
+        specs = chain_cache.get(resolved.parent)
+        if specs is None:
+            try:
+                specs = _gitignore_specs_on_path(gi_root, resolved)
+            except (OSError, ValueError):
+                logger.debug("gitignore chain for %s not read", resolved, exc_info=True)
+                specs = []
+            chain_cache[resolved.parent] = specs
+        return bool(specs) and _is_gitignored_fast(str(resolved) + (os.sep if is_dir else ""), specs)
+
+    return is_ignored
+
+
 def _listed_in_index_terms(requested_rels, walk_prefix: str) -> list:
     """Listed `paths=` entries as stored (git-root-relative) paths (#1397).
 
