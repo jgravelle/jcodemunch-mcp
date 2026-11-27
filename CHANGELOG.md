@@ -2,6 +2,22 @@
 
 ## [Unreleased]
 
+### A watch event outside the watched folder no longer fails the whole batch (#1582)
+
+Reported by @Braxhim. The watcher keys every event by its path relative to
+the watched folder. An event whose path is not under that spelling raised,
+and the error handler failed the whole batch: the other edits in it were not
+indexed, the repository was marked failed and a retry was scheduled. When a
+watched folder is reached through a symlink, as after a folder is moved to
+another volume and a link is left at the old path, the report shows
+watchfiles naming the resolved path, so every batch failed this way.
+
+An event path whose real path lies under the watched folder's real path is
+now spelled under the watched folder and indexed. Any other path names no
+file of that tree and is dropped, with one warning per watch task. The rest
+of the batch is indexed either way. @OpenLucasKaka diagnosed the same cause
+and proposed the same fix independently in #1584.
+
 ## [1.108.494] - 2026-11-26 - one locked file no longer fails the whole re-index
 
 ### One locked file no longer fails the whole re-index (L-350)

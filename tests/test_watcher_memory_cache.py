@@ -2616,3 +2616,156 @@ def test_a_file_change_detection_cannot_read_leaves_the_rest_of_the_walk(tmp_pat
     assert {symbol["name"] for symbol in store.load_index(owner, name).symbols} == {"locked_before", "other_after"}
     coverage = store._sqlite.get_coverage(owner, name)
     assert coverage["complete"] is False and "locked.py" in coverage.get("unreadable_files", []), coverage
+
+
+async def _watch_one_batch(watcher, monkeypatch, root, storage, batch):
+    """Run _watch_single over one batch; return (task, waiter, done).
+
+    ``waiter`` completes when the watcher asks for the next batch, which it
+    does only once it has handled this one.
+    """
+    import asyncio
+
+    reached = asyncio.Event()
+
+    async def events(*args, **kwargs):
+        yield batch()
+        reached.set()
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr(watcher, "_safe_awatch", events)
+    task = asyncio.create_task(watcher._watch_single(
+        str(root), 200, False, storage, None, False,
+        skip_initial_index=True, quiet=True, context_providers=False,
+    ))
+    waiter = asyncio.create_task(reached.wait())
+    done, _ = await asyncio.wait({task, waiter}, timeout=20, return_when=asyncio.FIRST_COMPLETED)
+    return task, waiter, done
+
+
+@pytest.mark.parametrize("spelling", ["outside", "symlinked_root"])
+async def test_an_event_the_watcher_cannot_place_under_its_root_does_not_fail_the_batch(tmp_path, monkeypatch, spelling):
+    """#1582 (@Braxhim): `Path(p).relative_to(folder_path)` raised on an event
+    path outside the root's spelling. The handler caught it, so the whole
+    batch failed: the edits that came with it were not indexed, the repo was
+    marked failed and a retry was scheduled, on every such batch. ``outside``
+    is a path under no spelling of the root, which is dropped.
+    ``symlinked_root`` watches the root through a symlink while the events
+    name the resolved path, the reporter's moved folder: the same file, which
+    is indexed."""
+    import asyncio
+
+    from jcodemunch_mcp import reindex_state, watcher
+    from jcodemunch_mcp.storage.index_store import IndexStore
+
+    Change = pytest.importorskip("watchfiles").Change
+    _skip_service_probe(monkeypatch)
+    real = tmp_path / "real"
+    real.mkdir()
+    if spelling == "symlinked_root":
+        root = tmp_path / "link"
+        try:
+            os.symlink(real, root, target_is_directory=True)
+        except (OSError, NotImplementedError):
+            # Windows without the symlink privilege: a directory junction
+            # resolves the same way through os.path.realpath and needs none.
+            import subprocess
+
+            made = os.name == "nt" and subprocess.run(
+                ["cmd", "/c", "mklink", "/J", str(root), str(real)],
+                capture_output=True,
+            ).returncode == 0
+            if not made:
+                pytest.skip("this platform cannot create a directory link")
+        event_dir = real
+    else:
+        root = real
+        event_dir = real
+    code = root / "code.py"
+    code.write_text("def before(): pass\n", encoding="utf-8")
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    stray = elsewhere / "stray.py"
+    stray.write_text("def stray(): pass\n", encoding="utf-8")
+    storage = str(tmp_path / "store")
+    result = watcher.index_folder(str(root), use_ai_summaries=False, context_providers=False, storage_path=storage)
+    assert result["success"], result
+    owner, name = result["repo"].split("/", 1)
+
+    calls = []
+    real_index = watcher.index_folder
+
+    def index(**kwargs):
+        calls.append(kwargs)
+        return real_index(**kwargs)
+
+    monkeypatch.setattr(watcher, "index_folder", index)
+
+    def first():
+        code.write_text("def after(): pass\n", encoding="utf-8")
+        batch = {(Change.modified, str(event_dir / "code.py"))}
+        if spelling == "outside":
+            batch.add((Change.modified, str(stray)))
+        return batch
+
+    task, waiter, done = await _watch_one_batch(watcher, monkeypatch, root, storage, first)
+    try:
+        assert task not in done, task.exception()
+        assert waiter in done, "the watcher never finished the batch"
+        status = reindex_state.get_reindex_status(result["repo"])
+        names = {symbol["name"] for symbol in IndexStore(base_path=storage).load_index(owner, name).symbols}
+    finally:
+        task.cancel()
+        waiter.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+    assert "after" in names, names
+    assert "retry_in_ms" not in status and not status.get("last_reindex_error"), status
+    assert calls, "no re-index ran"
+    assert all(str(stray) not in repr(call) for call in calls), calls
+
+
+def test_place_under_root_respells_a_resolved_path_and_drops_a_foreign_one(tmp_path, monkeypatch):
+    """#1582: every spelling `_place_under_root` meets. The symlink is
+    simulated through ``os.path.realpath`` so the case runs where a directory
+    symlink cannot be made (Windows without the privilege)."""
+    from jcodemunch_mcp import watcher
+
+    Change = pytest.importorskip("watchfiles").Change
+    link = str(tmp_path / "link")
+    real = str(tmp_path / "real")
+    real_realpath = os.path.realpath
+
+    def realpath(path):
+        if path == link or path.startswith(link + os.sep):
+            return real + path[len(link):]
+        return real_realpath(path)
+
+    monkeypatch.setattr(watcher.os.path, "realpath", realpath)
+    inside = os.path.join(link, "pkg", "a.py")
+    resolved = os.path.join(real, "pkg", "b.py")
+    gone = os.path.join(real, "pkg", "deleted.py")
+    foreign = str(tmp_path / "elsewhere" / "c.py")
+    sibling = str(tmp_path / "linked" / "d.py")
+    placed, dropped = watcher._place_under_root(
+        [
+            (Change.modified, link),
+            (Change.modified, inside),
+            (Change.added, resolved),
+            (Change.deleted, gone),
+            (Change.modified, real),
+            (Change.modified, foreign),
+            (Change.modified, sibling),
+        ],
+        link,
+        realpath(link),
+    )
+    assert placed == [
+        (Change.modified, link),
+        (Change.modified, inside),
+        (Change.added, os.path.join(link, "pkg", "b.py")),
+        (Change.deleted, os.path.join(link, "pkg", "deleted.py")),
+        (Change.modified, link),
+    ]
+    assert dropped == [foreign, sibling]
+
