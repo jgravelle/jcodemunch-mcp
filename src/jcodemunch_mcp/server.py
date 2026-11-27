@@ -3514,6 +3514,7 @@ def _build_tools_list(
                 "Useful for understanding how a symbol fits into the call graph before refactoring."
                 " Detection is name-based, so same-name symbols in different modules can merge and dynamic dispatch is missed."
                 " Only depth-1 rows are direct callers; on a deeper row, `via` names the row it is reached from. `caller_count` counts every depth, `direct_caller_count` depth 1."
+                " Each list holds at most max_results rows (default 100, 0 = all), nearest first; the counts stay totals and `callers_truncated` / `callees_truncated` say when rows were cut."
             ),
             inputSchema={
                 "type": "object",
@@ -3536,6 +3537,10 @@ def _build_tools_list(
                         "type": "integer",
                         "description": "Maximum hops to traverse (1–5). Default 1: the direct callers and callees.",
                         "default": 1,
+                    },
+                    "max_results": {
+                        "type": "integer", "default": 100,
+                        "description": "Max rows in each of callers and callees; 0 lists all.",
                     },
                 },
                 "required": ["repo", "symbol_id"],
@@ -7250,6 +7255,7 @@ async def _call_tool_impl(name: str, arguments: dict) -> list[TextContent] | Cal
                     direction=arguments.get("direction", "both"),
                     depth=arguments.get("depth", 1),
                     storage_path=storage_path,
+                    max_results=arguments.get("max_results", 100),
                 )
             )
         elif name == "get_impact_preview":
