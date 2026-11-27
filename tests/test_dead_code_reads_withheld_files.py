@@ -272,3 +272,16 @@ def test_every_load_time_edge_language_keeps_the_cap():
     gated = set(re.findall(r'"([a-z]+)" in (?:self\.languages|langs|\(self\.languages)', text))
     assert gated, "the scan found no language gate; the pattern no longer matches index_store"
     assert gated <= LOAD_AUGMENTED_LANGUAGES, sorted(gated - LOAD_AUGMENTED_LANGUAGES)
+
+
+def test_every_augmenter_selector_maps_into_the_set():
+    """The augmenters pick importers by extension, not only by a language gate;
+    each extension's language must be one the read refuses."""
+    from jcodemunch_mcp.parser import imports
+    from jcodemunch_mcp.parser.languages import get_language_for_path
+    from jcodemunch_mcp.tools._corpus_adequacy import LOAD_AUGMENTED_LANGUAGES
+
+    exts = set(imports._JVM_IMPORTER_EXTENSIONS) | set(imports._RACKET_EXTENSIONS)
+    assert exts
+    langs = {get_language_for_path("f" + e) for e in exts}
+    assert langs <= LOAD_AUGMENTED_LANGUAGES, sorted(map(str, langs - LOAD_AUGMENTED_LANGUAGES))
