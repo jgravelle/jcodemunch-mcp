@@ -2,6 +2,32 @@
 
 ## [Unreleased]
 
+### `get_call_hierarchy` lists at most 100 callers and 100 callees, and says when it cut
+
+`callers` and `callees` listed every row at every depth, with no bound. On
+this repository's own index (1,669 files, commit 29ca4ed8), `resolve_repo`
+at depth 2 had 3,053 callers and 193 callees. As served, that reply was
+478,337 bytes in the default compact encoding and 1,344,319 bytes as JSON,
+over the 1,048,576-byte response limit, so a `server_output: json` seat got a
+refusal instead of an answer. With the cap it lists 100 of each and comes to
+31,938 bytes compact and 61,207 as JSON.
+
+The MCP tool now lists at most `max_results` rows in each list (default 100;
+0 lists all). `caller_count`, `callee_count`, `direct_caller_count` and the
+per-depth counts stay the whole counts, and two keys arrive with the cap and
+are always present: `callers_truncated` and `callees_truncated`. The cut
+keeps the nearest rows. Each list is ordered by depth, then file, line and
+id, so a kept row's `via` row is kept too, and the same rows are kept after a
+re-index. This changes the reply for a caller who read a list as complete
+past 100 rows, and within a depth it changes the order of every list, capped
+or not: rows used to follow the walk, which follows the store's row order.
+
+The Python function still lists every row by default, and a test fails if
+any caller in `src/` but the dispatcher passes a cap. The compact encoding
+carries both keys (`ch5`; a `ch4` payload still decodes). The published
+schema grows 66 tokens on the `standard` and `full` surfaces
+(`benchmarks/schema_baseline.json`); `core` and `counter` are unchanged.
+
 ### `check_references` lists at most 50 importing files per name, and says when it cut
 
 `import_references` listed every file that imports the name, with no bound.
