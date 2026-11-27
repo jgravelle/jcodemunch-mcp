@@ -7,9 +7,9 @@
 When the index withheld a file for size, `find_dead_code` capped every
 finding at 0.6, below its 0.8 default threshold, and the only advice it gave
 was to re-index with a higher `max_file_size`. A session cannot do that: no
-tool takes the setting. Benchmarking's BM-2 cost diagnosis found this refusal
-on most dead-code calls on a large repository, followed by sessions that gave
-up or fell back to long grep-and-read loops.
+tool takes the setting. On a large repository most dead-code calls ended in
+this refusal, and the session then gave up or fell back to long grep-and-read
+loops.
 
 A withheld file is missing from the index, not from the tree. When withheld
 files are the only reason for the cap, `find_dead_code` now reads their
