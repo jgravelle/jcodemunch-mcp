@@ -16,6 +16,9 @@ files are the only reason for the cap, `find_dead_code` now reads their
 imports from disk with the indexer's own `extract_imports` and resolves them
 with the graph's own `resolve_specifier`, so a withheld importer counts
 exactly as an indexed one would, and each withheld file is a live root. The
+other edge families run over the withheld text too, through a view of the
+index and store that holds it: dynamic-import sites, a package `__init__`
+that enumerates its own modules, and templates a withheld file renders. The
 answer is then published at full confidence, with `corpus_adequacy` naming
 the withheld files it read and the edges they added. Anything that read cannot
 stand in for keeps the cap and the old warning: another blocker (a stale

@@ -162,14 +162,16 @@ def _repo_freshness(index) -> str:
         return "unknown"
 
 
-def read_withheld_imports(index) -> Optional[dict]:
-    """``{path: imports}`` for every file the index withheld, or None (L-352).
+def read_withheld_files(index) -> Optional[dict]:
+    """``{path: {"text", "imports"}}`` for every file the index withheld, or None (L-352).
 
     A file withheld for size is missing from the INDEX, not from the tree, so
     the imports it makes can still be read from disk, by the same
     ``extract_imports`` the indexer runs. The caller resolves them with the
     same ``resolve_specifier`` the graph uses, so a withheld importer counts
-    exactly as an indexed one would.
+    exactly as an indexed one would. The text rides along so the other edge
+    families (dynamic-import sites, runtime package enumeration, render
+    edges) can read it through :func:`withheld_view`.
 
     None whenever that read cannot stand in for indexing the whole withheld
     set, and None keeps the cap:
@@ -220,11 +222,60 @@ def read_withheld_imports(index) -> Optional[dict]:
         except UnicodeDecodeError:
             return None
         try:
-            out[rel] = extract_imports(text, rel, language, repo=root) or []
+            out[rel] = {"text": text, "imports": extract_imports(text, rel, language, repo=root) or []}
         except Exception:
             logger.debug("imports of withheld file %s not extracted", rel, exc_info=True)
             return None
     return out
+
+
+class _IndexWithWithheld:
+    """The index, with the withheld files added to ``source_files`` and their
+    imports to ``imports``. Every other attribute is the index's own."""
+
+    def __init__(self, index, withheld: dict):
+        self._index = index
+        self.source_files = sorted(set(index.source_files) | set(withheld))
+        self.imports = {**(index.imports or {}), **{k: v["imports"] for k, v in withheld.items()}}
+        # One whole-file function per withheld file, so a producer that reads
+        # symbol bodies (render edges) reads the withheld text too.
+        self.symbols = list(index.symbols) + [
+            {
+                "id": f"{rel}::<withheld>#function", "name": "<withheld>", "kind": "function",
+                "file": rel, "line": 1, "end_line": rec["text"].count("\n") + 1,
+            }
+            for rel, rec in sorted(withheld.items())
+        ]
+
+    def __getattr__(self, attr):
+        return getattr(self._index, attr)
+
+
+class _StoreWithWithheld:
+    """The store, serving a withheld file's text from the disk read."""
+
+    def __init__(self, store, withheld: dict):
+        self._store = store
+        self._texts = {k: v["text"] for k, v in withheld.items()}
+
+    def get_file_content(self, owner, name, path, *args, **kwargs):
+        if path in self._texts:
+            return self._texts[path]
+        return self._store.get_file_content(owner, name, path, *args, **kwargs)
+
+    def __getattr__(self, attr):
+        return getattr(self._store, attr)
+
+
+def withheld_view(index, store, withheld: dict):
+    """An index and a store that also hold the withheld files (L-352).
+
+    The edge producers a dead-code answer reads (render edges, runtime package
+    enumeration, dynamic-import sites) walk ``index.source_files`` and read
+    text through the store. Handing them this view runs the same producers
+    over the withheld files, so no family has a second copy of its rules.
+    """
+    return _IndexWithWithheld(index, withheld), _StoreWithWithheld(store, withheld)
 
 
 def assess_corpus(index, *, extra_blockers=()) -> CorpusAdequacy:

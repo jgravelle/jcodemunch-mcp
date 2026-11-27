@@ -142,7 +142,7 @@ def test_a_truncated_withheld_listing_keeps_the_cap(repo, monkeypatch):
     from jcodemunch_mcp.tools import find_dead_code as fdc
 
     repo_id, store, _ = repo
-    real = ca.read_withheld_imports
+    real = ca.read_withheld_files
 
     def truncated(index):
         cov = dict(index.coverage)
@@ -156,7 +156,7 @@ def test_a_truncated_withheld_listing_keeps_the_cap(repo, monkeypatch):
         return real(_I())
 
     # Patched where it is used: find_dead_code imports the name at module level.
-    monkeypatch.setattr(fdc, "read_withheld_imports", truncated)
+    monkeypatch.setattr(fdc, "read_withheld_files", truncated)
     r = _dead(repo_id, store, min_confidence=0)
     assert _files(r)["orphan_mod.py"]["confidence"] == UNPROVEN_CEILING
 
@@ -172,3 +172,51 @@ def test_another_blocker_beside_withheld_files_keeps_the_cap(repo, monkeypatch):
     )
     r = _dead(repo_id, store, min_confidence=0)
     assert _files(r)["orphan_mod.py"]["confidence"] == UNPROVEN_CEILING
+
+
+def _tree(tmp_path, files):
+    src = tmp_path / "t"
+    for rel, text in files.items():
+        p = src / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(text, encoding="utf-8")
+    store = tmp_path / "store"
+    return _index(src, store), str(store)
+
+
+def test_a_dynamic_import_in_a_withheld_file_keeps_its_targets_capped(tmp_path):
+    """Review round 2, finding 1: the boundary reads the withheld file's
+    dynamic-import site, so a module it can load is not proven dead."""
+    repo_id, store = _tree(tmp_path, {
+        "main.py": "import loader\n\nif __name__ == '__main__':\n    pass\n",
+        "loader.py": "import importlib\n\ndef load(n):\n    return importlib.import_module('plugins.' + n)\n" + PAD,
+        "plugins/__init__.py": "",
+        "plugins/alpha.py": "def a():\n    return 1\n",
+    })
+    files = _files(_dead(repo_id, store, min_confidence=0))
+    assert "plugins/alpha.py" not in files or files["plugins/alpha.py"]["confidence"] <= UNPROVEN_CEILING
+
+
+def test_a_withheld_package_init_that_enumerates_its_modules_keeps_them_live(tmp_path):
+    """Review round 2, finding 2: #569's shape through the withheld path."""
+    repo_id, store = _tree(tmp_path, {
+        "main.py": "import schemas\n\nif __name__ == '__main__':\n    pass\n",
+        "schemas/__init__.py": (
+            "import importlib\nimport pkgutil\n\n"
+            "for _m in pkgutil.iter_modules(__path__):\n"
+            "    importlib.import_module(__name__ + '.' + _m.name)\n" + PAD
+        ),
+        "schemas/enc_a.py": "def enc():\n    return 1\n",
+    })
+    files = _files(_dead(repo_id, store, min_confidence=0))
+    assert "schemas/enc_a.py" not in files or files["schemas/enc_a.py"]["confidence"] <= UNPROVEN_CEILING
+
+
+def test_a_template_a_withheld_file_renders_is_live(tmp_path):
+    """Review round 2, finding 3: the render edge is read from the withheld file."""
+    repo_id, store = _tree(tmp_path, {
+        "app.py": "from flask import render_template\n\ndef home():\n    return render_template('home.html')\n" + PAD,
+        "templates/home.html": "<p>home</p>\n",
+    })
+    files = _files(_dead(repo_id, store, min_confidence=0))
+    assert "templates/home.html" not in files or files["templates/home.html"]["confidence"] <= UNPROVEN_CEILING

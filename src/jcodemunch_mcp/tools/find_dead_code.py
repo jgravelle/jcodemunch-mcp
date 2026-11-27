@@ -25,7 +25,8 @@ from ._runtime_discovery import discover_dynamic_packages
 from ._corpus_adequacy import (
     UNPROVEN_CEILING,
     assess_corpus,
-    read_withheld_imports,
+    read_withheld_files,
+    withheld_view,
 )
 from ._dynamic_boundary import FILES_CAP as DYNAMIC_FILES_CAP, DynamicBoundary
 from ._test_paths import is_test_file as _is_test_file  # noqa: F401  (the one rule, LEDGER L-101)
@@ -288,6 +289,35 @@ def find_dead_code(
     # through the package rule below.
     live_roots.update(go_main_entries(index, store, owner, name))
 
+    # (LEDGER L-352) A file withheld for size is missing from the index, not
+    # from the tree. When it is the only reason for the corpus cap, it is read
+    # from disk and every edge producer below runs over a view that includes
+    # it: imports through the indexer's extractor and the graph's resolver,
+    # render edges, runtime package enumeration and dynamic-import sites. Each
+    # withheld file is a live root, since nothing here shows it dead. Whatever
+    # the read cannot stand in for (another blocker, a cut listing, Go, an
+    # undecodable file) keeps the cap.
+    withheld = (
+        read_withheld_files(index) if assess_corpus(index).blockers == ["withheld_files"] else None
+    )
+    view_index, view_store = (
+        withheld_view(index, store, withheld) if withheld is not None else (index, store)
+    )
+    withheld_edges = 0
+    if withheld is not None:
+        for _src, _rec in withheld.items():
+            live_roots.add(_src)
+            for _imp in _rec["imports"]:
+                _target = resolve_specifier(
+                    _imp["specifier"], _src, cast(set, source_files), index.alias_map,
+                    getattr(index, "psr4_map", None),
+                )
+                if _target and _target != _src:
+                    _importers = rev.setdefault(_target, [])
+                    if _src not in _importers:
+                        _importers.append(_src)
+                        withheld_edges += 1
+
     # -----------------------------------------------------------------------
     # Phase 1b: render-edge reachability (#461)
     # -----------------------------------------------------------------------
@@ -314,7 +344,7 @@ def find_dead_code(
     try:
         from .flow_edges import resolve_flow_edges
 
-        for edge in resolve_flow_edges(index, store, owner, name, kinds=("render",)):
+        for edge in resolve_flow_edges(view_index, view_store, owner, name, kinds=("render",)):
             if edge.get("resolution") != "resolved":
                 continue
             dst = edge.get("dst_file")
@@ -338,7 +368,7 @@ def find_dead_code(
     # cannot name feeds `assess_corpus` below and caps the confidence instead,
     # because the alternative is publishing a proof over a graph we know has an
     # invisible edge somewhere in it.
-    dynamic = discover_dynamic_packages(index, store, owner, name)
+    dynamic = discover_dynamic_packages(view_index, view_store, owner, name)
     live_roots.update(f for f in dynamic.roots if f in source_files)
 
     # (L-264) A Go package is one unit: its files call each other with no
@@ -381,30 +411,10 @@ def find_dead_code(
         ),
     )
     ceiling = adequacy.ceiling
-    # (LEDGER L-352) A file withheld for size is missing from the index, not
-    # from the tree. When it is the ONLY reason for the cap, its imports are
-    # read from disk by the indexer's own extractor and resolved by the graph's
-    # own resolver, so a withheld importer counts exactly as an indexed one.
-    # Each withheld file is a live root: nothing here shows it dead, and a
-    # cascade through it must not either. Whatever the read cannot stand in for
-    # (another blocker, a cut listing, Go, an undecodable file) keeps the cap.
-    withheld_imports = (
-        read_withheld_imports(index) if adequacy.blockers == ["withheld_files"] else None
-    )
-    withheld_edges = 0
-    if withheld_imports is not None:
-        for _src, _imps in withheld_imports.items():
-            live_roots.add(_src)
-            for _imp in _imps:
-                _target = resolve_specifier(
-                    _imp["specifier"], _src, cast(set, source_files), index.alias_map,
-                    getattr(index, "psr4_map", None),
-                )
-                if _target and _target != _src:
-                    _importers = rev.setdefault(_target, [])
-                    if _src not in _importers:
-                        _importers.append(_src)
-                        withheld_edges += 1
+    # (L-352) Released only if the withheld files are still the only blocker
+    # once runtime discovery has run over them too.
+    released = withheld is not None and adequacy.blockers == ["withheld_files"]
+    if released:
         ceiling = 1.0
     # (LEDGER L-70) #876 records a Python dynamic import it cannot resolve
     # as a site with a scope. A file a package- or prefix-scoped site can
@@ -412,7 +422,7 @@ def find_dead_code(
     # its absence claim is capped exactly like an inadequate corpus's --
     # the rule `get_blast_radius` already applied, read from the one place
     # both tools share. An opaque site caps nothing and is disclosed.
-    boundary = DynamicBoundary(index.imports)
+    boundary = DynamicBoundary(view_index.imports)
     boundary_withheld = 0
     # (LEDGER L-59) A Go import names a module path, and only `go.mod` maps a
     # module path to a directory (L-264 adds those edges at load). A Go file
@@ -645,16 +655,16 @@ def find_dead_code(
     # admission that nothing was established, rendered as a clean bill of
     # health. `signal_warning` is the spelling `get_dead_code_v2` already uses
     # for exactly this, so a consumer gates on one field across both tools.
-    if withheld_imports is not None:
+    if released and withheld is not None:
         # (L-352) The read stood in for indexing the withheld files, so the
         # absence claim is backed and the reply says how, instead of asking
         # for a re-index the session cannot run.
         _ca = result["corpus_adequacy"]
         _ca["confidence_ceiling"] = 1.0
         _ca["blockers_resolved"] = ["withheld_files"]
-        _ca["withheld_files_read"] = len(withheld_imports)
+        _ca["withheld_files_read"] = len(withheld)
         _ca["withheld_import_edges"] = withheld_edges
-        _listed = sorted(withheld_imports)
+        _listed = sorted(withheld)
         result["withheld_files"] = _listed[:WITHHELD_FILES_LISTED]
         if len(_listed) > WITHHELD_FILES_LISTED:
             result["withheld_files_total"] = len(_listed)
