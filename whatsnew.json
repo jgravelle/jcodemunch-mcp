@@ -1,6 +1,12 @@
 {
-  "current": "1.108.496",
+  "current": "1.108.497",
   "entries": [
+    {
+      "version": "1.108.497",
+      "date": "2026-11-27",
+      "title": "A dead-code answer over withheld files reads them instead of refusing",
+      "summary": "When the index withheld a file for size, find_dead_code capped every finding below its default threshold and told the session to raise a setting no tool can change. When withheld files are the only reason, it now reads their imports from disk with the indexer's own extractor and resolver, so a withheld importer counts like an indexed one, and the answer is published at full confidence with the files it read named. A file that cannot stand in for an indexed one (unreadable, not text, a data or config file, or a language whose edges the index adds at load) keeps the cap, and check_delete_safe still refuses a delete over withheld files (L-352)."
+    },
     {
       "version": "1.108.496",
       "date": "2026-11-27",
