@@ -1,6 +1,12 @@
 {
-  "current": "1.108.495",
+  "current": "1.108.496",
   "entries": [
+    {
+      "version": "1.108.496",
+      "date": "2026-11-27",
+      "title": "A change under an ignored path no longer runs a watcher pass",
+      "summary": "The watcher counted every added, modified or deleted event before it looked at any ignore rule, so a gitignored folder rewritten all day ran an index pass per batch, and a new-folder event made that pass a walk of the whole tree. Added and modified events are now checked against the rules every walk of the folder applies, read again per batch. A batch of only ignored events runs no pass, and deletions and .gitignore edits always pass (#1581)."
+    },
     {
       "version": "1.108.495",
       "date": "2026-11-27",
