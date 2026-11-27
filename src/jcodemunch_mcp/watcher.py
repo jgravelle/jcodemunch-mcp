@@ -980,8 +980,8 @@ async def _watch_single(
             repo_id, _reindex_retry_at, _reindex_retry_attempts, owner=folder_path,
         )
 
-    # (#1581) The walk's ignore rules, applied to events before a pass is
-    # scheduled. Unbuildable means no filtering: every event passes, as before.
+    # (#1581) The walk's ignore rules, applied to events before a pass
+    # starts. Unbuildable means no filtering: every event passes, as before.
     try:
         _is_ignored = ignored_event_predicate(folder_path, extra_ignore_patterns)
     except Exception:

@@ -2155,7 +2155,7 @@ def ignored_event_predicate(folder_path: str, extra_ignore_patterns: Optional[li
     the chain from the git root down to it (the walk's rule, #1563), or an
     ignore pattern from the call, the project config or the framework
     profile (the targeted path's rule). The watcher drops such events before
-    a pass is scheduled; before this every one ran a pass that then skipped
+    it starts a pass; before this every one ran a pass that then skipped
     them. ``chain_cache`` maps a folder to its chain and belongs to one
     batch, so an edit to a .gitignore is read by the next batch.
 
