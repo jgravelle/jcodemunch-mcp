@@ -3584,3 +3584,9 @@ The 1.108.492 entry, verbatim as it stood in `CLAUDE.md`:
 The 1.108.493 entry, verbatim as it stood in `CLAUDE.md`:
 
 - **Prior (1.108.493):** **a failed watcher update is retried without another file edit** (#1567, @MariusAdrian88): a failed save keeps the folder pending and `_watch_single` retries a full walk naming `_retry_files`, with a capped backoff; the MCP `index_folder` response caps `unread_files`. Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-27, release 1.108.497)
+
+The 1.108.494 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.494):** **one locked file no longer fails the whole re-index** (L-350): `_hash_file` returns `""` on an `OSError` as `_hash_uncached` does, so an unreadable edited file reads as changed, keeps its rows, joins `unread_files` and coverage stays incomplete. Full text: `CHANGELOG.md`.

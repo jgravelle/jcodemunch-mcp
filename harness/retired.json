@@ -365,6 +365,27 @@
       "replacement": "tests/test_index_file_walk_filter.py::test_subdir_walk_and_index_file_agree_on_a_root_ignored_file",
       "commit": "fix/1563-subdir-gitignore",
       "date": "2026-11-24"
+    },
+    {
+      "path": "tests/test_a_latency_tail_is_resampled_before_it_fails.py::test_a_tail_that_does_not_reproduce_passes_and_keeps_the_first_p95",
+      "lesson": "It fixed the F-19 rule: a failing 20-call series is re-sampled once, at once, and the SECOND series is gated. PR 1580, a LEDGER-only diff, still failed two Floors, because a runner contended for one series was often contended for the next, so the rule it pinned was the one that failed.",
+      "replacement": "tests/test_a_latency_tail_is_resampled_before_it_fails.py::test_the_lowest_p95_of_the_series_is_reported_not_the_last",
+      "commit": "fix/bench-gate-resample",
+      "date": "2026-11-27"
+    },
+    {
+      "path": "tests/test_a_latency_tail_is_resampled_before_it_fails.py::test_a_tail_that_reproduces_still_fails",
+      "lesson": "It asserted that a tail reproducing in both of TWO series fails. The rule now takes up to three series (deferred, after a pause), so two was the wrong count; the property, a tail that reproduces in every series still fails, is kept.",
+      "replacement": "tests/test_a_latency_tail_is_resampled_before_it_fails.py::test_a_tail_that_reproduces_in_every_series_still_fails",
+      "commit": "fix/bench-gate-resample",
+      "date": "2026-11-27"
+    },
+    {
+      "path": "tests/test_a_latency_tail_is_resampled_before_it_fails.py::test_a_passing_series_is_measured_once",
+      "lesson": "It called the old one-label _warm_p95(label, sample, passes) and checked one call. Sampling moved to _warm_series, which takes every tool's first series before any re-sample; the same property is asserted there, with two slow calls in forty not triggering a re-sample.",
+      "replacement": "tests/test_a_latency_tail_is_resampled_before_it_fails.py::test_two_slow_calls_in_forty_pass_without_a_resample",
+      "commit": "fix/bench-gate-resample",
+      "date": "2026-11-27"
     }
   ]
 }

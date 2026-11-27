@@ -208,7 +208,7 @@ def render(
         md.append(note)
     md.append("")
     md.append(
-        "_Floors from `harness/thresholds.json`; base from `harness/results/latest.json` and `benchmarks/jcm_reference.json` on the base ref. A failing `latency.*` p95 is re-sampled once before its verdict (harness F-19); the first p95 is in `self_latency.json` as `_warm_p95_first_ms`._"
+        "_Floors from `harness/thresholds.json`; base from `harness/results/latest.json` and `benchmarks/jcm_reference.json` on the base ref. A failing `latency.*` p95 is re-sampled up to twice, after every tool's first series, and the lowest p95 is the verdict (PR 1580; first harness F-19); the first p95 is in `self_latency.json` as `_warm_p95_first_ms` and every series' p95 as `_warm_p95_series_ms`._"
     )
     return "\n".join(md) + "\n"
 

@@ -4,8 +4,8 @@
     "catalog_actions": 91,
     "menu_recall": {
       "@1": 50.8,
-      "@3": 72.9,
-      "@5": 79.7,
+      "@3": 74.6,
+      "@5": 81.4,
       "@10": 86.4
     },
     "route_recall": {
@@ -58,7 +58,7 @@
     ],
     "leakage": {
       "mean_name_overlap": 0.133,
-      "mean_desc_overlap": 0.429,
+      "mean_desc_overlap": 0.431,
       "queries_containing_target_name_token": 19,
       "high_leak_queries": [
         "what columns does the orders model have",
@@ -396,7 +396,7 @@
       "menu_top3": [
         "check_edit_safe",
         "get_endpoint_impact",
-        "get_call_hierarchy"
+        "check_delete_safe"
       ],
       "route_proposed": [
         "get_blast_radius"
@@ -454,19 +454,19 @@
         "check_references",
         "find_references"
       ],
-      "menu_rank": 8,
+      "menu_rank": 2,
       "route_rank": null,
       "route_path": "rule",
       "menu_top3": [
         "get_parity_map",
-        "get_group_contracts",
-        "find_unused_paths"
+        "check_references",
+        "get_group_contracts"
       ],
       "route_proposed": [
         "search_text"
       ],
       "leak_name": 0.0,
-      "leak_desc": 0.417
+      "leak_desc": 0.5
     },
     {
       "query": "what does this class inherit from and what extends it",
