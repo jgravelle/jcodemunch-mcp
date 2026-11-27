@@ -1,8 +1,7 @@
 """`get_call_hierarchy` caps its caller and callee rows and says so (2026-11-27).
 
 `callers` and `callees` listed every row at every depth, with no bound: on
-this repository's own index `resolve_repo` at depth 2 came to 3,053 rows,
-which the 1 MB response limit refused outright.
+this repository's own index `resolve_repo` at depth 2 came to 3,053 callers.
 
 The property:
 - the MCP tool lists at most `max_results` rows in each of `callers` and
@@ -33,7 +32,7 @@ N = 30
 
 @pytest.fixture(scope="module")
 def repo(tmp_path_factory):
-    tmp = tmp_path_factory.mktemp("cap6")
+    tmp = tmp_path_factory.mktemp("call_rows")
     src = tmp / "proj"
     src.mkdir()
     (src / "core.py").write_text("def target():\n    return 1\n", encoding="utf-8")
@@ -72,6 +71,7 @@ def test_the_cap_cuts_callers_and_keeps_the_count(repo):
     assert out["caller_count"] == N
     assert out["callers_truncated"] is True
     assert out["direct_caller_count"] == N
+    assert out["callers_by_depth"] == {"1": N}
 
 
 def test_the_cap_cuts_callees_and_keeps_the_count(repo):
@@ -169,7 +169,7 @@ def test_no_caller_in_src_but_the_dispatcher_passes_a_cap():
             fn = n.func
             name = getattr(fn, "id", None) or getattr(fn, "attr", None)
             if name == "get_call_hierarchy" and (
-                len(n.args) > 4 or any(k.arg == "max_results" for k in n.keywords)
+                len(n.args) > 5 or any(k.arg == "max_results" for k in n.keywords)
             ):
                 stray.append((str(path.relative_to(REPO)), n.lineno))
     assert stray == [], stray
@@ -184,3 +184,38 @@ def test_the_compact_encoding_carries_the_cut(repo):
     back = enc.decode(payload)
     assert back["callers_truncated"] is True and back["callees_truncated"] is False
     assert "ch4" in enc.LEGACY_ENCODING_IDS and enc.ENCODING_ID != "ch4"
+
+
+def test_the_cut_ranks_on_the_resolved_depth_not_the_stored_one():
+    """A row's depth is one more than its `via` row's; a stale stored depth
+    must not put a row ahead of the row it is reached through."""
+    from jcodemunch_mcp.tools.get_call_hierarchy import _cap_rows
+
+    rows = [
+        {"id": "b", "file": "b.py", "line": 1, "depth": 2, "via": "p"},
+        {"id": "p", "file": "p.py", "line": 1, "depth": 5},
+        {"id": "c", "file": "c.py", "line": 1, "depth": 1},
+    ]
+    response = {"callers": rows, "callees": []}
+    _cap_rows(response, 2)
+    assert [r["id"] for r in response["callers"]] == ["c", "p"]
+    assert response["callers_truncated"] is True and response["callees_truncated"] is False
+
+
+def test_a_ch4_payload_decodes_without_the_cut_keys(repo):
+    from jcodemunch_mcp.encoding import decoder
+    from jcodemunch_mcp.encoding import schema_driven as sd
+    from jcodemunch_mcp.encoding.schemas import get_call_hierarchy as enc
+
+    out = _call(repo, "target")
+    del out["callers_truncated"], out["callees_truncated"]
+    scalars = tuple(k for k in enc._SCALARS if k not in ("callers_truncated", "callees_truncated"))
+    payload, _ = sd.encode(
+        "get_call_hierarchy", enc._flatten(out), "ch4", enc._TABLES, scalars,
+        nested_dicts=enc._NESTED, meta_keys=enc._META, meta_json_blobs=enc._META_JSON,
+        json_blobs=enc._JSON,
+    )
+    assert " enc=ch4" in payload.partition(chr(10))[0]
+    back = decoder.decode(payload)
+    assert "callers_truncated" not in back and "callees_truncated" not in back
+    assert [r["id"] for r in back["callers"]] == [r["id"] for r in out["callers"]]

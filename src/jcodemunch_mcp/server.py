@@ -3514,7 +3514,7 @@ def _build_tools_list(
                 "Useful for understanding how a symbol fits into the call graph before refactoring."
                 " Detection is name-based, so same-name symbols in different modules can merge and dynamic dispatch is missed."
                 " Only depth-1 rows are direct callers; on a deeper row, `via` names the row it is reached from. `caller_count` counts every depth, `direct_caller_count` depth 1."
-                " Each list holds at most max_results rows (default 100, 0 = all), nearest first; the counts stay totals and `callers_truncated` / `callees_truncated` say when rows were cut."
+                " Each list holds at most max_results rows, nearest first; the counts stay totals and `callers_truncated` / `callees_truncated` say when rows were cut."
             ),
             inputSchema={
                 "type": "object",

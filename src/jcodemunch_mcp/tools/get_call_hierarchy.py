@@ -380,11 +380,9 @@ def get_call_hierarchy(
     return response
 
 
-def _row_order(row: dict) -> tuple:
-    d = row.get("depth")
-    rank = d if isinstance(d, int) and not isinstance(d, bool) and d >= 1 else float("inf")
+def _position(row: dict) -> tuple:
     line = row.get("line")
-    return (rank, row.get("file") or "", line if isinstance(line, int) else 0, row.get("id") or "")
+    return (row.get("file") or "", line if isinstance(line, int) else 0, row.get("id") or "")
 
 
 def _cap_rows(response: dict, max_results: int) -> None:
@@ -392,17 +390,21 @@ def _cap_rows(response: dict, max_results: int) -> None:
 
     Runs last, after every step that adds rows (compile-time evidence) or reads
     them (call lines, the caller-gate disclosure), so every count was taken on
-    the whole list. The order is the walk's depth order with ties broken by
-    position, not by the walk: the walk follows the store's row order, which a
-    re-index can change, and a cut over it would keep different rows. Depth
-    first means a kept row's ``via`` row, one depth nearer, is kept too.
+    the whole list. Ties within a depth are broken by position, not by the
+    walk: the walk follows the store's row order, which a re-index can change,
+    and a cut over it would keep different rows. The depth is the one rule,
+    ``label_row_depths``: its sort is stable, so sorting by position first and
+    by resolved depth second gives both. A row's ``via`` row resolves one
+    depth nearer and so is kept whenever the row is; a row whose depth does
+    not resolve sorts last.
     """
     for key, flag in (("callers", "callers_truncated"), ("callees", "callees_truncated")):
         rows = response.get(key)
         if not isinstance(rows, list):
             response[flag] = False
             continue
-        rows.sort(key=_row_order)
+        rows.sort(key=_position)
+        label_row_depths(rows)
         cut = 0 < max_results < len(rows)
         if cut:
             del rows[max_results:]
