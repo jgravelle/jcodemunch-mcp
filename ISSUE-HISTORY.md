@@ -3560,3 +3560,15 @@ The 1.108.488 entry, verbatim as it stood in `CLAUDE.md`:
 The 1.108.489 entry, verbatim as it stood in `CLAUDE.md`:
 
 - **Prior (1.108.489):** **an index on an unplugged drive survives server start** (L-347): `cleanup_orphan_indexes` deletes only when `storage/volume_presence.volume_present` is True and skips network paths. Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-25, release 1.108.493)
+
+The 1.108.490 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.490):** **a subfolder index reads the root `.gitignore`** (#1563, @rknighton): `discover_local_files`/`resolve_explicit_paths` take `gitignore_root` and `index_file`'s `_walk_refusal` reads the chain from the git root; and **`watch-install` needs no elevated shell** (#1564, @rknighton): the Windows logon trigger names the calling user (`service_installer._windows_user_id`). Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-26, release 1.108.494)
+
+The 1.108.491 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.491):** **a delete blocked only by a file import says so** (L-348): `check_delete_safe` returns the bounded `file_import_only` (cause `import_gap`) when the reference search read every importer and the own file and found no use. Full text: `CHANGELOG.md`.

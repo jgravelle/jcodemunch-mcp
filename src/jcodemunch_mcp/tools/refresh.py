@@ -317,6 +317,13 @@ def run(
             )
             if not res.get("success", False):
                 slice_errors.append(f"batch at {cursor}: {res.get('error')}")
+            elif res.get("unread_files"):
+                # A file the batch could not read keeps its rows from the old
+                # parser, so the campaign must not stamp the generation over it.
+                _unread = res["unread_files"]
+                slice_errors.append(
+                    f"batch at {cursor}: could not read {len(_unread)} file(s): {', '.join(_unread[:3])}"
+                )
         except Exception as e:  # a bad batch must not strand the campaign
             slice_errors.append(f"batch at {cursor}: {e}")
             logger.warning("refresh batch failed at cursor %d", cursor, exc_info=True)

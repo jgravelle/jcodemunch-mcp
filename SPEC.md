@@ -1110,6 +1110,30 @@ fails without clearing the persisted index. Legitimate binary exclusions
 still allow deletion reconciliation. Explicit-path incremental refreshes also
 reconcile deleted requested files.
 
+A file or directory that discovery or the read cannot open (skip reason
+`unreadable`: a sharing violation, a permission error) is on disk, so an
+incremental run does not delete the stored rows it holds. The stored coverage
+records it in `unreadable_files` (a directory as `dir/`), and that record
+governs it:
+- While the record has entries, coverage reads `complete: false`, with
+  `withheld.unreadable` equal to their number, so absence claims are refused.
+- A walk of a folder replaces the entries inside that folder only. The
+  targeted routes (`changed_paths=`, `paths=`, `index_file`) add what they
+  could not read and remove what they read or deleted.
+- A route that finds a recorded file readable again reads and hashes it even
+  when its mtime did not change, then removes it from the record.
+- A recorded file keeps its recorded parse failure.
+- A stored file that the file cap keeps unread, and that the record names
+  itself or by a directory above it, stays in the record as a file entry.
+- An `unreadable` count the record does not name (an index written before
+  the record, kept as `unreadable_unnamed`) stays until a walk of the root.
+If the call named the file (a watcher change, or a `paths=` entry), the
+response also lists it in `unread_files` (absolute paths); so does a named
+file under a directory the walk could not list. The watcher keeps
+its retry pending for it, and `refresh` records it as a batch error, so it
+does not stamp `parser_generation`. A file under a listed directory is kept
+only if the `.gitignore` files above that directory do not exclude it.
+
 On a successful save after full discovery, any `unreadable` count marks coverage
 `complete: false`, so absence claims are refused. Failed empty scans preserve
 the previous index and its coverage. After restoring access, adjusting limits,

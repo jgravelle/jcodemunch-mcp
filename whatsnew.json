@@ -1,6 +1,18 @@
 {
-  "current": "1.108.492",
+  "current": "1.108.494",
   "entries": [
+    {
+      "version": "1.108.494",
+      "date": "2026-11-26",
+      "title": "One locked file no longer fails the whole re-index",
+      "summary": "An incremental re-index read each edited file to hash it, and when that read failed, as a sharing violation does on Windows while an editor or antivirus holds a file, the whole call failed and every other edit in the walk stayed unindexed while the lock held. A file change detection cannot read now reads as changed: it keeps its stored rows, is named in unread_files and keeps coverage incomplete, and the rest of the walk is saved (L-350)."
+    },
+    {
+      "version": "1.108.493",
+      "date": "2026-11-25",
+      "title": "A failed watcher update is retried without another file edit",
+      "summary": "When the watcher's save failed, including while it waited for another writer's lock, it recorded the failure and waited for new events, so edits it had already been told about could stay unindexed indefinitely. A failed update now keeps the folder pending and retries a full walk with a capped backoff, naming the files of the failed batches, and get_watch_status reports the pending work. A file that stays locked with no edit pending keeps its coverage record without holding the watcher in a retry. Reported and fixed by @MariusAdrian88 (#1567)."
+    },
     {
       "version": "1.108.492",
       "date": "2026-11-25",

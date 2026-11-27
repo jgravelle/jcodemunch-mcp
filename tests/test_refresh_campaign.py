@@ -21,6 +21,7 @@ The two assertions that carry this file:
    of it.
 """
 
+import builtins
 import json
 import os
 import sqlite3
@@ -30,6 +31,7 @@ from pathlib import Path
 
 import pytest
 
+import jcodemunch_mcp.tools.index_folder as ifmod
 from jcodemunch_mcp.tools import refresh
 from jcodemunch_mcp.tools.index_folder import index_folder
 from jcodemunch_mcp.storage.index_store import PARSER_GENERATION
@@ -303,6 +305,29 @@ class TestStampOnlyOnFullCoverage:
         assert out.get("stamp_skipped_reason") == "batch_errors"
         assert _generation(repo["db"]) == 0
         assert real is None or True
+
+    def test_an_unread_file_blocks_the_stamp(self, repo, monkeypatch):
+        """A file the batch cannot read keeps its rows from the old parser, so
+        the stamp would claim symbols this campaign never produced. The batch
+        once dropped those rows and stamped the generation anyway (Codex
+        review on #1567)."""
+        _damage(repo["db"])
+        target = os.path.normcase(str(Path(repo["root"], "pkg", "m5.py").resolve()))
+        real_open = builtins.open
+
+        def fake_open(file, *args, **kwargs):
+            if os.path.normcase(os.path.abspath(str(file))) == target:
+                raise PermissionError(13, "The process cannot access the file", str(file))
+            return real_open(file, *args, **kwargs)
+
+        monkeypatch.setattr(ifmod, "open", fake_open, raising=False)
+        out = refresh.run(repo["root"], reset=True, storage_path=repo["store"])
+        assert any("could not read 1 file(s)" in e for e in out.get("errors", [])), out
+        assert out.get("stamped") is False
+        assert out.get("stamp_skipped_reason") == "batch_errors"
+        assert _generation(repo["db"]) == 0
+        rows = _sql(repo["db"], "SELECT COUNT(*) FROM symbols WHERE file='pkg/m5.py'")[0][0]
+        assert rows == 1, "an unread file lost its stored symbols"
 
 
 class TestStampPrimitive:

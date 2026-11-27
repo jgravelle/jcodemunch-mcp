@@ -31,6 +31,7 @@ from .reindex_state import (
     mark_reindex_start,
     mark_reindex_done,
     mark_reindex_failed,
+    set_reindex_retry,
 )
 from .storage import IndexStore
 from .storage import process_locks
@@ -41,6 +42,10 @@ logger = logging.getLogger(__name__)
 
 # Default debounce in milliseconds
 DEFAULT_DEBOUNCE_MS = 200
+
+# A failed batch stays pending without retrying on every idle tick or edit.
+_REINDEX_RETRY_SECONDS = 5.0
+_REINDEX_RETRY_MAX_SECONDS = 300.0
 
 # Poll interval (ms) used ONLY when watchfiles falls back to polling instead of
 # native FS events. watchfiles auto-enables polling whenever it detects WSL
@@ -469,12 +474,17 @@ async def _initial_index(
     log_file_handle: Optional[IO],
     build_hash_cache: Callable[[], None],
     context_providers: bool = True,
-) -> None:
+    unread_out: Optional[set] = None,
+) -> bool:
     """Run a watch task's initial incremental index and record its outcome.
 
     Extracted from ``_watch_single`` in v1.108.189 so the skip path (#384)
     is a branch around one call rather than a second copy of this body.
     Caller is responsible for ``mark_reindex_start``.
+
+    A success that names ``unread_files`` (a recorded unreadable file still
+    locked) is not complete: those files join ``unread_out`` and the result
+    is False, so the caller schedules the retry (Codex review on #1567).
     """
     try:
         result = await asyncio.to_thread(
@@ -492,13 +502,17 @@ async def _initial_index(
             _watcher_output(f"  Indexed {folder_path}: {msg} ({result.get('duration_seconds', '?')}s)", quiet=quiet, log_file_handle=log_file_handle)
             # Build hash cache from the index we just created/updated
             build_hash_cache()
-            mark_reindex_done(repo_id, result)
             # Count initial index as activity (only if it actually did work)
             if on_reindex is not None and result.get("message") != "No changes detected":
                 on_reindex()
+            if _left_unread(result, unread_out, repo_id, f"initial index of {folder_path}", quiet, log_file_handle):
+                return False
+            mark_reindex_done(repo_id, result)
+            return True
         else:
             _watcher_output(f"  WARNING: initial index failed for {folder_path}: {result.get('error')}", quiet=quiet, log_file_handle=log_file_handle)
             mark_reindex_failed(repo_id, result.get("error", "unknown error"))
+            return False
     except Exception as exc:
         mark_reindex_failed(repo_id, str(exc))
         raise
@@ -509,12 +523,6 @@ async def _initial_index(
 # ---------------------------------------------------------------------------
 
 BACKSLASH = chr(92)
-
-#: After a reconciliation that FAILED, how long before the watch tries again.
-#: The detector reports a move once, so without this a failure (the store
-#: locked for a moment, a provider raising) left the repo ``stale`` until the
-#: next file event or HEAD move: the reported symptom, surviving the fix.
-_HEAD_RECONCILE_RETRY_SECONDS = 60.0
 
 #: The most the idle check reads of ``HEAD`` or a ref file (one SHA, or one
 #: ``ref:`` line), and of a ``.git`` pointer file or ``commondir`` (one path).
@@ -594,6 +602,55 @@ def _is_plain_ref_name(ref: str) -> bool:
     return all(part not in ("", ".", "..") for part in ref.split("/"))
 
 
+def _may_be_pending(path: str) -> bool:
+    """Must the retry walk still name ``path``?
+
+    True for a file or a directory, and for a path whose stat fails for a
+    reason other than absence (a directory that denies traversal): that is
+    not a deletion, and the walk records it as unreadable and names it in
+    `unread_files`. False only when the stat proves the path is gone; the
+    walk then removes its rows (Codex review on #1567). `os.path.isfile`
+    read a denied stat and a directory as False, so a failed edit under such
+    a directory, and an unreadable added directory, lost the retry.
+    """
+    try:
+        mode = os.stat(path).st_mode
+    except (FileNotFoundError, NotADirectoryError, ValueError):
+        return False
+    except OSError:
+        return True
+    return stat.S_ISREG(mode) or stat.S_ISDIR(mode)
+
+
+def _unread_error(unread) -> str:
+    """The error recorded while named files stay unread."""
+    return f"could not read {len(unread)} changed file(s): {', '.join(unread[:3])}"
+
+
+def _left_unread(
+    result: dict, unread_out: Optional[set], repo_id: str, what: str,
+    quiet: bool, log_file_handle: Optional[IO],
+) -> bool:
+    """Did a successful index run leave named files unread?
+
+    Then the run is not complete: the files join ``unread_out`` (the retry
+    set), the failure is recorded, and the caller schedules the retry. A
+    startup index or a HEAD reconcile that read a recorded unreadable file
+    still locked once marked the index current (Codex review on #1567).
+    """
+    unread = result.get("unread_files") or []
+    if not unread:
+        return False
+    if unread_out is not None:
+        unread_out.update(unread)
+    _watcher_output(
+        f"  WARNING: {what} kept old symbols: {_unread_error(unread)}",
+        quiet=quiet, log_file_handle=log_file_handle,
+    )
+    mark_reindex_failed(repo_id, _unread_error(unread))
+    return True
+
+
 def _git_head_signature(folder_path: str) -> Optional[tuple]:
     """A cheap value that changes whenever HEAD may have moved, or None.
 
@@ -645,7 +702,7 @@ class _HeadMoveDetector:
     ⚠ ``None`` is never a move (UNKNOWN is not a change) and clears the
     candidate, so a read that fails once costs one wake-up and reports nothing.
     ⚠ A move is reported ONCE, whatever the reconciliation then does;
-    ``_HeadRetry`` owns the retry of a failed one.
+    The watch task's shared recovery schedule owns the retry of a failed one.
     """
 
     def __init__(self) -> None:
@@ -663,26 +720,11 @@ class _HeadMoveDetector:
         self._candidate = None
         return True
 
-
-class _HeadRetry:
-    """When a FAILED reconciliation is tried again: once, no sooner than the delay.
-
-    ⚠ The delay is the whole bound on what a persistent failure costs. A retry
-    that ignored it would run an index on every wake-up, once a second, for as
-    long as the failure lasted. ``due`` answers True once per ``schedule``.
-    """
-
-    def __init__(self) -> None:
-        self._at: Optional[float] = None
-
-    def schedule(self, now: float) -> None:
-        self._at = now + _HEAD_RECONCILE_RETRY_SECONDS
-
-    def due(self, now: float) -> bool:
-        if self._at is None or now < self._at:
-            return False
-        self._at = None
-        return True
+    def reconciled(self, signature: Optional[tuple]) -> None:
+        """A full retry already covered the HEAD observed before it started."""
+        if signature is not None:
+            self._acted_on = signature
+        self._candidate = None
 
 
 def _stored_git_head(store, owner: str, name: str) -> Optional[str]:
@@ -713,8 +755,12 @@ async def _reconcile_head_move(
     log_file_handle: Optional[IO],
     build_hash_cache: Callable[[], None],
     context_providers: bool = True,
+    unread_out: Optional[set] = None,
 ) -> str:
     """Bring the index to where HEAD is now. Returns one of the ``_HEAD_*`` outcomes.
+
+    A success that names ``unread_files`` is ``_HEAD_FAILED``: the files join
+    ``unread_out`` and the caller schedules the retry (`_left_unread`).
 
     A commit, a ``git switch`` or a ``git pull`` that changes no indexed file
     writes under ``.git/`` only, and no file event follows. The index kept the
@@ -762,9 +808,11 @@ async def _reconcile_head_move(
             )
             # The run read the whole tree, and it may have re-indexed files.
             build_hash_cache()
-            mark_reindex_done(repo_id, result)
             if on_reindex is not None and result.get("message") != "No changes detected":
                 on_reindex()
+            if _left_unread(result, unread_out, repo_id, f"reconciling {folder_path}", quiet, log_file_handle):
+                return _HEAD_FAILED
+            mark_reindex_done(repo_id, result)
             return _HEAD_RECONCILED
         _watcher_output(
             f"  WARNING: reconciling {folder_path} after a HEAD move failed: {result.get('error')}",
@@ -860,6 +908,13 @@ async def _watch_single(
     # ...unless the caller just did it (#384). Indexing the same tree twice for
     # one user-visible call is pure waste, and it was silent waste: this pass
     # logs below WARNING and carries no progress reporter.
+    initial_failed = False
+    # Files named by failed batches. The full retry is a walk, and a walk
+    # finds changes by mtime and keeps a file past the max_folder_files cap
+    # without reading it again. So the retry names these files to the walk
+    # (discover=True), which parses each one again. The initial index adds
+    # the files it could not read.
+    _retry_files: set[str] = set()
     if skip_initial_index:
         _watcher_output(
             f"  Skipping initial index for {folder_path} (caller indexed it)",
@@ -882,7 +937,7 @@ async def _watch_single(
     else:
         _watcher_output(f"  Initial index for {folder_path}...", quiet=quiet, log_file_handle=log_file_handle)
         mark_reindex_start(repo_id)
-        await _initial_index(
+        initial_failed = not await _initial_index(
             folder_path=folder_path,
             repo_id=repo_id,
             use_ai_summaries=use_ai_summaries,
@@ -894,6 +949,7 @@ async def _watch_single(
             quiet=quiet,
             log_file_handle=log_file_handle,
             build_hash_cache=_build_hash_cache,
+            unread_out=_retry_files,
         )
 
     try:
@@ -909,198 +965,309 @@ async def _watch_single(
     )
 
     _head_moves = _HeadMoveDetector()
-    _head_retry = _HeadRetry()
+    _reindex_retry_at: Optional[float] = None
+    _reindex_retry_attempts = 0
+    _reindex_retry_delay = _REINDEX_RETRY_SECONDS
 
-    async for changes in _safe_awatch(folder_path, debounce_ms, yield_idle=True):
-        relevant = [
-            (change_type, path)
-            for change_type, path in changes
-            if change_type in (Change.added, Change.modified, Change.deleted)
-        ]
+    def _schedule_reindex_retry(*, keep_deadline: bool = False) -> None:
+        nonlocal _reindex_retry_at, _reindex_retry_attempts, _reindex_retry_delay
+        _reindex_retry_attempts += 1
+        if not keep_deadline:
+            _reindex_retry_at = time.monotonic() + _reindex_retry_delay
+            _reindex_retry_delay = min(_reindex_retry_delay * 2, _REINDEX_RETRY_MAX_SECONDS)
+        set_reindex_retry(
+            repo_id, _reindex_retry_at, _reindex_retry_attempts, owner=folder_path,
+        )
 
-        if not relevant:
-            # An idle wake-up. A HEAD move writes under `.git/` only, which no
-            # file event announces (#1040).
-            _settled = _head_moves.observe(await asyncio.to_thread(_git_head_signature, folder_path))
-            _retry_due = _head_retry.due(time.monotonic())
-            if _settled or _retry_due:
-                _outcome = await _reconcile_head_move(
-                    folder_path=folder_path,
-                    repo_id=repo_id,
-                    store=store,
+    try:
+        if initial_failed:
+            _schedule_reindex_retry()
+        async for changes in _safe_awatch(folder_path, debounce_ms, yield_idle=True):
+            relevant = [
+                (change_type, path)
+                for change_type, path in changes
+                if change_type in (Change.added, Change.modified, Change.deleted)
+            ]
+
+            # The paths this batch names, for _retry_files: files, deletions
+            # and directories, but not the root. The retry names each one the
+            # stat does not prove gone (`_may_be_pending`). A directory the
+            # walk can list names nothing; one it cannot list, and a deletion
+            # under it, stays in `unread_files`, so the retry stays pending.
+            _batch_files = {p for ct, p in relevant if p != folder_path}
+            full_retry = False
+            targeted_during_retry = False
+            if _reindex_retry_at is not None:
+                full_retry = time.monotonic() >= _reindex_retry_at
+                targeted_during_retry = not full_retry
+                if not full_retry and not relevant:
+                    continue
+                # Reconcile today's tree, including edits received while waiting.
+                # Replaying the failed batch alone can miss later adds/deletes or
+                # assume a save did not commit before a subsequent step failed.
+                if full_retry:
+                    relevant = [(Change.modified, folder_path)]
+
+            if not relevant:
+                # An idle wake-up. A HEAD move writes under `.git/` only, which no
+                # file event announces (#1040).
+                _settled = _head_moves.observe(await asyncio.to_thread(_git_head_signature, folder_path))
+                if _settled:
+                    _outcome = await _reconcile_head_move(
+                        folder_path=folder_path,
+                        repo_id=repo_id,
+                        store=store,
+                        use_ai_summaries=use_ai_summaries,
+                        context_providers=context_providers,
+                        storage_path=storage_path,
+                        extra_ignore_patterns=extra_ignore_patterns,
+                        follow_symlinks=follow_symlinks,
+                        on_reindex=on_reindex,
+                        quiet=quiet,
+                        log_file_handle=log_file_handle,
+                        build_hash_cache=_build_hash_cache,
+                        unread_out=_retry_files,
+                    )
+                    if _outcome == _HEAD_FAILED:
+                        _schedule_reindex_retry()
+                continue
+
+            if full_retry:
+                _watcher_output(
+                    f"  Retrying full re-index of {folder_path} after a failed update.",
+                    quiet=quiet, log_file_handle=log_file_handle,
+                )
+            else:
+                n_added = sum(1 for c, _ in relevant if c == Change.added)
+                n_modified = sum(1 for c, _ in relevant if c == Change.modified)
+                n_deleted = sum(1 for c, _ in relevant if c == Change.deleted)
+
+                _watcher_output(
+                    f"  Changes detected in {folder_path}: "
+                    f"+{n_added} ~{n_modified} -{n_deleted}",
+                    quiet=quiet, log_file_handle=log_file_handle,
+                )
+
+            try:
+                # v1.108.190 (#388, @Bortlesboat): hydrate lazily if the initial
+                # index was skipped and the eager build could not read an index yet.
+                # A watch task that starts alongside an external index can reach its
+                # first change with nothing cached, and an empty cache silently
+                # drops every old_hash rather than failing. Their PR caught this;
+                # the flag (rather than `if not _hash_cache`) keeps a legitimately
+                # empty index from re-reading the store on every change.
+                if not _hash_cache_built:
+                    _build_hash_cache()
+                # Map watchfiles Change enum to WatcherChange objects with old_hash from memory cache
+                _change_map = {Change.added: "added", Change.modified: "modified", Change.deleted: "deleted"}
+                watcher_changes: list[WatcherChange] = []
+                needs_discovery = False
+                sorted_cached: list[str] | None = None
+                for ct, p in relevant:
+                    change_type_str = _change_map[ct]
+                    cached_rel = Path(p).relative_to(folder_path).as_posix()
+                    if _hash_cache_prefix:
+                        cached_rel = f"{_hash_cache_prefix}/{cached_rel}"
+                    # (L-256) Windows reports a folder as MODIFIED whenever a file
+                    # inside it is written, beside the file's own event. It names no
+                    # change the child's event does not, and reading it as a topology
+                    # change re-walked the whole repo on every note an agent wrote.
+                    # Only an added folder (a tree moved in) or the root (the rescan
+                    # `_safe_awatch` yields) needs discovery.
+                    if ct == Change.modified and p != folder_path and os.path.isdir(p):
+                        continue
+                    if targeted_during_retry and (p == folder_path or os.path.isdir(p)):
+                        # Topology changes belong to the scheduled full recovery.
+                        # Leaf edits in the same batch can still use the fast path.
+                        continue
+                    if not needs_discovery and (p == folder_path or os.path.isdir(p)):
+                        needs_discovery = True
+                    if ct == Change.deleted:
+                        # A moved-out directory no longer satisfies isdir(). Its indexed
+                        # descendants still need removal; known file deletes stay O(1).
+                        if not needs_discovery and cached_rel not in _hash_cache:
+                            if sorted_cached is None:
+                                sorted_cached = sorted(_hash_cache)
+                            prefix = cached_rel + "/"
+                            at = bisect_left(sorted_cached, prefix)
+                            if at < len(sorted_cached) and sorted_cached[at].startswith(prefix):
+                                needs_discovery = True
+                        old_hash = _hash_cache.get(cached_rel, "")
+                        if targeted_during_retry and needs_discovery:
+                            # A deleted directory needs discovery, not a fast-path
+                            # file deletion. Its descendants remain pending.
+                            needs_discovery = False
+                            continue
+                    elif ct == Change.modified:
+                        # Use memory cache as the source of truth for old_hash.
+                        # Do NOT fall back to reading the file: by the time watchfiles
+                        # delivers the event, the file already has new content, so reading
+                        # it would produce old_hash == new_hash and the change would be
+                        # silently skipped as "unchanged" in index_folder.
+                        # Sentinel "__cache_miss__" keeps use_memory_hash_cache=True (fast
+                        # path active, no full-index disk load) while guaranteeing the file
+                        # is re-parsed rather than skipped.
+                        old_hash = _hash_cache.get(cached_rel, "") or "__cache_miss__"
+                        if targeted_during_retry:
+                            # A failed save may have committed newer content than
+                            # this cache knows. Do not let a revert compare equal
+                            # to an old cached hash and skip its targeted update.
+                            old_hash = "__cache_miss__"
+                    else:
+                        # For additions, no old hash
+                        old_hash = ""
+                    watcher_changes.append(WatcherChange(change_type_str, p, old_hash))
+
+                if not needs_discovery and not watcher_changes:
+                    # Only modified folders: nothing to index (L-256).
+                    continue
+
+                if full_retry:
+                    set_reindex_retry(repo_id, None, _reindex_retry_attempts, owner=folder_path)
+                    # Capture before indexing: a commit made during the attempt
+                    # must still be detected on subsequent idle wake-ups.
+                    _retry_head_signature = await asyncio.to_thread(_git_head_signature, folder_path)
+                if needs_discovery:
+                    # Trees may move in or out without individual file events,
+                    # so this is a walk (discover=True). It still names the
+                    # files of this batch and of earlier failed batches: the
+                    # walk parses each one it keeps again (its mtime can miss
+                    # the edit) and reads one past max_folder_files, with the
+                    # walk's own filters and cap status.
+                    # _batch_files too: a full retry replaced this batch with
+                    # the root event, and an edit that arrived at the deadline
+                    # must still be named.
+                    _named = {c.path for c in watcher_changes}
+                    watcher_changes = watcher_changes + [
+                        WatcherChange("modified", p, "__cache_miss__")
+                        for p in sorted((_retry_files | _batch_files) - _named)
+                        if _may_be_pending(p)
+                    ]
+                mark_reindex_start(repo_id)
+                result = await asyncio.to_thread(
+                    index_folder,
+                    path=folder_path,
                     use_ai_summaries=use_ai_summaries,
                     context_providers=context_providers,
                     storage_path=storage_path,
                     extra_ignore_patterns=extra_ignore_patterns,
                     follow_symlinks=follow_symlinks,
-                    on_reindex=on_reindex,
-                    quiet=quiet,
-                    log_file_handle=log_file_handle,
-                    build_hash_cache=_build_hash_cache,
+                    incremental=True,
+                    changed_paths=watcher_changes,
+                    discover=needs_discovery,
                 )
-                if _outcome == _HEAD_FAILED:
-                    _head_retry.schedule(time.monotonic())
-            continue
-
-        n_added = sum(1 for c, _ in relevant if c == Change.added)
-        n_modified = sum(1 for c, _ in relevant if c == Change.modified)
-        n_deleted = sum(1 for c, _ in relevant if c == Change.deleted)
-
-        _watcher_output(
-            f"  Changes detected in {folder_path}: "
-            f"+{n_added} ~{n_modified} -{n_deleted}",
-            quiet=quiet, log_file_handle=log_file_handle,
-        )
-
-        try:
-            # v1.108.190 (#388, @Bortlesboat): hydrate lazily if the initial
-            # index was skipped and the eager build could not read an index yet.
-            # A watch task that starts alongside an external index can reach its
-            # first change with nothing cached, and an empty cache silently
-            # drops every old_hash rather than failing. Their PR caught this;
-            # the flag (rather than `if not _hash_cache`) keeps a legitimately
-            # empty index from re-reading the store on every change.
-            if not _hash_cache_built:
-                _build_hash_cache()
-            # Map watchfiles Change enum to WatcherChange objects with old_hash from memory cache
-            _change_map = {Change.added: "added", Change.modified: "modified", Change.deleted: "deleted"}
-            watcher_changes: list[WatcherChange] = []
-            needs_discovery = False
-            sorted_cached: list[str] | None = None
-            for ct, p in relevant:
-                change_type_str = _change_map[ct]
-                cached_rel = Path(p).relative_to(folder_path).as_posix()
-                if _hash_cache_prefix:
-                    cached_rel = f"{_hash_cache_prefix}/{cached_rel}"
-                # (L-256) Windows reports a folder as MODIFIED whenever a file
-                # inside it is written, beside the file's own event. It names no
-                # change the child's event does not, and reading it as a topology
-                # change re-walked the whole repo on every note an agent wrote.
-                # Only an added folder (a tree moved in) or the root (the rescan
-                # `_safe_awatch` yields) needs discovery.
-                if ct == Change.modified and p != folder_path and os.path.isdir(p):
-                    continue
-                if not needs_discovery and (p == folder_path or os.path.isdir(p)):
-                    needs_discovery = True
-                if ct == Change.deleted:
-                    # A moved-out directory no longer satisfies isdir(). Its indexed
-                    # descendants still need removal; known file deletes stay O(1).
-                    if not needs_discovery and cached_rel not in _hash_cache:
-                        if sorted_cached is None:
-                            sorted_cached = sorted(_hash_cache)
-                        prefix = cached_rel + "/"
-                        at = bisect_left(sorted_cached, prefix)
-                        if at < len(sorted_cached) and sorted_cached[at].startswith(prefix):
-                            needs_discovery = True
-                    old_hash = _hash_cache.get(cached_rel, "")
-                elif ct == Change.modified:
-                    # Use memory cache as the source of truth for old_hash.
-                    # Do NOT fall back to reading the file: by the time watchfiles
-                    # delivers the event, the file already has new content, so reading
-                    # it would produce old_hash == new_hash and the change would be
-                    # silently skipped as "unchanged" in index_folder.
-                    # Sentinel "__cache_miss__" keeps use_memory_hash_cache=True (fast
-                    # path active, no full-index disk load) while guaranteeing the file
-                    # is re-parsed rather than skipped.
-                    old_hash = _hash_cache.get(cached_rel, "") or "__cache_miss__"
-                else:
-                    # For additions, no old hash
-                    old_hash = ""
-                watcher_changes.append(WatcherChange(change_type_str, p, old_hash))
-
-            if not needs_discovery and not watcher_changes:
-                # Only modified folders: nothing to index (L-256).
-                continue
-
-            mark_reindex_start(repo_id)
-            result = await asyncio.to_thread(
-                index_folder,
-                path=folder_path,
-                use_ai_summaries=use_ai_summaries,
-                context_providers=context_providers,
-                storage_path=storage_path,
-                extra_ignore_patterns=extra_ignore_patterns,
-                follow_symlinks=follow_symlinks,
-                incremental=True,
-                # Trees may move in or out without individual file events.
-                changed_paths=None if needs_discovery else watcher_changes,
-            )
-            if result.get("success"):
-                duration = result.get("duration_seconds", "?")
-                if result.get("message") == "No changes detected":
-                    _watcher_output(f"  Re-indexed {folder_path}: no indexable changes ({duration}s)", quiet=quiet, log_file_handle=log_file_handle)
+                if result.get("success"):
+                    if full_retry:
+                        _retry_files.clear()
+                    else:
+                        _retry_files.difference_update(_batch_files)
+                    # A changed file the walk could not read kept its old
+                    # rows; it stays pending, and so does the retry.
+                    _unread = result.get("unread_files") or []
+                    _retry_files.update(_unread)
+                    duration = result.get("duration_seconds", "?")
+                    if result.get("message") == "No changes detected":
+                        if full_retry:
+                            # Another writer (or a partially successful attempt)
+                            # may already have stored these changes.
+                            _build_hash_cache()
+                        _watcher_output(f"  Re-indexed {folder_path}: no indexable changes ({duration}s)", quiet=quiet, log_file_handle=log_file_handle)
+                    else:
+                        changed = result.get("changed", 0)
+                        new = result.get("new", 0)
+                        deleted = result.get("deleted", 0)
+                        # ⚠ Phases ride on the line the reporter already quotes
+                        # (#557). `(Ns)` said the time was inside index_folder and
+                        # stopped there; splitting it is the difference between a
+                        # maintainer guessing and a maintainer reading. Absent when
+                        # the fast path was not taken, which is itself the answer.
+                        _phases = result.get("phase_seconds")
+                        _phase_txt = ""
+                        if isinstance(_phases, dict) and _phases:
+                            _phase_txt = " [" + " ".join(
+                                f"{k}={v}s" for k, v in _phases.items()
+                            ) + "]"
+                        _watcher_output(
+                            f"  Re-indexed {folder_path}: "
+                            f"changed={changed} new={new} deleted={deleted} ({duration}s)"
+                            f"{_phase_txt}",
+                            quiet=quiet, log_file_handle=log_file_handle,
+                        )
+                        # Refresh the hash cache from what index_folder actually
+                        # STORED, rather than loading every symbol in the index to
+                        # read a dict of strings.
+                        #
+                        # ⚠ NOT because the reload was slow in the steady state --
+                        # it is not, `incremental_save` keeps the LRU entry
+                        # coherent and it measures 0.001 s. This removes a CLIFF
+                        # that a shipped setting can reach: JCODEMUNCH_INDEX_CACHE_TTL
+                        # evicts an index that has sat unused, and a watcher is
+                        # idle between edits BY DEFINITION. Measured at TTL=1 with a
+                        # 1.5 s gap: 0.001 s -> 0.19 s per event on 15,075 symbols,
+                        # and #370 clocked a cold 665k-symbol hydration at 7.5-11.4
+                        # MINUTES. Anything else that moves the .db mtime between
+                        # the save and the read does the same (#557, @Ticki84).
+                        #
+                        # ⚠ Re-reading the changed files instead is what this used
+                        # to do and it is NOT the alternative: the file can change
+                        # again between index_folder's read and ours, so the cache
+                        # records a hash nobody indexed and the next edit is
+                        # skipped as unchanged (T6). The delta has no second read
+                        # to race with.
+                        #
+                        # ⚠⚠ ABSENT is not EMPTY. A run that cannot report its
+                        # delta (older code path, full walk, an exit added later)
+                        # must fall back to the full reload -- treating a missing
+                        # key as "nothing changed" would freeze the cache and
+                        # silently stop reindexing, which is the failure this cache
+                        # exists to prevent.
+                        _delta = result.get("file_hashes_delta")
+                        if isinstance(_delta, dict):
+                            _hash_cache.update(_delta)
+                            for _gone in result.get("file_hashes_removed") or []:
+                                _hash_cache.pop(_gone, None)
+                            _hash_cache_built = True
+                        else:
+                            _build_hash_cache()
+                        # Report re-index activity (only if it actually did work)
+                        if on_reindex is not None:
+                            on_reindex()
+                    if full_retry:
+                        _head_moves.reconciled(_retry_head_signature)
+                    if _unread:
+                        _schedule_reindex_retry(keep_deadline=targeted_during_retry)
+                        _watcher_output(
+                            f"  WARNING: re-index of {folder_path} kept old symbols: {_unread_error(_unread)}",
+                            quiet=quiet, log_file_handle=log_file_handle,
+                        )
+                        mark_reindex_failed(repo_id, _unread_error(_unread))
+                        continue
+                    if not targeted_during_retry:
+                        _reindex_retry_at = None
+                        _reindex_retry_attempts = 0
+                        _reindex_retry_delay = _REINDEX_RETRY_SECONDS
+                        set_reindex_retry(repo_id, None, owner=folder_path)
                     mark_reindex_done(repo_id, result)
                 else:
-                    changed = result.get("changed", 0)
-                    new = result.get("new", 0)
-                    deleted = result.get("deleted", 0)
-                    # ⚠ Phases ride on the line the reporter already quotes
-                    # (#557). `(Ns)` said the time was inside index_folder and
-                    # stopped there; splitting it is the difference between a
-                    # maintainer guessing and a maintainer reading. Absent when
-                    # the fast path was not taken, which is itself the answer.
-                    _phases = result.get("phase_seconds")
-                    _phase_txt = ""
-                    if isinstance(_phases, dict) and _phases:
-                        _phase_txt = " [" + " ".join(
-                            f"{k}={v}s" for k, v in _phases.items()
-                        ) + "]"
+                    _retry_files.update(_batch_files)
+                    _schedule_reindex_retry(keep_deadline=targeted_during_retry)
                     _watcher_output(
-                        f"  Re-indexed {folder_path}: "
-                        f"changed={changed} new={new} deleted={deleted} ({duration}s)"
-                        f"{_phase_txt}",
+                        f"  WARNING: re-index failed for {folder_path}: {result.get('error')}",
                         quiet=quiet, log_file_handle=log_file_handle,
                     )
-                    mark_reindex_done(repo_id, result)
-                    # Refresh the hash cache from what index_folder actually
-                    # STORED, rather than loading every symbol in the index to
-                    # read a dict of strings.
-                    #
-                    # ⚠ NOT because the reload was slow in the steady state --
-                    # it is not, `incremental_save` keeps the LRU entry
-                    # coherent and it measures 0.001 s. This removes a CLIFF
-                    # that a shipped setting can reach: JCODEMUNCH_INDEX_CACHE_TTL
-                    # evicts an index that has sat unused, and a watcher is
-                    # idle between edits BY DEFINITION. Measured at TTL=1 with a
-                    # 1.5 s gap: 0.001 s -> 0.19 s per event on 15,075 symbols,
-                    # and #370 clocked a cold 665k-symbol hydration at 7.5-11.4
-                    # MINUTES. Anything else that moves the .db mtime between
-                    # the save and the read does the same (#557, @Ticki84).
-                    #
-                    # ⚠ Re-reading the changed files instead is what this used
-                    # to do and it is NOT the alternative: the file can change
-                    # again between index_folder's read and ours, so the cache
-                    # records a hash nobody indexed and the next edit is
-                    # skipped as unchanged (T6). The delta has no second read
-                    # to race with.
-                    #
-                    # ⚠⚠ ABSENT is not EMPTY. A run that cannot report its
-                    # delta (older code path, full walk, an exit added later)
-                    # must fall back to the full reload -- treating a missing
-                    # key as "nothing changed" would freeze the cache and
-                    # silently stop reindexing, which is the failure this cache
-                    # exists to prevent.
-                    _delta = result.get("file_hashes_delta")
-                    if isinstance(_delta, dict):
-                        _hash_cache.update(_delta)
-                        for _gone in result.get("file_hashes_removed") or []:
-                            _hash_cache.pop(_gone, None)
-                        _hash_cache_built = True
-                    else:
-                        _build_hash_cache()
-                    # Report re-index activity (only if it actually did work)
-                    if on_reindex is not None:
-                        on_reindex()
-            else:
-                _watcher_output(
-                    f"  WARNING: re-index failed for {folder_path}: {result.get('error')}",
-                    quiet=quiet, log_file_handle=log_file_handle,
-                )
-                mark_reindex_failed(repo_id, result.get("error", "unknown error"))
-        except Exception as e:
-            logger.exception("Re-index error for %s: %s", folder_path, e)
-            _watcher_output(f"  ERROR: re-index failed for {folder_path}: {e}", quiet=quiet, log_file_handle=log_file_handle)
-            mark_reindex_failed(repo_id, str(e))
+                    mark_reindex_failed(repo_id, result.get("error", "unknown error"))
+            except Exception as e:
+                _retry_files.update(_batch_files)
+                _schedule_reindex_retry(keep_deadline=targeted_during_retry)
+                logger.exception("Re-index error for %s: %s", folder_path, e)
+                _watcher_output(f"  ERROR: re-index failed for {folder_path}: {e}", quiet=quiet, log_file_handle=log_file_handle)
+                mark_reindex_failed(repo_id, str(e))
+    finally:
+        # A stopped or cancelled watch task cannot carry out its pending retry.
+        # Retain the failure and stale flag as history, not a promise of work.
+        # Clear only this task's entry: another watch task on the same repo
+        # key keeps its own pending retry.
+        set_reindex_retry(repo_id, None, owner=folder_path)
 
 
 # ---------------------------------------------------------------------------

@@ -6678,7 +6678,7 @@ async def _call_tool_impl(name: str, arguments: dict) -> list[TextContent] | Cal
             )
             _result_cache_invalidate()
         elif name == "index_folder":
-            from .tools.index_folder import index_folder
+            from .tools.index_folder import bound_unread_files, index_folder
             _ai = arguments.get("use_ai_summaries", _default_use_ai_summaries())
             result = await asyncio.to_thread(
                 functools.partial(
@@ -6695,6 +6695,7 @@ async def _call_tool_impl(name: str, arguments: dict) -> list[TextContent] | Cal
                     max_size=arguments.get("max_size"),
                 )
             )
+            result = bound_unread_files(result)
             _result_cache_invalidate()
         elif name == "summarize_repo":
             from .tools.summarize_repo import summarize_repo

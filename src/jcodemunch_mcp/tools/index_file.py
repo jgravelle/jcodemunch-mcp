@@ -462,6 +462,12 @@ def index_file(
                 new_symbols=[], raw_files={},
                 file_mtimes={rel_path: file_mtime},
             )
+        from .index_folder import _store_parse_failures
+
+        # The bytes were read and match the stored hash, so the file leaves
+        # the unreadable record; its recorded parse failure stays, because
+        # it was not parsed again (Codex review on #1567).
+        _store_parse_failures(store, owner, name, (), (), verified={rel_path})
         return {
             "success": True,
             "message": "File unchanged",
@@ -559,7 +565,8 @@ def index_file(
         )
         from .index_folder import _store_parse_failures
 
-        _store_parse_failures(store, owner, name, {rel_path}, parse_failed)
+        # The file was read, so it leaves the unreadable record too.
+        _store_parse_failures(store, owner, name, {rel_path}, parse_failed, verified={rel_path})
     if progress_cb:
         progress_cb(1, 1, rel_path)
 

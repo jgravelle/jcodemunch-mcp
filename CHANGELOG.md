@@ -12,6 +12,154 @@ the value was returned by `search_text` and the other redacted tools. Both
 characters are now allowed in that gap. `generic_api_key` keeps its mixed-case,
 digit and entropy gate, so identifiers and short values are still left alone.
 
+## [1.108.494] - 2026-11-26 - one locked file no longer fails the whole re-index
+
+### One locked file no longer fails the whole re-index (L-350)
+
+An incremental `index_folder` reads each edited file to hash it before it
+parses anything. When that read failed, as a sharing violation does on
+Windows while an editor or antivirus holds a file, the error escaped change
+detection and the whole call returned `Indexing failed`. Every other edit in
+the same walk stayed unindexed for as long as the lock held, and the
+watcher retried the full walk each time with the same result.
+
+A file that change detection cannot read now reads as changed. The parse
+step's own read fails too, so the file keeps its stored rows, joins the
+unreadable record (coverage reads incomplete and absence claims are
+refused) and is named in `unread_files`, so the watcher keeps retrying it.
+The rest of the walk is saved. The walk that hashes every file already
+treated a failed read this way.
+
+## [1.108.493] - 2026-11-25 - a failed watcher update is retried without another file edit
+
+### A failed watcher update is retried without another file edit
+
+The watcher consumed each file-change batch before saving its index. When a
+save failed, including while waiting for another writer's lock, it recorded
+the failure and waited for new events. The edits that had already been
+announced could stay unindexed indefinitely.
+
+A failed update now leaves that folder pending and retries with capped
+exponential backoff on the watcher's idle wake-ups. Persistent failures wait
+longer between attempts instead of repeatedly walking the tree at a fixed
+short interval. Recovery reconciles the current folder contents,
+including later additions and deletions, rather than replaying obsolete
+events. If the failed attempt already saved its changes, recovery refreshes
+the watcher's stored hashes so a later revert is still indexed. Pending work
+is local to each watched folder; an unattended, current folder does not need
+a retry merely because it has been quiet.
+
+New file edits keep the targeted indexing path while full recovery is backing
+off. Their success does not discard older pending work, and their failure
+does not postpone its deadline. Directory topology changes remain for the
+scheduled full walk, so editing during a failure does not repeatedly scan the
+whole tree. Targeted recovery also bypasses potentially stale cached hashes
+without loading the full index, so a revert after a partially saved failure
+is still indexed.
+
+An initial index that returns a failure and a failed HEAD reconciliation now
+use the same recovery schedule. Failed HEAD reconciliation backs off with
+other failed watcher work, then recovers both symbols and HEAD without
+another file event.
+The separate fixed HEAD timer and its three tests are retired because all
+failures now share bounded recovery:
+`test_head_changes_recover_after_repeated_failures_without_file_events`
+asserts that repeated failures recover stored symbols and HEAD without file
+events, and `test_persistent_failure_backs_off_then_resets_after_recovery`
+asserts increasing delays, the cap, and reset after success.
+
+`get_watch_status` now reports pending retries, the time until the next
+attempt, the failed watcher attempt count, and the last indexing error from
+the first failure through recovery. That count includes targeted edits that
+fail during backoff; those failures do not change the full-retry deadline.
+Other indexing operations cannot erase the watcher's retry schedule. Stopping
+or cancelling the watcher clears that schedule while retaining the last
+failure for diagnosis. Each watch task owns its own schedule, keyed by its
+watched folder: under git identity two watched subfolders of one repository
+share one repo key, and one task's success or exit no longer clears the
+other's pending retry or stale flag. A full retry walks the tree, and so
+does a batch that a folder event turns into a walk. Such a walk found
+changes by mtime and named no file, so it kept a file past
+`max_folder_files` without reading it again, and it missed an edit that
+kept the old mtime. Both reported `No changes detected` and kept the old
+copy until another edit. The watcher now names the files of the batch and
+of earlier failed batches to the walk (`index_folder(discover=True)`, a
+Python keyword that is not in the tool schema). The walk parses each named
+file that its own filters accept again, so a nested `.gitignore` still
+excludes a file. It promotes a named file past the cap in the same save,
+so the stored cap status and coverage describe what was read. The batch
+case existed before this change too. The targeted path of `index_folder`
+(`changed_paths=`) now reads the `.gitignore` of each folder from the root
+down to the changed file, as the walk does. It read the root's `.gitignore`
+only (#306), so a file event indexed a file that a nested `.gitignore`
+excludes. During a pending retry, a batch with a folder event takes this path
+and not the walk, so this change made that case more frequent. A file
+that `index_folder` cannot read, for example because of a sharing violation,
+now keeps its stored rows and is recorded in coverage as unread. Before, the
+walk and the `paths=` route deleted it or saved it with no symbols, the
+targeted path dropped its event, and each reported success, so the watcher
+cleared its retry and the file stayed out of the index after the lock ended.
+One record, `unreadable_files` in the stored coverage, now holds every file
+and directory discovery or the read could not open, and every route keeps it:
+- while it has entries, coverage reads `complete: false` with that many
+  `unreadable` files, so no absence claim rests on rows nobody read;
+- a walk replaces only the entries inside its own folder, so a walk of `a/`
+  keeps an entry from `b/`, and the targeted routes amend it;
+- any route that finds a recorded file readable again reads it, even with an
+  unchanged mtime, so a replacement that kept the old mtime is seen;
+- a file the file cap keeps unread under a recorded directory stays in the
+  record as a file until a read verifies it;
+- an `unreadable` count with no names (an index written before the record)
+  stays until an uncapped walk of the whole root, which hashes every file
+  once before it clears the count, so a targeted update cannot clear it;
+- a `paths=` call replaces the record inside each listed directory it read
+  in full, and `index_file` clears it on a `File unchanged` read too.
+A file the call named is also listed in `unread_files`, and so is a named file
+under a directory the walk could not list. The watcher names every path of a
+failed batch to the retry walk (files, deletions and directories) unless its
+stat says it is gone, so a directory that denies traversal does not read as a
+deletion, and an added directory that cannot be listed stays pending. A stored
+file under an unlisted directory leaves the index when a stat proves it gone,
+and the initial index and a HEAD reconcile schedule a retry when they report
+`unread_files`. A changed directory names the unreadable files under it. The root
+event of a rescan or a full retry names only the files of failed batches
+sent beside it, so a file that stays locked with no edit pending keeps its
+record and does not hold the watcher in a retry. The cost: a file
+edited while the watcher was stopped and locked during its first rescan
+keeps its old symbols until the next walk, with coverage still marking it
+unreadable, so absence claims about it stay refused. A full
+rebuild records and names each file it could not read. A new file whose read failed counts once, as unreadable, so coverage reads complete again once `index_file` repairs it. A call whose
+discovery cannot list the index root fails and keeps the index, so
+`paths=["."]` no longer deletes every stored file. The
+walk that hashes every file stores the hash of the bytes it parsed, and a
+subfolder walk that rewrites coverage counts the size exclusions it keeps
+from outside its folder. The watcher keeps its retry and
+`refresh` records a batch error. A walk that keeps rows it could not read
+reports its skip counts and warnings even when nothing else changed, and a
+`paths=` directory that cannot be listed keeps its rows. A kept file keeps its recorded parse
+failure, a subfolder walk keeps those of the files outside it, and for
+`paths=['sub']` an unreadable file under `sub` passes the ancestor
+`.gitignore` filter first. The `paths=` route also stops reading a failed
+binary sniff as binary. Another writer's success retains that pending work's
+age and cause until full recovery.
+The pending-work age spans attempts, while an active attempt reports its own
+elapsed time. These measurements come from the watcher running in the queried
+process; a lock held by another process is not evidence of its progress or
+failure. Successful recovery resets the backoff and pending/error fields.
+A current folder left unattended needs no recovery work; a folder with known
+failed updates keeps retrying at the capped interval until it recovers or
+the watcher stops. A full retry also updates HEAD-move tracking without
+hiding a commit made during the attempt.
+
+The `index_folder` tool response lists at most 20 `unread_files` and adds
+`unread_files_total` and `unread_files_truncated` whenever it names one, so
+a shortened list is never read as complete. The watcher and `refresh` call
+`index_folder` directly and still receive every name.
+
+Reported and fixed by @MariusAdrian88 (#1567), including the tests that
+came with each change; the last four review items were finished on the
+branch by the maintainers.
+
 ## [1.108.492] - 2026-11-25 - the index cache sees another process's write and stops reloading for nothing
 
 ### A write that lands while another process loads the index is no longer hidden from it (L-342)
