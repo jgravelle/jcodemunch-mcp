@@ -1,9 +1,9 @@
-"""`check_references` caps its import list and says so (BM-2 plan 3, cap 4; maintainer ruling 2026-11-27).
+"""`check_references` caps its import list and says so (2026-11-27).
 
 `import_references` listed every file that imports the name, with no bound.
 On this repository's own index `Path` alone was 706 files and 144,435 bytes,
 and five identifiers in one batch came to 384,950 bytes, 279 KB of it import
-rows (handoff ENG-bm2-plan3-reply-size-audit-2026-11-27.md).
+rows.
 
 The property:
 - the MCP tool lists at most `max_import_results` importing files (default
@@ -145,3 +145,54 @@ def test_the_compact_encoding_carries_the_cut(repo):
         assert enc_id == enc.ENCODING_ID
         assert enc.decode(payload) == out
     assert "cr1" in enc.LEGACY_ENCODING_IDS and enc.ENCODING_ID != "cr1"
+
+
+CR1_Q_COLS = ["identifier", "is_referenced", "import_count", "content_count",
+              "content_truncated", "has_content"]
+
+
+def test_a_cr1_payload_decodes_to_the_answer_it_carried(repo):
+    """A payload written with cr1's column layout (no import cut) decodes
+    unchanged through the registry, with no cut keys invented."""
+    import dataclasses
+
+    from jcodemunch_mcp.encoding import decoder
+    from jcodemunch_mcp.encoding import schema_driven as sd
+    from jcodemunch_mcp.encoding.schemas import check_references as enc
+
+    repo_id, store = repo
+    cr1_tables = [dataclasses.replace(enc._TABLES[0], cols=list(CR1_Q_COLS)), *enc._TABLES[1:]]
+    for kwargs in ({"identifier": NAME}, {"identifiers": [NAME, "core"]}):
+        out = check_references(repo_id, search_content=True, max_import_results=0, storage_path=store, **kwargs)
+        entries = out["results"] if "results" in out else [out]
+        for e in entries:
+            e.pop("import_references_total")
+            e.pop("import_references_truncated")
+        payload, _ = sd.encode(
+            "check_references", enc._flatten(out), "cr1", cr1_tables, enc._SCALARS,
+            meta_keys=enc._META, meta_json_blobs=enc._META_JSON, json_blobs=(enc._META_EXTRA,),
+        )
+        assert " enc=cr1" in payload.partition(chr(10))[0]
+        assert decoder.decode(payload) == out
+
+
+def test_the_cut_keeps_the_first_files_by_path(repo, monkeypatch):
+    """The store's row order is not path order; reverse it so an unsorted cut
+    keeps the wrong files."""
+    from jcodemunch_mcp.storage import IndexStore
+
+    real = IndexStore.load_index
+
+    def reversed_rows(self, *a, **kw):
+        idx = real(self, *a, **kw)
+        if idx is not None and idx.imports:
+            idx.imports = dict(reversed(list(idx.imports.items())))
+        return idx
+
+    monkeypatch.setattr(IndexStore, "load_index", reversed_rows)
+    repo_id, store = repo
+    whole = check_references(repo_id, identifier=NAME, search_content=False, storage_path=store)
+    files = [r["file"] for r in whole["import_references"]]
+    assert files == sorted(files)
+    page = check_references(repo_id, identifier=NAME, search_content=False, max_import_results=7, storage_path=store)
+    assert [r["file"] for r in page["import_references"]] == files[:7]

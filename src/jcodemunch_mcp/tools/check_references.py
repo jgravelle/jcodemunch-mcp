@@ -266,10 +266,13 @@ def _check_single(
             if matches:
                 import_references.append({"file": src_file, "matches": matches})
 
-    # (BM-2 plan 3, cap 4) The import list is cut to `max_import_results`
-    # files (0 lists all, the Python default, so the delete and edit
-    # preflights read the whole list); the MCP tool defaults to 50. The
-    # count and the verdict come from the whole list, never the page.
+    # The import list is cut to `max_import_results` files (0 lists all, the
+    # Python default, which the deletion investigator reads); the MCP tool
+    # defaults to 50. The count and the verdict come from the whole list,
+    # never the page. Sorted by file first: `index.imports` follows the
+    # store's row order, so an unsorted cut would keep a different 50 files
+    # after a re-index, and a larger cap would not extend a smaller one.
+    import_references.sort(key=lambda ref: ref["file"])
     import_count = len(import_references)
     import_references_truncated = 0 < max_import_results < import_count
     if import_references_truncated:

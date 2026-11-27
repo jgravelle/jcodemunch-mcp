@@ -21,10 +21,13 @@ schema does not carry ships as JSON instead of arriving with something missing.
 from __future__ import annotations
 
 from .. import schema_driven as sd
+from ..format import parse_header
 
 TOOLS = ("check_references",)
 ENCODING_ID = "cr2"
-# cr1 carried no import cut (BM-2 plan 3, cap 4).
+# cr1 carried no import cut. cr2 appends `import_total` and
+# `import_truncated` AFTER cr1's columns, so a cr1 row reads by position
+# unchanged, and decode leaves both keys out of a cr1 answer.
 LEGACY_ENCODING_IDS = ("cr1",)
 
 _Q_KEY = "__q__"
@@ -40,8 +43,8 @@ _NAMES_SEP = "|"
 _TABLES = [
     sd.TableSpec(
         key=_Q_KEY, tag="q",
-        cols=["identifier", "is_referenced", "import_count", "import_total",
-              "import_truncated", "content_count", "content_truncated", "has_content"],
+        cols=["identifier", "is_referenced", "import_count", "content_count",
+              "content_truncated", "has_content", "import_total", "import_truncated"],
         types={"is_referenced": "bool", "import_count": "int", "import_total": "int",
                "import_truncated": "bool", "content_count": "int",
                "content_truncated": "bool", "has_content": "bool"},
@@ -161,7 +164,7 @@ def _content_match(row: dict, file: str) -> dict:
     return match
 
 
-def _unflatten(decoded: dict) -> dict:
+def _unflatten(decoded: dict, enc_id: str = ENCODING_ID) -> dict:
     q_rows = decoded.pop(_Q_KEY, None) or []
     i_rows = decoded.pop(_I_KEY, None) or []
     c_rows = decoded.pop(_C_KEY, None) or []
@@ -180,6 +183,8 @@ def _unflatten(decoded: dict) -> dict:
             "import_references_truncated": q.get("import_truncated"),
             "content_count": q.get("content_count"),
         }
+        if enc_id == "cr1":
+            del entry["import_references_total"], entry["import_references_truncated"]
         if q.get("has_content"):
             entry["content_references"] = _groups(c_rows, qi, _content_match)
             entry["content_truncated"] = q.get("content_truncated")
@@ -206,4 +211,5 @@ def decode(payload: str) -> dict:
         payload, _TABLES, _SCALARS, meta_keys=_META, meta_json_blobs=_META_JSON,
         json_blobs=(_META_EXTRA,), scalar_types=_SCALAR_TYPES,
     )
-    return _unflatten(decoded)
+    enc_id = parse_header(payload.partition("\n")[0]).get("enc", ENCODING_ID)
+    return _unflatten(decoded, enc_id)

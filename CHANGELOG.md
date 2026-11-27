@@ -5,22 +5,25 @@
 ### `check_references` lists at most 50 importing files per name, and says when it cut
 
 `import_references` listed every file that imports the name, with no bound.
-On this repository's own index, `Path` alone came to 706 files and 144,435
-bytes. Five names in one batch came to 384,950 bytes, 279 KB of it import
-rows.
+On this repository's own index (1,669 files, commit 29ca4ed8), a
+`check_references` reply for `Path` listed 706 importing files and came to
+182,215 bytes as JSON. With the cap it lists 50 and comes to 47,938 bytes. A
+batch of five names went from 370,228 bytes to 124,043.
 
 The MCP tool now lists at most `max_import_results` importing files per name
 (default 50; 0 lists all). Two keys arrive with the cap and are always
 present: `import_references_total`, the number of importing files, and
 `import_references_truncated`. `import_count` stays the whole count and
 `is_referenced` is decided from it, so a cut never turns a used name into an
-unused one. This changes the reply for a caller who read the list as complete
+unused one. The list is sorted by file before the cut, so the same 50 files
+are kept after a re-index and a larger cap extends a smaller one. This changes the reply for a caller who read the list as complete
 past 50 files.
 
-The Python function still lists every importer by default. The delete and
-edit preflights read that list to decide whether a change is safe, and a test
+The Python function still lists every importer by default. The deletion
+investigator reads that list to decide whether a delete is safe, and a test
 fails if any caller in `src/` but the dispatcher passes a cap. The compact
-encoding carries both keys (`cr2`; `cr1` stays readable). The published
+encoding carries both keys (`cr2`, which adds its columns after `cr1`'s, so a
+`cr1` payload still decodes to the answer it was). The published
 schema grows 61 tokens on the `standard` and `full` surfaces
 (`benchmarks/schema_baseline.json`); `core` and `counter` are unchanged.
 
