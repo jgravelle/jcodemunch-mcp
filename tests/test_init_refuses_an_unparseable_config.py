@@ -35,7 +35,7 @@ OTHER = {"command": "other-server", "args": []}
 # Every client init patches through the generic `mcpServers` writer.
 JSON_PATCH_CLIENTS = ["Claude Desktop", "Cursor", "Windsurf", "Continue", "Gemini CLI", "Cline"]
 
-BROKEN = {
+UNPARSEABLE = {
     "trailing comma": '{"mcpServers": {"other": {"command": "other-server", "args": []}},}\n',
     "unclosed object": '{"mcpServers": {"other": {"command": "other-server", "args": []}}\n',
     "top level is a list": '[{"mcpServers": {}}]\n',
@@ -50,11 +50,11 @@ def _assert_untouched(path: Path, before: bytes) -> None:
 
 
 @pytest.mark.parametrize("client", JSON_PATCH_CLIENTS)
-@pytest.mark.parametrize("case", sorted(BROKEN))
+@pytest.mark.parametrize("case", sorted(UNPARSEABLE))
 @pytest.mark.parametrize("backup", [True, False], ids=["backup", "no-backup"])
 def test_a_broken_client_config_is_refused_and_left_untouched(tmp_path, client, case, backup):
     path = tmp_path / "mcp.json"
-    path.write_text(BROKEN[case], encoding="utf-8")
+    path.write_text(UNPARSEABLE[case], encoding="utf-8")
     before = path.read_bytes()
     with pytest.raises(ConfigUnreadable) as err:
         configure_client(MCPClient(client, path, "json_patch"), backup=backup)
@@ -64,10 +64,18 @@ def test_a_broken_client_config_is_refused_and_left_untouched(tmp_path, client, 
 
 def test_a_parse_error_names_the_line(tmp_path):
     path = tmp_path / "mcp.json"
-    path.write_text('{\n  "mcpServers": {\n    "other": {}\n  },\n}\n', encoding="utf-8")
+    text = '{\n  "mcpServers": {\n    "other": {}\n  },\n}\n'
+    path.write_text(text, encoding="utf-8")
+    # The position json reports for a trailing comma moved between Python
+    # versions (newer ones point at the comma on line 4, older ones at the
+    # brace on line 5), so the expected line comes from json itself.
+    with pytest.raises(json.JSONDecodeError) as parsed:
+        json.loads(text)
+    assert parsed.value.lineno in (4, 5)
+    want = f"line {parsed.value.lineno}, column {parsed.value.colno}"
     with pytest.raises(ConfigUnreadable) as err:
         configure_client(MCPClient("Cursor", path, "json_patch"))
-    assert "line 5" in str(err.value), str(err.value)
+    assert want in str(err.value), str(err.value)
 
 
 def test_an_unreadable_file_is_refused_not_read_as_empty(tmp_path, monkeypatch):
@@ -112,7 +120,7 @@ def test_run_init_reports_the_refusal_and_exits_non_zero(tmp_path, monkeypatch, 
     good = tmp_path / "windsurf" / "mcp_config.json"
     bad.parent.mkdir()
     good.parent.mkdir()
-    bad.write_text(BROKEN["trailing comma"], encoding="utf-8")
+    bad.write_text(UNPARSEABLE["trailing comma"], encoding="utf-8")
     before = bad.read_bytes()
     monkeypatch.setattr(
         init_mod, "_detect_clients",
@@ -197,7 +205,7 @@ def test_a_broken_settings_json_is_refused_by_the_hook_installers(text, installe
 
 def test_the_read_only_and_uninstall_paths_do_not_crash_on_a_broken_file(tmp_path, monkeypatch):
     path = tmp_path / "mcp.json"
-    path.write_text(BROKEN["trailing comma"], encoding="utf-8")
+    path.write_text(UNPARSEABLE["trailing comma"], encoding="utf-8")
     before = path.read_bytes()
     settings = init_mod._settings_json_path()
     settings.parent.mkdir(parents=True, exist_ok=True)
@@ -263,7 +271,7 @@ def test_the_read_only_fallbacks_stay_read_only():
 
 def test_install_status_names_an_unreadable_client_config(tmp_path, monkeypatch, capsys):
     path = tmp_path / "mcp.json"
-    path.write_text(BROKEN["trailing comma"], encoding="utf-8")
+    path.write_text(UNPARSEABLE["trailing comma"], encoding="utf-8")
     monkeypatch.setattr(init_mod, "_detect_clients", lambda: [MCPClient("Cursor", path, "json_patch")])
     report = init_mod.install_status()
     entry = next(c for c in report["clients"] if c["name"] == "Cursor")
