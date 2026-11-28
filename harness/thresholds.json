@@ -629,7 +629,7 @@
     {
       "id": "latency.search_symbols_warm_p95_ms",
       "criterion": "5",
-      "metric": "search_symbols warm p95 over 20 calls, 5 fixed queries (benchmarks/self_latency/measure.py, self corpus; a series that FAILS its Floor is measured once more in the same process and the second series is the one gated, the first kept as `_warm_p95_first_ms` (#906/#911, harness F-19))",
+      "metric": "search_symbols warm p95 over 40 calls, 5 fixed queries (benchmarks/self_latency/measure.py, self corpus; a series that FAILS its Floor is re-sampled after every tool's first series, up to twice, each round after a 2 s pause, and the lowest p95 of its series is the one gated, the first kept as `_warm_p95_first_ms` and all as `_warm_p95_series_ms` (PR 1580; first #906/#911, harness F-19))",
       "comparator": "<=",
       "floor": 23,
       "target": 12,
@@ -651,6 +651,12 @@
           "commit": "6878a9a9",
           "date": "2026-09-28",
           "reason": "floor unchanged; the METRIC changed: a failing 20-call series is re-sampled once and the second gated (#906/#911, harness F-19). Detection of a tail-only regression drops: a defect slowing 10% of calls fails one series with p 0.6083 and two with p 0.3700 (evidence/detection-power.txt)."
+        },
+        {
+          "floor": 23,
+          "commit": "2754c527",
+          "date": "2026-11-27",
+          "reason": "floor unchanged; the METRIC changed (2754c527, PR 1580): a warm series is 40 calls (was 20), and a failing series is re-sampled after every tool's first series, up to twice after a 2 s pause, with the lowest p95 gated (was: once, at once, the second gated). PR 1580, a LEDGER-only diff, failed two of these Floors on the old rule. What it buys: two preempted calls and no other slow call no longer fail a series (they did at 20 calls). What it costs, in the share-of-slow-calls model of benchmarks/self_latency/detection_power.txt (independent series; it models neither a fixed count of preemptions nor the pause): a regression slowing a small share of calls is caught less often, 5% of calls with p 0.0338 (old rule 0.0698) and 2% with p 0.0001 (old 0.0036); from a share of 0.0755 up it is caught at least as often, 10% with p 0.4694 (old 0.3700)."
         }
       ],
       "enforced_by": [
@@ -661,7 +667,7 @@
     {
       "id": "latency.search_text_warm_p95_ms",
       "criterion": "5",
-      "metric": "search_text warm p95 over 20 calls (benchmarks/self_latency/measure.py, self corpus; a series that FAILS its Floor is measured once more in the same process and the second series is the one gated, the first kept as `_warm_p95_first_ms` (#906/#911, harness F-19))",
+      "metric": "search_text warm p95 over 40 calls (benchmarks/self_latency/measure.py, self corpus; a series that FAILS its Floor is re-sampled after every tool's first series, up to twice, each round after a 2 s pause, and the lowest p95 of its series is the one gated, the first kept as `_warm_p95_first_ms` and all as `_warm_p95_series_ms` (PR 1580; first #906/#911, harness F-19))",
       "comparator": "<=",
       "floor": 271,
       "target": 136,
@@ -683,6 +689,12 @@
           "commit": "6878a9a9",
           "date": "2026-09-28",
           "reason": "floor unchanged; the METRIC changed: a failing 20-call series is re-sampled once and the second gated (#906/#911, harness F-19). Detection of a tail-only regression drops: a defect slowing 10% of calls fails one series with p 0.6083 and two with p 0.3700 (evidence/detection-power.txt)."
+        },
+        {
+          "floor": 271,
+          "commit": "2754c527",
+          "date": "2026-11-27",
+          "reason": "floor unchanged; the METRIC changed (2754c527, PR 1580): a warm series is 40 calls (was 20), and a failing series is re-sampled after every tool's first series, up to twice after a 2 s pause, with the lowest p95 gated (was: once, at once, the second gated). PR 1580, a LEDGER-only diff, failed two of these Floors on the old rule. What it buys: two preempted calls and no other slow call no longer fail a series (they did at 20 calls). What it costs, in the share-of-slow-calls model of benchmarks/self_latency/detection_power.txt (independent series; it models neither a fixed count of preemptions nor the pause): a regression slowing a small share of calls is caught less often, 5% of calls with p 0.0338 (old rule 0.0698) and 2% with p 0.0001 (old 0.0036); from a share of 0.0755 up it is caught at least as often, 10% with p 0.4694 (old 0.3700)."
         }
       ],
       "enforced_by": [
@@ -693,7 +705,7 @@
     {
       "id": "latency.get_symbol_source_warm_p95_ms",
       "criterion": "5",
-      "metric": "get_symbol_source warm p95 over 20 calls (benchmarks/self_latency/measure.py, self corpus; a series that FAILS its Floor is measured once more in the same process and the second series is the one gated, the first kept as `_warm_p95_first_ms` (#906/#911, harness F-19))",
+      "metric": "get_symbol_source warm p95 over 40 calls (benchmarks/self_latency/measure.py, self corpus; a series that FAILS its Floor is re-sampled after every tool's first series, up to twice, each round after a 2 s pause, and the lowest p95 of its series is the one gated, the first kept as `_warm_p95_first_ms` and all as `_warm_p95_series_ms` (PR 1580; first #906/#911, harness F-19))",
       "comparator": "<=",
       "floor": 27,
       "target": 14,
@@ -715,6 +727,12 @@
           "commit": "6878a9a9",
           "date": "2026-09-28",
           "reason": "floor unchanged; the METRIC changed: a failing 20-call series is re-sampled once and the second gated (#906/#911, harness F-19). Detection of a tail-only regression drops: a defect slowing 10% of calls fails one series with p 0.6083 and two with p 0.3700 (evidence/detection-power.txt)."
+        },
+        {
+          "floor": 27,
+          "commit": "2754c527",
+          "date": "2026-11-27",
+          "reason": "floor unchanged; the METRIC changed (2754c527, PR 1580): a warm series is 40 calls (was 20), and a failing series is re-sampled after every tool's first series, up to twice after a 2 s pause, with the lowest p95 gated (was: once, at once, the second gated). PR 1580, a LEDGER-only diff, failed two of these Floors on the old rule. What it buys: two preempted calls and no other slow call no longer fail a series (they did at 20 calls). What it costs, in the share-of-slow-calls model of benchmarks/self_latency/detection_power.txt (independent series; it models neither a fixed count of preemptions nor the pause): a regression slowing a small share of calls is caught less often, 5% of calls with p 0.0338 (old rule 0.0698) and 2% with p 0.0001 (old 0.0036); from a share of 0.0755 up it is caught at least as often, 10% with p 0.4694 (old 0.3700)."
         }
       ],
       "enforced_by": [
@@ -725,7 +743,7 @@
     {
       "id": "latency.get_file_outline_warm_p95_ms",
       "criterion": "5",
-      "metric": "get_file_outline warm p95 over 20 calls (benchmarks/self_latency/measure.py, self corpus; a series that FAILS its Floor is measured once more in the same process and the second series is the one gated, the first kept as `_warm_p95_first_ms` (#906/#911, harness F-19))",
+      "metric": "get_file_outline warm p95 over 40 calls (benchmarks/self_latency/measure.py, self corpus; a series that FAILS its Floor is re-sampled after every tool's first series, up to twice, each round after a 2 s pause, and the lowest p95 of its series is the one gated, the first kept as `_warm_p95_first_ms` and all as `_warm_p95_series_ms` (PR 1580; first #906/#911, harness F-19))",
       "comparator": "<=",
       "floor": 28,
       "target": 14,
@@ -747,6 +765,12 @@
           "commit": "6878a9a9",
           "date": "2026-09-28",
           "reason": "floor unchanged; the METRIC changed: a failing 20-call series is re-sampled once and the second gated (#906/#911, harness F-19). Detection of a tail-only regression drops: a defect slowing 10% of calls fails one series with p 0.6083 and two with p 0.3700 (evidence/detection-power.txt)."
+        },
+        {
+          "floor": 28,
+          "commit": "2754c527",
+          "date": "2026-11-27",
+          "reason": "floor unchanged; the METRIC changed (2754c527, PR 1580): a warm series is 40 calls (was 20), and a failing series is re-sampled after every tool's first series, up to twice after a 2 s pause, with the lowest p95 gated (was: once, at once, the second gated). PR 1580, a LEDGER-only diff, failed two of these Floors on the old rule. What it buys: two preempted calls and no other slow call no longer fail a series (they did at 20 calls). What it costs, in the share-of-slow-calls model of benchmarks/self_latency/detection_power.txt (independent series; it models neither a fixed count of preemptions nor the pause): a regression slowing a small share of calls is caught less often, 5% of calls with p 0.0338 (old rule 0.0698) and 2% with p 0.0001 (old 0.0036); from a share of 0.0755 up it is caught at least as often, 10% with p 0.4694 (old 0.3700)."
         }
       ],
       "enforced_by": [

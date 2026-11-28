@@ -223,6 +223,7 @@ def _check_single(
     store: "IndexStore",
     start: float,
     target_span: Optional[tuple[str, int, int]] = None,
+    max_import_results: int = 0,
 ) -> dict:
     """Core logic for checking a single identifier against import + content data.
 
@@ -265,7 +266,17 @@ def _check_single(
             if matches:
                 import_references.append({"file": src_file, "matches": matches})
 
+    # The import list is cut to `max_import_results` files (0 lists all, the
+    # Python default, which the deletion investigator reads); the MCP tool
+    # defaults to 50. The count and the verdict come from the whole list,
+    # never the page. Sorted by file first: `index.imports` follows the
+    # store's row order, so an unsorted cut would keep a different 50 files
+    # after a re-index, and a larger cap would not extend a smaller one.
+    import_references.sort(key=lambda ref: ref["file"])
     import_count = len(import_references)
+    import_references_truncated = 0 < max_import_results < import_count
+    if import_references_truncated:
+        import_references = import_references[:max_import_results]
 
     # ── Content-level check ─────────────────────────────────────────────────
     # Exclude the definition's own LINE SPAN, not its whole file (#406,
@@ -412,6 +423,8 @@ def _check_single(
         "is_referenced": is_referenced,
         "import_count": import_count,
         "import_references": import_references,
+        "import_references_total": import_count,
+        "import_references_truncated": import_references_truncated,
         "content_count": content_count,
         "_meta": {"timing_ms": round(elapsed, 1)},
     }
@@ -432,6 +445,7 @@ def _check_batch(
     name: str,
     store: "IndexStore",
     start: float,
+    max_import_results: int = 0,
 ) -> dict:
     """Batch logic: loop over identifiers, return grouped results array."""
     results = []
@@ -445,6 +459,7 @@ def _check_batch(
             name=name,
             store=store,
             start=start,
+            max_import_results=max_import_results,
         )
         # Strip envelope fields for consistency with other batch tools
         result.pop("repo", None)
@@ -469,6 +484,7 @@ def check_references(
     search_content: bool = True,
     max_content_results: int = 20,
     storage_path: Optional[str] = None,
+    max_import_results: int = 0,
 ) -> dict:
     """Check if an identifier is referenced anywhere: imports + file content.
 
@@ -488,6 +504,10 @@ def check_references(
             Set False for fast import-only check.
         max_content_results: Max files to return per identifier for content search.
         storage_path: Custom storage path.
+        max_import_results: Max importing files to list per identifier; 0 or
+            less lists all (the default here). ``import_count`` and
+            ``import_references_total`` are always the whole count, and
+            ``import_references_truncated`` says whether any were left out.
 
     Returns:
         Singular mode: dict with is_referenced, import/content counts, and
@@ -504,6 +524,7 @@ def check_references(
 
     start = time.perf_counter()
     max_content_results = max(1, min(max_content_results, 100))
+    max_import_results = max(0, int(max_import_results or 0))
 
     try:
         owner, name = resolve_repo(repo, storage_path)
@@ -525,6 +546,7 @@ def check_references(
             name,
             store,
             start,
+            max_import_results=max_import_results,
         )
     else:
         return _check_single(
@@ -536,4 +558,5 @@ def check_references(
             name=name,
             store=store,
             start=start,
+            max_import_results=max_import_results,
         )

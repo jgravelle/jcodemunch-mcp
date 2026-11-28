@@ -34,6 +34,65 @@ byte order mark is read, not refused. A missing or empty file is still
 created as before. A test fails if any `except` under `cli/` hands back an
 empty dict outside the two read-only status views.
 
+### `get_call_hierarchy` lists at most 100 callers and 100 callees, and says when it cut
+
+`callers` and `callees` listed every row at every depth, with no bound. On
+this repository's own index (1,669 files, commit 29ca4ed8), `resolve_repo`
+at depth 2 had 3,053 callers and 193 callees. As served, that reply was
+478,337 bytes in the default compact encoding and 1,344,319 bytes as JSON,
+over the 1,048,576-byte response limit, so a `server_output: json` seat got a
+refusal instead of an answer. With the cap it lists 100 of each and comes to
+31,938 bytes compact and 61,207 as JSON.
+
+The MCP tool now lists at most `max_results` rows in each list (default 100;
+0 lists all). `caller_count`, `callee_count`, `direct_caller_count` and the
+per-depth counts stay the whole counts, and two keys arrive with the cap and
+are always present: `callers_truncated` and `callees_truncated`. The cut
+keeps the nearest rows. Each list is ordered by depth, then file, line and
+id, so a kept row's `via` row is kept too, and the same rows are kept after a
+re-index. This changes the reply for a caller who read a list as complete
+past 100 rows, and within a depth it changes the order of every list, capped
+or not: rows used to follow the walk, which follows the store's row order.
+
+The Python function still lists every row by default, and a test fails if
+any caller in `src/` but the dispatcher passes a cap. The compact encoding
+carries both keys (`ch5`; a `ch4` payload still decodes). The published
+schema grows 66 tokens on the `standard` and `full` surfaces
+(`benchmarks/schema_baseline.json`); `core` and `counter` are unchanged.
+
+### `check_references` lists at most 50 importing files per name, and says when it cut
+
+`import_references` listed every file that imports the name, with no bound.
+On this repository's own index (1,669 files, commit 29ca4ed8), a
+`check_references` reply for `Path` listed 706 importing files and was served
+as 99,795 bytes in the default compact encoding (169,392 as JSON). With the
+cap it lists 50 and comes to 29,745 bytes compact (44,957 as JSON). A batch
+of five names went from 197,718 bytes compact to 75,094 (347,359 to 117,072
+as JSON).
+
+The MCP tool now lists at most `max_import_results` importing files per name
+(default 50; 0 lists all). Two keys arrive with the cap and are always
+present: `import_references_total`, the number of importing files, and
+`import_references_truncated`. `import_count` stays the whole count and
+`is_referenced` is decided from it, so a cut never turns a used name into an
+unused one. The list is sorted by file before the cut, so the same 50 files
+are kept after a re-index and a larger cap extends a smaller one. This changes the reply for a caller who read the list as complete
+past 50 files.
+
+The Python function still lists every importer by default. The deletion
+investigator reads that list to decide whether a delete is safe, and a test
+fails if any caller in `src/` but the dispatcher passes a cap. The compact
+encoding carries both keys (`cr2`, which adds its columns after `cr1`'s, so a
+`cr1` payload still decodes to the answer it was). The published
+schema grows 61 tokens on the `standard` and `full` surfaces
+(`benchmarks/schema_baseline.json`); `core` and `counter` are unchanged. The
+new description words move one `menu` query, which now ranks
+`check_references` second: `menu` recall @3 goes from 72.9 to 74.6 and @5
+from 79.7 to 81.4, and `route` recall is unchanged
+(`benchmarks/route_recall/results.json`).
+
+## [1.108.497] - 2026-11-27 - a dead-code answer over withheld files reads them instead of refusing
+
 ### A dead-code answer over withheld files reads them instead of refusing (L-352)
 
 When the index withheld a file for size, `find_dead_code` capped every

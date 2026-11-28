@@ -9,8 +9,10 @@ TOOLS = ("get_call_hierarchy",)
 # callers are text matches and can be short. It rides as a JSON blob; without
 # it the compact form (the `adaptive` default picks it whenever it is smaller)
 # dropped the warning on exactly the installs it was written for.
-ENCODING_ID = "ch4"
-LEGACY_ENCODING_IDS = ("ch1", "ch2", "ch3")
+# ch5: `callers_truncated` and `callees_truncated`, the row cap's disclosure.
+# Scalars are read by name, so a ch4 payload decodes without them.
+ENCODING_ID = "ch5"
+LEGACY_ENCODING_IDS = ("ch1", "ch2", "ch3", "ch4")
 
 _ROW_COLS = ["id", "name", "kind", "file", "line", "depth", "resolution", "via"]
 
@@ -57,6 +59,8 @@ _SCALARS = (
     "callee_count",
     "direct_caller_count",
     "direct_callee_count",
+    "callers_truncated",
+    "callees_truncated",
     "call_sites_total",
     "call_sites_truncated",
     "call_sites_unknown_callers",
