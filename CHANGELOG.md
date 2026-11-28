@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.500] - 2026-11-28 - a compact answer carries every key its schema did not name
+
 ### A compact answer carries every key its schema did not name (L-341)
 
 The compact encoders build each answer from what their schema names: tables,
