@@ -3590,3 +3590,9 @@ The 1.108.493 entry, verbatim as it stood in `CLAUDE.md`:
 The 1.108.494 entry, verbatim as it stood in `CLAUDE.md`:
 
 - **Prior (1.108.494):** **one locked file no longer fails the whole re-index** (L-350): `_hash_file` returns `""` on an `OSError` as `_hash_uncached` does, so an unreadable edited file reads as changed, keeps its rows, joins `unread_files` and coverage stays incomplete. Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-27, release 1.108.498)
+
+The 1.108.495 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.495):** **a watch event outside the watched folder no longer fails the whole batch** (#1582): `_place_under_root` re-spells an event whose realpath is under the folder's and drops any other path with one warning per task; also #1576 (a secret after `]` or an escaped quote is redacted). Full text: `CHANGELOG.md`.
