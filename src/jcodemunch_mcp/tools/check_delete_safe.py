@@ -54,6 +54,9 @@ from ..storage.generation import connect_readonly
 from ..runtime.confidence import symbol_hit_count
 from . import _name_reachability
 from ._corpus_adequacy import UNPROVEN_CEILING, assess_corpus
+# (LEDGER L-349) The read rule lives in one module; check_edit_safe binds
+# the same function.
+from ._importer_reads import content_search_read_every as _content_search_read_every
 from ._dynamic_boundary import FILES_CAP as DYNAMIC_FILES_CAP, DynamicBoundary
 from ._entry_points import has_dotnet_evidence, unseen_consumer
 from ._stop_rule import build_stop_rule
@@ -82,11 +85,6 @@ _ENTRY_DECORATOR_RE = re.compile(
     re.IGNORECASE,
 )
 
-
-
-# (LEDGER L-349) The read rule lives in one module; check_edit_safe binds
-# the same function.
-from ._importer_reads import content_search_read_every as _content_search_read_every  # noqa: E402
 
 
 def _resolve_target(index, symbol: str) -> Optional[dict]:
@@ -413,7 +411,12 @@ def check_delete_safe(
             index, store, owner, name,
             # ⚠ (review round 2) The target's own file too: unread, its
             # same-file uses go uncounted and "its own file included" is false.
-            [target_file] + [b["file"] for b in blockers if b.get("kind") == "external_import"],
+            # ⚠ (L-349 review) And the test importers: unread, a test that
+            # names the symbol goes uncounted and `test_ref_count` reads 0.
+            [target_file] + [
+                b["file"] for b in blockers
+                if b.get("kind") in ("external_import", "test_import")
+            ],
             target_name,
         )
     ):

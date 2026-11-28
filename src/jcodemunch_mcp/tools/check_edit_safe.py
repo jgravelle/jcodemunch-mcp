@@ -30,7 +30,7 @@ from typing import Optional
 
 from ..retrieval.verdict import symbol_not_found
 from ..storage import IndexStore, record_savings, estimate_savings, cost_avoided
-from ._corpus_adequacy import UNPROVEN_CEILING
+from ._corpus_adequacy import UNPROVEN_CEILING, assess_corpus
 from ._importer_reads import content_search_read_every as _content_search_read_every
 from ._stop_rule import build_stop_rule
 from ._utils import index_status_to_tool_error, resolve_repo
@@ -114,6 +114,7 @@ def check_edit_safe(
     # signature-changing edit breaks them. Test importers are tracked apart.
     external_import_count = 0
     test_import_count = 0
+    test_importer_files: list[str] = []
     cross_repo_count = 0
     dynamic_block: Optional[dict] = None
     try:
@@ -142,6 +143,7 @@ def check_edit_safe(
                 if imp_file and imp_file != target_file:
                     if _is_test_file(imp_file):
                         test_import_count += 1
+                        test_importer_files.append(imp_file)
                     else:
                         external_import_count += 1
                         blockers.append({
@@ -275,7 +277,10 @@ def check_edit_safe(
         and test_ref_count == 0
         and refs_searched
         and _content_search_read_every(
-            index, store, owner, name, [target_file] + importer_files, target_name,
+            # ⚠ (L-349 review) The test importers too: unread, a test that
+            # names the symbol goes uncounted and `test_ref_count` reads 0.
+            index, store, owner, name,
+            [target_file] + importer_files + test_importer_files, target_name,
         )
     ):
         # ⚠⚠ (LEDGER L-349) Other files import the target's FILE and no
@@ -291,6 +296,8 @@ def check_edit_safe(
         for b in blockers:
             if b.get("kind") == "external_import":
                 b["info"] = "imports this file; the reference search found the symbol's name in it nowhere"
+        # (L-349 review) "symbol is used" is the claim this verdict withdraws.
+        blockers[:] = [b for b in blockers if b.get("kind") != "no_test_coverage"]
     elif signature_impact:
         verdict = "signature_impact"
     elif high_complexity:
@@ -308,7 +315,10 @@ def check_edit_safe(
     # loader, because reading the loader can move it to signature_impact
     # (review, L-75).
     dynamic_gap = None
-    if verdict in ("safe_to_edit", "untested") and dynamic_block:
+    # (L-349 review) `file_import_only` keeps its name, the narrower cause, and
+    # gains the loader gap, as in check_delete_safe: a loader is one more way
+    # to reach the symbol without naming it.
+    if verdict in ("safe_to_edit", "untested", "file_import_only") and dynamic_block:
         if verdict == "safe_to_edit":
             verdict = "dynamic_import_boundary"
         dynamic_gap = {
@@ -319,6 +329,24 @@ def check_edit_safe(
                 "that nothing calls it"
             ),
         }
+
+    # (L-349 review) `file_import_only` is an absence claim ("no indexed file
+    # names it"); a withheld or stale file can be the one that does. It keeps
+    # its name and gains the re-index gap, as in check_delete_safe (L-348).
+    # Only this verdict: the others here rest on what was found.
+    corpus_gap = None
+    if verdict == "file_import_only":
+        corpus_adequacy = assess_corpus(index)
+        if not corpus_adequacy.adequate:
+            corpus_gap = {
+                "action": "re-index this repo",
+                "why": corpus_adequacy.warning(),
+            }
+            blockers.append({
+                "kind": "corpus_inadequate",
+                "blockers": list(corpus_adequacy.blockers),
+                "severity": _SEVERITY_EXTERNAL_IMPORT,
+            })
 
     import_gap = None
     if verdict == "file_import_only":
@@ -476,6 +504,7 @@ def check_edit_safe(
             cross_repo=cross_repo,
             include_runtime=include_runtime,
             runtime_data_present=runtime_data_present,
+            corpus_gap=corpus_gap,
             dynamic_gap=dynamic_gap,
             import_gap=import_gap,
         ),

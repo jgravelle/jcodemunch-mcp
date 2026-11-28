@@ -15,7 +15,9 @@ import and the reading that would settle it. The properties:
 - it is an absence claim, so it needs evidence of absence: a use in any file
   (its own included), a reference search that raised, and an importer or own
   file the search could not read all keep `signature_impact`;
-- a cross-repo importer or a compiler-verified caller keeps `signature_impact`.
+- a cross-repo importer or a compiler-verified caller keeps `signature_impact`;
+- a loader that can reach the file and a corpus that cannot back an absence
+  each add their gap and keep the narrower verdict, as in `check_delete_safe`.
 
 NON-VACUITY: the four `file_import_only` tests fail on main, which returns
 `signature_impact` for each.
@@ -25,7 +27,10 @@ from __future__ import annotations
 import subprocess
 
 from jcodemunch_mcp.storage import IndexStore
-from jcodemunch_mcp.tools import check_references
+from jcodemunch_mcp.tools import _scip_consume, check_references
+import importlib
+
+fi_mod = importlib.import_module("jcodemunch_mcp.tools.find_importers")
 from jcodemunch_mcp.tools.check_edit_safe import check_edit_safe
 from jcodemunch_mcp.tools.index_folder import index_folder
 
@@ -38,7 +43,7 @@ _MAIN_JS = "const lib = require('./lib');\nconsole.log(lib.api());\n"
 _GIT = ["git", "-c", "user.name=t", "-c", "user.email=t@example.invalid"]
 
 
-def _index(tmp_path, files: dict[str, str]):
+def _index(tmp_path, files: dict[str, str], *, commit: bool = True):
     repo = tmp_path / "repo"
     repo.mkdir()
     subprocess.run(["git", "init", "-q", str(repo)], check=True)
@@ -46,8 +51,9 @@ def _index(tmp_path, files: dict[str, str]):
         p = repo / rel
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(text, encoding="utf-8")
-    subprocess.run([*_GIT, "-C", str(repo), "add", "-A"], check=True)
-    subprocess.run([*_GIT, "-C", str(repo), "commit", "-q", "-m", "x"], check=True)
+    if commit:
+        subprocess.run([*_GIT, "-C", str(repo), "add", "-A"], check=True)
+        subprocess.run([*_GIT, "-C", str(repo), "commit", "-q", "-m", "x"], check=True)
     store = tmp_path / "store"
     out = index_folder(path=str(repo), use_ai_summaries=False, storage_path=str(store))
     assert out.get("success"), out
@@ -72,6 +78,8 @@ def test_an_unexported_commonjs_function_is_flagged_by_the_file_import_only(tmp_
     imp = [b for b in got["blockers"] if b.get("file") == "main.js"]
     assert imp and "caller" not in imp[0]["info"], got["blockers"]
     assert "caller(s) depend on this" not in got["recommended_action"], got["recommended_action"]
+    # "symbol is used" is the claim this verdict withdraws.
+    assert not any(b.get("kind") == "no_test_coverage" for b in got["blockers"]), got["blockers"]
     rule = got["stop_rule"]
     assert rule["terminal"] is False, rule
     gap = [g for g in rule["would_change_verdict"] if "main.js" in g.get("why", "")]
@@ -101,6 +109,38 @@ def test_a_python_module_import_that_never_names_the_function(tmp_path):
         "app.py": "from pkg import util\n\nprint(util.used())\n",
     })
     assert _check(repo, store, "helper")["verdict"] == "file_import_only"
+
+
+def test_an_inadequate_corpus_keeps_the_verdict_and_adds_the_reindex_gap(tmp_path):
+    # No commit: the index records no revision, so an absence cannot be backed.
+    repo, store = _index(tmp_path, {"lib.js": _LIB_JS, "main.js": _MAIN_JS}, commit=False)
+    got = _check(repo, store, "helperUnused")
+    assert got["verdict"] == "file_import_only", got["verdict"]
+    assert "re-index this repo" in _actions(got), got["stop_rule"]
+    assert any(b.get("kind") == "corpus_inadequate" for b in got["blockers"]), got["blockers"]
+
+
+def test_an_adequate_corpus_adds_no_reindex_gap(tmp_path):
+    repo, store = _index(tmp_path, {"lib.js": _LIB_JS, "main.js": _MAIN_JS})
+    got = _check(repo, store, "helperUnused")
+    assert got["verdict"] == "file_import_only", got["verdict"]
+    assert "re-index this repo" not in _actions(got), got["stop_rule"]
+
+
+def test_a_dynamic_loader_keeps_the_verdict_and_adds_the_loader_gap(tmp_path):
+    repo, store = _index(tmp_path, {
+        "adapters/__init__.py": "",
+        "adapters/alpha.py": "def helper():\n    return 1\n\n\ndef used():\n    return 2\n",
+        "app.py": "from adapters import alpha\n\nprint(alpha.used())\n",
+        "run.py": (
+            "import importlib\n\n\ndef make(name):\n"
+            "    return importlib.import_module(f'adapters.{name}')\n"
+        ),
+    })
+    got = _check(repo, store, "helper")
+    assert got["verdict"] == "file_import_only", got["verdict"]
+    assert "read the named loaders for the module names they can produce" in _actions(got)
+    assert any(b.get("kind") == "dynamic_import_boundary" for b in got["blockers"]), got["blockers"]
 
 
 # ── controls and guard witnesses: pass on both sides ─────────────────────────
@@ -171,6 +211,47 @@ def test_a_reference_search_that_raised_keeps_signature_impact(tmp_path, monkeyp
         raise RuntimeError("search failed")
 
     monkeypatch.setattr(check_references, "_check_single", boom)
+    assert _check(repo, store, "helperUnused")["verdict"] == "signature_impact"
+
+
+def test_a_cross_repo_importer_keeps_signature_impact(tmp_path, monkeypatch):
+    # GUARD WITNESS (`cross_repo_count == 0`).
+    repo, store = _index(tmp_path, {"lib.js": _LIB_JS, "main.js": _MAIN_JS})
+    real = fi_mod.find_importers
+
+    def with_cross_repo(*a, **k):
+        out = real(*a, **k)
+        out.setdefault("importers", []).append(
+            {"file": "x/use.js", "cross_repo": True, "source_repo": "other/repo"}
+        )
+        return out
+
+    monkeypatch.setattr(fi_mod, "find_importers", with_cross_repo)
+    assert _check(repo, store, "helperUnused")["verdict"] == "signature_impact"
+
+
+def test_a_compiler_verified_caller_keeps_signature_impact(tmp_path, monkeypatch):
+    # GUARD WITNESS (`scip_external_count == 0`).
+    repo, store = _index(tmp_path, {"lib.js": _LIB_JS, "main.js": _MAIN_JS})
+    monkeypatch.setattr(
+        _scip_consume, "scip_reference_files", lambda *a, **k: ({"main.js": 1}, {}, False)
+    )
+    assert _check(repo, store, "helperUnused")["verdict"] == "signature_impact"
+
+
+def test_a_test_importer_the_search_could_not_read_keeps_signature_impact(tmp_path):
+    # GUARD WITNESS (test importers in the read check): the test file names
+    # the symbol; with its cached content gone the search cannot see that.
+    repo, store = _index(tmp_path, {
+        "lib.js": _LIB_JS,
+        "main.js": _MAIN_JS,
+        "test/lib.test.js": "// helperUnused is covered elsewhere\nrequire('../lib');\n",
+    })
+    owner, name = repo.split("/", 1)
+    st = IndexStore(base_path=store)
+    cached = st._safe_content_path(st._content_dir(owner, name), "test/lib.test.js")
+    assert cached and cached.exists(), cached
+    cached.unlink()
     assert _check(repo, store, "helperUnused")["verdict"] == "signature_impact"
 
 
