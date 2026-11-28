@@ -25,6 +25,10 @@ _META_JSON = ("verdict",)  # structured _meta that must survive compaction
 _JSON = ("results", _EMPTY_GROUPS_KEY, _EMPTY_VERDICTS_KEY)
 
 
+# A row's own keys: the group's file and the two declared match columns.
+_ROW_OWN = ("file", "specifier", "match_type")
+
+
 def _group_verdicts(group: dict) -> dict:
     """The row verdicts a references group carries (L-325)."""
     return {
@@ -59,8 +63,12 @@ def _flatten(response: dict) -> dict:
         for m in matches:
             if not isinstance(m, dict):
                 continue
+            # (L-340) Every other match key (`names`, the imported names) rides
+            # on the row, where the shared encoder carries a column the table
+            # does not name; this flatten used to keep only the two above.
             rows.append(
                 {
+                    **{k: v for k, v in m.items() if k not in _ROW_OWN},
                     "file": file_path,
                     "specifier": m.get("specifier", ""),
                     "match_type": m.get("match_type", ""),
@@ -96,6 +104,10 @@ def _regroup(decoded: dict) -> dict:
         if not isinstance(file_path, str):
             continue
         match = {"specifier": row.get("specifier", ""), "match_type": row.get("match_type", "")}
+        match.update(
+            (k, v) for k, v in row.items()
+            if k not in _ROW_OWN and k not in sd.UNIVERSAL_ROW_VERDICTS
+        )
         for k in sd.UNIVERSAL_ROW_VERDICTS:
             if row.get(k) not in (None, ""):
                 verdicts.setdefault(file_path, {}).setdefault(k, row[k])
