@@ -58,13 +58,17 @@ def default_format(repo: str | None = None) -> str:
     return _normalize_format(configured, "auto")
 
 
-# A value with nothing in it. An encoder may write it as a blank cell or leave
-# an optional column out (`signature_truncated: False`), so its key is not
-# required back; every other key is.
-_EMPTY = (None, "", False)
+def _is_empty(v: Any) -> bool:
+    """A value with nothing in it: an encoder may write it as a blank cell or
+    leave an optional column out (`signature_truncated: False`), so its key is
+    not required back. By identity and type, never `==`: `0 == False`, and a
+    zero is an answer."""
+    return v is None or v is False or (type(v) in (str, list, dict) and not v)
 
 
-def _keys_kept(orig: Any, back: Any, dropped: frozenset[str] = frozenset()) -> bool:
+def _keys_kept(
+    orig: Any, back: Any, dropped: frozenset[str] = frozenset(), in_row: bool = False
+) -> bool:
     """True when every key ``orig`` holds a value under comes back, at every depth.
 
     (LEDGER L-340) The top-level check of L-341 could not see a row column a
@@ -74,15 +78,15 @@ def _keys_kept(orig: Any, back: Any, dropped: frozenset[str] = frozenset()) -> b
     the same length, item for item. A `_`-prefixed key is metadata or a row
     verdict whose default an encoder omits by design (L-325), so it is not
     required. Neither is a key the schema drops by name (`TableSpec.drop`),
-    the one deliberate drop.
+    the one deliberate drop, and only inside a table row, where it applies.
     """
     if isinstance(orig, dict):
         if not isinstance(back, dict):
             return False
         for k, v in orig.items():
-            if not isinstance(k, str) or k.startswith("_") or k in dropped:
+            if not isinstance(k, str) or k.startswith("_") or (in_row and k in dropped):
                 continue
-            if v in _EMPTY or v == [] or v == {}:
+            if _is_empty(v):
                 continue
             if k not in back or not _keys_kept(v, back[k], dropped):
                 return False
@@ -90,7 +94,7 @@ def _keys_kept(orig: Any, back: Any, dropped: frozenset[str] = frozenset()) -> b
     if isinstance(orig, list):
         if not isinstance(back, list) or len(back) != len(orig):
             return False
-        return all(_keys_kept(o, b, dropped) for o, b in zip(orig, back))
+        return all(_keys_kept(o, b, dropped, in_row=True) for o, b in zip(orig, back))
     return True
 
 

@@ -224,3 +224,20 @@ def test_ranked_context_keeps_the_source_it_loaded(repo):
         for k in orig:
             if not k.startswith("_"):
                 assert k in got, (k, sorted(got))
+
+
+@pytest.mark.parametrize("zero", [0, 0.0])
+def test_a_dropped_zero_is_seen(zero):
+    """`0 == False`, so an equality test for "empty" let a dropped zero pass."""
+    from jcodemunch_mcp.encoding import _keys_kept
+
+    assert not _keys_kept({"a": [{"n": 1, "count": zero}]}, {"a": [{"n": 1}]})
+    assert _keys_kept({"a": [{"n": 1, "flag": False, "s": ""}]}, {"a": [{"n": 1}]})
+
+
+def test_a_declared_drop_applies_only_inside_a_row():
+    from jcodemunch_mcp.encoding import _keys_kept
+
+    dropped = frozenset({"byte_length"})
+    assert _keys_kept({"r": [{"byte_length": 9, "n": 1}]}, {"r": [{"n": 1}]}, dropped)
+    assert not _keys_kept({"byte_length": 9}, {}, dropped)

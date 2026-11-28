@@ -36,9 +36,9 @@ which the table writer skips, so a compact graph decoded with no edges; that
 answer now ships as JSON. A row key holding `,` or `|`, which the table header
 splits on, ships as JSON the same way.
 
-The walk over the decoded answer adds a mean of 0.12 ms for a 6,122-byte
-`search_text` answer and 0.71 ms for a 90,841-byte `get_signal_chains` one,
-on top of the decode L-341 already does.
+The walk over the decoded answer adds a mean of 0.13 ms for a `search_text`
+answer of 6,488 bytes of JSON and 0.81 ms for a `get_signal_chains` answer of
+95,428, on top of the decode L-341 already does.
 
 On the same 18 calls, served by default, 14 answers are the same size as before.
 `find_references` grows from 370 to 431 bytes with its `names`, and
