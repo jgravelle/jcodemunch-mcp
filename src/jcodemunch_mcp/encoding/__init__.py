@@ -96,23 +96,28 @@ def encode_response(
         return response, {"encoding": "json", "json_bytes": json_bytes}
 
     # A warning or `negative_evidence` must survive the wire whatever a schema
-    # does to the response first. The schema encoder carries them, but a schema
-    # that reshapes the response before encoding (a batch flatten) can lose
-    # one, and the next such schema would too. Checked only when one is
-    # present, so an ordinary response pays nothing.
+    # does to the response first, and so must every other body key (LEDGER
+    # L-341). The schema encoder carries them, but a schema that reshapes the
+    # response before encoding (a batch flatten) can lose one, and the next
+    # such schema would too. A warning must come back EQUAL; any other key
+    # must come back PRESENT, since a table decodes typed and is not
+    # byte-equal to its source. Either miss ships JSON.
     contract = {
         k: v for k, v in response.items()
         if not k.startswith("_") and _sd.is_universal_body_key(k)
     }
-    if contract:
+    body_keys = [k for k in response if not k.startswith("_")]
+    if body_keys:
         try:
             back = decoder.decode(payload)
-            kept = all(back.get(k) == v for k, v in contract.items())
+            kept = all(back.get(k) == v for k, v in contract.items()) and all(
+                k in back for k in body_keys
+            )
         except Exception:
             logger.debug("Decode check failed for %s", tool_name, exc_info=True)
             kept = False
         if not kept:
-            logger.debug("Encoder for %s dropped a warning; falling back to JSON", tool_name)
+            logger.debug("Encoder for %s dropped a body key; falling back to JSON", tool_name)
             return response, {"encoding": "json", "json_bytes": json_bytes}
 
     encoded_bytes = len(payload)

@@ -29,7 +29,8 @@ _META = (
 _META_JSON = ("verdict", "exact_match")
 # semantic_topup (CF-66): the symbols a failed lazy-embedding batch left scored
 # lexically only, with the cause. A BODY dict (the dispatcher deletes `_meta`
-# on the shipped default), and an undeclared dict is dropped by the encoder.
+# on the shipped default); an undeclared one would ride as JSON since L-341,
+# and it is declared by name all the same.
 # semantic_channel_error (L-108): why the fusion exit's similarity channel did not
 # run, e.g. a refused local model. A BODY dict for the same reason.
 # semantic_store_mismatch (L-121): the stored vectors were built by another

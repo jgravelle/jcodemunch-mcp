@@ -229,6 +229,19 @@ def _check_undeclared_tables(
     agent holding a response with a table silently missing, which is the defect
     this exists to make impossible.
     """
+    # (LEDGER L-341) A declared nested dict's sub-keys are scalars named one by
+    # one, so a sub-key nobody named would drop in silence: the top-level
+    # defect one level down. It refuses, like a table under an undeclared key.
+    for key, subkeys in nested_dicts.items():
+        sub = response.get(key)
+        if not isinstance(sub, dict):
+            continue
+        extra = sorted(sk for sk in sub if sk not in subkeys and not sk.startswith("_"))
+        if extra:
+            raise ValueError(
+                f"schema/producer mismatch: {tool} returned {key!r} with "
+                f"sub-key(s) {extra} that its nested_dicts entry does not name"
+            )
     declared = {t.key for t in tables}
     declared.update(nested_dicts)
     declared.update(json_blobs)
@@ -262,6 +275,7 @@ def encode(
 ) -> tuple[str, str]:
     tables = list(tables)
     nested_dicts = nested_dicts or {}
+    allow_undeclared = tuple(allow_undeclared)
     _check_undeclared_tables(
         tool, response, tables, nested_dicts, json_blobs, allow_undeclared,
     )
@@ -312,9 +326,17 @@ def encode(
     for k in json_blobs:
         if k in response:
             scalar_payload[f"__json.{k}"] = json.dumps(response[k], separators=(",", ":"))
-    declared_body = set(scalars) | set(json_blobs) | {t.key for t in tables} | set(nested_dicts)
+    # (LEDGER L-341) Every undeclared body key rides as JSON. Dropping one in
+    # silence was the default, and each schema learned its own missing keys one
+    # report at a time (L-58, L-73). A list of rows under an undeclared key has
+    # already raised above, so what reaches here is a scalar, a dict or a list
+    # of scalars. `allow_undeclared` stays the one way to drop a key on purpose.
+    declared_body = (
+        set(scalars) | set(json_blobs) | {t.key for t in tables} | set(nested_dicts)
+        | set(allow_undeclared)
+    )
     for k, v in response.items():
-        if k not in declared_body and not k.startswith("_") and is_universal_body_key(k):
+        if k not in declared_body and not k.startswith("_"):
             scalar_payload[f"__json.{k}"] = json.dumps(v, separators=(",", ":"))
     scalar_types_out: dict[str, str] = {}
     for k, v in scalar_payload.items():
@@ -462,13 +484,13 @@ def decode(
                 result[k] = json.loads(raw_scalars[prefixed])
             except Exception:
                 result[k] = raw_scalars[prefixed]
-    # Universal body keys (see UNIVERSAL_BODY_JSON): whatever the schema did
-    # not declare but the encoder carried anyway.
+    # Whatever the schema did not declare but the encoder carried anyway:
+    # every undeclared body key since LEDGER L-341, not only the universal ones.
     for prefixed, raw in raw_scalars.items():
         if not prefixed.startswith("__json.") or prefixed.startswith("__json._meta."):
             continue
         k = prefixed[len("__json."):]
-        if k in result or not is_universal_body_key(k):
+        if k in result:
             continue
         try:
             result[k] = json.loads(raw)

@@ -11,9 +11,10 @@ ENCODING_ID = "br6"
 # `decisions` dict, both dropped because no list here named them.
 # br6: br5 + `callers_truncated`, the callers row cap's disclosure. Scalars are
 # read by name, so a br5 payload decodes without it.
-# ⚠ A key the tool sets and this schema does not declare is dropped with
-# nothing raised; tests/test_blast_radius_compact_carries_every_key.py reads
-# the producer's source and fails until the schema declares the new key.
+# ⚠ A body key the tool sets and this schema does not declare rides as JSON
+# since LEDGER L-341, so it arrives, but untyped and unlegended;
+# tests/test_blast_radius_compact_carries_every_key.py reads the producer's
+# source and fails until the schema declares the new key.
 LEGACY_ENCODING_IDS = ("br2", "br3", "br4", "br5")
 
 _TABLES = [

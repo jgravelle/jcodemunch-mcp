@@ -2,6 +2,45 @@
 
 ## [Unreleased]
 
+### A compact answer carries every key its schema did not name (L-341)
+
+The compact encoders build each answer from what their schema names: tables,
+scalars, nested dicts and JSON blobs. Any other top-level key was dropped with
+nothing raised, unless it was one of a short list of "universal" keys
+(warnings, `negative_evidence`). With the compact format requested,
+`get_dependency_graph` lost its own `imports` and `importers` lists,
+`get_impact_preview` its `decisions`, `find_importers` its
+`cross_repo_importer_count` and `get_file_outline` its `file_summary`. Each
+schema then learned its missing keys one report at a time (L-58, L-73). Only a
+list of rows under an unnamed key was loud: the encoder refused it (#555), and
+the dispatcher shipped JSON.
+
+The fix is in the shared encoder and decoder, and in the dispatcher behind
+them. Every unnamed top-level key that is a scalar, a dict or a list of
+scalars now rides as JSON inside the compact answer and decodes back.
+`allow_undeclared` stays the one way to drop a key on purpose. A sub-key that a
+declared nested dict (`symbol`) does not name now refuses like an unnamed
+table. A schema that reshapes the response before encoding can still lose a
+key on its own: the batch `get_file_outline` flatten copied only the universal
+keys, and now copies all of them. So the dispatcher, which already decoded the
+answer to check that a warning came back, now also checks that every top-level
+key came back, and ships JSON when one did not. The next schema that reshapes
+inherits that check.
+
+Measured on this repository's own `src/`, one call per tool with a compact
+encoder (17 calls): 15 answers are byte-identical. `get_dependency_graph`
+grows from 698 to 779 bytes and `get_file_outline` from 865 to 892, which is
+the dropped keys arriving. The dispatcher's new check sent none of the 17 to
+JSON. The check decodes every compact answer, where it used to decode only those
+carrying a warning; on the same index that cost a mean 0.27 ms for a 4,914-byte
+`search_text` answer and 1.42 ms for an 11,609-byte `get_file_tree` one, and
+on tools with no schema of their own, which use the generic encoder, 0.11 to
+0.19 ms (`get_symbol_importance`, `find_dead_code`, `get_hotspots`). No
+encoding id moves: a carried key is read by name, so an older decoder
+reads the same answer it read before, without the new keys. Two tests that
+asserted the old JSON fallback for an unknown field now assert the outcome,
+that the field arrives, and are recorded in `harness/retired.json`.
+
 ## [1.108.499] - 2026-11-28 - init leaves a config it could not read untouched
 
 ### `get_blast_radius` lists at most 100 callers, and says when it cut

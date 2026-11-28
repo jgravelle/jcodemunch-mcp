@@ -165,12 +165,15 @@ def test_a_compact_form_that_loses_a_warning_falls_back_to_json(monkeypatch):
 
         @staticmethod
         def encode(tool, response):
+            # `sd.encode` already returns (payload, encoding_id). Wrapping it
+            # again handed the dispatcher a tuple, which it never decoded
+            # until LEDGER L-341 made it check every compact answer.
             return sd.encode(
                 tool,
                 {"result_count": response["result_count"]},
                 "lz1",
                 scalars=("result_count",),
-            ), "lz1"
+            )
 
     monkeypatch.setattr(
         reg, "for_tool", lambda name: Lossy if name == "lossy_tool" else None
