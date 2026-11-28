@@ -149,12 +149,13 @@ def _match_endpoints(endpoints: list[dict], verb: Optional[str], path: str) -> l
 
 def _impact_for_handler(
     repo: str, handler: dict, render_edges: list[dict], *,
-    depth: int, call_depth: int, storage_path: Optional[str],
+    depth: int, call_depth: int, storage_path: Optional[str], max_results: int = 0,
 ) -> dict:
     """Compose blast radius + rendered views for one handler symbol."""
     hid = handler.get("handler_id")
     br = get_blast_radius(
         repo, symbol=hid, depth=depth, call_depth=call_depth, storage_path=storage_path,
+        max_results=max_results,
     )
     if not isinstance(br, dict) or "error" in br:
         br = {}
@@ -178,8 +179,9 @@ def _impact_for_handler(
         "rendered_views": views,
     }
     # `caller_count` is every depth; the default `call_depth` is 2, so the
-    # direct count travels with it (L-240).
-    for key in ("direct_caller_count", "callers_by_depth"):
+    # direct count travels with it (L-240). `callers_truncated` says the list
+    # was cut to `max_results` while the counts stay whole (L-354).
+    for key in ("direct_caller_count", "callers_by_depth", "callers_truncated"):
         if key in br:
             out[key] = br[key]
     # `get_blast_radius` runs its cross-repo channel whenever `cross_repo_default`
@@ -398,6 +400,7 @@ def get_endpoint_impact(
     call_depth: int = 2,
     include_infra: bool = False,
     storage_path: Optional[str] = None,
+    max_results: int = 0,
 ) -> dict:
     """Endpoint-centric impact analysis. Read-only.
 
@@ -411,6 +414,11 @@ def get_endpoint_impact(
                            resolvable, e.g. prefixed FastAPI/Spring routes).
         depth:             Import hops for blast radius (1 = direct importers).
         call_depth:        Call-graph hops for caller detection (0 disables).
+        max_results:       Max rows in each impact's ``callers`` list, nearest
+                           depth first (0 or less keeps all, the default here;
+                           the MCP tool defaults to 100). ``caller_count`` stays
+                           the whole count and ``callers_truncated`` says when
+                           rows were cut.
         include_infra:     Attach an ``infra`` block per impact: project-intel
                            cross-references (env vars, compose services,
                            Dockerfiles, CI jobs, scripts) intersected against
@@ -489,7 +497,7 @@ def get_endpoint_impact(
         seen_handlers.add(hid)
         impacts.append(_impact_for_handler(
             repo, e, render_edges, depth=depth, call_depth=call_depth,
-            storage_path=storage_path,
+            storage_path=storage_path, max_results=max_results,
         ))
 
     if include_infra:

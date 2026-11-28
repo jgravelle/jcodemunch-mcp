@@ -17,7 +17,14 @@ from ..retrieval.verdict import (
 from ._dynamic_boundary import FILES_CAP as DYNAMIC_FILES_CAP, DynamicBoundary
 from ._utils import index_status_to_tool_error, resolve_repo, resolve_fqn
 from .package_registry import extract_root_package_from_specifier
-from ._call_graph import _ContentCache, build_symbols_by_file, bfs_callers, find_direct_callers, label_row_depths
+from ._call_graph import (
+    _ContentCache,
+    bfs_callers,
+    build_symbols_by_file,
+    cap_rows,
+    find_direct_callers,
+    label_row_depths,
+)
 from ..word_rule import word_pattern
 from .find_dead_code import _is_test_file
 from .decision_context import resolve_decision_context
@@ -539,6 +546,7 @@ def get_blast_radius(
     include_source: bool = False,
     source_budget: int = 8000,
     include_decisions: bool = False,
+    max_results: int = 0,
 ) -> dict:
     """Find all files that would be affected if a symbol's signature or behaviour changed.
 
@@ -574,8 +582,12 @@ def get_blast_radius(
     Returns:
         Dict with symbol info, confirmed/potential affected files, counts, and _meta.
         When call_depth > 0: also includes ``callers``, ``caller_count`` (every
-        depth), ``direct_caller_count`` and ``callers_by_depth``.
+        depth), ``direct_caller_count``, ``callers_by_depth`` and
+        ``callers_truncated``. ``max_results`` cuts ``callers`` to that many
+        rows, nearest depth first (0 or less keeps all, the default here); the
+        counts stay the whole list's.
     """
+    max_results = max(0, int(max_results or 0))
     # FQN resolution: translate PHP FQN → symbol name/id
     if fqn:
         _resolved, _ = resolve_fqn(repo, fqn, storage_path)
@@ -634,8 +646,11 @@ def get_blast_radius(
         result["_meta"] = {**cached.get("_meta", {}),
                            "timing_ms": round((time.perf_counter() - start) * 1000, 1),
                            "cache_hit": True}
-        return _attach_scip_to_blast(
-            _attach_runtime_to_blast(result, store, owner, name), store, owner, name
+        return _cap_callers(
+            _attach_scip_to_blast(
+                _attach_runtime_to_blast(result, store, owner, name), store, owner, name
+            ),
+            max_results,
         )
 
     if index.imports is None:
@@ -982,6 +997,23 @@ def get_blast_radius(
 
     if use_cache:
         result_cache_put("get_blast_radius", repo_key, specific_key, result, index=index)
-    return _attach_scip_to_blast(
-        _attach_runtime_to_blast(result, store, owner, name), store, owner, name
+    return _cap_callers(
+        _attach_scip_to_blast(
+            _attach_runtime_to_blast(result, store, owner, name), store, owner, name
+        ),
+        max_results,
     )
+
+
+def _cap_callers(result: dict, max_results: int) -> dict:
+    """Cut the `call_depth` callers list with the shared rule (`cap_rows`).
+
+    Runs on the reply, after the result cache, so the cache holds the whole
+    list and one entry serves every cap; `caller_count`, `direct_caller_count`
+    and `callers_by_depth` were taken on the whole list before it. The cache
+    hands out its own copy (#572), so cutting the reply does not cut the entry.
+    """
+    callers = result.get("callers")
+    if isinstance(callers, list):
+        result["callers_truncated"] = cap_rows(callers, max_results)
+    return result

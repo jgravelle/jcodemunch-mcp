@@ -1336,6 +1336,33 @@ def label_row_depths(rows: list[dict]) -> dict[str, int]:
     return counts
 
 
+def _row_position(row: dict) -> tuple:
+    line = row.get("line")
+    return (row.get("file") or "", line if isinstance(line, int) else 0, row.get("id") or "")
+
+
+def cap_rows(rows: list[dict], max_results: int) -> bool:
+    """Order a caller or callee list by depth, file, line and id, cut it to
+    *max_results* in place (0 or less keeps every row), and say whether it cut.
+
+    THE one cut for these lists: `get_call_hierarchy` and `get_blast_radius`
+    both call it, as they both call `label_row_depths`. Call it LAST, after
+    every step that adds or reads rows, so every count is the whole list's.
+    Ties within a depth are broken by position, not by the walk: the walk
+    follows the store's row order, which a re-index can change, and a cut over
+    it would keep different rows. `label_row_depths`' sort is stable, so
+    sorting by position first and by resolved depth second gives both. A
+    row's `via` row resolves one depth nearer and so is kept whenever the row
+    is; a row whose depth does not resolve sorts last.
+    """
+    rows.sort(key=_row_position)
+    label_row_depths(rows)
+    cut = 0 < max_results < len(rows)
+    if cut:
+        del rows[max_results:]
+    return cut
+
+
 def bfs_callers(
     index: "CodeIndex",
     store: "IndexStore",
