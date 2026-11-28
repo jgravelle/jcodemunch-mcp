@@ -235,4 +235,4 @@ def test_a_test_importer_the_search_could_not_read_keeps_the_external_verdict(tm
     cached = st._safe_content_path(st._content_dir(owner, name), "test/lib.test.js")
     assert cached and cached.exists(), cached
     cached.unlink()
-    assert _check(repo, store, "helperUnused")["verdict"] != "file_import_only"
+    assert _check(repo, store, "helperUnused")["verdict"] == "external_uses_blocking"
