@@ -16,6 +16,7 @@ prefix — declare via NESTED_DICTS mapping {key: [subkeys...]}.
 from __future__ import annotations
 
 import json
+import logging
 from dataclasses import dataclass, field
 from typing import Any, Iterable, Mapping
 
@@ -30,6 +31,8 @@ from .format import (
     write_scalars,
     write_table,
 )
+
+logger = logging.getLogger(__name__)
 
 # Structured `_meta` keys every encoder must preserve, whether or not its own
 # schema remembered to list them.
@@ -161,6 +164,35 @@ class TableSpec:
     # decoder reading the declared columns by position reads them as before.
     # For a disclosure that is off on almost every row (`signature_truncated`).
     optional: list[str] = field(default_factory=list)
+    # (LEDGER L-340) Row keys to leave out on purpose. Every other row key the
+    # columns above do not name rides as a `__json.<key>` column; this is the
+    # one way to drop one, the row-level twin of `allow_undeclared`.
+    drop: list[str] = field(default_factory=list)
+
+
+# (LEDGER L-340) An unnamed row column's name in `__tables`. Its cell is the
+# value as JSON, blank where the row has no such key.
+ROW_JSON_PREFIX = "__json."
+
+
+def _unnamed_cols(rows: Iterable[Any], spec: "TableSpec") -> list[str]:
+    """Row keys no column names, as `__json.<key>` columns in first-seen order.
+
+    The columns a `TableSpec` names were the whole row: any other key was
+    dropped with nothing raised, and the `auto` gate then chose the compact
+    form because it was smaller. `get_ranked_context` lost the `source` it
+    exists to return. A `_`-prefixed key is a row verdict, which
+    `UNIVERSAL_ROW_VERDICTS` governs, so it is not carried here.
+    """
+    named = set(spec.cols) | set(spec.optional) | set(spec.drop)
+    seen: dict[str, None] = {}
+    for r in rows:
+        if not isinstance(r, dict):
+            continue
+        for k in r:
+            if k not in named and not k.startswith("_"):
+                seen.setdefault(k, None)
+    return [ROW_JSON_PREFIX + k for k in seen]
 
 
 def _optional_cols(rows: Iterable[Any], spec: "TableSpec") -> list[str]:
@@ -353,6 +385,7 @@ def encode(
         t.tag: list(t.cols)
         + _optional_cols(response.get(t.key, []) or [], t)
         + _row_verdict_cols(response.get(t.key, []) or [], list(t.cols) + list(t.optional))
+        + _unnamed_cols(response.get(t.key, []) or [], t)
         for t in tables
     }
     scalar_payload["__tables"] = ",".join(
@@ -384,8 +417,16 @@ def encode(
             # Optional columns carry the row's value, blank where it has none.
             # Verdict columns carry the row's own value, a default included:
             # beside a stale row, a fresh one says `fresh` rather than blank.
+            # An unnamed column (L-340) carries the row's value as JSON, blank
+            # where the row has no such key, so a null stays a null.
             for c in table_cols[t.tag][len(t.cols):]:
-                encoded_row.append(row.get(c))
+                if c.startswith(ROW_JSON_PREFIX):
+                    k = c[len(ROW_JSON_PREFIX):]
+                    encoded_row.append(
+                        json.dumps(row[k], separators=(",", ":")) if k in row else None
+                    )
+                else:
+                    encoded_row.append(row.get(c))
             out_rows.append(encoded_row)
         # Fail closed (#354): a producer dict whose keys don't match any declared
         # column encodes to all-blank cells, so the agent sees "N items" with no
@@ -511,6 +552,7 @@ def decode(
         ]
         verdict_cols = [(i, c) for i, c in appended if c in UNIVERSAL_ROW_VERDICTS]
         optional_cols = [(i, c) for i, c in appended if c in t.optional]
+        json_cols = [(i, c) for i, c in appended if c.startswith(ROW_JSON_PREFIX)]
         for block in table_block_text:
             rows = read_table(block, t.tag)
             if not rows:
@@ -530,6 +572,14 @@ def decode(
                     raw = r[i] if i < len(r) else ""
                     if raw != "":
                         row_dict[c] = _coerce(raw, t.types.get(c, "str"))
+                for i, c in json_cols:
+                    raw = r[i] if i < len(r) else ""
+                    if raw != "":
+                        try:
+                            row_dict[c[len(ROW_JSON_PREFIX):]] = json.loads(raw)
+                        except Exception:
+                            logger.debug("row column %s is not JSON", c, exc_info=True)
+                            row_dict[c[len(ROW_JSON_PREFIX):]] = raw
                 decoded_rows.append(row_dict)
         result[t.key] = decoded_rows
 

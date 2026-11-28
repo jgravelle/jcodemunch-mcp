@@ -58,6 +58,55 @@ def default_format(repo: str | None = None) -> str:
     return _normalize_format(configured, "auto")
 
 
+def _is_empty(v: Any) -> bool:
+    """A value with nothing in it: an encoder may write it as a blank cell or
+    leave an optional column out (`signature_truncated: False`), so its key is
+    not required back. By identity and type, never `==`: `0 == False`, and a
+    zero is an answer."""
+    return v is None or v is False or (type(v) in (str, list, dict) and not v)
+
+
+def _keys_kept(
+    orig: Any, back: Any, dropped: frozenset[str] = frozenset(), in_row: bool = False
+) -> bool:
+    """True when every key ``orig`` holds a value under comes back, at every depth.
+
+    (LEDGER L-340) The top-level check of L-341 could not see a row column a
+    schema did not name, nor a key a schema's own reshaping step (a
+    hand-written flatten) left out. Keys only, never values: a table decodes
+    typed, so a value is not byte-equal to its source. A list must come back
+    the same length, item for item. A `_`-prefixed key is metadata or a row
+    verdict whose default an encoder omits by design (L-325), so it is not
+    required. Neither is a key the schema drops by name (`TableSpec.drop`),
+    the one deliberate drop, and only inside a table row, where it applies.
+    """
+    if isinstance(orig, dict):
+        if not isinstance(back, dict):
+            return False
+        for k, v in orig.items():
+            if not isinstance(k, str) or k.startswith("_") or (in_row and k in dropped):
+                continue
+            if _is_empty(v):
+                continue
+            if k not in back or not _keys_kept(v, back[k], dropped):
+                return False
+        return True
+    if isinstance(orig, list):
+        if not isinstance(back, list) or len(back) != len(orig):
+            return False
+        return all(_keys_kept(o, b, dropped, in_row=True) for o, b in zip(orig, back))
+    return True
+
+
+def _declared_drops(encoder: Any) -> frozenset[str]:
+    """The row keys a schema leaves out on purpose (`TableSpec.drop`)."""
+    return frozenset(
+        name
+        for spec in getattr(encoder, "_TABLES", None) or ()
+        for name in getattr(spec, "drop", None) or ()
+    )
+
+
 def encode_response(
     tool_name: str,
     response: Any,
@@ -112,7 +161,7 @@ def encode_response(
             back = decoder.decode(payload)
             kept = all(back.get(k) == v for k, v in contract.items()) and all(
                 k in back for k in body_keys
-            )
+            ) and _keys_kept(response, back, _declared_drops(encoder))
         except Exception:
             logger.debug("Decode check failed for %s", tool_name, exc_info=True)
             kept = False

@@ -2,6 +2,55 @@
 
 ## [Unreleased]
 
+### A compact answer keeps every key at every depth (L-340)
+
+The compact encoders wrote each table row from the columns its schema names,
+and dropped every other key in the row with nothing raised. The `auto` gate
+then chose the compact form, because an answer missing data is smaller.
+Measured on this repository's own `src/`, one call per tool:
+`get_ranked_context` served 5,167 bytes against 31,168 as JSON, and every item
+had lost its `source`, the code the tool exists to return, along with the
+`symbol_id`, scores and `tokens` its producer writes under names the schema
+does not use. `get_signal_chains` (1,558 bytes against 90,806) lost each
+chain's `symbols` and `files_touched`, and `get_tectonic_map` (1,450 against
+19,526) each plate's `files` and `coupled_to`.
+
+L-341 carried an unnamed top-level key; this is the same rule one level down.
+A row key no column names now rides as one more column after the declared
+ones, named `__json.<key>` in the table header, its cell the value as JSON and
+blank where the row has no such key, so a null stays a null and an absent key
+stays absent. `TableSpec.drop` is the one way to leave a row key out on
+purpose. `search_symbols` drops `byte_length` by name, which it has never
+carried, so an all-fresh search answer keeps the bytes every search benchmark
+was measured on; a JSON-served search answer still carries it.
+
+That rule cannot see a key a schema loses before the shared encoder runs. So
+the server now decodes every compact answer and checks that every key holding
+a value came back at every depth, every list at its length, and ships JSON
+when one did not; a key a schema drops by name is the exception. It found two
+more losses on the way. `find_references`' own flatten kept only `specifier`
+and `match_type`, so every compact answer lost each match's `names`, the
+imported names; the flatten now carries every match key. And
+`get_dependency_graph`'s producer writes each edge as a `[from, to]` pair,
+which the table writer skips, so a compact graph decoded with no edges; that
+answer now ships as JSON. A row key holding `,` or `|`, which the table header
+splits on, ships as JSON the same way.
+
+The walk over the decoded answer adds a mean of 0.13 ms for a `search_text`
+answer of 6,488 bytes of JSON and 0.81 ms for a `get_signal_chains` answer of
+95,428, on top of the decode L-341 already does.
+
+On the same 18 calls, served by default, 14 answers are the same size as before.
+`find_references` grows from 370 to 431 bytes with its `names`, and
+`get_ranked_context` from 5,167 to 26,358 with its `source`; both stay
+compact. Served by default, `get_signal_chains` goes from 1,558 bytes to
+95,392 and `get_tectonic_map` from 1,450 to 20,145, both now as JSON: the
+first because its compact form is larger than JSON, the second because the
+saving falls under the gate's threshold. These are complete answers replacing
+incomplete ones, at that cost. The token benchmark counts `search_symbols`
+and `get_symbol_source`, which do not move. A decoder from before this release
+reads the declared columns by position and does not restore the new ones.
+
 ## [1.108.500] - 2026-11-28 - a compact answer carries every key its schema did not name
 
 ### A compact answer carries every key its schema did not name (L-341)
