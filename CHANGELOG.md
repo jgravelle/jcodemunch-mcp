@@ -38,6 +38,8 @@ The two `max_results` arguments grow the published schema 92 tokens on the
 `standard` and `full` surfaces (`benchmarks/schema_baseline.json`); `core`
 and `counter` are unchanged.
 
+## [1.108.498] - 2026-11-27 - a long caller or importer list arrives capped and says so
+
 ### `get_call_hierarchy` lists at most 100 callers and 100 callees, and says when it cut
 
 `callers` and `callees` listed every row at every depth, with no bound. On
