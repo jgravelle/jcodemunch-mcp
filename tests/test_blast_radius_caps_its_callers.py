@@ -126,6 +126,16 @@ def test_the_mcp_tool_defaults_to_one_hundred_and_publishes_it():
         assert isinstance(kw.value, ast.Call) and kw.value.args[1].value == 100, ast.dump(kw.value)
 
 
+def _forwards_its_own_cap(path: Path, call: ast.Call) -> bool:
+    """`get_endpoint_impact` passes its own `max_results` through (L-354)."""
+    kw = next((k for k in call.keywords if k.arg == "max_results"), None)
+    return (
+        path.name == "get_endpoint_impact.py"
+        and isinstance(getattr(kw, "value", None), ast.Name)
+        and kw.value.id == "max_results"
+    )
+
+
 def test_no_caller_in_src_but_the_dispatcher_passes_a_cap():
     stray = []
     for path in (REPO / "src").rglob("*.py"):
@@ -138,7 +148,7 @@ def test_no_caller_in_src_but_the_dispatcher_passes_a_cap():
             name = getattr(n.func, "id", None) or getattr(n.func, "attr", None)
             if name == "get_blast_radius" and (
                 len(n.args) > 12 or any(k.arg == "max_results" for k in n.keywords)
-            ):
+            ) and not _forwards_its_own_cap(path, n):
                 stray.append((str(path.relative_to(REPO)), n.lineno))
     assert stray == [], stray
 

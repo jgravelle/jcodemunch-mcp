@@ -22,7 +22,19 @@ symbol and cap: nearest depth first, then file, line and id, an order every
 the result cache, so the cache holds the whole list and a cut answer never
 serves a later call that asked for more. The Python function still lists
 every caller by default. The compact encoding carries the key (`br6`; a `br5`
-payload still decodes). The published schema grows 46 tokens on the
+payload still decodes).
+
+`get_endpoint_impact` calls `get_blast_radius` at `call_depth` 2 by default
+and copied its whole `callers` list into every matched impact, so it served
+the same unbounded list once per endpoint and dropped `callers_truncated`
+(LEDGER L-354). It now takes the same `max_results` (MCP default 100; 0 lists
+all; the Python function lists every caller by default), passes it to
+`get_blast_radius`, and keeps `callers_truncated` beside the whole counts. On
+the same index, with `resolve_repo` as the handler at `call_depth` 2, the
+reply listed 3,053 callers in 1,005,964 bytes; with the cap it lists 100 in
+31,827.
+
+The two `max_results` arguments grow the published schema 92 tokens on the
 `standard` and `full` surfaces (`benchmarks/schema_baseline.json`); `core`
 and `counter` are unchanged.
 
@@ -51,6 +63,67 @@ any caller in `src/` but the dispatcher passes a cap. The compact encoding
 carries both keys (`ch5`; a `ch4` payload still decodes). The published
 schema grows 66 tokens on the `standard` and `full` surfaces
 (`benchmarks/schema_baseline.json`); `core` and `counter` are unchanged.
+
+### `check_references` lists at most 50 importing files per name, and says when it cut
+
+`import_references` listed every file that imports the name, with no bound.
+On this repository's own index (1,669 files, commit 29ca4ed8), a
+`check_references` reply for `Path` listed 706 importing files and was served
+as 99,795 bytes in the default compact encoding (169,392 as JSON). With the
+cap it lists 50 and comes to 29,745 bytes compact (44,957 as JSON). A batch
+of five names went from 197,718 bytes compact to 75,094 (347,359 to 117,072
+as JSON).
+
+The MCP tool now lists at most `max_import_results` importing files per name
+(default 50; 0 lists all). Two keys arrive with the cap and are always
+present: `import_references_total`, the number of importing files, and
+`import_references_truncated`. `import_count` stays the whole count and
+`is_referenced` is decided from it, so a cut never turns a used name into an
+unused one. The list is sorted by file before the cut, so the same 50 files
+are kept after a re-index and a larger cap extends a smaller one. This changes the reply for a caller who read the list as complete
+past 50 files.
+
+The Python function still lists every importer by default. The deletion
+investigator reads that list to decide whether a delete is safe, and a test
+fails if any caller in `src/` but the dispatcher passes a cap. The compact
+encoding carries both keys (`cr2`, which adds its columns after `cr1`'s, so a
+`cr1` payload still decodes to the answer it was). The published
+schema grows 61 tokens on the `standard` and `full` surfaces
+(`benchmarks/schema_baseline.json`); `core` and `counter` are unchanged. The
+new description words move one `menu` query, which now ranks
+`check_references` second: `menu` recall @3 goes from 72.9 to 74.6 and @5
+from 79.7 to 81.4, and `route` recall is unchanged
+(`benchmarks/route_recall/results.json`).
+
+## [1.108.497] - 2026-11-27 - a dead-code answer over withheld files reads them instead of refusing
+
+### A dead-code answer over withheld files reads them instead of refusing (L-352)
+
+When the index withheld a file for size, `find_dead_code` capped every
+finding at 0.6, below its 0.8 default threshold, and the only advice it gave
+was to re-index with a higher `max_file_size`. A session cannot do that: no
+tool takes the setting. On a large repository most dead-code calls ended in
+this refusal, and the session then gave up or fell back to long grep-and-read
+loops.
+
+A withheld file is missing from the index, not from the tree. When withheld
+files are the only reason for the cap, `find_dead_code` now reads their
+imports from disk with the indexer's own `extract_imports` and resolves them
+with the graph's own `resolve_specifier`, so a withheld importer counts
+exactly as an indexed one would, and each withheld file is a live root. The
+other edge families run over the withheld text too, through a view of the
+index and store that holds it: dynamic-import sites, a package `__init__`
+that enumerates its own modules, and templates a withheld file renders. The
+answer is then published at full confidence, with `corpus_adequacy` naming
+the withheld files it read and the edges they added. Anything that read cannot
+stand in for keeps the cap and the old warning: another blocker (a stale
+index, a runtime enumeration), a listing cut short, a file that cannot be read
+or is not UTF-8 text, a file with no known language, a data or config file
+(JSON, YAML, TOML, XML), whose entry points and path aliases are read before
+the withheld files are, and a file in a language whose edges the index adds
+at load (Go module paths, Kotlin and Java top-level declarations, Racket
+collection paths, PHP PSR-4), which a read from disk does not replay. `check_delete_safe` keeps its
+own adequacy check and still refuses a delete over withheld files.
 
 ## [1.108.496] - 2026-11-27 - a change under an ignored path no longer runs a watcher pass
 
