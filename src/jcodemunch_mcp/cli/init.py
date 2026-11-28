@@ -295,14 +295,99 @@ def _detect_clients() -> list[MCPClient]:
 # Config patching
 # ---------------------------------------------------------------------------
 
-def _read_json(path: Path) -> dict[str, Any]:
-    """Read a JSON file, returning {} if it doesn't exist."""
+class ConfigUnreadable(Exception):
+    """A config file init would change could not be read as a JSON object.
+
+    The file is left untouched. ``path`` names it and ``reason`` says why,
+    with the line and column for a parse error.
+    """
+
+    def __init__(self, path: Path, reason: str):
+        self.path = Path(path)
+        self.reason = reason
+        super().__init__(f"{path} {reason}; left untouched")
+
+
+def _json_type(value: Any) -> str:
+    return {list: "an array", str: "a string", bool: "a boolean", type(None): "null"}.get(
+        type(value), "a number"
+    )
+
+
+def _read_json(path: Path, *, jsonc: bool = False) -> dict[str, Any]:
+    """Read a JSON object from ``path``; ``{}`` only for a missing or blank file.
+
+    ⚠⚠ A file that exists and cannot be read as an object raises
+    ``ConfigUnreadable``, never ``{}``. This returned ``{}`` on a parse error,
+    so a client config with one trailing comma read as empty, and the next
+    write replaced it with our entry alone: the user's other MCP servers were
+    gone, and under ``--no-backup`` there was no copy. Every caller writes
+    ``data`` back or decides from it, so an empty dict here is a deletion.
+    ``jsonc=True`` is for a file its client parses as JSONC (comments and
+    trailing commas); ``_has_jsonc_only_syntax`` says what a rewrite loses.
+    """
     if not path.exists():
         return {}
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
+        text = path.read_text(encoding="utf-8-sig")
+    except (OSError, UnicodeDecodeError) as exc:
+        raise ConfigUnreadable(path, f"could not be read ({exc})") from exc
+    if not text.strip():
         return {}
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError as exc:
+        reason = f"is not valid JSON (line {exc.lineno}, column {exc.colno}: {exc.msg})"
+        if not jsonc:
+            raise ConfigUnreadable(path, reason) from exc
+        from ..config import _strip_jsonc
+
+        try:
+            data = json.loads(_strip_jsonc(text))
+        except json.JSONDecodeError:
+            raise ConfigUnreadable(path, reason.replace("JSON", "JSONC", 1)) from exc
+    if not isinstance(data, dict):
+        raise ConfigUnreadable(path, f"holds {_json_type(data)} at the top level, not an object")
+    return data
+
+
+def _has_jsonc_only_syntax(path: Path) -> bool:
+    """True when ``path`` parses only as JSONC: a rewrite drops its comments.
+
+    A missing or blank file has nothing to lose and answers False.
+    """
+    try:
+        text = path.read_text(encoding="utf-8-sig")
+    except OSError:
+        return False
+    if not text.strip():
+        return False
+    try:
+        json.loads(text)
+    except ValueError:
+        return True
+    return False
+
+
+def _hooks_table(data: dict[str, Any], path: Path) -> Optional[dict[str, Any]]:
+    """``data["hooks"]`` checked down to each event's rule list; refuses otherwise."""
+    hooks = _object_or_none(data, "hooks", path)
+    for event, rules in (hooks or {}).items():
+        if not isinstance(rules, list) or not all(isinstance(r, dict) for r in rules):
+            raise ConfigUnreadable(
+                path, f'has hooks."{event}" as {_json_type(rules)}, not a list of rule objects'
+            )
+    return hooks
+
+
+def _object_or_none(data: dict[str, Any], key: str, path: Path) -> Optional[dict[str, Any]]:
+    """``data[key]`` when it is an object, None when absent; anything else refuses."""
+    value = data.get(key)
+    if value is None:
+        return None
+    if not isinstance(value, dict):
+        raise ConfigUnreadable(path, f'has "{key}" as {_json_type(value)}, not an object')
+    return value
 
 
 def _write_json(path: Path, data: dict[str, Any], *, backup: bool = True) -> None:
@@ -326,15 +411,16 @@ def _patch_mcp_config(path: Path, *, backup: bool = True, dry_run: bool = False)
     Returns a status message.
     """
     data = _read_json(path)
-    if _has_jcodemunch_entry(data):
+    servers = _object_or_none(data, "mcpServers", path)
+    if servers is not None and "jcodemunch" in servers:
         return f"  already configured in {path}"
 
     if dry_run:
         return f"  would add jcodemunch to {path}"
 
-    if "mcpServers" not in data:
-        data["mcpServers"] = {}
-    data["mcpServers"]["jcodemunch"] = _MCP_ENTRY
+    if servers is None:
+        servers = data["mcpServers"] = {}
+    servers["jcodemunch"] = _MCP_ENTRY
     _write_json(path, data, backup=backup)
     return f"  added jcodemunch to {path}"
 
@@ -474,19 +560,33 @@ def _patch_vscode_mcp_config(
     Per-server fields are `command`/`args` as usual -- `type` defaults to
     "stdio" for a local server, so it is left off rather than asserted.
     """
-    data = _read_json(path)
-    servers = data.get("servers")
-    if isinstance(servers, dict) and "jcodemunch" in servers:
+    # VS Code reads mcp.json as JSONC, so comments and trailing commas are
+    # parsed here, not refused. A rewrite cannot keep the comments, so it
+    # needs the backup.
+    data = _read_json(path, jsonc=True)
+    servers = _object_or_none(data, "servers", path)
+    if servers is not None and "jcodemunch" in servers:
         return f"  already configured in {path}"
 
+    dropped = _has_jsonc_only_syntax(path)
+    if dropped and not backup:
+        raise ConfigUnreadable(
+            path,
+            "has comments or trailing commas, which a rewrite does not keep; "
+            "run without --no-backup so the original is kept as a .bak copy",
+        )
     if dry_run:
         return f"  would add jcodemunch to {path}"
 
-    if not isinstance(servers, dict):
-        servers = {}
+    if servers is None:
+        servers = data["servers"] = {}
     servers["jcodemunch"] = dict(_MCP_ENTRY)
-    data["servers"] = servers
     _write_json(path, data, backup=backup)
+    if dropped:
+        return (
+            f"  added jcodemunch to {path} (its comments are not kept; "
+            f"the original is at {_backup_path(path)})"
+        )
     return f"  added jcodemunch to {path}"
 
 
@@ -517,14 +617,14 @@ def _patch_opencode_config(
     Writing `_MCP_ENTRY` here produces a file opencode parses and ignores.
     """
     data = _read_json(path)
-    servers = data.get("mcp")
-    if isinstance(servers, dict) and "jcodemunch" in servers:
+    servers = _object_or_none(data, "mcp", path)
+    if servers is not None and "jcodemunch" in servers:
         return f"  already configured in {path}"
 
     if dry_run:
         return f"  would add jcodemunch to {path}"
 
-    if not isinstance(servers, dict):
+    if servers is None:
         servers = {}
     servers["jcodemunch"] = {
         "type": "local",
@@ -996,6 +1096,7 @@ def install_hooks(*, dry_run: bool = False, backup: bool = True) -> str:
     """
     path = _settings_json_path()
     data = _read_json(path)
+    _hooks_table(data, path)
     added, updated = _merge_hooks(data, _worktree_hooks(), "jcodemunch-mcp hook-event")
 
     if not added and not updated:
@@ -1264,6 +1365,7 @@ def install_enforcement_hooks(
     """
     path = _settings_json_path()
     data = _read_json(path)
+    _hooks_table(data, path)
     defs = _silent_hooks()
     present = _installed_jcm_subcommands(data)
     for event, rules in _guidance_hooks().items():
@@ -1675,8 +1777,14 @@ def run_init(
         targets = []
         print("No MCP clients detected.\n")
 
+    refused: list[str] = []
     for client in targets:
-        msg = configure_client(client, backup=backup, dry_run=dry_run)
+        try:
+            msg = configure_client(client, backup=backup, dry_run=dry_run)
+        except ConfigUnreadable as exc:
+            refused.append(str(exc.path))
+            print(f"  {client.name}:  NOT CHANGED: {exc}")
+            continue
         print(f"  {client.name}:{msg}")
         if demo and "would" in msg:
             loc = str(client.config_path) if client.config_path else "via CLI"
@@ -1779,7 +1887,11 @@ def run_init(
         print()
         do_hooks = _prompt_yn("Install worktree hooks?", default=False)
     if do_hooks:
-        msg = install_hooks(dry_run=dry_run, backup=backup)
+        try:
+            msg = install_hooks(dry_run=dry_run, backup=backup)
+        except ConfigUnreadable as exc:
+            refused.append(str(exc.path))
+            msg = f"  NOT CHANGED: {exc}"
         print(f"  Hooks:{msg}")
         if demo and "would" in msg:
             _demo_actions.append((
@@ -1802,9 +1914,13 @@ def run_init(
     elif not do_enforce and yes and not minimal:
         do_enforce = True  # default for --yes mode (suppressed under --minimal)
     if do_enforce:
-        msg = install_enforcement_hooks(
-            dry_run=dry_run, backup=backup, strict=strict, guidance=guidance,
-        )
+        try:
+            msg = install_enforcement_hooks(
+                dry_run=dry_run, backup=backup, strict=strict, guidance=guidance,
+            )
+        except ConfigUnreadable as exc:
+            refused.append(str(exc.path))
+            msg = f"  NOT CHANGED: {exc}"
         print(f"  Enforcement:{msg}")
         if strict and not dry_run:
             print(
@@ -1961,6 +2077,12 @@ def run_init(
 
             mark_shown("init")
     print()
+    if refused:
+        print(
+            f"{len(refused)} file(s) were not changed because they could not be read "
+            "as JSON: " + ", ".join(refused) + ". Fix them and run this again."
+        )
+        return 1
     return 0
 
 
@@ -2002,8 +2124,11 @@ def _unpatch_mcp_config(path: Path, *, backup: bool, dry_run: bool) -> str:
     """Remove the jcodemunch entry from an MCP client JSON config."""
     if not path.exists():
         return f"  no config at {path}"
-    data = _read_json(path)
-    servers = data.get("mcpServers", {})
+    try:
+        data = _read_json(path)
+        servers = _object_or_none(data, "mcpServers", path) or {}
+    except ConfigUnreadable as exc:
+        return f"  {exc}"
     if "jcodemunch" not in servers:
         return f"  jcodemunch not present in {path}"
     if dry_run:
@@ -2239,7 +2364,11 @@ def guidance_leftovers() -> dict[str, list[str]]:
     jcodemunch policy block. Both empty means a light install.
     """
     path = _settings_json_path()
-    data = _read_json(path) if path.exists() else {}
+    try:
+        data = _read_json(path)
+        _hooks_table(data, path)
+    except ConfigUnreadable:
+        data = {}  # read only: an unreadable file holds nothing we can name
     targets = _guidance_subcommands()
     events: list[str] = []
     for event_name, rules in (data.get("hooks") or {}).items():
@@ -2278,8 +2407,14 @@ def remove_guidance_lines(*, dry_run: bool = False, backup: bool = True) -> list
     """
     lines: list[str] = []
     path = _settings_json_path()
+    data = None
     if path.exists():
-        data = _read_json(path)
+        try:
+            data = _read_json(path)
+            _hooks_table(data, path)
+        except ConfigUnreadable as exc:
+            lines.append(f"  Hooks:  {exc}")
+    if data is not None:
         touched = _strip_guidance_hooks(data)
         if not touched:
             lines.append(f"  Hooks:  no model-facing hooks in {path}")
@@ -2288,7 +2423,7 @@ def remove_guidance_lines(*, dry_run: bool = False, backup: bool = True) -> list
         else:
             _write_json(path, data, backup=backup)
             lines.append(f"  Hooks:  removed {', '.join(touched)} guidance hooks from {path}")
-    else:
+    elif not path.exists():
         lines.append(f"  Hooks:  no settings at {path}")
 
     seen: set[Path] = set()
@@ -2316,7 +2451,11 @@ def uninstall_hooks(*, dry_run: bool = False, backup: bool = True) -> str:
     path = _settings_json_path()
     if not path.exists():
         return f"  no settings at {path}"
-    data = _read_json(path)
+    try:
+        data = _read_json(path)
+        _hooks_table(data, path)
+    except ConfigUnreadable as exc:
+        return f"  {exc}"
     snapshot = json.dumps(data, sort_keys=True)
     touched = _strip_jcm_hooks(data)
     if not touched and json.dumps(data, sort_keys=True) == snapshot:
@@ -2681,8 +2820,14 @@ def install_status() -> dict[str, Any]:
             "configured": False,
         }
         if client.method == "json_patch" and client.config_path:
-            data = _read_json(client.config_path)
-            entry["configured"] = _has_jcodemunch_entry(data)
+            try:
+                data = _read_json(client.config_path)
+                entry["configured"] = "jcodemunch" in (
+                    _object_or_none(data, "mcpServers", client.config_path) or {}
+                )
+            except ConfigUnreadable as exc:
+                entry["configured"] = None  # unknown, never "not configured"
+                entry["unreadable"] = exc.reason
         elif client.method == "cli":
             claude = _claude_cli_exe()
             if not claude:
@@ -2719,7 +2864,13 @@ def install_status() -> dict[str, Any]:
 
     # Hooks in ~/.claude/settings.json
     settings_path = _settings_json_path()
-    settings_data = _read_json(settings_path) if settings_path.exists() else {}
+    settings_unreadable = None
+    try:
+        settings_data = _read_json(settings_path)
+        _hooks_table(settings_data, settings_path)
+    except ConfigUnreadable as exc:
+        settings_data = {}
+        settings_unreadable = exc.reason
     jcm_events: list[str] = []
     for event_name, rules in (settings_data.get("hooks") or {}).items():
         if not isinstance(rules, list):
@@ -2731,8 +2882,11 @@ def install_status() -> dict[str, Any]:
                 break
     report["hooks"]["claude_settings"] = {
         "path": str(settings_path),
-        "events_with_jcm_rules": jcm_events,
+        # None when the file could not be read: unknown, never "no hooks".
+        "events_with_jcm_rules": None if settings_unreadable else jcm_events,
     }
+    if settings_unreadable:
+        report["hooks"]["claude_settings"]["unreadable"] = settings_unreadable
 
     # What a light install would not have (offer, never apply).
     _left = guidance_leftovers()
@@ -2824,9 +2978,11 @@ def print_status(report: Optional[dict[str, Any]] = None, *, as_json: bool = Fal
     if not report["clients"]:
         print("  (none detected)")
     for c in report["clients"]:
-        flag = "[x]" if c["configured"] else "[ ]"
+        flag = "[?]" if c.get("unreadable") else ("[x]" if c["configured"] else "[ ]")
         loc = c["config_path"] or "via CLI"
         print(f"  {flag} {c['name']}  ({loc})")
+        if c.get("unreadable"):
+            print(f"      {c['unreadable']}; init will not change it until it is fixed")
 
     print("\nPolicies:")
     for label, info in report["policies"].items():
@@ -2836,8 +2992,11 @@ def print_status(report: Optional[dict[str, Any]] = None, *, as_json: bool = Fal
     print("\nHooks:")
     cs = report["hooks"]["claude_settings"]
     events = cs.get("events_with_jcm_rules") or []
-    flag = "[x]" if events else "[ ]"
-    detail = ", ".join(events) if events else "no jcodemunch rules"
+    if cs.get("unreadable"):
+        flag, detail = "[?]", f"{cs['unreadable']}; init will not change it until it is fixed"
+    else:
+        flag = "[x]" if events else "[ ]"
+        detail = ", ".join(events) if events else "no jcodemunch rules"
     print(f"  {flag} Claude settings.json  ({detail})")
     cp = report["hooks"]["copilot"]
     flag = "[x]" if cp["present"] else "[ ]"
