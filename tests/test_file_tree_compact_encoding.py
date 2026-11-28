@@ -135,14 +135,16 @@ def test_meta_keys_the_dispatcher_adds_survive(tree_repo):
     assert back["_meta"] == response["_meta"]
 
 
-def test_a_field_the_compact_form_does_not_carry_ships_json(tree_repo):
-    # Fail closed: a key the encoder does not know about would be dropped by
-    # the compact form, so the dispatcher must ship JSON instead.
+def test_an_undeclared_top_level_field_arrives(tree_repo):
+    # (LEDGER L-341) The outcome is that the field arrives. It used to ship as
+    # JSON because the compact form dropped it; the shared encoder now carries
+    # every undeclared body key, so it arrives through the compact form. The
+    # encoder's own round-trip check still fails closed on anything else.
     response = _tree(tree_repo)
     response["new_field"] = "added by a later change"
-    payload, meta = _shipped(response)
-    assert meta["encoding"] == "json"
-    assert payload["new_field"] == "added by a later change"
+    payload, meta = encode_response("get_file_tree", response, "compact")
+    assert meta["encoding"] != "json", meta
+    assert decode(payload) == response
 
 
 def test_an_empty_tree_round_trips(tree_repo):

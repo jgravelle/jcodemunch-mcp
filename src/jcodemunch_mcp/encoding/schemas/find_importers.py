@@ -18,7 +18,8 @@ _SCALARS = ("repo", "file_path", "importer_count", "note")
 _META = ("timing_ms", "truncated", "tokens_saved", "total_tokens_saved")
 _META_JSON = ("verdict",)  # structured _meta that must survive compaction
 # (LEDGER L-73) BODY dicts: the dispatcher deletes `_meta` on the shipped
-# default, and an undeclared dict is dropped by the encoder without a word.
+# default. Declared here by name; an undeclared one would ride as JSON too
+# since LEDGER L-341.
 _JSON = ("results", "dynamic_import_boundary", "dynamic_imports_unfollowed")
 
 
