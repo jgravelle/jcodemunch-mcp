@@ -2,6 +2,35 @@
 
 ## [Unreleased]
 
+### A compact table row keeps every column its schema did not name (L-340)
+
+The compact encoders wrote each table row from the columns its schema names,
+and dropped every other key in the row with nothing raised. The `auto` gate
+then chose the compact form, because an answer missing data is smaller.
+Measured on this repository's own `src/`, one call per tool:
+`get_ranked_context` served 5,167 bytes against 31,168 as JSON, and every item
+had lost its `source`, the code the tool exists to return, along with the
+`symbol_id`, scores and `tokens` its producer writes under names the schema
+does not use. `get_signal_chains` (1,558 bytes against 90,806) lost each
+chain's `symbols` and `files_touched`, and `get_tectonic_map` (1,450 against
+19,526) each plate's `files` and `coupled_to`.
+
+L-341 carried an unnamed top-level key; this is the same rule one level down.
+A row key no column names now rides as one more column after the declared
+ones, named `__json.<key>` in the table header, its cell the value as JSON and
+blank where the row has no such key, so a null stays a null and an absent key
+stays absent. `TableSpec.drop` is the one way to leave a row key out on
+purpose. `search_symbols` drops `byte_length` by name, which it has never
+carried, so an all-fresh search answer keeps the bytes every search
+benchmark was measured on.
+
+On the same 18 calls, 15 answers are byte-identical. `get_ranked_context`
+grows from 5,167 to 26,357 bytes and stays compact; `get_signal_chains` and
+`get_tectonic_map` now carry their lists, come out larger than JSON, and the
+gate ships them as JSON. The token benchmark counts `search_symbols` and
+`get_symbol_source`, which do not move. A decoder from before this release
+reads the declared columns by position, as before, and ignores the new ones.
+
 ## [1.108.500] - 2026-11-28 - a compact answer carries every key its schema did not name
 
 ### A compact answer carries every key its schema did not name (L-341)

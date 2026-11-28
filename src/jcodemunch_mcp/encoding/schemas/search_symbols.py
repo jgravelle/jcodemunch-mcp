@@ -16,6 +16,10 @@ _TABLES = [
         intern=["file", "id"],
         types={"line": "int", "score": "float", "signature_truncated": "bool"},
         optional=["signature_truncated"],
+        # (L-340) The symbol's size in bytes, which the token accounting reads
+        # and this table has never carried. Dropped by name so an all-fresh
+        # search answer keeps the bytes every search benchmark was measured on.
+        drop=["byte_length"],
     ),
 ]
 _SCALARS = ("result_count", "query", "repo")
