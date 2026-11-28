@@ -386,6 +386,20 @@
       "replacement": "tests/test_a_latency_tail_is_resampled_before_it_fails.py::test_two_slow_calls_in_forty_pass_without_a_resample",
       "commit": "fix/bench-gate-resample",
       "date": "2026-11-27"
+    },
+    {
+      "path": "tests/test_check_references_compact_encoding.py::test_a_field_the_compact_form_does_not_carry_ships_json",
+      "lesson": "It asserted the mechanism (an unknown top-level field forces a JSON fallback) for the outcome (the field arrives). LEDGER L-341 made the shared encoder carry every undeclared body key, so the field now arrives through the compact form and the fallback no longer fires.",
+      "replacement": "tests/test_check_references_compact_encoding.py::test_an_undeclared_top_level_field_arrives",
+      "commit": "95b50bf7",
+      "date": "2026-11-28"
+    },
+    {
+      "path": "tests/test_file_tree_compact_encoding.py::test_a_field_the_compact_form_does_not_carry_ships_json",
+      "lesson": "It asserted the mechanism (an unknown top-level field forces a JSON fallback) for the outcome (the field arrives). LEDGER L-341 made the shared encoder carry every undeclared body key, so the field now arrives through the compact form and the fallback no longer fires.",
+      "replacement": "tests/test_file_tree_compact_encoding.py::test_an_undeclared_top_level_field_arrives",
+      "commit": "95b50bf7",
+      "date": "2026-11-28"
     }
   ]
 }
