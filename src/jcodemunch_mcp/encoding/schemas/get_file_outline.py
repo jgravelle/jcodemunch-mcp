@@ -91,10 +91,12 @@ def _flatten_batch(response: dict) -> dict:
         flat["repo"] = response["repo"]
     if "_meta" in response:
         flat["_meta"] = response["_meta"]
-    # A warning on the batch response (`budget_warning` is promoted to the top
-    # level of every result) must reach the encoder, which carries it.
+    # Every other body key reaches the encoder, which carries it (LEDGER
+    # L-341): a warning (`budget_warning` is promoted to the top level of every
+    # result) and any key a later change adds. Copying only the universal keys
+    # was the defect, in this schema's own spelling.
     for k, v in response.items():
-        if not k.startswith("_") and sd.is_universal_body_key(k):
+        if not k.startswith("_") and k not in flat:
             flat[k] = v
     return flat
 
@@ -127,7 +129,7 @@ def _unflatten_batch(flat: dict) -> dict:
     if "_meta" in flat:
         out["_meta"] = flat["_meta"]
     for k, v in flat.items():
-        if not k.startswith("_") and sd.is_universal_body_key(k):
+        if not k.startswith("_") and k not in out and k != "symbols":
             out[k] = v
     return out
 

@@ -139,11 +139,15 @@ def test_a_warning_survives(ref_repo):
     assert decode(_round_trip(response))["budget_warning"] == "Turn budget 93% used."
 
 
-def test_a_field_the_compact_form_does_not_carry_ships_json(ref_repo):
+def test_an_undeclared_top_level_field_arrives(ref_repo):
+    # (LEDGER L-341) The outcome is that the field arrives. It used to ship as
+    # JSON because the compact form dropped it; the shared encoder now carries
+    # every undeclared body key, so it arrives through the compact form.
     response = _refs(ref_repo)
     response["new_field"] = "added by a later change"
-    payload, meta = encode_response("check_references", response, "auto")
-    assert meta["encoding"] == "json" and payload["new_field"] == "added by a later change"
+    payload, meta = encode_response("check_references", response, "compact")
+    assert meta["encoding"] != "json", meta
+    assert decode(payload)["new_field"] == "added by a later change"
 
 
 def test_an_unexpected_match_key_ships_json(ref_repo):
