@@ -30,7 +30,8 @@ from typing import Optional
 
 from ..retrieval.verdict import symbol_not_found
 from ..storage import IndexStore, record_savings, estimate_savings, cost_avoided
-from ._corpus_adequacy import UNPROVEN_CEILING
+from ._corpus_adequacy import UNPROVEN_CEILING, assess_corpus
+from ._importer_reads import content_search_read_every as _content_search_read_every
 from ._stop_rule import build_stop_rule
 from ._utils import index_status_to_tool_error, resolve_repo
 from .check_delete_safe import (
@@ -113,6 +114,7 @@ def check_edit_safe(
     # signature-changing edit breaks them. Test importers are tracked apart.
     external_import_count = 0
     test_import_count = 0
+    test_importer_files: list[str] = []
     cross_repo_count = 0
     dynamic_block: Optional[dict] = None
     try:
@@ -141,6 +143,7 @@ def check_edit_safe(
                 if imp_file and imp_file != target_file:
                     if _is_test_file(imp_file):
                         test_import_count += 1
+                        test_importer_files.append(imp_file)
                     else:
                         external_import_count += 1
                         blockers.append({
@@ -155,6 +158,7 @@ def check_edit_safe(
     # ── Signal 2: identifier refs + test-coverage presence ─────────────────
     internal_ref_count = 0
     test_ref_count = 0
+    refs_searched = False
     try:
         from . import check_references  # noqa: PLC0415
         # (LEDGER L-91) The core check, given the TARGET's span: its own lines
@@ -168,6 +172,7 @@ def check_edit_safe(
             start=time.perf_counter(),
             target_span=check_references.target_span_of(target),
         )]
+        refs_searched = True
         for entry in ref_entries:
             for ref in entry.get("content_references", []) or []:
                 ref_file = ref.get("file", "")
@@ -261,8 +266,38 @@ def check_edit_safe(
     # ── Verdict selection (most-constraining first) ────────────────────────
     signature_impact = (external_import_count + cross_repo_count + scip_external_count) > 0
 
+    importer_files = [b["file"] for b in blockers if b.get("kind") == "external_import"]
     if runtime_hits and runtime_hits > 0:
         verdict = "runtime_critical"
+    elif (
+        signature_impact
+        and cross_repo_count == 0
+        and scip_external_count == 0
+        and internal_ref_count == 0
+        and test_ref_count == 0
+        and refs_searched
+        and _content_search_read_every(
+            # ⚠ (L-349 review) The test importers too: unread, a test that
+            # names the symbol goes uncounted and `test_ref_count` reads 0.
+            index, store, owner, name,
+            [target_file] + importer_files + test_importer_files, target_name,
+        )
+    ):
+        # ⚠⚠ (LEDGER L-349) Other files import the target's FILE and no
+        # indexed file names the symbol, its own included. `signature_impact`
+        # called each importer a caller that "depends on the current
+        # signature", which no file is. L-348's verdict, one tool over: BOUNDED,
+        # never terminal, because a wildcard import, a member access by a
+        # computed name or a re-export reaches a symbol without writing its
+        # name. Each condition is load-bearing, as in check_delete_safe: a use
+        # in any file is a found use; a search that raised found nothing; an
+        # importer or own file the search skipped proves nothing.
+        verdict = "file_import_only"
+        for b in blockers:
+            if b.get("kind") == "external_import":
+                b["info"] = "imports this file; the reference search found the symbol's name in it nowhere"
+        # (L-349 review) "symbol is used" is the claim this verdict withdraws.
+        blockers[:] = [b for b in blockers if b.get("kind") != "no_test_coverage"]
     elif signature_impact:
         verdict = "signature_impact"
     elif high_complexity:
@@ -280,7 +315,10 @@ def check_edit_safe(
     # loader, because reading the loader can move it to signature_impact
     # (review, L-75).
     dynamic_gap = None
-    if verdict in ("safe_to_edit", "untested") and dynamic_block:
+    # (L-349 review) `file_import_only` keeps its name, the narrower cause, and
+    # gains the loader gap, as in check_delete_safe: a loader is one more way
+    # to reach the symbol without naming it.
+    if verdict in ("safe_to_edit", "untested", "file_import_only") and dynamic_block:
         if verdict == "safe_to_edit":
             verdict = "dynamic_import_boundary"
         dynamic_gap = {
@@ -292,10 +330,48 @@ def check_edit_safe(
             ),
         }
 
+    # (L-349 review) `file_import_only` is an absence claim ("no indexed file
+    # names it"); a withheld or stale file can be the one that does. It keeps
+    # its name and gains the re-index gap, as in check_delete_safe (L-348).
+    # Only this verdict: the others here rest on what was found.
+    corpus_gap = None
+    if verdict == "file_import_only":
+        corpus_adequacy = assess_corpus(index)
+        if not corpus_adequacy.adequate:
+            corpus_gap = {
+                "action": "re-index this repo",
+                "why": corpus_adequacy.warning(),
+            }
+            blockers.append({
+                "kind": "corpus_inadequate",
+                "blockers": list(corpus_adequacy.blockers),
+                "severity": _SEVERITY_EXTERNAL_IMPORT,
+            })
+
+    import_gap = None
+    if verdict == "file_import_only":
+        shown = ", ".join(importer_files[:3]) + (
+            f" and {len(importer_files) - 3} more" if len(importer_files) > 3 else ""
+        )
+        import_gap = {
+            "action": (
+                "read the importing files for a wildcard import, a member access "
+                "by a computed name, or a re-export"
+            ),
+            "why": (
+                f"{shown} import {target_file}, but the reference search found "
+                f"{target_name!r} in no file it read, and it read those files and "
+                f"{target_file}"
+            ),
+        }
+
     # ── Confidence (higher = safer to edit freely) ─────────────────────────
     _scale = {
         "runtime_critical": 0.15,
         "signature_impact": 0.40,
+        # (L-349) Never safer than the verdict it replaces: the import can
+        # still reach the symbol without naming it.
+        "file_import_only": 0.40,
         "complexity_risk": 0.45,
         "untested": 0.55,
         "safe_to_edit": 0.90,
@@ -325,6 +401,13 @@ def check_edit_safe(
         "signature_impact": (
             f"{callers} external/cross-repo caller(s) depend on this. Body edits are safe; "
             f"preserve the signature and return contract, or update callers in lockstep.{tests_note}"
+        ),
+        "file_import_only": (
+            f"{import_gap['why']}. No importer names it, so none is a known caller: "
+            f"{import_gap['action']} before changing the signature; body edits that "
+            f"keep the contract are safe.{tests_note}"
+            if import_gap
+            else "Another file imports this file, but no file names this symbol."
         ),
         "complexity_risk": (
             f"High cyclomatic complexity ({cyclomatic}). Edits are regression-prone — change in "
@@ -421,7 +504,9 @@ def check_edit_safe(
             cross_repo=cross_repo,
             include_runtime=include_runtime,
             runtime_data_present=runtime_data_present,
+            corpus_gap=corpus_gap,
             dynamic_gap=dynamic_gap,
+            import_gap=import_gap,
         ),
         "signals": {
             # (L-75) Survives the top-5 blocker cut, where the loader blocker can

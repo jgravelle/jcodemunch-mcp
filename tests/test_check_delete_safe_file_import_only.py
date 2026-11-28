@@ -220,3 +220,19 @@ def test_a_reference_search_that_raised_keeps_the_external_verdict(tmp_path, mon
     monkeypatch.setattr(check_references, "_check_single", boom)
     assert _check(repo, store, "helperUnused")["verdict"] == "external_uses_blocking"
 
+
+def test_a_test_importer_the_search_could_not_read_keeps_the_external_verdict(tmp_path):
+    # GUARD WITNESS (LEDGER L-349 review, test importers in the read check):
+    # the test file names the symbol; with its cached content gone the search
+    # cannot see that, so the absence is not established.
+    repo, store = _index(tmp_path, {
+        "lib.js": _LIB_JS,
+        "main.js": _MAIN_JS,
+        "test/lib.test.js": "// helperUnused is covered elsewhere\nrequire('../lib');\n",
+    })
+    owner, name = repo.split("/", 1)
+    st = IndexStore(base_path=store)
+    cached = st._safe_content_path(st._content_dir(owner, name), "test/lib.test.js")
+    assert cached and cached.exists(), cached
+    cached.unlink()
+    assert _check(repo, store, "helperUnused")["verdict"] == "external_uses_blocking"

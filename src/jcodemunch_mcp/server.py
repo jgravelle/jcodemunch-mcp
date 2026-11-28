@@ -3813,7 +3813,7 @@ def _build_tools_list(
                 "and what you must preserve. Fuses signature impact (external/cross-repo importers), "
                 "cyclomatic complexity, test-coverage presence, and runtime traffic into a single "
                 "verdict + one-line recommended_action. Verdict tiers: safe_to_edit / untested / "
-                "complexity_risk / signature_impact / runtime_critical / dynamic_import_boundary. "
+                "complexity_risk / signature_impact / runtime_critical / dynamic_import_boundary / file_import_only. "
                 "Top-5 blockers ranked by "
                 "severity. Read-only — never mutates the codebase. "
                 "ALREADY CONSULTED, do not re-run to confirm this verdict: find_importers, "

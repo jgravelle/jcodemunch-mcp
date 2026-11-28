@@ -31,6 +31,7 @@ UNSETTLED = [
     ("check_delete_safe", "dynamic_import_boundary"),
     ("check_delete_safe", "file_import_only"),  # LEDGER L-348
     ("check_edit_safe", "dynamic_import_boundary"),
+    ("check_edit_safe", "file_import_only"),  # LEDGER L-349
 ]
 
 

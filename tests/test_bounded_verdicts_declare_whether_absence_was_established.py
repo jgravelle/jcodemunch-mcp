@@ -69,7 +69,8 @@ def test_each_unsettled_verdict_names_the_gap_that_carries_its_cause(tool, verdi
 
 # The spec, stated independently of the module: which argument each producer
 # passes with each unsettled verdict (`check_delete_safe` passes corpus_gap,
-# dynamic_gap and name_gap; `check_edit_safe` passes dynamic_gap). Read off the
+# dynamic_gap, name_gap and import_gap; `check_edit_safe` passes dynamic_gap
+# and import_gap). Read off the
 # module instead, the check below is circular, and a wrong mapping passed it.
 _CAUSE = {
     ("check_delete_safe", "corpus_inadequate"): "corpus_gap",
@@ -78,6 +79,8 @@ _CAUSE = {
     # (LEDGER L-348) the file import is the only block; reading the importers settles it.
     ("check_delete_safe", "file_import_only"): "import_gap",
     ("check_edit_safe", "dynamic_import_boundary"): "dynamic_gap",
+    # (LEDGER L-349) the same file-import verdict, in the edit preflight.
+    ("check_edit_safe", "file_import_only"): "import_gap",
 }
 
 

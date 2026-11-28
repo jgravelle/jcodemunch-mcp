@@ -41,6 +41,43 @@ reads the same answer it read before, without the new keys. Two tests that
 asserted the old JSON fallback for an unknown field now assert the outcome,
 that the field arrives, and are recorded in `harness/retired.json`.
 
+### An edit flagged only by a file import says so (L-349)
+
+`check_edit_safe` built `signature_impact` from every file that imports the
+target's file. A function its module never exports, in a file another file
+`require`s or imports, read "1 external/cross-repo caller(s) depend on this"
+with the importer listed as an `external_import` blocker. No file called it.
+This is L-348's defect one tool over: that fix lived inside
+`check_delete_safe` and did not reach this tool.
+
+When the reference search reads the importing files and the symbol's own file
+and finds the name in no file it read, the verdict is now `file_import_only`.
+It names the importers, says none names the symbol, and its `stop_rule` is not
+terminal, naming the reading of those importers that would settle it. Its
+confidence is the 0.40 `signature_impact` gives, so no edit moves toward safe:
+a wildcard import, a member access by a computed name or a re-export can still
+reach the symbol without writing its name.
+
+A use in any file (its own and test files included), a reference search that
+raised, and an importer or own file the search could not read all keep
+`signature_impact`, as does a cross-repo importer or a compiler-verified
+caller. As in `check_delete_safe`, a dynamic import that can load the file
+adds the loader gap and a corpus that cannot back an absence adds the re-index
+gap; the verdict keeps its name in both cases. The `no_test_coverage` blocker
+("symbol is used") is dropped under this verdict, since no use was found.
+
+The rule for "did the search read these files" now lives in one module,
+`tools/_importer_reads.py`, and both preflights bind the same function; a test
+fails if either binds another copy. It now reads the test files that import
+the target too. Before, `check_delete_safe` could return `file_import_only`
+when a test file that names the symbol had no cached content, because the
+search skipped it and found no use.
+
+The `check_edit_safe` description gains the verdict name: +4 tokens on that
+tool (`benchmarks/surface_tokens.json`, 315 to 319), and +4 on the
+`standard_*` and `full_*` arms of `benchmarks/schema_baseline.json`.
+`core_compact` does not move, because `check_edit_safe` is not a core tool.
+
 ## [1.108.499] - 2026-11-28 - init leaves a config it could not read untouched
 
 ### `get_blast_radius` lists at most 100 callers, and says when it cut

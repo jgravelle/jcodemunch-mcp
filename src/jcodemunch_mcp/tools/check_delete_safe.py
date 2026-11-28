@@ -54,6 +54,9 @@ from ..storage.generation import connect_readonly
 from ..runtime.confidence import symbol_hit_count
 from . import _name_reachability
 from ._corpus_adequacy import UNPROVEN_CEILING, assess_corpus
+# (LEDGER L-349) The read rule lives in one module; check_edit_safe binds
+# the same function.
+from ._importer_reads import content_search_read_every as _content_search_read_every
 from ._dynamic_boundary import FILES_CAP as DYNAMIC_FILES_CAP, DynamicBoundary
 from ._entry_points import has_dotnet_evidence, unseen_consumer
 from ._stop_rule import build_stop_rule
@@ -152,42 +155,6 @@ def _runtime_data_present(store: IndexStore, owner: str, name: str) -> bool:
     except Exception as exc:  # noqa: BLE001
         logger.debug("check_delete_safe: runtime probe skipped: %s", exc, exc_info=True)
         return False
-
-
-def _content_search_read_every(
-    index, store, owner: str, name: str, files: list[str], target_name: str
-) -> bool:
-    """True only when the reference search READ every file in `files`.
-
-    ⚠⚠ (LEDGER L-348 review) `check_references._check_single` skips a file in
-    silence when it is not in `index.source_files`, when its cached content is
-    missing or cannot be read, and when it holds a same-named definition with
-    no line span. Finding no reference in a file it skipped proves nothing, so
-    each of those cases answers False here. Mirrors that function's skip
-    conditions; it does not search for the name itself.
-    """
-    if not files:
-        return False
-    try:
-        source = set(index.source_files)
-        unspanned = {
-            s.get("file", "")
-            for s in index.symbols
-            if s.get("name") == target_name and not s.get("line")
-        }
-        content_dir = store._content_dir(owner, name)
-        for f in files:
-            if f not in source or f in unspanned:
-                return False
-            path = store._safe_content_path(content_dir, f)
-            if not path or not path.exists():
-                return False
-            with open(path, "r", encoding="utf-8", errors="replace", newline="") as fh:
-                fh.read(1)
-    except Exception:  # noqa: BLE001
-        logger.debug("check_delete_safe: importer content check failed", exc_info=True)
-        return False
-    return True
 
 
 def _check_dead_code_conf(repo: str, target_id: str, storage_path: Optional[str]) -> float:
@@ -444,7 +411,12 @@ def check_delete_safe(
             index, store, owner, name,
             # ⚠ (review round 2) The target's own file too: unread, its
             # same-file uses go uncounted and "its own file included" is false.
-            [target_file] + [b["file"] for b in blockers if b.get("kind") == "external_import"],
+            # ⚠ (L-349 review) And the test importers: unread, a test that
+            # names the symbol goes uncounted and `test_ref_count` reads 0.
+            [target_file] + [
+                b["file"] for b in blockers
+                if b.get("kind") in ("external_import", "test_import")
+            ],
             target_name,
         )
     ):
