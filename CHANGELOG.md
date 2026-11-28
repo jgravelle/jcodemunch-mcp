@@ -33,7 +33,9 @@ grows from 698 to 779 bytes and `get_file_outline` from 865 to 892, which is
 the dropped keys arriving. The dispatcher's new check sent none of the 17 to
 JSON. The check decodes every compact answer, where it used to decode only those
 carrying a warning; on the same index that cost a mean 0.27 ms for a 4,914-byte
-`search_text` answer and 1.42 ms for an 11,609-byte `get_file_tree` one. No
+`search_text` answer and 1.42 ms for an 11,609-byte `get_file_tree` one, and
+on tools with no schema of their own, which use the generic encoder, 0.11 to
+0.19 ms (`get_symbol_importance`, `find_dead_code`, `get_hotspots`). No
 encoding id moves: a carried key is read by name, so an older decoder
 reads the same answer it read before, without the new keys. Two tests that
 asserted the old JSON fallback for an unknown field now assert the outcome,
