@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.499] - 2026-11-28 - init leaves a config it could not read untouched
+
 ### `get_blast_radius` lists at most 100 callers, and says when it cut
 
 With `call_depth` above 0, `get_blast_radius` lists the symbols that call

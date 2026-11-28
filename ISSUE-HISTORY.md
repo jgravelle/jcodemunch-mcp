@@ -3596,3 +3596,9 @@ The 1.108.494 entry, verbatim as it stood in `CLAUDE.md`:
 The 1.108.495 entry, verbatim as it stood in `CLAUDE.md`:
 
 - **Prior (1.108.495):** **a watch event outside the watched folder no longer fails the whole batch** (#1582): `_place_under_root` re-spells an event whose realpath is under the folder's and drops any other path with one warning per task; also #1576 (a secret after `]` or an escaped quote is redacted). Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-28, release 1.108.499)
+
+The 1.108.496 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.496):** **a change under an ignored path no longer runs a watcher pass** (#1581): `ignored_event_predicate` checks added and modified events against the walk's own rules, per batch; deletions and `.gitignore` edits always pass. Full text: `CHANGELOG.md`.

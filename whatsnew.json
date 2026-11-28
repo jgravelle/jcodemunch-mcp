@@ -1,6 +1,12 @@
 {
-  "current": "1.108.498",
+  "current": "1.108.499",
   "entries": [
+    {
+      "version": "1.108.499",
+      "date": "2026-11-28",
+      "title": "init leaves a config it could not read untouched",
+      "summary": "init and install used to read a client MCP config that failed to parse as empty, so one trailing comma in a file like ~/.cursor/mcp.json meant the user's other MCP servers were replaced by the jcodemunch entry alone. A file that cannot be read is now left byte-for-byte as it was, named with the line and column of the error, and init exits 1. get_blast_radius and get_endpoint_impact now cap their callers list at 100 (max_results; 0 lists all) and say so in callers_truncated; for resolve_repo at call_depth 2 on this repository, get_endpoint_impact's reply went from 1,005,964 bytes to 31,827."
+    },
     {
       "version": "1.108.498",
       "date": "2026-11-27",
