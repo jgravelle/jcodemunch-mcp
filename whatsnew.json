@@ -1,6 +1,12 @@
 {
-  "current": "1.108.499",
+  "current": "1.108.500",
   "entries": [
+    {
+      "version": "1.108.500",
+      "date": "2026-11-28",
+      "title": "a compact answer carries every key its schema did not name",
+      "summary": "With the compact format requested, the encoders dropped any top-level key their schema did not name: get_dependency_graph lost its own imports and importers lists, get_impact_preview its decisions, find_importers its cross_repo_importer_count and get_file_outline its file_summary. Every unnamed key now rides as JSON inside the compact answer, and the server checks that every top-level key came back before it sends one. check_edit_safe no longer counts a file that imports a symbol's file as a caller when no file names the symbol: the verdict is file_import_only, never safer than signature_impact, and it names the importers to read."
+    },
     {
       "version": "1.108.499",
       "date": "2026-11-28",

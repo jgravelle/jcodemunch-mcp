@@ -3602,3 +3602,9 @@ The 1.108.495 entry, verbatim as it stood in `CLAUDE.md`:
 The 1.108.496 entry, verbatim as it stood in `CLAUDE.md`:
 
 - **Prior (1.108.496):** **a change under an ignored path no longer runs a watcher pass** (#1581): `ignored_event_predicate` checks added and modified events against the walk's own rules, per batch; deletions and `.gitignore` edits always pass. Full text: `CHANGELOG.md`.
+
+## Current State rotation (2026-11-28, release 1.108.500)
+
+The 1.108.497 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.497):** **a dead-code answer over withheld files reads them instead of refusing** (L-352): when withheld files are the only blocker, `read_withheld_files` reads them through `security.resolve_within` with the indexer's `extract_imports` and the graph's `resolve_specifier`, and `withheld_view` runs every edge family over them; anything a read cannot stand in for keeps the 0.6 cap. Full text: `CHANGELOG.md`.
