@@ -2,6 +2,30 @@
 
 ## [Unreleased]
 
+### An edit flagged only by a file import says so (L-349)
+
+`check_edit_safe` built `signature_impact` from every file that imports the
+target's file. A function its module never exports, in a file another file
+`require`s or imports, read "1 external/cross-repo caller(s) depend on this"
+with the importer listed as an `external_import` blocker. No file called it.
+This is L-348's defect one tool over: that fix lived inside
+`check_delete_safe` and did not reach this tool.
+
+When the reference search reads the importing files and the symbol's own file
+and finds the name in no file it read, the verdict is now `file_import_only`.
+It names the importers, says none names the symbol, and its `stop_rule` is not
+terminal, naming the reading of those importers that would settle it. Its
+confidence is the 0.40 `signature_impact` gives, so no edit moves toward safe:
+a wildcard import, a member access by a computed name or a re-export can still
+reach the symbol without writing its name.
+
+A use in any file (its own and test files included), a reference search that
+raised, and an importer or own file the search could not read all keep
+`signature_impact`, as does a cross-repo importer or a compiler-verified
+caller. The rule for "did the search read these files" now lives in one
+module, `tools/_importer_reads.py`, and both preflights bind the same
+function; a test fails if either binds another copy.
+
 ## [1.108.499] - 2026-11-28 - init leaves a config it could not read untouched
 
 ### `get_blast_radius` lists at most 100 callers, and says when it cut

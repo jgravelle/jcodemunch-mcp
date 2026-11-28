@@ -43,7 +43,7 @@
     "deferred_name_tokens": 1084,
     "instructions_tokens": 255,
     "deferring_total": 1339,
-    "non_deferring_total": 22005,
+    "non_deferring_total": 22009,
     "schema_tokens_per_tool": {
       "index_repo": 142,
       "index_folder": 248,
@@ -100,7 +100,7 @@
       "get_layer_violations": 172,
       "check_rename_safe": 238,
       "check_delete_safe": 331,
-      "check_edit_safe": 315,
+      "check_edit_safe": 319,
       "find_implementations": 367,
       "plan_refactoring": 297,
       "get_dead_code_v2": 528,

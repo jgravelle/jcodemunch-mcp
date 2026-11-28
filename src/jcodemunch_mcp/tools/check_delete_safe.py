@@ -84,6 +84,11 @@ _ENTRY_DECORATOR_RE = re.compile(
 
 
 
+# (LEDGER L-349) The read rule lives in one module; check_edit_safe binds
+# the same function.
+from ._importer_reads import content_search_read_every as _content_search_read_every  # noqa: E402
+
+
 def _resolve_target(index, symbol: str) -> Optional[dict]:
     """Resolve a symbol id or name to one symbol dict."""
     for sym in index.symbols:
@@ -152,42 +157,6 @@ def _runtime_data_present(store: IndexStore, owner: str, name: str) -> bool:
     except Exception as exc:  # noqa: BLE001
         logger.debug("check_delete_safe: runtime probe skipped: %s", exc, exc_info=True)
         return False
-
-
-def _content_search_read_every(
-    index, store, owner: str, name: str, files: list[str], target_name: str
-) -> bool:
-    """True only when the reference search READ every file in `files`.
-
-    ⚠⚠ (LEDGER L-348 review) `check_references._check_single` skips a file in
-    silence when it is not in `index.source_files`, when its cached content is
-    missing or cannot be read, and when it holds a same-named definition with
-    no line span. Finding no reference in a file it skipped proves nothing, so
-    each of those cases answers False here. Mirrors that function's skip
-    conditions; it does not search for the name itself.
-    """
-    if not files:
-        return False
-    try:
-        source = set(index.source_files)
-        unspanned = {
-            s.get("file", "")
-            for s in index.symbols
-            if s.get("name") == target_name and not s.get("line")
-        }
-        content_dir = store._content_dir(owner, name)
-        for f in files:
-            if f not in source or f in unspanned:
-                return False
-            path = store._safe_content_path(content_dir, f)
-            if not path or not path.exists():
-                return False
-            with open(path, "r", encoding="utf-8", errors="replace", newline="") as fh:
-                fh.read(1)
-    except Exception:  # noqa: BLE001
-        logger.debug("check_delete_safe: importer content check failed", exc_info=True)
-        return False
-    return True
 
 
 def _check_dead_code_conf(repo: str, target_id: str, storage_path: Optional[str]) -> float:

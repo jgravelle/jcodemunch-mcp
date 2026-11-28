@@ -102,6 +102,9 @@ _UNSETTLED = {
         # (LEDGER L-75) safe_to_edit's absence claim, unproven past a dynamic
         # import that can load the file. Reading the loader can move it.
         "dynamic_import_boundary": "dynamic_gap",
+        # (LEDGER L-349) Other files import the symbol's file and none names
+        # it; reading the importers can move it either way.
+        "file_import_only": "import_gap",
     },
 }
 
