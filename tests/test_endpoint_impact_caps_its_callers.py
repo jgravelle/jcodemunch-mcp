@@ -115,3 +115,40 @@ def test_the_handler_forwards_the_cap_to_get_blast_radius():
     assert len(calls) == 1, calls
     kw = next((k for k in calls[0].keywords if k.arg == "max_results"), None)
     assert isinstance(getattr(kw, "value", None), ast.Name) and kw.value.id == "max_results"
+
+
+def test_no_caller_in_src_but_the_dispatcher_passes_a_cap_to_get_endpoint_impact():
+    """The guard one hop up: a cap set anywhere else would bypass the MCP default."""
+    stray = []
+    for path in (REPO / "src").rglob("*.py"):
+        if path.name == "server.py" and path.parent.name == "jcodemunch_mcp":
+            continue
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for n in ast.walk(tree):
+            if not isinstance(n, ast.Call):
+                continue
+            name = getattr(n.func, "id", None) or getattr(n.func, "attr", None)
+            if name == "get_endpoint_impact" and (
+                len(n.args) > 6 or any(k.arg == "max_results" for k in n.keywords)
+            ):
+                stray.append((str(path.relative_to(REPO)), n.lineno))
+            if name == "_impact_for_handler":
+                kw = next((k for k in n.keywords if k.arg == "max_results"), None)
+                if not (isinstance(getattr(kw, "value", None), ast.Name) and kw.value.id == "max_results"):
+                    stray.append((str(path.relative_to(REPO)), n.lineno))
+    assert stray == [], stray
+
+
+def test_the_cap_is_not_rebound_inside_the_tool():
+    """The forwarded `max_results` must be the caller's value, never reassigned."""
+    path = REPO / "src" / "jcodemunch_mcp" / "tools" / "get_endpoint_impact.py"
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    rebinds = [
+        n.lineno for n in ast.walk(tree)
+        if isinstance(n, (ast.Assign, ast.AugAssign, ast.AnnAssign))
+        and any(
+            isinstance(t, ast.Name) and t.id == "max_results"
+            for t in (n.targets if isinstance(n, ast.Assign) else [n.target])
+        )
+    ]
+    assert rebinds == [], rebinds
