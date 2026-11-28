@@ -1,6 +1,12 @@
 {
-  "current": "1.108.497",
+  "current": "1.108.498",
   "entries": [
+    {
+      "version": "1.108.498",
+      "date": "2026-11-27",
+      "title": "A long caller or importer list arrives capped and says so",
+      "summary": "check_references lists at most 50 importing files per name and get_call_hierarchy at most 100 callers and 100 callees, nearest first. Each reply keeps the whole counts and says when it cut (import_references_total and import_references_truncated; callers_truncated and callees_truncated), so a cut list never reads as complete. On this repository a check_references reply for Path went from 99,795 bytes to 29,745 as served, and get_call_hierarchy for resolve_repo at depth 2 from 478,337 to 31,938, which had been over the response limit as JSON. max_import_results and max_results set the cap; 0 lists everything."
+    },
     {
       "version": "1.108.497",
       "date": "2026-11-27",
